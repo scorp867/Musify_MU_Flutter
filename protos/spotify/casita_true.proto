@@ -1,0 +1,138 @@
+syntax = "proto3";
+package spotify.casita;
+import "google/protobuf/any.proto";
+
+message CasitaResponse {
+  CasitaSections sections = 1;
+  CasitaRepository repository = 2;
+  CasitaPageMeta page_meta = 3;
+  repeated CasitaMixUri mix_uris = 999;
+}
+
+message CasitaSections {
+  repeated CasitaSection sections = 1;
+}
+
+message CasitaSection {
+  SectionIdWrapper id_wrapper = 1;
+  SectionBodyShortcuts body_shortcuts = 2;
+  SectionBodyStandard body_standard = 3;
+  SectionBodyPodcast body_podcast = 4;
+  SectionBodyMusicfeed body_musicfeed = 6;
+  SectionBodyRecents body_recents = 10;
+}
+
+message SectionIdWrapper {
+  string id = 1;
+}
+
+message SectionBodyShortcuts {
+  ShortcutsItemsContainer items_container = 2;
+}
+
+message ShortcutsItemsContainer {
+  repeated SectionItem items = 1;
+}
+
+message SectionBodyStandard {
+  SectionHeader header = 1;
+  StandardItemsContainer items_container = 2;
+}
+
+message SectionHeader {
+  SectionTitleWrapper title_wrapper = 2;
+  SectionTemplateWrapper template_wrapper = 3;
+}
+
+message SectionTitleWrapper {
+  string title = 1;
+}
+
+message SectionTemplateWrapper {
+  string template = 1;
+  SectionTemplateParams params = 2;
+}
+
+message SectionTemplateParams {
+  string artist_name = 1;
+}
+
+message StandardItemsContainer {
+  repeated SectionItemWrapper items_wrapper = 1;
+}
+
+message SectionItemWrapper {
+  SectionItem item = 1;
+}
+
+message SectionItem {
+  string uri = 1;
+}
+
+message SectionBodyPodcast {
+  SectionHeader header = 1;
+  PodcastItemsContainer items_container = 2;
+}
+
+message PodcastItemsContainer {
+  string show_uri = 1;
+  string episode_uri = 2;
+}
+
+message SectionBodyMusicfeed {
+  SectionHeader header = 1;
+  MusicfeedItemsContainer items_container = 2;
+}
+
+message MusicfeedItemsContainer {
+  string playlist_uri = 1;
+}
+
+message SectionBodyRecents {
+  SectionHeader header = 1;
+}
+
+message CasitaRepository {
+  CasitaRepositoryInner inner = 1;
+}
+
+message CasitaRepositoryInner {
+  repeated CasitaRepositoryBlock blocks = 2;
+}
+
+message CasitaRepositoryBlock {
+  repeated CasitaRepositoryEntry entries = 3;
+}
+
+message CasitaRepositoryEntry {
+  string uri = 2;
+  google.protobuf.Any trait_payload = 3;
+}
+
+message SimpleCardTrait {
+  string image_url = 1;
+  string title = 2;
+  string subtitle = 3;
+  string title_rendered = 6;
+}
+
+message ShortcutsCardTrait {
+  string image_url = 1;
+  string title = 2;
+  string context_uri = 3;
+}
+
+message PreviewCardTrait {
+  string title = 1;
+  string author = 3;
+  string image_url = 8;
+}
+
+message CasitaPageMeta {
+  string uri = 1;
+  string page_id = 2;
+}
+
+message CasitaMixUri {
+  string uri = 1;
+}

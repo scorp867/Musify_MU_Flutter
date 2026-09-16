@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package spotify.extendedmetadata;
+
+option optimize_for = CODE_SIZE;
+
+enum ExtensionKind {
+    UNKNOWN_EXTENSION = 0;
+    CANVAZ = 1;
+    TRACK_V4 = 10;
+    SHOW_V4 = 11;
+    EPISODE_V4 = 12;
+    ARTIST_V4 = 8;
+    ALBUM_V4 = 9;
+    USER_PROFILE = 15;
+    EXTRACTED_COLOR = 23;
+    SIMPLE_TRAIT = 97;
+    IDENTITY_TRAIT = 178;
+    VISUAL_IDENTITY_TRAIT = 179;
+    PLAYBACK_TRAIT = 212;
+}
