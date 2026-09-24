@@ -124,8 +124,28 @@ message ShortcutsCardTrait {
 
 message PreviewCardTrait {
   string title = 1;
-  string author = 3;
+  string type_label = 2;
+  string creator = 3;
+  string description = 4;
+  string uri = 5;
+  string uri2 = 6;
+  string uri3 = 7;
   string image_url = 8;
+  string background_color = 11;
+  string secondary_color = 12;
+
+  message PlayButtonText {
+    string default_text = 1;
+    string playing_text = 2;
+  }
+  PlayButtonText button_text = 14;
+
+  message Tag {
+    string name = 1;
+  }
+  repeated Tag tags = 15;
+
+  int32 track_count = 16;
 }
 
 message CasitaPageMeta {

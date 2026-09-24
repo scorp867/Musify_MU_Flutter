@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package spotify.extendedmetadata.extensions.previewcardtrait;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option optimize_for = CODE_SIZE;
+
+// PreviewCardTrait - ExtensionKind 118
+// Embedded in the Casita response (via EagerlyLoadedTraits).
+// Renders as a large preview card with background color, tags, and play preview.
+
+message PreviewCardTrait {
+  string title = 1;
+  string content_type_name = 2;
+  // field 3 is reserved (not used in current schema)
+  string description = 4;
+  string entity_uri = 5;
+  string navigate_uri = 6;
+  string like_uri = 7;
+  string entity_image_url = 8;
+  google.protobuf.Duration duration = 9;
+  google.protobuf.Timestamp publish_time = 10;
+  string background_color_hex = 11;
+  string waveform_color_hex = 12;
+  PreviewRestriction preview_restriction = 13;
+  Labels labels = 14;
+  repeated DescriptorTag descriptor_tags = 15;
+  int32 number_of_items = 16;
+  ContentParent content_parent = 17;
+  SubtitleSource subtitle_source = 18;
+}
+
+message Labels {
+  string preview_label = 1;
+  string playing_label = 2;
+}
+
+message DescriptorTag {
+  string name = 1;
+}
+
+message ContentParent {
+  string name = 1;
+  string uri = 2;
+  string image_url = 3;
+}
+
+enum PreviewRestriction {
+  PREVIEW_RESTRICTION_NONE = 0;
+  PREVIEW_IS_EXPLICIT = 1;
+  PREVIEW_IS_19_PLUS = 2;
+}
+
+enum SubtitleSource {
+  SUBTITLE_SOURCE_UNKNOWN = 0;
+  SUBTITLE_SOURCE_GENERATED_METADATA = 1;
+  SUBTITLE_SOURCE_OPERATOR_AUTHORED = 2;
+}

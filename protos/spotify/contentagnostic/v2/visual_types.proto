@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package spotify.contentagnostic.v2;
+
+option optimize_for = CODE_SIZE;
+
+// =========================================================================
+// Shared visual types used across traits
+// =========================================================================
+
+message Image {
+  repeated ImageInstance instances = 1;
+  ColorSetContrastOptions extracted_color_set = 2;
+  int32 mask = 3;
+}
+
+message ImageInstance {
+  FlatFile flat_file = 1;
+  int32 size = 2;
+}
+
+message FlatFile {
+  string cdn_url = 1;
+}
+
+message Video {
+  // Video asset (fields omitted -- not needed for browse)
+}
+
+// =========================================================================
+// Color system
+// =========================================================================
+
+message ColorSetContrastOptions {
+  ColorSet min_contrast = 1;
+  ColorSet high_contrast = 2;
+  ColorSet higher_contrast = 3;
+  RgbaColor encore_base_set_text_color = 4;
+}
+
+message ColorSet {
+  RgbaColor background_base = 1;
+  RgbaColor background_tinted_base = 2;
+  RgbaColor text_base = 3;
+  RgbaColor text_subdued = 4;
+  RgbaColor text_bright_accent = 5;
+}
+
+message RgbaColor {
+  int32 r = 1;
+  int32 g = 2;
+  int32 b = 3;
+  int32 a = 4;
+}

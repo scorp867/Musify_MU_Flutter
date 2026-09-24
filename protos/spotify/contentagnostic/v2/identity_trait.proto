@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package spotify.contentagnostic.v2;
+
+option optimize_for = CODE_SIZE;
+
+// =========================================================================
+// IdentityTrait (ExtensionKind 178)
+// Provides name, type, description for entities
+// =========================================================================
+
+message IdentityTrait {
+  string type = 1;
+  string name = 2;
+  string description = 3;
+  EntityReference content_hierarchy_parent = 4;
+  repeated Contributor contributors = 5;
+}
+
+message EntityReference {
+  string uri = 1;
+}
+
+message Contributor {
+  ContributorReference reference = 1;
+  string role = 2;
+}
+
+message ContributorReference {
+  string uri = 1;
+  string name = 2;
+}

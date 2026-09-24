@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package spotify.extendedmetadata.extensions.simplecardtrait;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option optimize_for = CODE_SIZE;
+
+// SimpleCardTrait - ExtensionKind 97
+// The primary trait used to render standard card items on the home screen.
+// NOT embedded in Casita response; fetched via Extended Metadata API.
+
+message SimpleCardTrait {
+  string image_uri = 1;
+  string title = 2;
+  string subtitle = 3;
+  string navigation_uri = 4;
+  repeated Label labels = 5;
+  string accessibility = 6;
+  Restriction restriction = 7;
+  repeated Creator creators = 8;
+  google.protobuf.Timestamp publish_time = 9;
+  google.protobuf.Duration duration = 10;
+  string animation_url = 11;
+  string title_text_color = 12;
+}
+
+message Label {
+  string text = 1;
+}
+
+message Creator {
+  string name = 1;
+  string uri = 2;
+}
+
+enum Restriction {
+  NONE = 0;
+  IS_EXPLICIT = 1;
+  IS_19_PLUS = 2;
+}

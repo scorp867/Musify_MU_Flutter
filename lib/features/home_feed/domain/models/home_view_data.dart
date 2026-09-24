@@ -1,4 +1,4 @@
-import 'content_item.dart';
+import 'spotify_entity.dart';
 
 /// Complete home feed data — everything the UI needs.
 class HomeViewData {
@@ -17,7 +17,7 @@ class HomeViewData {
 class HomeSection {
   final String title;
   final String subtitle;
-  final List<ContentItem> items;
+  final List<SpotifyEntity> items;
   final SectionLayout layout;
   final String? sectionUri;
   final String sectionType;

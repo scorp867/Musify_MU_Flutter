@@ -6,9 +6,11 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.webkit.CookieManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodChannel
 import com.ryanheise.audioservice.AudioServicePlugin
 
 class MainActivity : FlutterActivity() {
@@ -22,6 +24,27 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Cookie method channel — reads HttpOnly cookies via Android's native CookieManager.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.musify.mu/cookies")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "getCookies") {
+                    val url = call.arguments as? String
+                    if (url != null) {
+                        try {
+                            val cookieManager = CookieManager.getInstance()
+                            val cookies = cookieManager.getCookie(url)
+                            result.success(cookies)
+                        } catch (e: Exception) {
+                            result.error("COOKIE_ERROR", e.message, null)
+                        }
+                    } else {
+                        result.error("INVALID_URL", "URL argument is required", null)
+                    }
+                } else {
+                    result.notImplemented()
+                }
+            }
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {

@@ -62,6 +62,7 @@ class SpotifyClient {
   }
 
   /// Builds auth headers for every spclient request.
+  /// Matches SpotifyIdentity.applyStandardHeaders() from the Kotlin project.
   Future<Map<String, String>> _buildHeaders(
       Map<String, String>? extra) async {
     final accessToken = await _tokenStore.getAccessToken();
@@ -70,14 +71,23 @@ class SpotifyClient {
     final headers = <String, String>{
       if (accessToken != null) 'Authorization': 'Bearer $accessToken',
       if (clientToken != null) 'client-token': clientToken,
+      'accept': 'application/x-protobuf, application/json',
+      'accept-language': 'en-GB,en-US;q=0.9,en;q=0.8',
       'app-platform': 'WebPlayer',
-      'spotify-app-version': '1.2.52.442',
+      'spotify-app-version': '1.2.87.215.g6e7e7fc2',
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-              '(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+              '(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
       'Origin': 'https://open.spotify.com',
       'Referer': 'https://open.spotify.com/',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-site',
+      'sec-ch-ua':
+          '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'sec-gpc': '1',
     };
 
     if (extra != null) headers.addAll(extra);

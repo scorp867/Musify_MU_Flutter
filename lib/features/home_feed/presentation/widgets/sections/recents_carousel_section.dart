@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/features/home_feed/domain/models/content_item.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Recents carousel — smaller cards (~100px) with title + type badge.
 /// Matches Spotify's "Recents" / "Jump back in" section.
 class RecentsCarouselSection extends StatelessWidget {
   final String title;
-  final List<ContentItem> items;
+  final List<SpotifyEntity> items;
 
   const RecentsCarouselSection({
     super.key,
@@ -64,12 +64,14 @@ class RecentsCarouselSection extends StatelessWidget {
 }
 
 class _RecentsCard extends StatelessWidget {
-  final ContentItem item;
+  final SpotifyEntity item;
   const _RecentsCard({required this.item});
 
   @override
   Widget build(BuildContext context) {
-    final hasBadge = item.badge != null && item.badge!.isNotEmpty;
+    final title = item.fallbackTitle;
+    final subtitle = item.getTrait<SimpleCardTrait>()?.subtitle ?? '';
+    final imageUrl = item.fallbackImageUrl;
 
     return SizedBox(
       width: 100,
@@ -84,10 +86,10 @@ class _RecentsCard extends StatelessWidget {
             child: Container(
               width: 100,
               height: 100,
-              color: const Color(0xFF1E293B),
-              child: item.imageUrl != null
+              color: const Color(0xFF282828),
+              child: imageUrl != null
                   ? Image.network(
-                      item.imageUrl!,
+                      imageUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _placeholder(),
                     )
@@ -95,37 +97,22 @@ class _RecentsCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          // Badge (e.g. "2 songs added")
-          if (hasBadge) ...[
-            Text(
-              item.badge!,
-              style: const TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF1DB954), // Spotify green
-                height: 1.2,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 1),
-          ],
           // Title
           Text(
-            item.title,
+            title,
             style: const TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: Colors.white,
               height: 1.2,
             ),
-            maxLines: hasBadge ? 1 : 2,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
           // Subtitle
-          if (item.subtitle.isNotEmpty)
+          if (subtitle.isNotEmpty)
             Text(
-              item.subtitle,
+              subtitle,
               style: TextStyle(
                 fontSize: 10,
                 color: Colors.grey.shade500,

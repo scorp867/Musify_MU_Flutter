@@ -4,18 +4,32 @@ package spotify.extendedmetadata;
 
 option optimize_for = CODE_SIZE;
 
+// ExtensionKind enum - from decompiled n5w.java
+// Only including values relevant to our use cases
 enum ExtensionKind {
     UNKNOWN_EXTENSION = 0;
     CANVAZ = 1;
+    ARTIST_V4 = 8;
+    ALBUM_V4 = 9;
     TRACK_V4 = 10;
     SHOW_V4 = 11;
     EPISODE_V4 = 12;
-    ARTIST_V4 = 8;
-    ALBUM_V4 = 9;
     USER_PROFILE = 15;
     EXTRACTED_COLOR = 23;
+    PLAY_TRAIT = 57;
+    NAVIGABLE_TRAIT = 62;
+    PLAYABILITY = 78;
+    COVER_IMAGE = 79;
+    SHARE_TRAIT = 80;
     SIMPLE_TRAIT = 97;
+    AUDIO_PREVIEW_PLAYBACK_TRAIT = 116;
+    PREVIEW_CARD_TRAIT = 118;
+    SHORTCUTS_CARD_TRAIT = 119;
+    VIDEO_PREVIEW_PLAYBACK_TRAIT = 120;
     IDENTITY_TRAIT = 178;
     VISUAL_IDENTITY_TRAIT = 179;
+    CONTENT_TYPE_V2_TRAIT = 180;
+    PREVIEW_PLAYBACK_TRAIT = 181;
     PLAYBACK_TRAIT = 212;
+    ENTITY_TYPE_TRAIT = 220;
 }

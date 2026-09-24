@@ -2,11 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/facet_chip_row.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/home_feed_shimmer.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/quick_grid_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/content_carousel_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/episode_list_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_carousel_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_feed_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/recents_carousel_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/showcase_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';
 
 /// The authenticated home feed — renders sections from Casita data.
 class HomeFeedView extends StatelessWidget {
@@ -40,7 +46,6 @@ class _FeedContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Total items: refreshing bar (conditional) + facet row + sections + bottom padding.
     final sectionCount = data.sections.length;
 
     return RefreshIndicator(
@@ -86,17 +91,60 @@ class _FeedContent extends StatelessWidget {
   }
 
   Widget _buildSection(HomeSection section) {
-    // Route by section type to dedicated widgets.
-    if (section.sectionType == 'shortcuts') {
-      return QuickGridSection(title: section.title, items: section.items);
+    // Route 1:1 with Casita feature_type — Spotify's rendering decision.
+    // sectionType == featureType.name from CasitaParser.
+    switch (section.sectionType) {
+
+      // ── Grid layouts ─────────────────────────────────────────────────
+      case 'shortcuts':
+        return QuickGridSection(title: section.title, items: section.items);
+
+      // ── Recents ──────────────────────────────────────────────────────
+      case 'recentsShelf':
+        return RecentsCarouselSection(
+            title: section.title, items: section.items);
+
+      // ── Full-width immersive previews (single item, full bleed) ─────
+      case 'preview':
+      case 'immersivePreview':
+      case 'associatedPreview':
+      case 'showcase':
+      case 'audioSpotlight':
+      case 'verticalSingleEntry':
+      case 'audioPromo':
+      case 'liveEvent':
+      case 'interactiveEntrypoint':
+      case 'reflection':
+      case 'inlineCard':
+        return ShowcaseSection(title: section.title, items: section.items);
+
+      // ── Video sections (full-width video preview cards) ─────────────
+      case 'videoCarousel':
+      case 'watchFeed':
+        return VideoCarouselSection(
+            title: section.title, items: section.items);
+
+      // ── Preview carousels (horizontal scroll of preview cards) ──────
+      case 'previewCarousel':
+      case 'previewPromotionCarousel':
+      case 'topStoryCarousel':
+        return PreviewCarouselSection(
+            title: section.title, items: section.items);
+
+      // ── Content evaluation list (episode list cards) ────────────────
+      case 'contentEvaluationList':
+        return EpisodeListSection(
+            title: section.title, items: section.items);
+
+      // ── Standard horizontal carousels ───────────────────────────────
+      case 'imageLink':
+      default:
+        if (section.items.any((item) => item.getTrait<PreviewCardTrait>() != null)) {
+          return PreviewFeedSection(title: section.title, items: section.items);
+        }
+        return ContentCarouselSection(
+            title: section.title, items: section.items);
     }
-    if (section.sectionType == 'recents') {
-      return RecentsCarouselSection(
-          title: section.title, items: section.items);
-    }
-    // Default: standard content carousel (albums, playlists, artists).
-    return ContentCarouselSection(
-        title: section.title, items: section.items);
   }
 }
 

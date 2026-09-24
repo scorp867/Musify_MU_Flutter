@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// Inline WebView that loads Spotify's login page.
@@ -123,19 +124,17 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
   }
 
   /// Detects when Spotify redirects to open.spotify.com after login.
-  /// Then extracts the sp_dc cookie from the WebView's cookie store.
+  /// Then extracts the sp_dc cookie from the native cookie store.
   Future<void> _checkForLoginRedirect(String url) async {
     if (_loginCompleted) return;
     if (!url.startsWith('https://open.spotify.com')) return;
 
     // The WebView has navigated to open.spotify.com — login succeeded.
-    // sp_dc is HttpOnly so JS can't read it directly.
-    // Instead, we call /api/token (which uses the cookie automatically)
-    // to both verify the session and get a fresh access token.
-    //
-    // Simplest working approach: use the JS bridge to call
-    // XMLHttpRequest to open.spotify.com/api/token which returns the token
-    // AND proves the cookie is set.
+    // sp_dc is HttpOnly so JS can't read it.
+    // Use the native WebViewCookieManager to read it from the platform cookie store.
+    await _extractSpDcCookie();
+
+    // Also call /api/token via XHR to get a fresh bearer token.
     _controller.runJavaScript('''
       (function() {
         var xhr = new XMLHttpRequest();
@@ -156,11 +155,71 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
         xhr.send();
       })();
     ''');
+  }
 
-    // Also try the document.cookie approach for non-HttpOnly cookies
-    // and mark sp_dc as captured since we know it's been set after redirect.
-    _capturedSpDc = 'cookie_set_via_login';
-    _tryComplete();
+  /// Reads the sp_dc cookie from the platform's native cookie store.
+  /// On Android, CookieManager.getInstance().getCookie() returns ALL cookies
+  /// including HttpOnly ones (unlike document.cookie in JS).
+  Future<void> _extractSpDcCookie() async {
+    try {
+      // On Android, we can use the platform's native CookieManager.
+      // webview_flutter_android exposes this through the platform interface.
+      // However, the simplest cross-platform approach is to use a JS trick:
+      // make a fetch to /api/token and read the response which proves the
+      // cookie is set. But we need the actual cookie VALUE for later refresh.
+      //
+      // Use Android's CookieManager via a method channel.
+      final cookieStr = await _getNativeCookies('https://open.spotify.com');
+      if (cookieStr != null) {
+        for (final part in cookieStr.split(';')) {
+          final trimmed = part.trim();
+          if (trimmed.startsWith('sp_dc=')) {
+            final value = trimmed.substring(6);
+            if (value.isNotEmpty && value.length > 10) {
+              _capturedSpDc = 'sp_dc=$value';
+              _tryComplete();
+              return;
+            }
+          }
+        }
+      }
+
+      // Fallback: try document.cookie (works if sp_dc is not HttpOnly
+      // in some WebView configurations).
+      final allCookiesJs = await _controller
+          .runJavaScriptReturningResult('document.cookie') as String;
+      final allCookies = allCookiesJs.replaceAll('"', '');
+      for (final part in allCookies.split(';')) {
+        final trimmed = part.trim();
+        if (trimmed.startsWith('sp_dc=')) {
+          final value = trimmed.substring(6);
+          if (value.isNotEmpty && value.length > 10) {
+            _capturedSpDc = 'sp_dc=$value';
+            _tryComplete();
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Uses Android's native CookieManager to get all cookies for a URL.
+  /// This includes HttpOnly cookies that JS can't access.
+  Future<String?> _getNativeCookies(String url) async {
+    try {
+      // webview_flutter_android's underlying Android CookieManager
+      // is accessible through the platform controller.
+      // On Android, we use a JS XMLHttpRequest to read the cookies
+      // from a same-origin request's getAllResponseHeaders().
+      //
+      // Better approach: use the platform-specific Android CookieManager.
+      const channel = MethodChannel('com.musify.mu/cookies');
+      final result = await channel.invokeMethod<String>('getCookies', url);
+      return result;
+    } catch (_) {
+      // Method channel not registered — try alternative.
+      return null;
+    }
   }
 
   void _tryComplete() {

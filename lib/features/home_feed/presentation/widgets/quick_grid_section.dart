@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/features/home_feed/domain/models/content_item.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// 2-column compact grid — used for shortcuts (recently played quick access).
 /// Mimics Spotify's top quick-access grid with small rectangular cards.
 class QuickGridSection extends StatelessWidget {
   final String title;
-  final List<ContentItem> items;
+  final List<SpotifyEntity> items;
 
   const QuickGridSection({
     super.key,
@@ -50,12 +50,14 @@ class QuickGridSection extends StatelessWidget {
 }
 
 class _QuickGridTile extends StatelessWidget {
-  final ContentItem item;
+  final SpotifyEntity item;
   const _QuickGridTile({required this.item});
 
   @override
   Widget build(BuildContext context) {
     final width = (MediaQuery.of(context).size.width - 40) / 2;
+    final title = item.fallbackTitle;
+    final imageUrl = item.fallbackImageUrl;
 
     return GestureDetector(
       onTap: () {},
@@ -73,9 +75,9 @@ class _QuickGridTile extends StatelessWidget {
             SizedBox(
               width: 56,
               height: 56,
-              child: item.imageUrl != null
+              child: imageUrl != null
                   ? Image.network(
-                      item.imageUrl!,
+                      imageUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _placeholder(),
                     )
@@ -85,7 +87,7 @@ class _QuickGridTile extends StatelessWidget {
             // Title
             Expanded(
               child: Text(
-                item.title,
+                title,
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

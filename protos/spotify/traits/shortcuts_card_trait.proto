@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package spotify.extendedmetadata.extensions.shortcutscardtrait;
+
+option optimize_for = CODE_SIZE;
+
+// ShortcutsCardTrait - Used for the quick-access shortcut grid at the top of home
+// Embedded in the Casita response via EagerlyLoadedTraits
+
+message ShortcutsCardTrait {
+  string image_url = 1;
+  string title = 2;
+  string navigation_uri = 3;
+  string entity_uri = 4;
+}

@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/features/home_feed/domain/models/content_item.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Reusable circle card for artists.
-/// Shows: circle artwork → name → "Artist" label.
+/// Shows: circle artwork + name + "Artist" label -- matches Spotify's layout.
 class ArtistCircleCard extends StatelessWidget {
-  final ContentItem item;
+  final SpotifyEntity item;
   final double size;
 
   const ArtistCircleCard({
     super.key,
     required this.item,
-    this.size = 170,
+    this.size = 150,
   });
 
   @override
   Widget build(BuildContext context) {
+    final title = item.fallbackTitle;
+    final imageUrl = item.fallbackImageUrl;
+
     return SizedBox(
       width: size,
       child: Column(
@@ -28,25 +31,25 @@ class ArtistCircleCard extends StatelessWidget {
               height: size - 10,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF1E293B),
-                image: item.imageUrl != null
+                color: const Color(0xFF282828),
+                image: imageUrl != null
                     ? DecorationImage(
-                        image: NetworkImage(item.imageUrl!),
+                        image: NetworkImage(imageUrl),
                         fit: BoxFit.cover,
                       )
                     : null,
               ),
-              child: item.imageUrl == null
+              child: imageUrl == null
                   ? Icon(Icons.person, color: Colors.grey.shade700, size: 40)
                   : null,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            item.title,
+            title,
             style: const TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
               color: Colors.white,
             ),
             maxLines: 1,

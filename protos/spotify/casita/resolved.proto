@@ -1,0 +1,340 @@
+syntax = "proto3";
+
+package spotify.casita.v1.resolved;
+
+import "spotify/extended_metadata.proto";
+
+option optimize_for = CODE_SIZE;
+
+// =========================================================================
+// Top-level response from the Casita SDUI endpoint
+// =========================================================================
+
+message ResolvedHome {
+  HomeStructure structure = 1;
+  EagerlyLoadedTraits eagerly_loaded_traits = 2;
+  ResponseInfo response_info = 3;
+  DebugInfo debug_info = 4;
+  SandboxDebugInfo sandbox_debug_info = 5;
+  OndemandSet ondemand_set = 999;
+}
+
+message HomeStructure {
+  repeated Section sections = 1;
+}
+
+message EagerlyLoadedTraits {
+  spotify.extendedmetadata.BatchedExtensionResponse traits = 1;
+}
+
+message ResponseInfo {
+  string server_version = 1;
+}
+
+message DebugInfo {}
+message SandboxDebugInfo {}
+message OndemandSet {
+  repeated string uris = 1;
+}
+
+// =========================================================================
+// Section: The fundamental UI building block
+// Each section has a SectionInfo + exactly ONE body type (oneof)
+// =========================================================================
+
+message Section {
+  SectionInfo section_info = 1;
+
+  oneof feature_type {
+    Shortcuts shortcuts = 2;
+    ImageLink image_link = 3;
+    Preview preview = 4;
+    // field 5 is unused
+    ImmersivePreview immersive_preview = 6;
+    // field 7: Anchors (not needed for home)
+    ContentEvaluationList content_evaluation_list = 8;
+    CallToAction call_to_action = 9;
+    RecentsShelf recents_shelf = 10;
+    WatchFeed watch_feed = 11;
+    // field 12: PromotionV1 (ad, skip)
+    // field 13: PromotionV3 (ad, skip)
+    // field 15: ActionCardCarousel
+    LiveEvent live_event = 16;
+    Showcase showcase = 17;
+    // field 18: VideoPromo (ad)
+    // field 19: Banner (ad)
+    // field 20: VideoBrandAd (ad)
+    // field 21: ImageBrandAd (ad)
+    // field 23: CampaignLinkCarousel (ad)
+    VerticalSingleEntry vertical_single_entry = 24;
+    VideoCarousel video_carousel = 25;
+    // field 26: FullBleedBanner (ad)
+    AssociatedPreview associated_preview = 27;
+    // field 28: BannerWithAnimations (ad)
+    Narrative narrative = 29;
+    InteractiveEntrypoint interactive_entrypoint = 30;
+    TopStoryCarousel top_story_carousel = 31;
+    // field 32: PromptableSection
+    AudioPromo audio_promo = 33;
+    InlineCard inline_card = 34;
+    // field 35: PlayLinkPromo
+    AudioSpotlight audio_spotlight = 36;
+    PreviewCarousel preview_carousel = 37;
+    // field 38: ConcertCampaign
+    PreviewPromotionCarousel preview_promotion_carousel = 39;
+    // field 40: PromptedWorldsShelf
+    Reflection reflection = 41;
+    // field 42: UserPromptedWorldEntrypoint
+  }
+}
+
+message SectionInfo {
+  string section_id = 1;
+}
+
+// =========================================================================
+// Item: The universal content reference
+// =========================================================================
+
+message Item {
+  string identifier = 1;
+  repeated string highlighted_sub_items = 2;
+}
+
+// =========================================================================
+// Item Sources: How a section gets its items
+// =========================================================================
+
+message ItemSource {
+  oneof source {
+    Provided provided = 1;
+    LocalRecentlyPlayed local_recently_played = 2;
+    ListPlatform list_platform = 3;
+  }
+}
+
+message Provided {
+  repeated Item items = 1;
+}
+
+message LocalRecentlyPlayed {}
+
+message ListPlatform {
+  string uri = 1;
+}
+
+// =========================================================================
+// Headings: Section title/header variations
+// =========================================================================
+
+message Heading {
+  oneof heading {
+    EmptyHeading empty_heading = 1;
+    HeadingWithText text_heading = 2;
+    EnrichedHeading enriched_heading = 3;
+    SponsoredHeading sponsored_heading = 4;
+    HeadingWithDescription heading_with_description = 5;
+    StaticEnrichedHeading static_enriched_heading = 6;
+  }
+}
+
+message EmptyHeading {}
+
+message HeadingWithText {
+  string text = 1;
+  string encore_icon_name = 2;
+  NavigationAction navigation_action = 3;
+}
+
+message EnrichedHeading {
+  string format = 1;
+  HeadingAssociatedItem associated_item = 2;
+  string encore_icon_name = 3;
+}
+
+message HeadingWithDescription {
+  string title = 1;
+  string subtitle = 2;
+  string encore_icon_name = 3;
+}
+
+message StaticEnrichedHeading {
+  string text = 1;
+  string subtext = 2;
+  string image_url = 3;
+  string navigation_uri = 4;
+}
+
+message SponsoredHeading {
+  string text = 1;
+}
+
+message HeadingAssociatedItem {
+  string title = 1;
+  string uri = 2;
+  string image_url = 3;
+}
+
+message NavigationAction {
+  string text = 1;
+  string uri = 2;
+}
+
+// =========================================================================
+// Section Body Types (the actual UI components)
+// =========================================================================
+
+// field 2: Quick-access shortcut grid (top of home)
+message Shortcuts {
+  Heading heading = 1;
+  ItemSource item_source = 2;
+}
+
+// field 3: Standard horizontal image card carousel (most common section type)
+message ImageLink {
+  Heading heading = 1;
+  ItemSource item_source = 2;
+  int32 density = 3;
+  EmbeddedAdMetadata ad_metadata = 4;
+  int32 source = 5;
+}
+
+// field 4: Preview section (heading + single item reference)
+message Preview {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 6: Full-bleed immersive preview (large hero-style card)
+message ImmersivePreview {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 8: Content evaluation list
+message ContentEvaluationList {
+  Heading heading = 1;
+  ItemSource item_source = 2;
+}
+
+// field 9: Call to action
+message CallToAction {
+  string title = 1;
+  string subtitle = 2;
+  string button_text = 3;
+  string uri = 4;
+}
+
+// field 10: Recently played shelf
+message RecentsShelf {
+  Heading heading = 1;
+  ItemSource item_source = 2;
+  int32 title_density = 3;
+}
+
+// field 11: Video/watch feed
+message WatchFeed {
+  Heading heading = 1;
+  ItemSource item_source = 2;
+}
+
+// field 16: Live event
+message LiveEvent {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 17: Showcase (featured content)
+message Showcase {
+  Heading heading = 1;
+  Item item = 2;
+  EmbeddedAdMetadata ad_metadata = 3;
+}
+
+// field 24: Vertical single entry
+message VerticalSingleEntry {
+  Heading heading = 1;
+  Item item = 2;
+  string target_uri = 3;
+  EmbeddedAdMetadata ad_metadata = 4;
+}
+
+// field 25: Video carousel
+message VideoCarousel {
+  Heading heading = 1;
+  ItemSource item_source = 2;
+}
+
+// field 27: Associated preview
+message AssociatedPreview {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 29: Narrative text section
+message Narrative {
+  string title = 1;
+  string main_text = 2;
+}
+
+// field 30: Interactive entrypoint
+message InteractiveEntrypoint {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 31: Top story carousel
+message TopStoryCarousel {
+  Heading heading = 1;
+  repeated Item items = 2;
+}
+
+// field 33: Audio promo
+message AudioPromo {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 34: Inline card
+message InlineCard {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// field 36: Audio spotlight
+message AudioSpotlight {
+  Heading heading = 1;
+  Item item = 2;
+  EmbeddedAdMetadata ad_metadata = 3;
+  string preview_entity_uri = 4;
+}
+
+// field 37: Preview carousel (large preview cards with repeated items)
+message PreviewCarousel {
+  Heading heading = 1;
+  repeated Item items = 2;
+}
+
+// field 39: Preview promotion carousel
+message PreviewPromotionCarousel {
+  Heading heading = 1;
+  repeated PreviewPromotionCarouselItem items = 2;
+}
+
+message PreviewPromotionCarouselItem {
+  Item item = 1;
+}
+
+// field 41: Reflection
+message Reflection {
+  Heading heading = 1;
+  Item item = 2;
+}
+
+// =========================================================================
+// Shared / embedded types
+// =========================================================================
+
+message EmbeddedAdMetadata {
+  string tracking_id = 1;
+}

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -11,7 +12,7 @@ import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
 /// 1. Fetch Spotify's server time to avoid clock skew.
 /// 2. Generate TOTP codes (local + server time).
 /// 3. Call `GET /api/token` with sp_dc cookie + TOTP params.
-/// 4. If 401/403 → cipher was rotated → refresh cipher → retry once.
+/// 4. If 401/403 -> cipher was rotated -> refresh cipher -> retry once.
 class SpotifyTokenRefresher {
   final SpotifyTokenStore _tokenStore;
   final SpotifyTotp _totp;
@@ -30,18 +31,42 @@ class SpotifyTokenRefresher {
   /// Returns the new token on success, or null on failure.
   Future<String?> refresh() async {
     final spDc = await _tokenStore.getSpDc();
-    if (spDc == null || spDc.isEmpty) return null;
+    if (spDc == null || spDc.isEmpty) {
+      dev.log('TokenRefresh: No sp_dc cookie stored', name: 'Auth');
+      return null;
+    }
+
+    // Validate the sp_dc is a real cookie value, not a placeholder.
+    if (!spDc.startsWith('sp_dc=') || spDc.length < 20) {
+      dev.log(
+        'TokenRefresh: Invalid sp_dc format: '
+        '${spDc.substring(0, spDc.length.clamp(0, 20))}...',
+        name: 'Auth',
+      );
+      return null;
+    }
 
     // Ensure the TOTP cipher is fresh.
     await _totp.ensureFreshCipher();
 
     // First attempt.
+    dev.log('TokenRefresh: Attempting refresh (attempt 1)...', name: 'Auth');
     var result = await _attemptRefresh(spDc);
-    if (result != null) return result;
+    if (result != null) {
+      dev.log('TokenRefresh: Success on attempt 1', name: 'Auth');
+      return result;
+    }
 
-    // If failed, cipher may have been rotated → force refresh + retry.
+    // If failed, cipher may have been rotated -> force refresh + retry.
+    dev.log('TokenRefresh: Attempt 1 failed, refreshing cipher...', name: 'Auth');
     await _totp.refreshCipher();
-    return _attemptRefresh(spDc);
+    result = await _attemptRefresh(spDc);
+    if (result != null) {
+      dev.log('TokenRefresh: Success on attempt 2', name: 'Auth');
+    } else {
+      dev.log('TokenRefresh: Both attempts failed', name: 'Auth');
+    }
+    return result;
   }
 
   /// Performs a single token refresh call.
@@ -49,7 +74,10 @@ class SpotifyTokenRefresher {
     try {
       // Fetch Spotify's server time.
       final serverTimeMs = await _fetchServerTimeMs();
-      if (serverTimeMs == null) return null;
+      if (serverTimeMs == null) {
+        dev.log('TokenRefresh: Failed to fetch server time', name: 'Auth');
+        return null;
+      }
 
       final localTimeMs = DateTime.now().millisecondsSinceEpoch;
       final totpLocal = _totp.generate(localTimeMs);
@@ -78,18 +106,35 @@ class SpotifyTokenRefresher {
         'sec-fetch-site': 'same-origin',
       });
 
-      if (response.statusCode != 200) return null;
+      if (response.statusCode != 200) {
+        dev.log('TokenRefresh: HTTP ${response.statusCode}', name: 'Auth');
+        return null;
+      }
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       final accessToken = body['accessToken'] as String?;
       final isAnonymous = body['isAnonymous'] as bool? ?? true;
 
-      if (accessToken == null || isAnonymous) return null;
+      if (accessToken == null || isAnonymous) {
+        dev.log('TokenRefresh: Got anonymous token or null', name: 'Auth');
+        return null;
+      }
 
-      // Save the fresh token.
-      await _tokenStore.saveAccessToken(accessToken);
+      // Use the real expiry from the response instead of assuming 1 hour.
+      final expiresMs = body['accessTokenExpirationTimestampMs'] as int?;
+      final lifetimeMs = expiresMs != null
+          ? expiresMs - DateTime.now().millisecondsSinceEpoch
+          : 3600000;
+
+      // Save the fresh token with its actual remaining lifetime.
+      await _tokenStore.saveAccessToken(accessToken, lifetimeMs: lifetimeMs);
+      dev.log(
+        'TokenRefresh: Token saved, expires in ${lifetimeMs ~/ 60000} min',
+        name: 'Auth',
+      );
       return accessToken;
-    } catch (_) {
+    } catch (e) {
+      dev.log('TokenRefresh: Exception: $e', name: 'Auth');
       return null;
     }
   }
@@ -97,8 +142,6 @@ class SpotifyTokenRefresher {
   /// Fetches Spotify's server time to avoid clock-skew TOTP failures.
   Future<int?> _fetchServerTimeMs() async {
     try {
-      // The /api/token endpoint itself returns serverTime, but we can also
-      // use the Date header from any Spotify response.
       final response = await http.head(
         Uri.parse('https://open.spotify.com/'),
         headers: {'User-Agent': _userAgent},

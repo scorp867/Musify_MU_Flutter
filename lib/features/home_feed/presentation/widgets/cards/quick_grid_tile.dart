@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/features/home_feed/domain/models/content_item.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Compact tile for the shortcuts quick grid.
 /// Shows: small artwork + title side-by-side.
 class QuickGridTile extends StatelessWidget {
-  final ContentItem item;
+  final SpotifyEntity item;
 
   const QuickGridTile({super.key, required this.item});
 
   @override
   Widget build(BuildContext context) {
     final width = (MediaQuery.of(context).size.width - 40) / 2;
+    final title = item.fallbackTitle;
+    final imageUrl = item.fallbackImageUrl;
 
     return SizedBox(
       width: width,
@@ -26,9 +28,9 @@ class QuickGridTile extends StatelessWidget {
               SizedBox(
                 width: 56,
                 height: 56,
-                child: item.imageUrl != null
+                child: imageUrl != null
                     ? Image.network(
-                        item.imageUrl!,
+                        imageUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => _placeholder(),
                       )
@@ -37,7 +39,7 @@ class QuickGridTile extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  item.title,
+                  title,
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

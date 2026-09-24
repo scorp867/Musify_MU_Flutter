@@ -1,23 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/features/home_feed/domain/models/content_item.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Reusable square card for albums, playlists, podcasts.
-/// Shows: artwork → type label → title → subtitle.
+/// Renders: artwork + title + subtitle (no type labels -- Spotify doesn't show those).
 /// Used in ContentCarouselSection.
 class SquareCard extends StatelessWidget {
-  final ContentItem item;
+  final SpotifyEntity item;
   final double size;
-  final bool showTypeLabel;
 
   const SquareCard({
     super.key,
     required this.item,
-    this.size = 170,
-    this.showTypeLabel = true,
+    this.size = 150,
   });
 
   @override
   Widget build(BuildContext context) {
+    final title = item.fallbackTitle;
+    final subtitle = item.getTrait<SimpleCardTrait>()?.subtitle ?? '';
+    final imageUrl = item.fallbackImageUrl;
+
     return SizedBox(
       width: size,
       child: Column(
@@ -25,14 +27,14 @@ class SquareCard extends StatelessWidget {
         children: [
           // Artwork
           ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(4),
             child: Container(
               width: size,
               height: size,
-              color: const Color(0xFF1E293B),
-              child: item.imageUrl != null
+              color: const Color(0xFF282828),
+              child: imageUrl != null
                   ? Image.network(
-                      item.imageUrl!,
+                      imageUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _placeholder(),
                     )
@@ -40,21 +42,12 @@ class SquareCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          // Type label (Album, Playlist, etc.)
-          if (showTypeLabel)
-            Text(
-              _typeLabel,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade500,
-              ),
-            ),
           // Title
           Text(
-            item.title,
+            title,
             style: const TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
               color: Colors.white,
               height: 1.2,
             ),
@@ -62,31 +55,23 @@ class SquareCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
           ),
           // Subtitle (artist/description)
-          if (item.subtitle.isNotEmpty)
-            Text(
-              item.subtitle,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade500,
-                height: 1.3,
+          if (subtitle.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey.shade500,
+                  height: 1.3,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
         ],
       ),
     );
-  }
-
-  String get _typeLabel {
-    return switch (item.type) {
-      ContentType.album => 'Album',
-      ContentType.playlist => 'Playlist',
-      ContentType.podcast => 'Podcast',
-      ContentType.episode => 'Episode',
-      ContentType.artist => 'Artist',
-      _ => '',
-    };
   }
 
   Widget _placeholder() {

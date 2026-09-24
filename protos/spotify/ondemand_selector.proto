@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package spotify.ondemandselector;
+
+option optimize_for = CODE_SIZE;
+
+// Response from GET /ondemand-selector/v1/select-ondemand-set
+// Returns the filtered set of URIs that need trait resolution.
+message OndemandResponse {
+  repeated string uris = 1;
+  int64 expire_timestamp_millis = 2;
+}

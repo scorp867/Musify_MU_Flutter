@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package spotify.contentagnostic.v2;
+
+import "spotify/contentagnostic/v2/visual_types.proto";
+
+option optimize_for = CODE_SIZE;
+
+// =========================================================================
+// VisualIdentityTrait (ExtensionKind 179)
+// Provides cover images and curated colors for entities
+// =========================================================================
+
+message VisualIdentityTrait {
+  Image square_cover_image = 1;
+  Image sixteen_by_nine_cover_image = 2;
+  // field 3 unused
+  Video nine_by_sixteen_cover_video = 4;
+  Image square_full_bleed_image = 5;
+  Image wide_full_bleed_image = 6;
+  ColorSetContrastOptions curated_color = 7;
+}

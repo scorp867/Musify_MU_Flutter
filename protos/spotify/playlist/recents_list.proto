@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package spotify.playlist.v2;
+
+option optimize_for = CODE_SIZE;
+
+// Response from /playlist/v2/list/recents/main
+// Inferred from the manual parsing in home_repository.dart
+
+message RecentsListResponse {
+  // Fields 1-4 are unknown/unused
+  RecentsItemList list = 5;
+}
+
+message RecentsItemList {
+  // Fields 1-2 are unknown/unused
+  repeated RecentsListItem items = 3;
+}
+
+message RecentsListItem {
+  string uri = 1;
+  RecentsItemAttributes attributes = 2;
+}
+
+message RecentsItemAttributes {
+  // Fields 1-10 are unknown/unused
+  repeated FormatAttribute format_attributes = 11;
+}
+
+message FormatAttribute {
+  string key = 1;
+  string value = 2;
+}

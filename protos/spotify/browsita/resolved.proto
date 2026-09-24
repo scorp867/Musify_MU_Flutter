@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package spotify.browsita.v1.resolved;
+
+option optimize_for = CODE_SIZE;
+
+// =========================================================================
+// Top-level response from the Browsita browse endpoint
+// GET /browsita/v1/browse?timezone=...
+// =========================================================================
+
+message ResolvedBrowse {
+  BrowseStructure structure = 1;
+  ResponseInfo response_info = 2;
+}
+
+message BrowseStructure {
+  repeated Section sections = 1;
+}
+
+message ResponseInfo {
+  string server_version = 1;
+}
+
+// =========================================================================
+// Section: Each section has SectionInfo + one feature_type
+// =========================================================================
+
+message Section {
+  SectionInfo section_info = 1;
+
+  oneof feature_type {
+    ContentCategory content_category = 2;
+    PromotionV1 promotion_v1 = 3;
+    WatchFeed watch_feed = 4;
+    PromotionV3 promotion_v3 = 5;
+    BrandAds brand_ads = 6;
+    Showcase showcase = 7;
+    AudioPromo audio_promo = 8;
+    PlayLinkPromo play_link_promo = 9;
+    PreviewPromotionCarousel preview_promotion_carousel = 10;
+    VideoPromo video_promo = 11;
+    AudioSpotlight audio_spotlight = 12;
+  }
+}
+
+message SectionInfo {
+  string section_id = 1;
+}
+
+// =========================================================================
+// ContentCategory: The main browse grid section
+// Shows a heading + list of category/genre items
+// =========================================================================
+
+message ContentCategory {
+  Heading heading = 1;
+  repeated Item items = 2;
+  DensityConfig density = 3;
+}
+
+message Heading {
+  oneof heading_type {
+    TextHeading text_heading = 1;
+    SponsoredHeading sponsored_heading = 2;
+  }
+}
+
+message TextHeading {
+  string text = 1;
+  NavigationAction navigation_action = 2;
+  string encore_icon_name = 3;
+}
+
+message SponsoredHeading {
+  string text = 1;
+}
+
+message NavigationAction {
+  string uri = 1;
+}
+
+message DensityConfig {
+  // Density configuration for the grid layout
+}
+
+// =========================================================================
+// Item: A single browse category card (e.g. genre card)
+// =========================================================================
+
+message Item {
+  string uri = 1;
+  string target_uri = 2;
+}
+
+// =========================================================================
+// Other section types (mostly ads/promos, parsed but may be skipped)
+// =========================================================================
+
+message PromotionV1 {}
+message PromotionV3 {}
+message BrandAds {}
+message AudioPromo {}
+message PlayLinkPromo {}
+message VideoPromo {}
+message AudioSpotlight {}
+
+message Showcase {
+  // Showcase promo section
+}
+
+message WatchFeed {
+  repeated WatchFeedItem items = 1;
+}
+
+message WatchFeedItem {
+  string uri = 1;
+  WatchFeedItemMetadata metadata = 2;
+}
+
+message WatchFeedItemMetadata {
+  string title = 1;
+}
+
+message PreviewPromotionCarousel {
+  repeated PreviewPromotionCarouselItem items = 1;
+}
+
+message PreviewPromotionCarouselItem {
+  string uri = 1;
+}
