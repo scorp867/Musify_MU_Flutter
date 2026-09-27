@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/theme/app_theme.dart';
+import 'package:musify_mu/core/ui/scroll/app_scroll_behavior.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
@@ -23,6 +24,7 @@ class MusifyApp extends StatelessWidget {
       title: 'Musify MU',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
+      scrollBehavior: const AppScrollBehavior(),
       home: HiddenDrawerScaffold(playbackController: playbackController),
     );
 

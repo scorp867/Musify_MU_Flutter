@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
+import 'package:musify_mu/features/auth/application/auth_bloc.dart';
+import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
 
 /// The browse/search tab view -- renders category grid from Browsita data.
 class BrowseView extends StatelessWidget {
-  const BrowseView({super.key});
+  final VoidCallback? onMenuPressed;
+
+  const BrowseView({super.key, this.onMenuPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -14,9 +20,17 @@ class BrowseView extends StatelessWidget {
         return switch (state) {
           BrowseLoading() => const _BrowseShimmer(),
           BrowseLoaded(:final data, :final isRefreshing) =>
-            _BrowseContent(data: data, isRefreshing: isRefreshing),
+            _BrowseContent(
+              data: data,
+              isRefreshing: isRefreshing,
+              onMenuPressed: onMenuPressed,
+            ),
           BrowseError(:final message, :final staleData) => staleData != null
-              ? _BrowseContent(data: staleData, isRefreshing: false)
+              ? _BrowseContent(
+                  data: staleData,
+                  isRefreshing: false,
+                  onMenuPressed: onMenuPressed,
+                )
               : _ErrorView(message: message),
         };
       },
@@ -29,8 +43,13 @@ class BrowseView extends StatelessWidget {
 class _BrowseContent extends StatelessWidget {
   final BrowseViewData data;
   final bool isRefreshing;
+  final VoidCallback? onMenuPressed;
 
-  const _BrowseContent({required this.data, required this.isRefreshing});
+  const _BrowseContent({
+    required this.data,
+    required this.isRefreshing,
+    this.onMenuPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -45,11 +64,30 @@ class _BrowseContent extends StatelessWidget {
       },
       child: CustomScrollView(
         slivers: [
-          // Search bar
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: _SearchBar(),
+          // Header (floating -- reappears on any downward scroll)
+          SliverAppBar(
+            floating: true,
+            snap: true,
+            pinned: false,
+            backgroundColor: const Color(0xFF121212),
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
+            scrolledUnderElevation: 0,
+            toolbarHeight: 72,
+            titleSpacing: 0,
+            automaticallyImplyLeading: false,
+            title: _BrowseHeader(onMenuPressed: onMenuPressed),
+          ),
+
+          // Search bar (pinned -- stays visible when scrolling)
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: StickyHeaderDelegate(
+              height: 64,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: _SearchBar(),
+              ),
             ),
           ),
 
@@ -174,6 +212,75 @@ class _BrowseCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+// ─── Browse header ───────────────────────────────────────────────────
+
+class _BrowseHeader extends StatelessWidget {
+  final VoidCallback? onMenuPressed;
+
+  const _BrowseHeader({this.onMenuPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<AuthBloc, AuthState>(
+      buildWhen: (prev, curr) => prev.runtimeType != curr.runtimeType,
+      builder: (context, authState) {
+        final user =
+            authState is Authenticated ? authState.user : null;
+
+        // Trailing: user avatar (taps to open drawer, same as home)
+        Widget avatar;
+        if (user?.avatarUrl != null) {
+          avatar = CircleAvatar(
+            radius: 20,
+            backgroundColor: const Color(0xFF1E293B),
+            backgroundImage: NetworkImage(user!.avatarUrl!),
+          );
+        } else if (user?.displayName != null) {
+          avatar = CircleAvatar(
+            radius: 20,
+            backgroundColor: const Color(0xFF1DB954),
+            child: Text(
+              user!.displayName[0].toUpperCase(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          );
+        } else {
+          avatar = const CircleAvatar(
+            radius: 20,
+            backgroundColor: Color(0xFF535353),
+            child: Icon(Icons.person, color: Colors.white),
+          );
+        }
+
+        return AppHeader(
+          leading: GestureDetector(
+            onTap: onMenuPressed,
+            child: avatar,
+          ),
+          title: 'Search',
+          trailing: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Image.asset(
+                'assets/images/app_icon.jpg',
+                fit: BoxFit.cover,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

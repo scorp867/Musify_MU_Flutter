@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package spotify.collection.v2;
+
+option optimize_for = CODE_SIZE;
+
+// Request for POST /collection/v2/paging
+// Reverse-engineered from MITM captures.
+//
+// The request payload is:
+//   field 1: username (string)
+//   field 2: set_name (string) -- "collection", "artist", "show", "ylpin", etc.
+//   field 4: limit (sint32, zigzag encoded)
+
+message PageRequest {
+  string username = 1;
+  string set_name = 2;
+  // field 3 is unused/unknown
+  sint32 limit = 4;
+}
+
+// Response from POST /collection/v2/paging
+// Content-Type: application/vnd.collection-v2.spotify.proto
+//
+// From MITM capture:
+//   field 1: repeated Item { 1: uri, 2: added_at }
+//   field 3: sync_token (string, looks like a timestamp)
+
+message PageResponse {
+  repeated CollectionItem items = 1;
+  // field 2 is unused/unknown
+  string sync_token = 3;
+}
+
+message CollectionItem {
+  string uri = 1;
+  int64 added_at = 2;
+  // Higher fields (1001-1009) contain ItemData oneofs,
+  // not needed for library rendering.
+}

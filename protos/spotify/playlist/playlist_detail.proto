@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package spotify.playlist.v2;
+
+option optimize_for = CODE_SIZE;
+
+import "spotify/playlist/rootlist.proto";
+
+// Response from:
+//   GET /playlist/v2/playlist/{playlistId}
+//   GET /playlist/v2/playlist/{playlistId}/diff?revision=...&handlesContent=
+//
+// Uses the same SelectedListContent wire format as rootlist, but the server
+// populates additional fields (diff, capabilities, up_to_date, etc.).
+//
+// We define a separate message here because:
+//   1. Playlist detail needs Diff/Op parsing which rootlist doesn't.
+//   2. Keeps rootlist.proto clean for library-only use.
+//
+// Reverse-engineered from Playlist4ApiProto.java (decompiled APK).
+
+message PlaylistResponse {
+  bytes revision = 1;
+  int32 length = 2;
+  ListAttributes attributes = 3;
+  // field 4 unused
+  ListItems contents = 5;
+  Diff diff = 6;
+  Diff sync_result = 7;
+  repeated bytes resulting_revisions = 8;
+  bool multiple_heads = 9;
+  bool up_to_date = 10;
+  repeated int64 nonces = 14;
+  int64 timestamp = 15;
+  string owner_username = 16;
+  bool abuse_reporting_enabled = 17;
+  Capabilities capabilities = 18;
+  repeated GeoblockBlockingType geoblock = 19;
+  bool changes_require_resync = 20;
+  int64 created_at = 21;
+}
+
+// ─── Diff / Operations ──────────────────────────────────────────────
+
+message Diff {
+  repeated Op ops = 1;
+}
+
+message Op {
+  OpKind kind = 1;
+  int32 from_index = 2;
+  int32 to_index = 3;
+  int32 length = 4;
+  repeated Item items = 5;
+  ListAttributes list_attributes = 6;
+  ItemAttributes item_attributes = 7;
+}
+
+enum OpKind {
+  OP_KIND_UNKNOWN = 0;
+  // 1 unused
+  ADD = 2;
+  REM = 3;
+  MOV = 4;
+  UPDATE_ITEM_ATTRIBUTES = 5;
+  UPDATE_LIST_ATTRIBUTES = 6;
+}

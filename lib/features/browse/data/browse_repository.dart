@@ -42,7 +42,7 @@ class BrowseRepository {
 
       // Step 2: Parse the protobuf -> sections with item URIs
       final parser = BrowsitaParser(bytes);
-      final browseData = parser.parse();
+      final browseData = await parser.parse();
 
       if (browseData.sections.isEmpty) {
         dev.log('BrowseRepo: No sections parsed', name: 'Browse');

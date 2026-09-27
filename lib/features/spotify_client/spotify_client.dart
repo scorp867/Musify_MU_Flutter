@@ -49,7 +49,8 @@ class SpotifyClient {
     return _executeWithRetry(() async {
       final headers = await _buildHeaders(extraHeaders);
       headers['Content-Type'] = contentType;
-      headers['Accept'] = 'application/x-protobuf';
+      // Only set Accept if not already overridden by extraHeaders.
+      headers.putIfAbsent('accept', () => 'application/x-protobuf');
       final url = '$_baseUrl$path';
 
       final response = await http.post(
@@ -91,18 +92,65 @@ class SpotifyClient {
     };
 
     if (extra != null) headers.addAll(extra);
+    // Remove any headers explicitly set to empty (used to strip defaults).
+    headers.removeWhere((_, v) => v.isEmpty);
     return headers;
+  }
+
+  /// Builds Android identity headers for endpoints that reject WebPlayer.
+  Future<Map<String, String>> _buildAndroidHeaders(
+      Map<String, String>? extra) async {
+    final accessToken = await _tokenStore.getAccessToken();
+    final clientToken = await _clientTokenFetcher.getClientToken();
+
+    final headers = <String, String>{
+      if (accessToken != null) 'Authorization': 'Bearer $accessToken',
+      if (clientToken != null) 'client-token': clientToken,
+      'accept-language': 'en-US',
+      'accept-encoding': 'gzip',
+      'app-platform': 'Android',
+      'spotify-app-version': '9.1.76.2045',
+      'User-Agent': 'Spotify/9.1.76.2045 Android/29 (Pixel 4 XL)',
+      'cache-control': 'no-cache, no-store',
+    };
+
+    if (extra != null) headers.addAll(extra);
+    return headers;
+  }
+
+  /// GET request using Android identity (for endpoints that reject WebPlayer).
+  Future<Uint8List?> getAndroid(
+    String path, {
+    Map<String, String>? extraHeaders,
+  }) async {
+    return _executeWithRetry(() async {
+      final headers = await _buildAndroidHeaders(extraHeaders);
+      final url = '$_baseUrl$path';
+
+      final response = await http.get(Uri.parse(url), headers: headers);
+      return _handleResponse(response, 'GET $path');
+    });
   }
 
   /// Handles HTTP response — returns body bytes on success, null on failure.
   Uint8List? _handleResponse(http.Response response, String label) {
     if (response.statusCode == 200) {
       final bytes = Uint8List.fromList(response.bodyBytes);
-      print('✅ SpotifyClient $label → ${bytes.length} bytes');
+      print('\u2705 SpotifyClient $label \u2192 ${bytes.length} bytes');
       return bytes;
     }
 
-    print('❌ SpotifyClient $label → HTTP ${response.statusCode}');
+    // Log error details for debugging.
+    final bodyBytes = response.bodyBytes;
+    final ct = response.headers['content-type'] ?? 'unknown';
+    final bodyStr = response.body;
+    final bodyHex = bodyBytes.length <= 100
+        ? bodyBytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join()
+        : '${bodyBytes.length} bytes';
+    print(
+      '\u274C SpotifyClient $label \u2192 HTTP ${response.statusCode} '
+      '[ct=$ct] body=$bodyStr hex=$bodyHex',
+    );
     return null;
   }
 

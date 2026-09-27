@@ -1,4 +1,5 @@
 import 'dart:developer' as dev;
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -50,7 +51,7 @@ class BrowseMetadataFetcher {
       );
       if (response == null) return {};
 
-      return _parseResponse(response);
+      return await Isolate.run(() => _parseResponse(response));
     } catch (e) {
       dev.log('BrowseMetadataFetcher error: $e', name: 'Browse');
       return {};
@@ -81,7 +82,7 @@ class BrowseMetadataFetcher {
     return request.writeToBuffer();
   }
 
-  Map<String, BrowseCardData> _parseResponse(Uint8List data) {
+  static Map<String, BrowseCardData> _parseResponse(Uint8List data) {
     final results = <String, BrowseCardData>{};
     final response = BatchedExtensionResponse.fromBuffer(data);
 
@@ -135,7 +136,7 @@ class BrowseMetadataFetcher {
     return results;
   }
 
-  void _parseIdentityTrait(
+  static void _parseIdentityTrait(
     String uri,
     List<int> payload,
     Map<String, String> names,
@@ -150,7 +151,7 @@ class BrowseMetadataFetcher {
     }
   }
 
-  void _parseVisualIdentityTrait(
+  static void _parseVisualIdentityTrait(
     String uri,
     List<int> payload,
     Map<String, String> images,
@@ -179,7 +180,7 @@ class BrowseMetadataFetcher {
     }
   }
 
-  int? _extractBgColor(
+  static int? _extractBgColor(
     dynamic colorSetContrastOptions,
   ) {
     // Try min_contrast first (that's what browse cards use)
@@ -192,7 +193,7 @@ class BrowseMetadataFetcher {
     return null;
   }
 
-  int _rgbaToArgb(int r, int g, int b, int a) {
+  static int _rgbaToArgb(int r, int g, int b, int a) {
     final alpha = a > 0 ? a : 255;
     return (alpha << 24) | (r << 16) | (g << 8) | b;
   }

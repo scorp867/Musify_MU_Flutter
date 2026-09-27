@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
+import 'package:musify_mu/core/media/extended_metadata_service.dart';
 import 'package:musify_mu/core/ui/animations/mode_transition.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/data/spotify_client_token.dart';
@@ -11,6 +12,9 @@ import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/data/browse_repository.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
 import 'package:musify_mu/features/home/presentation/home_tab.dart';
+import 'package:musify_mu/features/library/application/library_bloc.dart';
+import 'package:musify_mu/features/library/data/library_repository.dart';
+import 'package:musify_mu/features/library/presentation/library_view.dart';
 import 'package:musify_mu/features/player/presentation/widgets/mini_player.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/bottom_navigation.dart';
 import 'package:musify_mu/features/spotify_client/spotify_client.dart';
@@ -130,17 +134,14 @@ class _MainScreenState extends State<MainScreen> {
                   iconVisible: _iconVisible,
                   playbackController: widget.playbackController,
                 ),
-                // Lazy: only build when first visited
                 if (_visitedTabs.contains(1))
-                  _BrowseTab()
+                  _BrowseTab(onMenuPressed: widget.onMenuPressed)
                 else
                   const SizedBox.shrink(),
-                const Center(
-                  child: Text(
-                    'Library',
-                    style: TextStyle(fontSize: 24, color: Colors.white),
-                  ),
-                ),
+                if (_visitedTabs.contains(2))
+                  _LibraryTab(onMenuPressed: widget.onMenuPressed)
+                else
+                  const SizedBox.shrink(),
               ],
             ),
             if (widget.isDrawerOpen)
@@ -170,6 +171,10 @@ class _MainScreenState extends State<MainScreen> {
 
 /// Browse tab that wires up the BrowseBloc when authenticated.
 class _BrowseTab extends StatelessWidget {
+  final VoidCallback onMenuPressed;
+
+  const _BrowseTab({required this.onMenuPressed});
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
@@ -201,11 +206,71 @@ class _BrowseTab extends StatelessWidget {
         return BlocProvider(
           create: (_) => BrowseBloc(repository: browseRepository)
             ..add(const BrowseLoadRequested()),
-          child: const Scaffold(
-            backgroundColor: Color(0xFF121212),
+          child: Scaffold(
+            backgroundColor: const Color(0xFF121212),
             body: SafeArea(
               bottom: false,
-              child: BrowseView(),
+              child: BrowseView(onMenuPressed: onMenuPressed),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Library tab that wires up the LibraryBloc when authenticated.
+class _LibraryTab extends StatelessWidget {
+  final VoidCallback onMenuPressed;
+
+  const _LibraryTab({required this.onMenuPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<AuthBloc, AuthState>(
+      builder: (context, authState) {
+        if (authState is! Authenticated) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF121212),
+            body: Center(
+              child: Text(
+                'Your Library',
+                style: TextStyle(color: Colors.white54, fontSize: 18),
+              ),
+            ),
+          );
+        }
+
+        final userId = authState.user.id;
+        final tokenStore = SpotifyTokenStore();
+        final tokenRefresher = SpotifyTokenRefresher(tokenStore: tokenStore);
+        final clientTokenFetcher = SpotifyClientTokenFetcher(tokenStore);
+
+        final spotifyClient = SpotifyClient(
+          tokenStore: tokenStore,
+          tokenRefresher: tokenRefresher,
+          clientTokenFetcher: clientTokenFetcher,
+        );
+
+        // App-wide metadata service (shared across all features).
+        final metadataService = ExtendedMetadataService(
+          client: spotifyClient,
+        );
+
+        final libraryRepository = LibraryRepository(
+          client: spotifyClient,
+          userId: userId,
+          metadataService: metadataService,
+        );
+
+        return BlocProvider(
+          create: (_) => LibraryBloc(repository: libraryRepository)
+            ..add(const LibraryLoadRequested()),
+          child: Scaffold(
+            backgroundColor: const Color(0xFF121212),
+            body: SafeArea(
+              bottom: false,
+              child: LibraryView(onMenuPressed: onMenuPressed),
             ),
           ),
         );

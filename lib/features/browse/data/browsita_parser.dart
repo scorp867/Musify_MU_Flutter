@@ -1,4 +1,5 @@
 import 'dart:developer' as dev;
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/browsita/resolved.pb.dart'
@@ -19,8 +20,17 @@ class BrowsitaParser {
   final Uint8List data;
 
   BrowsitaParser(this.data);
+  BrowsitaParser._(this.data);
 
-  BrowseViewData parse() {
+  Future<BrowseViewData> parse() async {
+    return Isolate.run(() => _parseSync(data));
+  }
+
+  static BrowseViewData _parseSync(Uint8List data) {
+    return BrowsitaParser._(data)._doParse();
+  }
+
+  BrowseViewData _doParse() {
     try {
       final resolved = browsita.ResolvedBrowse.fromBuffer(data);
       final sections = <BrowseSection>[];

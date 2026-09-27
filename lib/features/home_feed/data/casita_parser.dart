@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/casita/resolved.pb.dart' as casita;
@@ -20,23 +21,32 @@ class CasitaParser {
   final Map<String, Map<String, Trait>> _traits = {};
 
   CasitaParser(this.data);
+  CasitaParser._(this.data);
 
   /// Result of parsing a Casita response.
-  CasitaResult parse() {
+  Future<CasitaResult> parse() async {
+    // Run entire parse in background isolate to avoid UI jank.
+    return Isolate.run(() => _parseSync(data));
+  }
+
+  /// Synchronous parsing -- runs in background isolate.
+  static CasitaResult _parseSync(Uint8List data) {
+    final parser = CasitaParser._(data);
+    return parser._doParse();
+  }
+
+  CasitaResult _doParse() {
     try {
       _traits.clear();
 
       final home = casita.ResolvedHome.fromBuffer(data);
 
-      // Parse the eagerly loaded traits (repository) from field 2
       _parseEagerlyLoadedTraits(home.eagerlyLoadedTraits);
-      print('📦 CasitaParser: ${_traits.length} URIs loaded from repository');
+      print('\u{1F4E6} CasitaParser: ${_traits.length} URIs loaded from repository');
 
-      // Extract the on-demand set (field 999) -- URIs needing trait resolution
       final ondemandUris = home.ondemandSet.uris.toList();
-      print('📦 CasitaParser: ${ondemandUris.length} URIs in ondemandSet');
+      print('\u{1F4E6} CasitaParser: ${ondemandUris.length} URIs in ondemandSet');
 
-      // Parse all sections from field 1
       final sections = <HomeSection>[];
       for (final section in home.structure.sections) {
         final parsed = _parseSection(section);
@@ -45,7 +55,6 @@ class CasitaParser {
         }
       }
 
-      // Hydrate section items with traits from the repository
       int hydrated = 0;
       final hydratedSections = sections.map((section) {
         final hydratedItems = section.items.map((item) {
@@ -69,13 +78,13 @@ class CasitaParser {
         );
       }).toList();
 
-      print('📦 CasitaParser: ${hydratedSections.length} sections, $hydrated items hydrated');
+      print('\u{1F4E6} CasitaParser: ${hydratedSections.length} sections, $hydrated items hydrated');
       return CasitaResult(
         homeData: HomeViewData(sections: hydratedSections),
         ondemandUris: ondemandUris,
       );
     } catch (e, stack) {
-      print('❌ CasitaParser: $e\n$stack');
+      print('\u274C CasitaParser: $e\n$stack');
       return CasitaResult(
         homeData: const HomeViewData(),
         ondemandUris: const [],

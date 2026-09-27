@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -33,7 +34,7 @@ class ExtendedMetadataFetcher {
       );
       if (response == null) return {};
 
-      return _parseResponse(response);
+      return await Isolate.run(() => _parseResponse(response));
     } catch (e) {
       print('❌ ExtendedMetadataFetcher: $e');
       return {};
@@ -60,7 +61,7 @@ class ExtendedMetadataFetcher {
     return request.writeToBuffer();
   }
 
-  Map<String, SimpleCardTrait> _parseResponse(Uint8List data) {
+  static Map<String, SimpleCardTrait> _parseResponse(Uint8List data) {
     final results = <String, SimpleCardTrait>{};
     final response = BatchedExtensionResponse.fromBuffer(data);
 

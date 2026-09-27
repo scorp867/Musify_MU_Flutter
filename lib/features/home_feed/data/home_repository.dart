@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/ondemand_selector.pb.dart'
@@ -73,7 +74,7 @@ class HomeRepository {
 
       // Step 2: Parse the Casita response
       final parser = CasitaParser(casitaBytes);
-      final casitaResult = parser.parse();
+      final casitaResult = await parser.parse();
       final sections = casitaResult.homeData.sections.toList();
 
       // Step 3: Inject recents into the recents section
@@ -186,7 +187,9 @@ class HomeRepository {
     );
     if (data == null || data.isEmpty) return [];
 
-    final response = ods.OndemandResponse.fromBuffer(data);
+    final response = await Isolate.run(
+      () => ods.OndemandResponse.fromBuffer(data),
+    );
     return response.uris.toList();
   }
 
@@ -197,7 +200,7 @@ class HomeRepository {
         extraHeaders: _playlistHeaders,
       );
       if (data == null || data.isEmpty) return [];
-      return _parseRecentsItems(data);
+      return await Isolate.run(() => _parseRecentsItemsSync(data));
     } catch (e) {
       print('❌ HomeRepository: Recents fetch failed: $e');
       return [];
@@ -288,7 +291,7 @@ class HomeRepository {
   // Helpers
   // ═══════════════════════════════════════════════════════════════════
 
-  List<_RecentsItem> _parseRecentsItems(Uint8List data) {
+  static List<_RecentsItem> _parseRecentsItemsSync(Uint8List data) {
     final items = <_RecentsItem>[];
 
     try {

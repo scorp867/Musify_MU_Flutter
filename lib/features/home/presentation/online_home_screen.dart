@@ -14,7 +14,9 @@ import 'package:musify_mu/features/home_feed/presentation/home_feed_view.dart';
 import 'package:musify_mu/features/spotify_client/spotify_client.dart';
 
 class OnlineHomeScreen extends StatefulWidget {
-  const OnlineHomeScreen({super.key});
+  final Widget? headerTitleRow;
+
+  const OnlineHomeScreen({super.key, this.headerTitleRow});
 
   @override
   State<OnlineHomeScreen> createState() => _OnlineHomeScreenState();
@@ -110,9 +112,8 @@ class _OnlineHomeScreenState extends State<OnlineHomeScreen> {
         ..add(const HomeFeedLoadRequested()),
       child: Container(
         color: const Color(0xFF121212),
-        child: const SafeArea(
-          bottom: false,
-          child: HomeFeedView(),
+        child: HomeFeedView(
+          headerTitleRow: widget.headerTitleRow,
         ),
       ),
     );

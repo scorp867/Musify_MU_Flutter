@@ -241,3 +241,22 @@ String? protoReadStringField(Uint8List bytes, int targetField) {
   }
   return null;
 }
+
+/// Read a varint from a specific field number (first match).
+int? protoReadVarintField(Uint8List bytes, int targetField) {
+  if (bytes.isEmpty) return null;
+  final reader = SpotifyProtoReader(bytes);
+  while (reader.hasMore()) {
+    final tag = reader.readTag();
+    if (tag == 0) break;
+    final field = tag >> 3;
+    final wt = tag & 0x7;
+
+    if (field == targetField && wt == 0) {
+      return reader.readVarint();
+    }
+    reader.skipField(wt);
+  }
+  return null;
+}
+

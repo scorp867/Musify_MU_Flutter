@@ -31,34 +31,45 @@ class HomeTab extends StatelessWidget {
       color: const Color(0xFF121212),
       child: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            // Read auth state to pass profile data to the header.
-            BlocBuilder<AuthBloc, AuthState>(
-              buildWhen: (prev, curr) =>
-                  prev.runtimeType != curr.runtimeType,
-              builder: (context, authState) {
-                final user = authState is Authenticated
-                    ? authState.user
-                    : null;
+        child: BlocBuilder<AuthBloc, AuthState>(
+          buildWhen: (prev, curr) =>
+              prev.runtimeType != curr.runtimeType,
+          builder: (context, authState) {
+            final user = authState is Authenticated
+                ? authState.user
+                : null;
 
-                return HomeHeader(
-                  isOnlineMode: isOnlineMode,
-                  onMenuPressed: onMenuPressed,
-                  onToggleMode: onToggleMode,
-                  iconKey: iconKey,
-                  iconVisible: iconVisible,
-                  spotifyDisplayName: user?.displayName,
-                  spotifyAvatarUrl: user?.avatarUrl,
-                );
-              },
-            ),
-            Expanded(
-              child: isOnlineMode
-                  ? const OnlineHomeScreen()
-                  : LocalMusicScreen(playbackController: playbackController),
-            ),
-          ],
+            // Build the title row widget (shared across states)
+            final titleRow = HomeHeaderTitleRow(
+              isOnlineMode: isOnlineMode,
+              onMenuPressed: onMenuPressed,
+              onToggleMode: onToggleMode,
+              iconKey: iconKey,
+              iconVisible: iconVisible,
+              spotifyDisplayName: user?.displayName,
+              spotifyAvatarUrl: user?.avatarUrl,
+            );
+
+            if (isOnlineMode) {
+              // Pass header widgets into OnlineHomeScreen so the feed
+              // can include them as slivers (title scrolls, chips pin).
+              return OnlineHomeScreen(
+                headerTitleRow: titleRow,
+              );
+            }
+
+            // Offline: header stays fixed above the local music screen.
+            return Column(
+              children: [
+                titleRow,
+                Expanded(
+                  child: LocalMusicScreen(
+                    playbackController: playbackController,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

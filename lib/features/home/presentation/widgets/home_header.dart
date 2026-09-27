@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/facet_chip_row.dart';
 
-class HomeHeader extends StatelessWidget {
+/// Builds the home header title row (app icon + name + avatar).
+/// Used as a scrollable SliverToBoxAdapter in the feed.
+class HomeHeaderTitleRow extends StatelessWidget {
   final bool isOnlineMode;
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
   final GlobalKey iconKey;
   final bool iconVisible;
-
-  /// Spotify user's display name (null = offline / not logged in).
   final String? spotifyDisplayName;
-
-  /// Spotify user's avatar URL (null = show default icon).
   final String? spotifyAvatarUrl;
 
-  const HomeHeader({
+  const HomeHeaderTitleRow({
     super.key,
     required this.isOnlineMode,
     required this.onMenuPressed,
@@ -30,52 +30,36 @@ class HomeHeader extends StatelessWidget {
         ? spotifyDisplayName!
         : 'Musify';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              GestureDetector(
-                onTap: onToggleMode,
-                child: Opacity(
-                  opacity: iconVisible ? 1.0 : 0.0,
-                  child: Container(
-                    key: iconKey,
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Transform.flip(
-                      flipX: !isOnlineMode,
-                      child: Image.asset(
-                        'assets/images/app_icon.jpg',
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                displayName,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ],
-          ),
-          GestureDetector(
-            onTap: onMenuPressed,
-            child: _buildAvatar(),
-          ),
-        ],
+    return AppHeader(
+      leading: GestureDetector(
+        onTap: onMenuPressed,
+        child: _buildAvatar(),
       ),
+      title: displayName,
+      trailing: [
+        GestureDetector(
+          onTap: onToggleMode,
+          child: Opacity(
+            opacity: iconVisible ? 1.0 : 0.0,
+            child: Container(
+              key: iconKey,
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Transform.flip(
+                flipX: !isOnlineMode,
+                child: Image.asset(
+                  'assets/images/app_icon.jpg',
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -88,7 +72,6 @@ class HomeHeader extends StatelessWidget {
       );
     }
 
-    // Default avatar — initials or generic icon.
     if (isOnlineMode && spotifyDisplayName != null) {
       return CircleAvatar(
         radius: 20,
@@ -109,5 +92,15 @@ class HomeHeader extends StatelessWidget {
       backgroundColor: Color(0xFF3B82F6),
       child: Icon(Icons.person, color: Colors.white),
     );
+  }
+}
+
+/// The filter chips widget -- separate so it can be pinned independently.
+class HomeFilterChips extends StatelessWidget {
+  const HomeFilterChips({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const FacetChipRow();
   }
 }

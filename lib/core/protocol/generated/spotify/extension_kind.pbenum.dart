@@ -63,6 +63,8 @@ class ExtensionKind extends $pb.ProtobufEnum {
       ExtensionKind._(180, _omitEnumNames ? '' : 'CONTENT_TYPE_V2_TRAIT');
   static const ExtensionKind PREVIEW_PLAYBACK_TRAIT =
       ExtensionKind._(181, _omitEnumNames ? '' : 'PREVIEW_PLAYBACK_TRAIT');
+  static const ExtensionKind PUBLISHING_METADATA_TRAIT =
+      ExtensionKind._(183, _omitEnumNames ? '' : 'PUBLISHING_METADATA_TRAIT');
   static const ExtensionKind PLAYBACK_TRAIT =
       ExtensionKind._(212, _omitEnumNames ? '' : 'PLAYBACK_TRAIT');
   static const ExtensionKind ENTITY_TYPE_TRAIT =
@@ -92,6 +94,7 @@ class ExtensionKind extends $pb.ProtobufEnum {
     VISUAL_IDENTITY_TRAIT,
     CONTENT_TYPE_V2_TRAIT,
     PREVIEW_PLAYBACK_TRAIT,
+    PUBLISHING_METADATA_TRAIT,
     PLAYBACK_TRAIT,
     ENTITY_TYPE_TRAIT,
   ];
