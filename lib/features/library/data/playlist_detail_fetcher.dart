@@ -121,10 +121,10 @@ class PlaylistDetailFetcher {
 
         // Continue with the repaired detail below.
         // (fall through to track fetch + mosaic build + cache)
-        return _processAndCache(playlistId, repaired, bytes!);
+        return await _processAndCache(playlistId, repaired, bytes);
       }
 
-      return _processAndCache(playlistId, detail, bytes!);
+      return await _processAndCache(playlistId, detail, bytes);
     } catch (e, st) {
       dev.log(
         'PlaylistFetch/$playlistId error: $e',
@@ -318,7 +318,8 @@ class PlaylistDetailFetcher {
           trackUris: trackUris,
           coverUrl: coverUrl,
         );
-      } catch (_) {
+      } catch (e) {
+        dev.log('Parse playlist fallback failed: $e');
         return null;
       }
     }

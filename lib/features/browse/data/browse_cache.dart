@@ -57,6 +57,9 @@ class BrowseTraitCache {
     }
 
     _memoryCache ??= {};
+    final now = DateTime.now();
+    _memoryCache!.removeWhere((key, value) => now.difference(value.cachedAt) >= _itemTtl);
+    
     return _memoryCache!;
   }
 
@@ -114,8 +117,11 @@ class BrowseTraitCache {
       if (cache == null) return;
 
       final file = await _getCacheFile();
-      final json = cache.map((uri, entry) => MapEntry(uri, entry.toJson()));
-      await file.writeAsString(jsonEncode(json));
+      final now = DateTime.now();
+      final validEntries = cache.entries
+          .where((e) => now.difference(e.value.cachedAt) < _itemTtl)
+          .map((e) => MapEntry(e.key, e.value.toJson()));
+      await file.writeAsString(jsonEncode(Map.fromEntries(validEntries)));
     } catch (e) {
       dev.log('BrowseTraitCache: persist error: $e', name: 'Browse');
     }

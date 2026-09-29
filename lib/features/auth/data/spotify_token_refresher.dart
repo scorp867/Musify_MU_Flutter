@@ -104,7 +104,7 @@ class SpotifyTokenRefresher {
         'sec-fetch-dest': 'empty',
         'sec-fetch-mode': 'cors',
         'sec-fetch-site': 'same-origin',
-      });
+      }).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
         dev.log('TokenRefresh: HTTP ${response.statusCode}', name: 'Auth');
@@ -145,7 +145,7 @@ class SpotifyTokenRefresher {
       final response = await http.head(
         Uri.parse('https://open.spotify.com/'),
         headers: {'User-Agent': _userAgent},
-      );
+      ).timeout(const Duration(seconds: 15));
 
       final dateHeader = response.headers['date'];
       if (dateHeader != null) {

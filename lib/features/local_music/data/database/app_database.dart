@@ -17,6 +17,9 @@ class LocalTracks extends Table {
   IntColumn get duration => integer().nullable()();
   IntColumn get dateModified =>
       integer().nullable()(); // For syncing metadata changes
+
+  @override
+  List<Set<Column>> get uniqueKeys => [{songId}];
 }
 
 @DriftDatabase(tables: [LocalTracks])

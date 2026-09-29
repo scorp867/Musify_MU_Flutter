@@ -14,40 +14,48 @@ class LocalMusicSyncService {
   }) : _deviceMusic = deviceMusic,
        _store = store;
 
+  bool _isSyncing = false;
+
   Future<void> sync() async {
-    final cachedTracks = await _store.getAll();
-    final deviceTracks = await _deviceMusic.querySongs();
+    if (_isSyncing) return;
+    _isSyncing = true;
+    try {
+      final cachedTracks = await _store.getAll();
+      final deviceTracks = await _deviceMusic.querySongs();
 
-    final cachedBySongId = {
-      for (final track in cachedTracks) track.songId: track,
-    };
-    final deviceBySongId = {for (final track in deviceTracks) track.id: track};
-    final removedSongIds = cachedBySongId.keys.toSet().difference(
-      deviceBySongId.keys.toSet(),
-    );
+      final cachedBySongId = {
+        for (final track in cachedTracks) track.songId: track,
+      };
+      final deviceBySongId = {for (final track in deviceTracks) track.id: track};
+      final removedSongIds = cachedBySongId.keys.toSet().difference(
+        deviceBySongId.keys.toSet(),
+      );
 
-    final tracksToInsert = <LocalTracksCompanion>[];
-    final tracksToUpdate = <LocalTracksCompanion>[];
+      final tracksToInsert = <LocalTracksCompanion>[];
+      final tracksToUpdate = <LocalTracksCompanion>[];
 
-    for (final deviceTrack in deviceTracks) {
-      final cachedTrack = cachedBySongId[deviceTrack.id];
-      final companion = _store.companionFor(_toData(deviceTrack));
+      for (final deviceTrack in deviceTracks) {
+        final cachedTrack = cachedBySongId[deviceTrack.id];
+        final companion = _store.companionFor(_toData(deviceTrack));
 
-      if (cachedTrack == null) {
-        tracksToInsert.add(companion);
-      } else if (_hasMetadataChanged(cachedTrack, deviceTrack)) {
-        tracksToUpdate.add(companion.copyWith(id: drift.Value(cachedTrack.id)));
+        if (cachedTrack == null) {
+          tracksToInsert.add(companion);
+        } else if (_hasMetadataChanged(cachedTrack, deviceTrack)) {
+          tracksToUpdate.add(companion.copyWith(id: drift.Value(cachedTrack.id)));
+        }
       }
-    }
 
-    if (removedSongIds.isNotEmpty) {
-      await _store.deleteBySongIds(removedSongIds);
-    }
-    if (tracksToInsert.isNotEmpty) {
-      await _store.insertAll(tracksToInsert);
-    }
-    for (final track in tracksToUpdate) {
-      await _store.replace(track);
+      if (removedSongIds.isNotEmpty) {
+        await _store.deleteBySongIds(removedSongIds);
+      }
+      if (tracksToInsert.isNotEmpty) {
+        await _store.insertAll(tracksToInsert);
+      }
+      for (final track in tracksToUpdate) {
+        await _store.replace(track);
+      }
+    } finally {
+      _isSyncing = false;
     }
   }
 

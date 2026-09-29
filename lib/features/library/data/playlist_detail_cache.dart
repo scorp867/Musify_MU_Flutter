@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -53,7 +54,9 @@ class PlaylistDetailCache {
           cachedAt: cachedAt,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      dev.log('Ensure index failed: $e');
+    }
   }
 
   /// Returns cached entry for a playlist, or null if missing/expired.
@@ -110,7 +113,8 @@ class PlaylistDetailCache {
       final file = File('${dir.path}/$playlistId.bin');
       if (!await file.exists()) return null;
       return await file.readAsBytes();
-    } catch (_) {
+    } catch (e) {
+      dev.log('Get raw bytes failed: $e');
       return null;
     }
   }
@@ -138,7 +142,9 @@ class PlaylistDetailCache {
       }
 
       await indexFile.writeAsString(jsonEncode(map), flush: true);
-    } catch (_) {}
+    } catch (e) {
+      dev.log('Persist index failed: $e');
+    }
   }
 }
 

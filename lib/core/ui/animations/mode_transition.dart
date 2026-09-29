@@ -18,8 +18,9 @@ class ModeTransition {
     VoidCallback? onHideOriginal,
     VoidCallback? onShowOriginal,
   }) {
-    final RenderBox renderBox =
-        iconKey.currentContext!.findRenderObject() as RenderBox;
+    final context = iconKey.currentContext;
+    if (context == null) return;
+    final RenderBox renderBox = context.findRenderObject() as RenderBox;
     final startPosition = renderBox.localToGlobal(Offset.zero);
     final iconSize = renderBox.size;
     final startCenter = Offset(
@@ -127,24 +128,30 @@ class _TransitionOverlayWidgetState extends State<_TransitionOverlayWidget>
   Future<void> _runSequence() async {
     // 1. Icon flies to center, circle closes → screen goes dark.
     await _moveController.forward();
+    if (!mounted) return;
 
     // 2. Flip the icon 180° horizontally + fade in the text.
     await Future.wait([
       _flipController.forward(),
       _textController.forward(),
     ]);
+    if (!mounted) return;
 
     // 3. Switch mode — animation holds at dark state until ready.
     await widget.onReady();
+    if (!mounted) return;
 
     // 4. Brief pause so the user reads the text.
     await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
 
     // 5. Fade out text.
     await _textController.reverse();
+    if (!mounted) return;
 
     // 6. Circle opens, icon flies back (now flipped) → reveal new screen.
     await _moveController.reverse();
+    if (!mounted) return;
 
     // 7. Done.
     widget.onComplete();

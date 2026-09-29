@@ -46,7 +46,7 @@ class PreviewCard extends StatelessWidget {
                     width: 88,
                     height: 88,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       width: 88,
                       height: 88,
                       color: Colors.black26,
@@ -114,7 +114,7 @@ class PreviewCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                 decoration: BoxDecoration(
                   border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -18,7 +19,7 @@ class LibraryCache {
   static const _decorationTtl = Duration(hours: 24);
 
   // In-memory decoration cache: uri -> {name, imageUrl, cachedAt}
-  Map<String, _DecorationEntry> _decorations = {};
+  final Map<String, _DecorationEntry> _decorations = {};
   bool _decorationsLoaded = false;
 
   Future<Directory> get _cacheDir async {
@@ -44,7 +45,9 @@ class LibraryCache {
           DateTime.now().millisecondsSinceEpoch.toString(),
         ),
       ]);
-    } catch (_) {}
+    } catch (e) {
+      dev.log('Put structure bytes failed: $e');
+    }
   }
 
   /// Reads cached protobuf bytes. Returns null if expired or missing.
@@ -60,7 +63,8 @@ class LibraryCache {
       if (age > _structureTtl.inMilliseconds) return null;
 
       return await file.readAsBytes();
-    } catch (_) {
+    } catch (e) {
+      dev.log('Get structure bytes failed: $e');
       return null;
     }
   }
@@ -68,7 +72,7 @@ class LibraryCache {
   // ─── Decoration cache (per-URI metadata) ───────────────────────────
 
   /// Returns cached decoration for a URI, or null if missing/expired.
-  _DecorationEntry? getDecoration(String uri) {
+  DecorationData? getDecoration(String uri) {
     final entry = _decorations[uri];
     if (entry == null) return null;
 
@@ -77,7 +81,7 @@ class LibraryCache {
       _decorations.remove(uri);
       return null;
     }
-    return entry;
+    return DecorationData(name: entry.name, imageUrl: entry.imageUrl);
   }
 
   /// Filters a list of URIs to only those not in the decoration cache.
@@ -124,7 +128,9 @@ class LibraryCache {
           cachedAt: cachedAt,
         );
       }
-    } catch (_) {}
+    } catch (e) {
+      dev.log('Load decorations failed: $e');
+    }
   }
 
   Future<void> _persistDecorations() async {
@@ -142,7 +148,9 @@ class LibraryCache {
         };
       }
       await file.writeAsString(jsonEncode(map), flush: true);
-    } catch (_) {}
+    } catch (e) {
+      dev.log('Persist decorations failed: $e');
+    }
   }
 }
 

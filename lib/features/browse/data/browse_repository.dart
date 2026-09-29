@@ -120,6 +120,7 @@ class BrowseRepository {
 
   /// GET /browsita/v1/browse
   Future<Uint8List?> _fetchBrowsita() {
+    // TODO: Derive from user profile or device locale
     return _client.get('/browsita/v1/browse?timezone=Asia/Calcutta');
   }
 }

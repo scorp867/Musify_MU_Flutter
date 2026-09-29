@@ -57,6 +57,7 @@ class HomeFeedError extends HomeFeedState {
 
 class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
   final HomeRepository _repository;
+  bool _isLoading = false;
 
   HomeFeedBloc({required HomeRepository repository})
       : _repository = repository,
@@ -69,6 +70,8 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
     HomeFeedLoadRequested event,
     Emitter<HomeFeedState> emit,
   ) async {
+    if (_isLoading) return;
+    _isLoading = true;
     emit(const HomeFeedLoading());
 
     await emit.forEach(
@@ -76,6 +79,7 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
       onData: (data) => HomeFeedLoaded(data),
       onError: (error, _) => HomeFeedError(error.toString()),
     );
+    _isLoading = false;
   }
 
   Future<void> _onRefresh(

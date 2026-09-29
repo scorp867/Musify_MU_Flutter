@@ -238,6 +238,15 @@ class SpotifyEntity {
     required this.traits,
   });
 
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is SpotifyEntity && other.uri == uri;
+  }
+
+  @override
+  int get hashCode => uri.hashCode;
+
   /// Convenience fetcher for specific traits
   T? getTrait<T extends Trait>() {
     final typeName = T.toString();

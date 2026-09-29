@@ -1,24 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
-import 'package:musify_mu/core/media/extended_metadata_service.dart';
 import 'package:musify_mu/core/ui/animations/mode_transition.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
-import 'package:musify_mu/features/auth/data/spotify_client_token.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_refresher.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/data/browse_repository.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
+import 'package:musify_mu/features/browse/presentation/offline_browse_view.dart';
 import 'package:musify_mu/features/home/presentation/home_tab.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/data/library_repository.dart';
 import 'package:musify_mu/features/library/presentation/library_view.dart';
+import 'package:musify_mu/features/library/presentation/offline_library_view.dart';
 import 'package:musify_mu/features/player/presentation/widgets/mini_player.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/bottom_navigation.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:musify_mu/app/di/injection.dart';
 
 class MainScreen extends StatefulWidget {
   final VoidCallback onMenuPressed;
@@ -73,7 +71,12 @@ class _MainScreenState extends State<MainScreen> {
     await prefs.setBool(_kModeKey, isOnline);
   }
 
+  bool _isTransitioning = false;
+
   void _toggleMode() {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
+
     final targetMode = _isOnlineMode ? 'Offline' : 'Online';
 
     ModeTransition.start(
@@ -85,9 +88,11 @@ class _MainScreenState extends State<MainScreen> {
         setState(() => _iconVisible = false);
       },
       onShowOriginal: () {
+        _isTransitioning = false;
         if (mounted) setState(() => _iconVisible = true);
       },
       onReady: () async {
+        if (!mounted) return;
         setState(() {
           _isOnlineMode = !_isOnlineMode;
         });
@@ -135,11 +140,21 @@ class _MainScreenState extends State<MainScreen> {
                   playbackController: widget.playbackController,
                 ),
                 if (_visitedTabs.contains(1))
-                  _BrowseTab(onMenuPressed: widget.onMenuPressed)
+                  _BrowseTab(
+                    isOnlineMode: _isOnlineMode,
+                    onMenuPressed: widget.onMenuPressed,
+                    onToggleMode: _toggleMode,
+                    playbackController: widget.playbackController,
+                  )
                 else
                   const SizedBox.shrink(),
                 if (_visitedTabs.contains(2))
-                  _LibraryTab(onMenuPressed: widget.onMenuPressed)
+                  _LibraryTab(
+                    isOnlineMode: _isOnlineMode,
+                    onMenuPressed: widget.onMenuPressed,
+                    onToggleMode: _toggleMode,
+                    playbackController: widget.playbackController,
+                  )
                 else
                   const SizedBox.shrink(),
               ],
@@ -169,14 +184,30 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-/// Browse tab that wires up the BrowseBloc when authenticated.
+/// Browse tab -- online shows Spotify categories, offline shows local file search.
 class _BrowseTab extends StatelessWidget {
+  final bool isOnlineMode;
   final VoidCallback onMenuPressed;
+  final VoidCallback onToggleMode;
+  final PlaybackController? playbackController;
 
-  const _BrowseTab({required this.onMenuPressed});
+  const _BrowseTab({
+    required this.isOnlineMode,
+    required this.onMenuPressed,
+    required this.onToggleMode,
+    this.playbackController,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (!isOnlineMode) {
+      return OfflineBrowseView(
+        onMenuPressed: onMenuPressed,
+        onToggleMode: onToggleMode,
+        playbackController: playbackController,
+      );
+    }
+
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, authState) {
         if (authState is! Authenticated) {
@@ -191,26 +222,17 @@ class _BrowseTab extends StatelessWidget {
           );
         }
 
-        final tokenStore = SpotifyTokenStore();
-        final tokenRefresher = SpotifyTokenRefresher(tokenStore: tokenStore);
-        final clientTokenFetcher = SpotifyClientTokenFetcher(tokenStore);
-
-        final spotifyClient = SpotifyClient(
-          tokenStore: tokenStore,
-          tokenRefresher: tokenRefresher,
-          clientTokenFetcher: clientTokenFetcher,
-        );
-
-        final browseRepository = BrowseRepository(client: spotifyClient);
-
         return BlocProvider(
-          create: (_) => BrowseBloc(repository: browseRepository)
+          create: (_) => BrowseBloc(repository: getIt<BrowseRepository>())
             ..add(const BrowseLoadRequested()),
           child: Scaffold(
             backgroundColor: const Color(0xFF121212),
             body: SafeArea(
               bottom: false,
-              child: BrowseView(onMenuPressed: onMenuPressed),
+              child: BrowseView(
+                onMenuPressed: onMenuPressed,
+                onToggleMode: onToggleMode,
+              ),
             ),
           ),
         );
@@ -219,14 +241,30 @@ class _BrowseTab extends StatelessWidget {
   }
 }
 
-/// Library tab that wires up the LibraryBloc when authenticated.
+/// Library tab -- online shows Spotify playlists, offline shows local music library.
 class _LibraryTab extends StatelessWidget {
+  final bool isOnlineMode;
   final VoidCallback onMenuPressed;
+  final VoidCallback onToggleMode;
+  final PlaybackController? playbackController;
 
-  const _LibraryTab({required this.onMenuPressed});
+  const _LibraryTab({
+    required this.isOnlineMode,
+    required this.onMenuPressed,
+    required this.onToggleMode,
+    this.playbackController,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (!isOnlineMode) {
+      return OfflineLibraryView(
+        onMenuPressed: onMenuPressed,
+        onToggleMode: onToggleMode,
+        playbackController: playbackController,
+      );
+    }
+
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, authState) {
         if (authState is! Authenticated) {
@@ -242,35 +280,19 @@ class _LibraryTab extends StatelessWidget {
         }
 
         final userId = authState.user.id;
-        final tokenStore = SpotifyTokenStore();
-        final tokenRefresher = SpotifyTokenRefresher(tokenStore: tokenStore);
-        final clientTokenFetcher = SpotifyClientTokenFetcher(tokenStore);
-
-        final spotifyClient = SpotifyClient(
-          tokenStore: tokenStore,
-          tokenRefresher: tokenRefresher,
-          clientTokenFetcher: clientTokenFetcher,
-        );
-
-        // App-wide metadata service (shared across all features).
-        final metadataService = ExtendedMetadataService(
-          client: spotifyClient,
-        );
-
-        final libraryRepository = LibraryRepository(
-          client: spotifyClient,
-          userId: userId,
-          metadataService: metadataService,
-        );
 
         return BlocProvider(
-          create: (_) => LibraryBloc(repository: libraryRepository)
-            ..add(const LibraryLoadRequested()),
+          create: (_) => LibraryBloc(
+                repository: getIt<LibraryRepository>(param1: userId),
+              )..add(const LibraryLoadRequested()),
           child: Scaffold(
             backgroundColor: const Color(0xFF121212),
             body: SafeArea(
               bottom: false,
-              child: LibraryView(onMenuPressed: onMenuPressed),
+              child: LibraryView(
+                onMenuPressed: onMenuPressed,
+                onToggleMode: onToggleMode,
+              ),
             ),
           ),
         );

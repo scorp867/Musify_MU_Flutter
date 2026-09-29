@@ -1,8 +1,13 @@
+import 'package:equatable/equatable.dart';
+
 /// Complete browse tab data -- everything the UI needs.
-class BrowseViewData {
+class BrowseViewData extends Equatable {
   final List<BrowseSection> sections;
 
   const BrowseViewData({this.sections = const []});
+
+  @override
+  List<Object?> get props => [sections];
 
   Map<String, dynamic> toJson() => {
         'sections': sections.map((s) => s.toJson()).toList(),
@@ -21,7 +26,7 @@ class BrowseViewData {
 /// A section in the browse page.
 /// Browsita sections have a featureType oneof, but the main one
 /// is ContentCategory (field 2) which shows category grids.
-class BrowseSection {
+class BrowseSection extends Equatable {
   final String sectionId;
   final String sectionType;
   final String title;
@@ -37,6 +42,16 @@ class BrowseSection {
     this.items = const [],
     this.navigateUri,
   });
+
+  @override
+  List<Object?> get props => [
+        sectionId,
+        sectionType,
+        title,
+        iconName,
+        items,
+        navigateUri,
+      ];
 
   Map<String, dynamic> toJson() => {
         'sectionId': sectionId,
@@ -63,7 +78,7 @@ class BrowseSection {
 }
 
 /// A single item in a browse category (e.g. a genre card).
-class BrowseItem {
+class BrowseItem extends Equatable {
   /// The Spotify URI (e.g. spotify:page:..., spotify:genre:...).
   final String uri;
 
@@ -86,6 +101,15 @@ class BrowseItem {
     this.imageUrl = '',
     this.backgroundColor,
   });
+
+  @override
+  List<Object?> get props => [
+        uri,
+        targetUri,
+        title,
+        imageUrl,
+        backgroundColor,
+      ];
 
   BrowseItem copyWith({
     String? title,

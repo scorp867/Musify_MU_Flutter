@@ -1,7 +1,8 @@
+import 'package:equatable/equatable.dart';
 import 'spotify_entity.dart';
 
 /// Complete home feed data — everything the UI needs.
-class HomeViewData {
+class HomeViewData extends Equatable {
   final String greeting;
   final List<HomeSection> sections;
   final List<HomeChip> chips;
@@ -11,10 +12,13 @@ class HomeViewData {
     this.sections = const [],
     this.chips = const [],
   });
+
+  @override
+  List<Object?> get props => [greeting, sections, chips];
 }
 
 /// A single section row on the home screen (e.g. "Recently Played").
-class HomeSection {
+class HomeSection extends Equatable {
   final String title;
   final String subtitle;
   final List<SpotifyEntity> items;
@@ -30,14 +34,27 @@ class HomeSection {
     this.sectionUri,
     this.sectionType = '',
   });
+
+  @override
+  List<Object?> get props => [
+        title,
+        subtitle,
+        items,
+        layout,
+        sectionUri,
+        sectionType,
+      ];
 }
 
 /// Filter chip (Music, Podcasts, etc.)
-class HomeChip {
+class HomeChip extends Equatable {
   final String id;
   final String label;
 
   const HomeChip({required this.id, required this.label});
+
+  @override
+  List<Object?> get props => [id, label];
 }
 
 /// How a section is laid out on screen.

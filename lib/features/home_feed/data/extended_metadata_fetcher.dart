@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
@@ -36,7 +37,7 @@ class ExtendedMetadataFetcher {
 
       return await Isolate.run(() => _parseResponse(response));
     } catch (e) {
-      print('❌ ExtendedMetadataFetcher: $e');
+      dev.log('ExtendedMetadataFetcher: $e');
       return {};
     }
   }
@@ -46,7 +47,9 @@ class ExtendedMetadataFetcher {
 
     final request = BatchedEntityRequest()
       ..header = (BatchedEntityRequestHeader()
+        // TODO: Derive from user profile or device locale
         ..country = 'IN'
+        // TODO: Derive from user profile or device locale
         ..catalogue = 'free'
         ..taskId = taskId);
 
@@ -94,11 +97,13 @@ class ExtendedMetadataFetcher {
             navigationUri: trait.navigationUri,
             accessibility: trait.accessibility,
           );
-        } catch (_) {}
+        } catch (e) {
+          dev.log('ExtendedMetadata parse trait failed: $e');
+        }
       }
     }
 
-    print('✅ ExtendedMetadata: ${results.length} traits resolved');
+    dev.log('ExtendedMetadata: ${results.length} traits resolved');
     return results;
   }
 }

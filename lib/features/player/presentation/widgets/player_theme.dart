@@ -19,12 +19,9 @@ abstract final class PlayerColors {
   // Misc
   static const divider = Color(0xFF1E1E1E);
   static const shimmer = Color(0xFF252525);
-}
-
-BoxDecoration playerPanelDecoration() {
-  return BoxDecoration(
-    color: PlayerColors.surfaceHigh,
+  static final BoxDecoration panelDecoration = BoxDecoration(
+    color: surfaceHigh,
     borderRadius: BorderRadius.circular(20),
-    border: Border.all(color: PlayerColors.divider),
+    border: Border.all(color: divider),
   );
 }

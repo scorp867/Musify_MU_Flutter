@@ -108,7 +108,7 @@ class _HomeFeedShimmerState extends State<HomeFeedShimmer>
             physics: const NeverScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: 4,
-            itemBuilder: (_, __) => Container(
+            itemBuilder: (_, _) => Container(
               width: 140,
               margin: const EdgeInsets.symmetric(horizontal: 4),
               child: Column(

@@ -2,16 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
-import 'package:musify_mu/features/auth/data/spotify_client_token.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_refresher.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/auth/presentation/widgets/spotify_login_webview.dart';
 import 'package:musify_mu/features/auth/presentation/widgets/spotify_welcome_landing.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/home_feed/data/home_repository.dart';
 import 'package:musify_mu/features/home_feed/presentation/home_feed_view.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
+import 'package:musify_mu/app/di/injection.dart';
 
 class OnlineHomeScreen extends StatefulWidget {
   final Widget? headerTitleRow;
@@ -95,20 +92,8 @@ class _OnlineHomeScreenState extends State<OnlineHomeScreen> {
 
   /// Builds the authenticated home feed with all dependencies wired up.
   Widget _buildAuthenticatedFeed() {
-    final tokenStore = SpotifyTokenStore();
-    final tokenRefresher = SpotifyTokenRefresher(tokenStore: tokenStore);
-    final clientTokenFetcher = SpotifyClientTokenFetcher(tokenStore);
-
-    final spotifyClient = SpotifyClient(
-      tokenStore: tokenStore,
-      tokenRefresher: tokenRefresher,
-      clientTokenFetcher: clientTokenFetcher,
-    );
-
-    final homeRepository = HomeRepository(client: spotifyClient);
-
     return BlocProvider(
-      create: (_) => HomeFeedBloc(repository: homeRepository)
+      create: (_) => HomeFeedBloc(repository: getIt<HomeRepository>())
         ..add(const HomeFeedLoadRequested()),
       child: Container(
         color: const Color(0xFF121212),

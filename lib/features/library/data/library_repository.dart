@@ -96,7 +96,7 @@ class LibraryRepository {
           .toList();
       await _syncPlaylistDetails(playlistIds);
 
-      return _assembleViewData(
+      return await _assembleViewData(
         playlistItems,
         artistItems,
         showItems,
@@ -181,7 +181,7 @@ class LibraryRepository {
         Isolate.run(() => _parseCollectionBytes(cached[4]!, 'collection')),
       ]);
 
-      return _assembleViewData(
+      return await _assembleViewData(
         parsed[0], parsed[1], parsed[2], parsed[3], parsed[4],
       );
     } catch (e) {
@@ -487,7 +487,9 @@ class LibraryRepository {
 
       final request = BatchedEntityRequest()
         ..header = (BatchedEntityRequestHeader()
+          // TODO: Derive from user profile or device locale
           ..country = 'IN'
+          // TODO: Derive from user profile or device locale
           ..catalogue = 'free'
           ..taskId = taskId);
 
@@ -581,7 +583,9 @@ class LibraryRepository {
               }
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          dev.log('Parse artist extension data failed: $e');
+        }
       }
     }
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
@@ -10,11 +11,18 @@ import 'package:musify_mu/core/audio/playback_queue_manager.dart';
 class AudioPlaybackService {
   final AudioPlayer _player = AudioPlayer();
   late final PlaybackQueueManager _queueManager;
+  late final StreamSubscription<int?> _indexSubscription;
 
   AudioPlaybackService() {
     _queueManager = PlaybackQueueManager(_player);
-    _player.currentIndexStream.listen(_queueManager.onIndexChanged);
+    _indexSubscription = _player.currentIndexStream.listen(_queueManager.onIndexChanged);
   }
+
+  Future<void> dispose() async {
+    await _indexSubscription.cancel();
+    await _player.dispose();
+  }
+
 
   AudioPlayer get player => _player;
 

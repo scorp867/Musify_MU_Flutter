@@ -1,5 +1,7 @@
+import 'package:equatable/equatable.dart';
+
 /// A single item in the user's library (playlist, artist, show, album).
-class LibraryItem {
+class LibraryItem extends Equatable {
   final String uri;
   final String type;
   final String name;
@@ -25,6 +27,19 @@ class LibraryItem {
     this.mosaicImageUrls = const [],
   });
 
+  @override
+  List<Object?> get props => [
+        uri,
+        type,
+        name,
+        imageUrl,
+        ownerName,
+        addedAt,
+        isPinned,
+        trackCount,
+        mosaicImageUrls,
+      ];
+
   /// Creates a copy with updated fields.
   LibraryItem copyWith({
     String? name,
@@ -49,7 +64,7 @@ class LibraryItem {
 }
 
 /// Aggregated library data ready for the UI.
-class LibraryViewData {
+class LibraryViewData extends Equatable {
   final List<LibraryItem> items;
   final Set<String> pinnedUris;
 
@@ -57,6 +72,9 @@ class LibraryViewData {
     required this.items,
     this.pinnedUris = const {},
   });
+
+  @override
+  List<Object?> get props => [items, pinnedUris];
 
   /// Items filtered by type.
   List<LibraryItem> filterByType(String type) {

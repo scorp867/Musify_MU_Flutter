@@ -59,14 +59,11 @@ class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
     emit(const LibraryLoading());
 
     // SWR: stream yields cached first, then fresh.
-    await for (final data in _repository.getLibrary()) {
-      emit(LibraryLoaded(data: data));
-    }
-
-    // If stream completed without emitting, we have an error.
-    if (state is LibraryLoading) {
-      emit(const LibraryError(message: 'Failed to load library'));
-    }
+    await emit.forEach<LibraryViewData>(
+      _repository.getLibrary(),
+      onData: (data) => LibraryLoaded(data: data),
+      onError: (error, stackTrace) => LibraryError(message: 'Failed to load library: $error'),
+    );
   }
 
   Future<void> _onRefresh(
@@ -81,13 +78,20 @@ class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
       emit(LibraryLoaded(data: currentData, isRefreshing: true));
     }
 
-    // Refresh skips cache, fetches fresh only.
-    final data = await _repository.fetchFresh();
-    if (data != null) {
-      emit(LibraryLoaded(data: data));
-    } else {
+    try {
+      // Refresh skips cache, fetches fresh only.
+      final data = await _repository.fetchFresh();
+      if (data != null) {
+        emit(LibraryLoaded(data: data));
+      } else {
+        emit(LibraryError(
+          message: 'Failed to refresh library',
+          staleData: currentData,
+        ));
+      }
+    } catch (e) {
       emit(LibraryError(
-        message: 'Failed to refresh library',
+        message: 'Failed to refresh library: $e',
         staleData: currentData,
       ));
     }

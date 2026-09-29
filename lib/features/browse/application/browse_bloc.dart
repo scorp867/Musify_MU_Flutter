@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/browse/data/browse_repository.dart';
 import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
@@ -8,8 +9,11 @@ import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
 // Events
 // ═══════════════════════════════════════════════════════════════════
 
-sealed class BrowseEvent {
+sealed class BrowseEvent extends Equatable {
   const BrowseEvent();
+
+  @override
+  List<Object?> get props => [];
 }
 
 /// Initial load.
@@ -26,8 +30,11 @@ class BrowseRefreshRequested extends BrowseEvent {
 // States
 // ═══════════════════════════════════════════════════════════════════
 
-sealed class BrowseState {
+sealed class BrowseState extends Equatable {
   const BrowseState();
+
+  @override
+  List<Object?> get props => [];
 }
 
 class BrowseLoading extends BrowseState {
@@ -39,6 +46,9 @@ class BrowseLoaded extends BrowseState {
   final bool isRefreshing;
 
   const BrowseLoaded(this.data, {this.isRefreshing = false});
+
+  @override
+  List<Object?> get props => [data, isRefreshing];
 }
 
 class BrowseError extends BrowseState {
@@ -46,6 +56,9 @@ class BrowseError extends BrowseState {
   final BrowseViewData? staleData;
 
   const BrowseError(this.message, {this.staleData});
+
+  @override
+  List<Object?> get props => [message, staleData];
 }
 
 // ═══════════════════════════════════════════════════════════════════

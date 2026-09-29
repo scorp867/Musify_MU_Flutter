@@ -43,13 +43,13 @@ class ContentCarouselSection extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: items.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
               final item = items[index];
               
               final previewTrait = item.getTrait<PreviewCardTrait>();
               if (previewTrait != null) {
-                return PreviewCard(item: item, trait: previewTrait);
+                return SizedBox(width: 310, child: PreviewCard(item: item, trait: previewTrait));
               }
               
               if (item.type == ContentType.artist) {

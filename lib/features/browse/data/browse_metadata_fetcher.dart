@@ -108,7 +108,9 @@ class BrowseMetadataFetcher {
           } else if (kind == ExtensionKind.VISUAL_IDENTITY_TRAIT) {
             _parseVisualIdentityTrait(uri, payload, images, colors);
           }
-        } catch (_) {}
+        } catch (e) {
+          dev.log('Browse trait parse failed: $e');
+        }
       }
     }
 

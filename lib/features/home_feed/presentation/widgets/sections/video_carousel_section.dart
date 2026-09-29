@@ -91,7 +91,7 @@ class _VideoPreviewCard extends StatelessWidget {
                     ? Image.network(
                         imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
+                        errorBuilder: (_, _, _) => Container(
                           color: const Color(0xFF282828),
                           child: const Icon(Icons.videocam,
                               color: Colors.white24, size: 48),
@@ -181,7 +181,7 @@ class _VideoPreviewCard extends StatelessWidget {
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
+                      errorBuilder: (_, _, _) =>
                           const SizedBox(width: 40, height: 40),
                     ),
                   ),

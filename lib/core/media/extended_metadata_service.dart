@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
@@ -192,7 +193,9 @@ class ExtendedMetadataService {
 
     final request = BatchedEntityRequest()
       ..header = (BatchedEntityRequestHeader()
+        // TODO: Derive from user profile or device locale
         ..country = 'IN'
+        // TODO: Derive from user profile or device locale
         ..catalogue = 'free'
         ..taskId = taskId);
 
@@ -249,7 +252,9 @@ class ExtendedMetadataService {
           if (meta != null) {
             results[uri] = meta;
           }
-        } catch (_) {}
+        } catch (e) {
+          dev.log('Parse metadata payload failed: $e');
+        }
       }
     }
 
@@ -397,11 +402,14 @@ class _TrackMetaDiskCache {
           if (meta != null) {
             results[meta.uri] = meta;
           }
-        } catch (_) {}
+        } catch (e) {
+          dev.log('Parse disk cache line failed: $e');
+        }
       }
 
       return results;
-    } catch (_) {
+    } catch (e) {
+      dev.log('Load disk cache failed: $e');
       return {};
     }
   }
@@ -422,7 +430,33 @@ class _TrackMetaDiskCache {
         mode: FileMode.append,
         flush: true,
       );
-    } catch (_) {}
+      await _compactIfNeeded();
+    } catch (e) {
+      dev.log('Write to disk cache failed: $e');
+    }
+  }
+
+  Future<void> _compactIfNeeded() async {
+    try {
+      if (_file == null) return;
+      final lines = await _file!.readAsLines();
+      if (lines.length < 5000) return;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final valid = <String>[];
+      for (final line in lines) {
+        if (line.trim().isEmpty) continue;
+        try {
+          final map = jsonDecode(line) as Map<String, dynamic>;
+          final ts = map['ts'] as int? ?? 0;
+          if (now - ts <= _maxAge.inMilliseconds) valid.add(line);
+        } catch (e) {
+          dev.log('Compact cache check line failed: $e');
+        }
+      }
+      await _file!.writeAsString(valid.isNotEmpty ? '${valid.join('\n')}\n' : '');
+    } catch (e) {
+      dev.log('Compact cache file rewrite failed: $e');
+    }
   }
 
   static Map<String, dynamic> _toJson(TrackMeta meta, int ts) => {
@@ -456,31 +490,25 @@ class _TrackMetaDiskCache {
 
 /// Simple bounded LRU cache.
 class _LruCache<K, V> {
-  final int _maxSize;
-  final _map = <K, V>{};
-  final _accessOrder = <K>[];
-
   _LruCache(this._maxSize);
+  final int _maxSize;
+  final LinkedHashMap<K, V> _map = LinkedHashMap<K, V>();
 
   V? get(K key) {
-    final value = _map[key];
+    final value = _map.remove(key);
     if (value != null) {
-      // Move to end (most recently used).
-      _accessOrder.remove(key);
-      _accessOrder.add(key);
+      _map[key] = value;
     }
     return value;
   }
 
   void put(K key, V value) {
-    if (_map.containsKey(key)) {
-      _accessOrder.remove(key);
-    } else if (_map.length >= _maxSize) {
-      // Evict least recently used.
-      final lru = _accessOrder.removeAt(0);
-      _map.remove(lru);
-    }
+    _map.remove(key);
     _map[key] = value;
-    _accessOrder.add(key);
+    if (_map.length > _maxSize) {
+      _map.remove(_map.keys.first);
+    }
   }
+
+  Map<K, V> get entries => _map;
 }

@@ -56,7 +56,7 @@ class ShowcaseSection extends StatelessWidget {
                     Image.network(
                       imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
                     ),
                   // Bottom gradient for text readability
                   Positioned(

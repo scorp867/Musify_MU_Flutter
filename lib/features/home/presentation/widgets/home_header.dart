@@ -77,7 +77,9 @@ class HomeHeaderTitleRow extends StatelessWidget {
         radius: 20,
         backgroundColor: const Color(0xFF1DB954),
         child: Text(
-          spotifyDisplayName![0].toUpperCase(),
+          (spotifyDisplayName != null && spotifyDisplayName!.isNotEmpty)
+              ? spotifyDisplayName![0].toUpperCase()
+              : '?',
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,

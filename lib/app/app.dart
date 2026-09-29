@@ -7,6 +7,7 @@ import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
+import 'package:musify_mu/app/di/injection.dart';
 
 class MusifyApp extends StatelessWidget {
   final LocalMusicBloc Function()? createLocalMusicBloc;
@@ -23,7 +24,7 @@ class MusifyApp extends StatelessWidget {
     Widget app = MaterialApp(
       title: 'Musify MU',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark(),
+      theme: AppTheme.dark,
       scrollBehavior: const AppScrollBehavior(),
       home: HiddenDrawerScaffold(playbackController: playbackController),
     );
@@ -34,7 +35,7 @@ class MusifyApp extends StatelessWidget {
     return MultiBlocProvider(
       providers: [
         BlocProvider<AuthBloc>(
-          create: (_) => AuthBloc()..add(const AuthSessionRestored()),
+          create: (_) => getIt<AuthBloc>()..add(const AuthSessionRestored()),
         ),
         if (createBloc != null)
           BlocProvider<LocalMusicBloc>(

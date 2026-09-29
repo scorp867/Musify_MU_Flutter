@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
@@ -72,11 +73,11 @@ class SpotifyClientTokenFetcher {
           'sec-gpc': '1',
         },
         body: requestBody,
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
-        print('❌ ClientToken: HTTP ${response.statusCode}');
-        print('❌ ClientToken body: ${response.body}');
+        dev.log('ClientToken: HTTP ${response.statusCode}');
+        dev.log('ClientToken body: ${response.body}');
         return null;
       }
 
@@ -90,15 +91,15 @@ class SpotifyClientTokenFetcher {
 
         if (token != null && token.isNotEmpty) {
           await _tokenStore.saveClientToken(token);
-          print('✅ ClientToken obtained (${token.length} chars)');
+          dev.log('ClientToken obtained (${token.length} chars)');
           return token;
         }
       }
 
-      print('❌ ClientToken: Unexpected response type: $responseType');
+      dev.log('ClientToken: Unexpected response type: $responseType');
       return null;
     } catch (e) {
-      print('❌ ClientToken fetch failed: $e');
+      dev.log('ClientToken fetch failed: $e');
       return null;
     }
   }

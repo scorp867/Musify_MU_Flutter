@@ -86,7 +86,7 @@ class _EpisodeCard extends StatelessWidget {
                           ? Image.network(
                               imageUrl,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
+                              errorBuilder: (_, _, _) => Container(
                                 color: const Color(0xFF282828),
                                 child: const Icon(Icons.podcasts,
                                     color: Colors.white24, size: 24),
@@ -156,7 +156,7 @@ class _EpisodeCard extends StatelessWidget {
                       border: Border.all(
                         color: Colors.white.withValues(alpha: 0.3),
                       ),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,

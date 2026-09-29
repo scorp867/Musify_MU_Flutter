@@ -36,7 +36,11 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     on<_QueueDataChanged>(_onDataChanged);
   }
 
-  void _onStarted(QueueStarted event, Emitter<QueueState> emit) {
+  Future<void> _onStarted(QueueStarted event, Emitter<QueueState> emit) async {
+    await _queueSub?.cancel();
+    await _mediaItemSub?.cancel();
+    await _playbackStateSub?.cancel();
+
     _queueSub = _playbackController.queue.listen((queue) {
       _lastQueue = queue;
       _emitChange();

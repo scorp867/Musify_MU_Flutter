@@ -11,6 +11,7 @@ class LocalMusicRepositoryImpl implements LocalMusicRepository {
   final DeviceMusicDataSource _deviceMusic;
   final LocalTracksStore _store;
   final LocalMusicSyncService _syncService;
+  late final StreamSubscription _changesSub;
 
   LocalMusicRepositoryImpl({
     required DeviceMusicDataSource deviceMusic,
@@ -19,7 +20,11 @@ class LocalMusicRepositoryImpl implements LocalMusicRepository {
   }) : _deviceMusic = deviceMusic,
        _store = store,
        _syncService = syncService {
-    _deviceMusic.changes.listen((_) => unawaited(_syncService.sync()));
+    _changesSub = _deviceMusic.changes.listen((_) => unawaited(_syncService.sync()));
+  }
+
+  void dispose() {
+    _changesSub.cancel();
   }
 
   @override

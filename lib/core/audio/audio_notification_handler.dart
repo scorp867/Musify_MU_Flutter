@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
@@ -17,9 +18,18 @@ class AudioNotificationHandler extends BaseAudioHandler
   final Map<String, MediaItem> _latestMediaItems = {};
   final Map<String, Future<MediaItem>> _artworkRequests = {};
   String? _pendingQueueItemId;
+  late final StreamSubscription _playbackSub;
 
   AudioNotificationHandler(this._playbackService, this._audioQuery) {
-    _playbackService.playbackEventStream.listen(_publishPlaybackState);
+    _playbackSub = _playbackService.playbackEventStream.listen(_publishPlaybackState);
+  }
+
+  void _addLatestMediaItem(MediaItem item) {
+    if (_latestMediaItems.length > 500) {
+      final keysToRemove = _latestMediaItems.keys.take(_latestMediaItems.length - 400).toList();
+      keysToRemove.forEach(_latestMediaItems.remove);
+    }
+    _latestMediaItems[item.id] = item;
   }
 
   void _publishPlaybackState(PlaybackEvent event) {
@@ -71,13 +81,13 @@ class AudioNotificationHandler extends BaseAudioHandler
       _pendingQueueItemId = null;
     }
 
-    _latestMediaItems[item.id] = item;
+    _addLatestMediaItem(item);
 
     if (item.id != mediaItem.value?.id) {
       mediaItem.add(item);
       _fetchAndCacheArtwork(item).then((updatedItem) {
         if (mediaItem.value?.id == updatedItem.id) {
-          _latestMediaItems[updatedItem.id] = updatedItem;
+          _addLatestMediaItem(updatedItem);
           mediaItem.add(updatedItem);
         }
       });
@@ -87,7 +97,7 @@ class AudioNotificationHandler extends BaseAudioHandler
   Future<void> playTrack(MediaItem item, String uri) async {
     _pendingQueueItemId = null;
     item = await _fetchAndCacheArtwork(item);
-    _latestMediaItems[item.id] = item;
+    _addLatestMediaItem(item);
     mediaItem.add(item);
 
     await _playbackService.setAudioSource(uri);
@@ -109,7 +119,7 @@ class AudioNotificationHandler extends BaseAudioHandler
       queueItems[initialIndex] = currentItem;
 
       for (final item in queueItems) {
-        _latestMediaItems[item.id] = item;
+        _addLatestMediaItem(item);
       }
 
       mediaItem.add(currentItem);
@@ -130,7 +140,7 @@ class AudioNotificationHandler extends BaseAudioHandler
     if (currentItem == null || currentItem.id != item.id) return;
 
     final updatedItem = await _fetchAndCacheArtwork(item);
-    _latestMediaItems[updatedItem.id] = updatedItem;
+    _addLatestMediaItem(updatedItem);
     mediaItem.add(updatedItem);
 
     final currentQueue = queue.value;
@@ -185,7 +195,7 @@ class AudioNotificationHandler extends BaseAudioHandler
 
       if (bytes != null) {
         final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/art_${item.id}_$timestamp.jpg');
+        final file = File('${tempDir.path}/art_${item.id}.jpg');
         await file.writeAsBytes(bytes);
         return item.copyWith(artUri: Uri.file(file.path), extras: extras);
       }
@@ -230,6 +240,7 @@ class AudioNotificationHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
+    await _playbackSub.cancel();
     await _playbackService.stop();
     return super.stop();
   }

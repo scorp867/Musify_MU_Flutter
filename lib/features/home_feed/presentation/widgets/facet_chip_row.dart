@@ -27,7 +27,7 @@ class _FacetChipRowState extends State<FacetChipRow> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemCount: widget.labels.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final isActive = index == _selected;
           return GestureDetector(
@@ -44,7 +44,7 @@ class _FacetChipRowState extends State<FacetChipRow> {
                 color: isActive
                     ? const Color(0xFF1DB954)
                     : const Color(0xFF2A2A2A),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 widget.labels[index],

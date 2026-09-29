@@ -7,18 +7,16 @@ abstract final class AppTheme {
   static const secondary = Color(0xFF60A5FA);
   static const localAccent = Color(0xFF10B981);
 
-  static ThemeData dark() {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: background,
-      primaryColor: primary,
-      colorScheme: const ColorScheme.dark(
-        primary: primary,
-        secondary: secondary,
-        surface: surface,
-      ),
-      fontFamily: 'Poppins',
-    );
-  }
+  static final ThemeData dark = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.dark,
+    scaffoldBackgroundColor: background,
+    primaryColor: primary,
+    colorScheme: const ColorScheme.dark(
+      primary: primary,
+      secondary: secondary,
+      surface: surface,
+    ),
+    fontFamily: 'Poppins',
+  );
 }

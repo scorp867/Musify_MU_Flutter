@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
@@ -26,7 +27,7 @@ class OnAudioQueryDeviceMusicDataSource implements DeviceMusicDataSource {
       return await _audioQuery.permissionsRequest();
     } catch (e) {
       // on_audio_query PluginProvider may not be initialized yet.
-      print('⚠️ Permission request failed: $e');
+      dev.log('Permission request failed: $e');
       return false;
     }
   }

@@ -10,8 +10,9 @@ import 'package:musify_mu/features/library/domain/models/library_view_data.dart'
 /// The Library tab view.
 class LibraryView extends StatelessWidget {
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onToggleMode;
 
-  const LibraryView({super.key, this.onMenuPressed});
+  const LibraryView({super.key, this.onMenuPressed, this.onToggleMode});
 
   @override
   Widget build(BuildContext context) {
@@ -24,6 +25,7 @@ class LibraryView extends StatelessWidget {
               data: data,
               isRefreshing: isRefreshing,
               onMenuPressed: onMenuPressed,
+              onToggleMode: onToggleMode,
             ),
           LibraryError(:final message, :final staleData) =>
             staleData != null
@@ -31,6 +33,7 @@ class LibraryView extends StatelessWidget {
                     data: staleData,
                     isRefreshing: false,
                     onMenuPressed: onMenuPressed,
+                    onToggleMode: onToggleMode,
                   )
                 : _ErrorView(message: message),
         };
@@ -49,11 +52,13 @@ class _LibraryContent extends StatefulWidget {
   final LibraryViewData data;
   final bool isRefreshing;
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onToggleMode;
 
   const _LibraryContent({
     required this.data,
     required this.isRefreshing,
     this.onMenuPressed,
+    this.onToggleMode,
   });
 
   @override
@@ -86,7 +91,7 @@ class _LibraryContentState extends State<_LibraryContent> {
       onRefresh: () async {
         context.read<LibraryBloc>().add(const LibraryRefreshRequested());
         await context.read<LibraryBloc>().stream.firstWhere(
-              (s) => s is LibraryLoaded && !s.isRefreshing,
+              (s) => (s is LibraryLoaded && !s.isRefreshing) || s is LibraryError,
             );
       },
       child: CustomScrollView(
@@ -103,7 +108,10 @@ class _LibraryContentState extends State<_LibraryContent> {
             toolbarHeight: 72,
             titleSpacing: 0,
             automaticallyImplyLeading: false,
-            title: _LibraryHeader(onMenuPressed: widget.onMenuPressed),
+            title: _LibraryHeader(
+              onMenuPressed: widget.onMenuPressed,
+              onToggleMode: widget.onToggleMode,
+            ),
           ),
 
           // Filter chips (pinned)
@@ -144,8 +152,9 @@ class _LibraryContentState extends State<_LibraryContent> {
 
 class _LibraryHeader extends StatelessWidget {
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onToggleMode;
 
-  const _LibraryHeader({this.onMenuPressed});
+  const _LibraryHeader({this.onMenuPressed, this.onToggleMode});
 
   @override
   Widget build(BuildContext context) {
@@ -198,16 +207,19 @@ class _LibraryHeader extends StatelessWidget {
               icon: const Icon(Icons.add, color: Colors.white),
               onPressed: () {},
             ),
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Image.asset(
-                'assets/images/app_icon.jpg',
-                fit: BoxFit.cover,
+            GestureDetector(
+              onTap: onToggleMode,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/images/app_icon.jpg',
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
           ],
@@ -281,7 +293,7 @@ class _FilterChipRow extends StatelessWidget {
           color: isActive
               ? const Color(0xFF1DB954)
               : const Color(0xFF333333),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
@@ -376,7 +388,7 @@ class _LibraryItemTile extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF4B2FBA), Color(0xFF8B82E8)],
+          colors: [Color(0xFF1DB954), Color(0xFF1ED760)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -404,7 +416,7 @@ class _LibraryItemTile extends StatelessWidget {
         child: Image.network(
           item.imageUrl!,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _placeholderIcon(),
+          errorBuilder: (_, _, _) => _placeholderIcon(),
         ),
       );
     }
@@ -591,7 +603,7 @@ class _MosaicGrid extends StatelessWidget {
     return Image.network(
       url,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => Container(color: const Color(0xFF282828)),
+      errorBuilder: (_, _, _) => Container(color: const Color(0xFF282828)),
     );
   }
 }

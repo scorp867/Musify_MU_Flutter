@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:developer';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// Inline WebView that loads Spotify's login page.
@@ -107,6 +108,11 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
       )
       ..loadRequest(Uri.parse(_loginUrl));
   }
+  
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   void _onJsBridgeMessage(JavaScriptMessage message) {
     if (_loginCompleted) return;
@@ -120,7 +126,9 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
           _tryComplete();
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      log('WebView error: $e');
+    }
   }
 
   /// Detects when Spotify redirects to open.spotify.com after login.
@@ -133,6 +141,8 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
     // sp_dc is HttpOnly so JS can't read it.
     // Use the native WebViewCookieManager to read it from the platform cookie store.
     await _extractSpDcCookie();
+    
+    if (!mounted) return;
 
     // Also call /api/token via XHR to get a fresh bearer token.
     _controller.runJavaScript('''
@@ -170,6 +180,7 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
       //
       // Use Android's CookieManager via a method channel.
       final cookieStr = await _getNativeCookies('https://open.spotify.com');
+      if (!mounted) return;
       if (cookieStr != null) {
         for (final part in cookieStr.split(';')) {
           final trimmed = part.trim();
@@ -188,6 +199,7 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
       // in some WebView configurations).
       final allCookiesJs = await _controller
           .runJavaScriptReturningResult('document.cookie') as String;
+      if (!mounted) return;
       final allCookies = allCookiesJs.replaceAll('"', '');
       for (final part in allCookies.split(';')) {
         final trimmed = part.trim();
@@ -200,7 +212,9 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
           }
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      log('WebView error: $e');
+    }
   }
 
   /// Uses Android's native CookieManager to get all cookies for a URL.
@@ -216,8 +230,9 @@ class _SpotifyLoginWebViewState extends State<SpotifyLoginWebView> {
       const channel = MethodChannel('com.musify.mu/cookies');
       final result = await channel.invokeMethod<String>('getCookies', url);
       return result;
-    } catch (_) {
+    } catch (e) {
       // Method channel not registered — try alternative.
+      log('WebView error: $e');
       return null;
     }
   }

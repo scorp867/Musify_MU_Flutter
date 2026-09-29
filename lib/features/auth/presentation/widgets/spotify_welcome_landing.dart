@@ -97,7 +97,7 @@ class SpotifyWelcomeLanding extends StatelessWidget {
                     foregroundColor: Colors.white,
                     disabledBackgroundColor: _kSpotifyGreen.withValues(alpha: 0.5),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(26),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     elevation: 0,
                   ),

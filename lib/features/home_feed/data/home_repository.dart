@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -106,7 +107,7 @@ class HomeRepository {
       await _saveToDisk(result);
       return result;
     } catch (e) {
-      print('❌ HomeRepository.fetchFresh: $e');
+      dev.log('HomeRepository.fetchFresh: $e');
       return null;
     }
   }
@@ -143,17 +144,17 @@ class HomeRepository {
       final selectorUris = await _fetchOndemandSelector();
       if (selectorUris.isNotEmpty) {
         urisToResolve.addAll(selectorUris);
-        print('📦 OnDemandSelector: ${selectorUris.length} additional URIs');
+        dev.log('OnDemandSelector: ${selectorUris.length} additional URIs');
       }
     } catch (e) {
-      print('⚠️ OnDemandSelector failed (non-critical): $e');
+      dev.log('OnDemandSelector failed (non-critical): $e');
     }
 
     if (urisToResolve.isEmpty) return;
 
     // Step 4b: Fetch SimpleCardTrait via Extended Metadata API
     final uriList = urisToResolve.toList();
-    print('🌐 HomeRepository: Resolving SimpleCardTrait for ${uriList.length} URIs...');
+    dev.log('HomeRepository: Resolving SimpleCardTrait for ${uriList.length} URIs...');
     final fetcher = ExtendedMetadataFetcher(client: _client);
     final traitMap = await fetcher.fetchTraits(uriList);
 
@@ -174,6 +175,7 @@ class HomeRepository {
   Future<Uint8List?> _fetchCasitaHome() {
     const path = '/casita/v1/home/default'
         '?eagerload=$_casitaEagerload'
+        // TODO: Derive from user profile or device locale
         '&timezone=Asia/Calcutta'
         '&mobile-only-dsa-enabled=false';
     return _client.get(path);
@@ -202,7 +204,7 @@ class HomeRepository {
       if (data == null || data.isEmpty) return [];
       return await Isolate.run(() => _parseRecentsItemsSync(data));
     } catch (e) {
-      print('❌ HomeRepository: Recents fetch failed: $e');
+      dev.log('HomeRepository: Recents fetch failed: $e');
       return [];
     }
   }
@@ -317,7 +319,9 @@ class HomeRepository {
                 if (decoded.length >= 2 && decoded[0] == 8) {
                   songsCount = decoded[1];
                 }
-              } catch (_) {}
+              } catch (e) {
+                dev.log('Recents parse group metadata failed: $e');
+              }
           }
         }
 
@@ -329,10 +333,10 @@ class HomeRepository {
         ));
       }
     } catch (e) {
-      print('⚠️ HomeRepository: Recents parse error: $e');
+      dev.log('HomeRepository: Recents parse error: $e');
     }
 
-    print('✅ Recents: ${items.length} items parsed');
+    dev.log('Recents: ${items.length} items parsed');
     return items;
   }
 
@@ -378,7 +382,7 @@ class HomeRepository {
       };
       await file.writeAsString(jsonEncode(json));
     } catch (e) {
-      print('❌ HomeRepository: Cache write failed: $e');
+      dev.log('HomeRepository: Cache write failed: $e');
     }
   }
 
@@ -424,7 +428,7 @@ class HomeRepository {
         chips: chips,
       );
     } catch (e) {
-      print('❌ HomeRepository: Cache read failed: $e');
+      dev.log('HomeRepository: Cache read failed: $e');
       return null;
     }
   }

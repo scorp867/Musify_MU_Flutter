@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -5,8 +6,6 @@ import 'package:musify_mu/core/protocol/generated/spotify/casita/resolved.pb.dar
 import 'package:musify_mu/core/protocol/generated/spotify/traits/preview_card_trait.pb.dart' as pct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/shortcuts_card_trait.pb.dart' as sct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/simple_card_trait.pb.dart' as sct2;
-import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
-import 'package:musify_mu/core/protocol/generated/spotify/entity_extension_data.pb.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 
@@ -42,10 +41,10 @@ class CasitaParser {
       final home = casita.ResolvedHome.fromBuffer(data);
 
       _parseEagerlyLoadedTraits(home.eagerlyLoadedTraits);
-      print('\u{1F4E6} CasitaParser: ${_traits.length} URIs loaded from repository');
+      dev.log('CasitaParser: ${_traits.length} URIs loaded from repository');
 
       final ondemandUris = home.ondemandSet.uris.toList();
-      print('\u{1F4E6} CasitaParser: ${ondemandUris.length} URIs in ondemandSet');
+      dev.log('CasitaParser: ${ondemandUris.length} URIs in ondemandSet');
 
       final sections = <HomeSection>[];
       for (final section in home.structure.sections) {
@@ -78,13 +77,13 @@ class CasitaParser {
         );
       }).toList();
 
-      print('\u{1F4E6} CasitaParser: ${hydratedSections.length} sections, $hydrated items hydrated');
+      dev.log('CasitaParser: ${hydratedSections.length} sections, $hydrated items hydrated');
       return CasitaResult(
         homeData: HomeViewData(sections: hydratedSections),
         ondemandUris: ondemandUris,
       );
     } catch (e, stack) {
-      print('\u274C CasitaParser: $e\n$stack');
+      dev.log('CasitaParser: $e\n$stack');
       return CasitaResult(
         homeData: const HomeViewData(),
         ondemandUris: const [],
@@ -180,8 +179,8 @@ class CasitaParser {
       if (trait.title.isNotEmpty) {
         _storeTrait(uri, IdentityTrait(title: trait.title));
       }
-    } catch (_) {
-      // Silently skip malformed identity traits
+    } catch (e) {
+      dev.log('Silently skip malformed identity traits: $e');
     }
   }
 
@@ -197,7 +196,7 @@ class CasitaParser {
     final sectionId = section.hasSectionInfo() ? section.sectionInfo.sectionId : '';
     final featureType = section.whichFeatureType();
 
-    print('📋 Section: featureType=${featureType.name} sectionId=$sectionId');
+    dev.log('Section: featureType=${featureType.name} sectionId=$sectionId');
 
     // The featureType.name IS the rendering instruction from Spotify's Casita.
     // Pass it through directly — no manual mapping.
@@ -325,8 +324,7 @@ class CasitaParser {
         return null; // CTA ads, skip
 
       case casita.Section_FeatureType.notSet:
-      default:
-        print('⚠️ CasitaParser: Unknown section type ${featureType.name} (sectionId=$sectionId)');
+        dev.log('CasitaParser: Unknown section type ${featureType.name} (sectionId=$sectionId)');
         return null;
     }
   }

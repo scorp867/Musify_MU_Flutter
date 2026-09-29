@@ -10,8 +10,9 @@ import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
 /// The browse/search tab view -- renders category grid from Browsita data.
 class BrowseView extends StatelessWidget {
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onToggleMode;
 
-  const BrowseView({super.key, this.onMenuPressed});
+  const BrowseView({super.key, this.onMenuPressed, this.onToggleMode});
 
   @override
   Widget build(BuildContext context) {
@@ -24,12 +25,14 @@ class BrowseView extends StatelessWidget {
               data: data,
               isRefreshing: isRefreshing,
               onMenuPressed: onMenuPressed,
+              onToggleMode: onToggleMode,
             ),
           BrowseError(:final message, :final staleData) => staleData != null
               ? _BrowseContent(
                   data: staleData,
                   isRefreshing: false,
                   onMenuPressed: onMenuPressed,
+                  onToggleMode: onToggleMode,
                 )
               : _ErrorView(message: message),
         };
@@ -44,11 +47,13 @@ class _BrowseContent extends StatelessWidget {
   final BrowseViewData data;
   final bool isRefreshing;
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onToggleMode;
 
   const _BrowseContent({
     required this.data,
     required this.isRefreshing,
     this.onMenuPressed,
+    this.onToggleMode,
   });
 
   @override
@@ -59,7 +64,7 @@ class _BrowseContent extends StatelessWidget {
       onRefresh: () async {
         context.read<BrowseBloc>().add(const BrowseRefreshRequested());
         await context.read<BrowseBloc>().stream.firstWhere(
-              (s) => s is BrowseLoaded && !s.isRefreshing,
+              (s) => (s is BrowseLoaded && !s.isRefreshing) || s is BrowseError,
             );
       },
       child: CustomScrollView(
@@ -76,7 +81,10 @@ class _BrowseContent extends StatelessWidget {
             toolbarHeight: 72,
             titleSpacing: 0,
             automaticallyImplyLeading: false,
-            title: _BrowseHeader(onMenuPressed: onMenuPressed),
+            title: _BrowseHeader(
+              onMenuPressed: onMenuPressed,
+              onToggleMode: onToggleMode,
+            ),
           ),
 
           // Search bar (pinned -- stays visible when scrolling)
@@ -219,8 +227,9 @@ class _BrowseCard extends StatelessWidget {
 
 class _BrowseHeader extends StatelessWidget {
   final VoidCallback? onMenuPressed;
+  final VoidCallback? onToggleMode;
 
-  const _BrowseHeader({this.onMenuPressed});
+  const _BrowseHeader({this.onMenuPressed, this.onToggleMode});
 
   @override
   Widget build(BuildContext context) {
@@ -266,16 +275,19 @@ class _BrowseHeader extends StatelessWidget {
           ),
           title: 'Search',
           trailing: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Image.asset(
-                'assets/images/app_icon.jpg',
-                fit: BoxFit.cover,
+            GestureDetector(
+              onTap: onToggleMode,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Image.asset(
+                  'assets/images/app_icon.jpg',
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
           ],

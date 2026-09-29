@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer';
 
 import 'package:http/http.dart' as http;
 import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
@@ -51,7 +52,7 @@ class SpotifyProfileFetcher {
           'Referer': 'https://open.spotify.com/',
         },
         body: body,
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) return null;
 
@@ -83,7 +84,8 @@ class SpotifyProfileFetcher {
         displayName: displayName,
         avatarUrl: avatarUrl,
       );
-    } catch (_) {
+    } catch (e) {
+      log('ProfileFetcher error: $e');
       return null;
     }
   }
@@ -95,7 +97,9 @@ class SpotifyProfileFetcher {
       if (sources != null && sources.isNotEmpty) {
         return (sources.first as Map<String, dynamic>)['url'] as String?;
       }
-    } catch (_) {}
+    } catch (e) {
+      log('ProfileFetcher error: $e');
+    }
     return null;
   }
 }

@@ -110,7 +110,7 @@ class _NowPlayingIndicatorState extends State<_NowPlayingIndicator>
       return AnimationController(
         vsync: this,
         duration: Duration(milliseconds: _durations[i]),
-      )..addListener(_onTick);
+      );
     });
     _animations = List.generate(_barCount, (i) {
       return Tween<double>(begin: _minHeights[i], end: _maxHeights[i]).animate(
@@ -118,10 +118,6 @@ class _NowPlayingIndicatorState extends State<_NowPlayingIndicator>
       );
     });
     _syncAnimations();
-  }
-
-  void _onTick() {
-    if (mounted) setState(() {});
   }
 
   @override
@@ -159,14 +155,19 @@ class _NowPlayingIndicatorState extends State<_NowPlayingIndicator>
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: List.generate(_barCount, (i) {
-          return Container(
-            width: 3.5,
-            height: widget.isPlaying ? _animations[i].value : _minHeights[i],
-            margin: EdgeInsets.only(left: i > 0 ? 2 : 0),
-            decoration: BoxDecoration(
-              color: PlayerColors.accent,
-              borderRadius: BorderRadius.circular(2),
-            ),
+          return AnimatedBuilder(
+            animation: _controllers[i],
+            builder: (context, child) {
+              return Container(
+                width: 3.5,
+                height: widget.isPlaying ? _animations[i].value : _minHeights[i],
+                margin: EdgeInsets.only(left: i > 0 ? 2 : 0),
+                decoration: BoxDecoration(
+                  color: PlayerColors.accent,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              );
+            },
           );
         }),
       ),

@@ -73,7 +73,7 @@ class _FeedContent extends StatelessWidget {
             .read<HomeFeedBloc>()
             .add(const HomeFeedRefreshRequested());
         await context.read<HomeFeedBloc>().stream.firstWhere(
-              (s) => s is HomeFeedLoaded && !s.isRefreshing,
+              (s) => (s is HomeFeedLoaded && !s.isRefreshing) || s is HomeFeedError,
             );
       },
       child: CustomScrollView(

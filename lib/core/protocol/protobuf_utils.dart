@@ -50,12 +50,14 @@ class SpotifyProtoReader {
   }
 
   int readFixed32() {
+    if (_pos + 4 > _buf.length) return 0;
     final res = _bd.getUint32(_pos, Endian.little);
     _pos += 4;
     return res;
   }
 
   int readFixed64() {
+    if (_pos + 8 > _buf.length) return 0;
     final res = _bd.getUint64(_pos, Endian.little);
     _pos += 8;
     return res;
