@@ -9,7 +9,8 @@ import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/vis
     as vis_trait;
 import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Resolved browse item data from IdentityTrait + VisualIdentityTrait.
 class BrowseCardData {
@@ -32,9 +33,14 @@ class BrowseCardData {
 /// - IdentityTrait provides: name, type, description
 /// - VisualIdentityTrait provides: square cover image, curated background color
 class BrowseMetadataFetcher {
-  final SpotifyClient _client;
+  final SpotifyTransport _client;
+  final RuntimeContext _ctx;
 
-  BrowseMetadataFetcher({required SpotifyClient client}) : _client = client;
+  BrowseMetadataFetcher({
+    required SpotifyTransport client,
+    required RuntimeContext ctx,
+  })  : _client = client,
+        _ctx = ctx;
 
   /// Fetches browse card data for each URI.
   /// Returns uri -> BrowseCardData map.
@@ -63,8 +69,8 @@ class BrowseMetadataFetcher {
 
     final request = BatchedEntityRequest()
       ..header = (BatchedEntityRequestHeader()
-        ..country = 'IN'
-        ..catalogue = 'free'
+        ..country = _ctx.country
+        ..catalogue = _ctx.catalogue
         ..taskId = taskId);
 
     for (final uri in uris) {

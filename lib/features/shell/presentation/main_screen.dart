@@ -1,32 +1,38 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/mode_persistence.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/animations/mode_transition.dart';
-import 'package:musify_mu/features/auth/application/auth_bloc.dart';
-import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
+import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/core/ui/widgets/auth_gated_bloc_provider.dart';
+import 'package:musify_mu/core/ui/widgets/connect_spotify_prompt.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
-import 'package:musify_mu/features/browse/data/browse_repository.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
 import 'package:musify_mu/features/browse/presentation/offline_browse_view.dart';
 import 'package:musify_mu/features/home/presentation/home_tab.dart';
+import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
-import 'package:musify_mu/features/library/data/library_repository.dart';
 import 'package:musify_mu/features/library/presentation/library_view.dart';
 import 'package:musify_mu/features/library/presentation/offline_library_view.dart';
 import 'package:musify_mu/features/player/presentation/widgets/mini_player.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/bottom_navigation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:musify_mu/app/di/injection.dart';
 
 class MainScreen extends StatefulWidget {
   final VoidCallback onMenuPressed;
   final bool isDrawerOpen;
   final PlaybackController? playbackController;
+  final ModePersistence modePersistence;
+  final HomeFeedBloc Function() createHomeFeedBloc;
+  final BrowseBloc Function() createBrowseBloc;
+  final LibraryBloc Function(String userId) createLibraryBloc;
 
   const MainScreen({
     super.key,
     required this.onMenuPressed,
     required this.isDrawerOpen,
+    required this.modePersistence,
+    required this.createHomeFeedBloc,
+    required this.createBrowseBloc,
+    required this.createLibraryBloc,
     this.playbackController,
   });
 
@@ -35,8 +41,6 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  static const _kModeKey = 'app_mode_online';
-
   int _currentIndex = 0;
   final GlobalKey _iconKey = GlobalKey();
   bool _isOnlineMode = false;
@@ -54,8 +58,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _loadSavedMode() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedMode = prefs.getBool(_kModeKey);
+    final savedMode = await widget.modePersistence.loadMode();
     if (savedMode != null && mounted) {
       setState(() {
         _isOnlineMode = savedMode;
@@ -67,8 +70,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _saveMode(bool isOnline) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kModeKey, isOnline);
+    await widget.modePersistence.saveMode(isOnline);
   }
 
   bool _isTransitioning = false;
@@ -138,6 +140,7 @@ class _MainScreenState extends State<MainScreen> {
                   iconKey: _iconKey,
                   iconVisible: _iconVisible,
                   playbackController: widget.playbackController,
+                  createHomeFeedBloc: widget.createHomeFeedBloc,
                 ),
                 if (_visitedTabs.contains(1))
                   _BrowseTab(
@@ -145,6 +148,7 @@ class _MainScreenState extends State<MainScreen> {
                     onMenuPressed: widget.onMenuPressed,
                     onToggleMode: _toggleMode,
                     playbackController: widget.playbackController,
+                    createBrowseBloc: widget.createBrowseBloc,
                   )
                 else
                   const SizedBox.shrink(),
@@ -154,6 +158,7 @@ class _MainScreenState extends State<MainScreen> {
                     onMenuPressed: widget.onMenuPressed,
                     onToggleMode: _toggleMode,
                     playbackController: widget.playbackController,
+                    createLibraryBloc: widget.createLibraryBloc,
                   )
                 else
                   const SizedBox.shrink(),
@@ -190,11 +195,13 @@ class _BrowseTab extends StatelessWidget {
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
   final PlaybackController? playbackController;
+  final BrowseBloc Function() createBrowseBloc;
 
   const _BrowseTab({
     required this.isOnlineMode,
     required this.onMenuPressed,
     required this.onToggleMode,
+    required this.createBrowseBloc,
     this.playbackController,
   });
 
@@ -208,35 +215,64 @@ class _BrowseTab extends StatelessWidget {
       );
     }
 
-    return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, authState) {
-        if (authState is! Authenticated) {
-          return const Scaffold(
-            backgroundColor: Color(0xFF121212),
-            body: Center(
-              child: Text(
-                'Search',
-                style: TextStyle(color: Colors.white54, fontSize: 18),
+    return AuthGatedBlocProvider<BrowseBloc>(
+      createBloc: (_) => createBrowseBloc()..add(const BrowseLoadRequested()),
+      placeholder: Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              AppHeader(
+                leading: GestureDetector(
+                  onTap: onMenuPressed,
+                  child: const CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Color(0xFF535353),
+                    child: Icon(Icons.person, color: Colors.white),
+                  ),
+                ),
+                title: 'Search',
+                trailing: [
+                  GestureDetector(
+                    onTap: onToggleMode,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset(
+                        'assets/images/app_icon.jpg',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          );
-        }
-
-        return BlocProvider(
-          create: (_) => BrowseBloc(repository: getIt<BrowseRepository>())
-            ..add(const BrowseLoadRequested()),
-          child: Scaffold(
-            backgroundColor: const Color(0xFF121212),
-            body: SafeArea(
-              bottom: false,
-              child: BrowseView(
-                onMenuPressed: onMenuPressed,
-                onToggleMode: onToggleMode,
+              const Expanded(
+                child: ConnectSpotifyPrompt(
+                  icon: Icons.search_rounded,
+                  title: 'Search millions of songs',
+                  subtitle:
+                      'Connect your Spotify account to browse\ncategories and discover new music.',
+                ),
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        body: SafeArea(
+          bottom: false,
+          child: BrowseView(
+            onMenuPressed: onMenuPressed,
+            onToggleMode: onToggleMode,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -247,11 +283,13 @@ class _LibraryTab extends StatelessWidget {
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
   final PlaybackController? playbackController;
+  final LibraryBloc Function(String userId) createLibraryBloc;
 
   const _LibraryTab({
     required this.isOnlineMode,
     required this.onMenuPressed,
     required this.onToggleMode,
+    required this.createLibraryBloc,
     this.playbackController,
   });
 
@@ -265,38 +303,65 @@ class _LibraryTab extends StatelessWidget {
       );
     }
 
-    return BlocBuilder<AuthBloc, AuthState>(
-      builder: (context, authState) {
-        if (authState is! Authenticated) {
-          return const Scaffold(
-            backgroundColor: Color(0xFF121212),
-            body: Center(
-              child: Text(
-                'Your Library',
-                style: TextStyle(color: Colors.white54, fontSize: 18),
+    return AuthGatedBlocProvider<LibraryBloc>(
+      createBloc: (userId) =>
+          createLibraryBloc(userId)..add(const LibraryLoadRequested()),
+      placeholder: Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              AppHeader(
+                leading: GestureDetector(
+                  onTap: onMenuPressed,
+                  child: const CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Color(0xFF535353),
+                    child: Icon(Icons.person, color: Colors.white),
+                  ),
+                ),
+                title: 'Your Library',
+                trailing: [
+                  GestureDetector(
+                    onTap: onToggleMode,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Image.asset(
+                        'assets/images/app_icon.jpg',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          );
-        }
-
-        final userId = authState.user.id;
-
-        return BlocProvider(
-          create: (_) => LibraryBloc(
-                repository: getIt<LibraryRepository>(param1: userId),
-              )..add(const LibraryLoadRequested()),
-          child: Scaffold(
-            backgroundColor: const Color(0xFF121212),
-            body: SafeArea(
-              bottom: false,
-              child: LibraryView(
-                onMenuPressed: onMenuPressed,
-                onToggleMode: onToggleMode,
+              const Expanded(
+                child: ConnectSpotifyPrompt(
+                  icon: Icons.library_music_rounded,
+                  title: 'Your playlists, all in one place',
+                  subtitle:
+                      'Connect your Spotify account to access\nyour playlists, saved albums, and artists.',
+                ),
               ),
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        body: SafeArea(
+          bottom: false,
+          child: LibraryView(
+            onMenuPressed: onMenuPressed,
+            onToggleMode: onToggleMode,
+          ),
+        ),
+      ),
     );
   }
 }

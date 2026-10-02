@@ -10,13 +10,6 @@ import "spotify/playlist/rootlist.proto";
 //   GET /playlist/v2/playlist/{playlistId}
 //   GET /playlist/v2/playlist/{playlistId}/diff?revision=...&handlesContent=
 //
-// Uses the same SelectedListContent wire format as rootlist, but the server
-// populates additional fields (diff, capabilities, up_to_date, etc.).
-//
-// We define a separate message here because:
-//   1. Playlist detail needs Diff/Op parsing which rootlist doesn't.
-//   2. Keeps rootlist.proto clean for library-only use.
-//
 // Reverse-engineered from Playlist4ApiProto.java (decompiled APK).
 
 message PlaylistResponse {
@@ -40,22 +33,41 @@ message PlaylistResponse {
   int64 created_at = 21;
 }
 
-// ─── Diff / Operations ──────────────────────────────────────────────
+// ─── Diff ────────────────────────────────────────────────────────────
+// Confirmed from Playlist4ApiProto$Diff (decompiled):
+//   FROM_REVISION_FIELD_NUMBER = 1
+//   OPS_FIELD_NUMBER = 2
+//   TO_REVISION_FIELD_NUMBER = 3
+//   AVAILABLE_SIGNALS_FIELD_NUMBER = 4
 
 message Diff {
-  repeated Op ops = 1;
+  bytes from_revision = 1;
+  repeated Op ops = 2;
+  bytes to_revision = 3;
+  AvailableSignals available_signals = 4;
 }
+
+// ─── Op ──────────────────────────────────────────────────────────────
+// Confirmed from Playlist4ApiProto$Op (decompiled):
+//   KIND_FIELD_NUMBER = 1
+//   ADD_FIELD_NUMBER = 2
+//   REM_FIELD_NUMBER = 3
+//   MOV_FIELD_NUMBER = 4
+//   UPDATE_ITEM_ATTRIBUTES_FIELD_NUMBER = 5
+//   UPDATE_LIST_ATTRIBUTES_FIELD_NUMBER = 6
+//   UPDATE_ITEM_URIS_FIELD_NUMBER = 7
 
 message Op {
   OpKind kind = 1;
-  int32 from_index = 2;
-  int32 to_index = 3;
-  int32 length = 4;
-  repeated Item items = 5;
-  ListAttributes list_attributes = 6;
-  ItemAttributes item_attributes = 7;
+  Add add = 2;
+  Rem rem = 3;
+  Mov mov = 4;
+  UpdateItemAttributes update_item_attributes = 5;
+  UpdateListAttributes update_list_attributes = 6;
+  UpdateItemUris update_item_uris = 7;
 }
 
+// Confirmed from Playlist4ApiProto$Op$Kind (decompiled).
 enum OpKind {
   OP_KIND_UNKNOWN = 0;
   // 1 unused
@@ -64,4 +76,143 @@ enum OpKind {
   MOV = 4;
   UPDATE_ITEM_ATTRIBUTES = 5;
   UPDATE_LIST_ATTRIBUTES = 6;
+  UPDATE_ITEM_URIS = 7;
+}
+
+// ─── Op payloads ─────────────────────────────────────────────────────
+// Confirmed from Playlist4ApiProto$Add (decompiled):
+//   FROM_INDEX_FIELD_NUMBER = 1
+//   ITEMS_FIELD_NUMBER = 2
+//   ADD_LAST_FIELD_NUMBER = 4
+//   ADD_FIRST_FIELD_NUMBER = 5
+//   ADD_BEFORE_ITEM_FIELD_NUMBER = 6
+//   ADD_AFTER_ITEM_FIELD_NUMBER = 7
+
+message Add {
+  int32 from_index = 1;
+  repeated Item items = 2;
+  // field 3 unused
+  bool add_last = 4;
+  bool add_first = 5;
+  Item add_before_item = 6;
+  Item add_after_item = 7;
+}
+
+// Confirmed from Playlist4ApiProto$Rem (decompiled):
+//   FROM_INDEX_FIELD_NUMBER = 1
+//   LENGTH_FIELD_NUMBER = 2
+//   ITEMS_FIELD_NUMBER = 3
+//   ITEMS_AS_KEY_FIELD_NUMBER = 7
+
+message Rem {
+  int32 from_index = 1;
+  int32 length = 2;
+  repeated Item items = 3;
+  // fields 4-6 unused
+  bool items_as_key = 7;
+}
+
+// Confirmed from Playlist4ApiProto$Mov (decompiled):
+//   FROM_INDEX_FIELD_NUMBER = 1
+//   LENGTH_FIELD_NUMBER = 2
+//   TO_INDEX_FIELD_NUMBER = 3
+//   ITEMS_FIELD_NUMBER = 4
+//   ADD_BEFORE_ITEM_FIELD_NUMBER = 5
+//   ADD_AFTER_ITEM_FIELD_NUMBER = 6
+//   ADD_FIRST_FIELD_NUMBER = 7
+//   ADD_LAST_FIELD_NUMBER = 8
+
+message Mov {
+  int32 from_index = 1;
+  int32 length = 2;
+  int32 to_index = 3;
+  repeated Item items = 4;
+  Item add_before_item = 5;
+  Item add_after_item = 6;
+  bool add_first = 7;
+  bool add_last = 8;
+}
+
+// Confirmed from Playlist4ApiProto$UpdateListAttributes (decompiled):
+//   NEW_ATTRIBUTES_FIELD_NUMBER = 1
+//   OLD_ATTRIBUTES_FIELD_NUMBER = 2
+
+message UpdateListAttributes {
+  ListAttributesPartialState new_attributes = 1;
+  ListAttributesPartialState old_attributes = 2;
+}
+
+// Confirmed from Playlist4ApiProto$UpdateItemAttributes (decompiled):
+//   INDEX_FIELD_NUMBER = 1
+//   NEW_ATTRIBUTES_FIELD_NUMBER = 2
+//   OLD_ATTRIBUTES_FIELD_NUMBER = 3
+//   ITEM_FIELD_NUMBER = 4
+message UpdateItemAttributes {
+  int32 index = 1;
+  ItemAttributesPartialState new_attributes = 2;
+  ItemAttributesPartialState old_attributes = 3;
+  Item item = 4;
+}
+
+// Confirmed from Playlist4ApiProto$UpdateItemUris (decompiled):
+//   URI_REPLACEMENTS_FIELD_NUMBER = 1
+message UpdateItemUris {
+  repeated UriReplacement uri_replacements = 1;
+}
+
+// Confirmed from Playlist4ApiProto$UriReplacement (decompiled):
+//   INDEX_FIELD_NUMBER = 1
+//   ITEM_FIELD_NUMBER = 2
+//   NEW_URI_FIELD_NUMBER = 3
+message UriReplacement {
+  int32 index = 1;
+  Item item = 2;
+  string new_uri = 3;
+}
+
+// ─── Partial state wrappers ──────────────────────────────────────────
+// Confirmed from Playlist4ApiProto$ListAttributesPartialState:
+//   VALUES_FIELD_NUMBER = 1
+//   NO_VALUE_FIELD_NUMBER = 2
+
+message ListAttributesPartialState {
+  ListAttributes values = 1;
+  repeated ListAttributeKind no_value = 2;
+}
+
+message ItemAttributesPartialState {
+  ItemAttributes values = 1;
+  repeated ItemAttributeKind no_value = 2;
+}
+
+// ─── Attribute kind enums ────────────────────────────────────────────
+
+enum ListAttributeKind {
+  LIST_UNKNOWN = 0;
+  LIST_NAME = 1;
+  LIST_DESCRIPTION = 2;
+  LIST_PICTURE = 3;
+  LIST_COLLABORATIVE = 4;
+  LIST_PL3_VERSION = 5;
+  LIST_DELETED_BY_OWNER = 6;
+  LIST_CLIENT_ID = 10;
+  LIST_FORMAT = 11;
+  LIST_FORMAT_ATTRIBUTES = 12;
+  LIST_PICTURE_SIZE = 13;
+}
+
+enum ItemAttributeKind {
+  ITEM_UNKNOWN = 0;
+  ITEM_ADDED_BY = 1;
+  ITEM_TIMESTAMP = 2;
+  ITEM_SEEN_AT = 9;
+  ITEM_PUBLIC = 10;
+  ITEM_FORMAT_ATTRIBUTES = 11;
+  ITEM_ID = 12;
+}
+
+// ─── AvailableSignals ────────────────────────────────────────────────
+
+message AvailableSignals {
+  // TODO: reverse-engineer when needed
 }

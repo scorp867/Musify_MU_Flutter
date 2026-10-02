@@ -8,7 +8,8 @@ import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.
 import 'package:musify_mu/core/protocol/generated/spotify/traits/simple_card_trait.pb.dart'
     as sct;
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Fetches SimpleCardTrait for URIs not covered by the Casita eagerload.
 ///
@@ -19,9 +20,14 @@ import 'package:musify_mu/features/spotify_client/spotify_client.dart';
 /// The eagerload config only covers certain section types (shortcuts, etc).
 /// All remaining URIs need their SimpleCardTrait fetched via this API.
 class ExtendedMetadataFetcher {
-  final SpotifyClient _client;
+  final SpotifyTransport _client;
+  final RuntimeContext _ctx;
 
-  ExtendedMetadataFetcher({required SpotifyClient client}) : _client = client;
+  ExtendedMetadataFetcher({
+    required SpotifyTransport client,
+    required RuntimeContext ctx,
+  })  : _client = client,
+        _ctx = ctx;
 
   /// Fetches SimpleCardTrait for each URI. Returns uri → SimpleCardTrait map.
   Future<Map<String, SimpleCardTrait>> fetchTraits(List<String> uris) async {
@@ -47,10 +53,8 @@ class ExtendedMetadataFetcher {
 
     final request = BatchedEntityRequest()
       ..header = (BatchedEntityRequestHeader()
-        // TODO: Derive from user profile or device locale
-        ..country = 'IN'
-        // TODO: Derive from user profile or device locale
-        ..catalogue = 'free'
+        ..country = _ctx.country
+        ..catalogue = _ctx.catalogue
         ..taskId = taskId);
 
     for (final uri in uris) {

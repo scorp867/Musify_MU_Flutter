@@ -5,6 +5,7 @@ import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/home/presentation/online_home_screen.dart';
 import 'package:musify_mu/features/home/presentation/widgets/home_header.dart';
+import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/screens/local_music_screen.dart';
 
 class HomeTab extends StatelessWidget {
@@ -14,6 +15,7 @@ class HomeTab extends StatelessWidget {
   final GlobalKey iconKey;
   final bool iconVisible;
   final PlaybackController? playbackController;
+  final HomeFeedBloc Function() createHomeFeedBloc;
 
   const HomeTab({
     super.key,
@@ -21,6 +23,7 @@ class HomeTab extends StatelessWidget {
     required this.onMenuPressed,
     required this.onToggleMode,
     required this.iconKey,
+    required this.createHomeFeedBloc,
     this.iconVisible = true,
     this.playbackController,
   });
@@ -55,6 +58,7 @@ class HomeTab extends StatelessWidget {
               // can include them as slivers (title scrolls, chips pin).
               return OnlineHomeScreen(
                 headerTitleRow: titleRow,
+                createHomeFeedBloc: createHomeFeedBloc,
               );
             }
 

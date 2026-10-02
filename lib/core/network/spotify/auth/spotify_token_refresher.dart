@@ -3,8 +3,8 @@ import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:musify_mu/features/auth/data/spotify_totp.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_totp.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
 
 /// Refreshes the Spotify Web Player access token using the sp_dc cookie + TOTP.
 ///
@@ -22,9 +22,9 @@ class SpotifyTokenRefresher {
       '(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
   SpotifyTokenRefresher({
-    SpotifyTokenStore? tokenStore,
+    required SpotifyTokenStore tokenStore,
     SpotifyTotp? totp,
-  })  : _tokenStore = tokenStore ?? SpotifyTokenStore(),
+  })  : _tokenStore = tokenStore,
         _totp = totp ?? SpotifyTotp();
 
   /// Attempts to refresh the access token.

@@ -16,8 +16,12 @@ lib/
 │   ├── audio/                         # Transport and queue infrastructure
 │   │   └── playback_queue_manager.dart # Sliding-window queue policy
 │   ├── media/                         # MediaItem metadata mapping
+│   ├── network/spotify/               # Spotify HTTP infrastructure
+│   │   ├── auth/                      # Token store, refresher, TOTP, session provider
+│   │   └── transport/                 # Abstract transport, WebPlayer + Android impls
 │   └── ui/                            # Shared animations and formatters
 └── features/
+    ├── auth/                          # Auth BLoC, profile fetcher, login WebView
     ├── home/presentation/             # Online home and mode entry point
     │   └── widgets/                   # Home header
     ├── shell/presentation/            # Drawer and bottom navigation
@@ -43,11 +47,22 @@ app composition root
 feature presentation → feature domain contracts
         ↓                       ↑
 feature data → core abstractions ┘
+        ↓
+core/network/spotify/transport (SpotifyTransport)
+        ↓
+core/network/spotify/auth (AuthSessionProvider)
 ```
 
 - `main.dart` and `app/di/injection.dart` construct concrete services.
 - Presentation widgets receive contracts explicitly; they do not resolve
   concrete services from `get_it`.
+- Feature data layers depend on `SpotifyTransport` (abstract), never on
+  auth internals like token stores, refreshers, or TOTP.
+- `AuthSessionProvider` composes token store, refresher, and client token
+  fetcher behind a single interface that transports consume.
+- `WebPlayerTransport` and `AndroidTransport` implement `SpotifyTransport`
+  with platform-specific identity headers. Callers needing both (e.g.
+  library) receive both via constructor injection.
 - The local music repository contract lives in `local_music/domain`; its
   implementation is in `local_music/data`.
 - Device querying, permission handling, MediaStore observation, Drift access,

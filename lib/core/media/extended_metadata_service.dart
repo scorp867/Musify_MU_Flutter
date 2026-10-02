@@ -6,13 +6,14 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
-
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/cache/cache_policy.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/metadata.pb.dart'
     as meta_pb;
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Resolved metadata for a single track or episode.
 ///
@@ -64,17 +65,24 @@ const _imageCdnPrefix = 'https://i.scdn.co/image/';
 ///   - Now Playing / Queue: track info display
 ///   - Playback: duration, title, artist
 class ExtendedMetadataService {
-  final SpotifyClient _client;
+  final SpotifyTransport _client;
+  final RuntimeContext _ctx;
 
   // Layer 1: In-memory LRU for zero-cost reads.
   final _memCache = _LruCache<String, TrackMeta>(2000);
 
   // Layer 2: Disk persistence.
-  final _diskCache = _TrackMetaDiskCache();
+  final _TrackMetaDiskCache _diskCache;
 
   bool _diskLoaded = false;
 
-  ExtendedMetadataService({required SpotifyClient client}) : _client = client;
+  ExtendedMetadataService({
+    required SpotifyTransport client,
+    required RuntimeContext ctx,
+    required AppCacheManager cacheManager,
+  })  : _client = client,
+        _ctx = ctx,
+        _diskCache = _TrackMetaDiskCache(cacheManager: cacheManager);
 
   /// Loads disk cache into memory (called once lazily).
   Future<void> _ensureDiskLoaded() async {
@@ -193,10 +201,8 @@ class ExtendedMetadataService {
 
     final request = BatchedEntityRequest()
       ..header = (BatchedEntityRequestHeader()
-        // TODO: Derive from user profile or device locale
-        ..country = 'IN'
-        // TODO: Derive from user profile or device locale
-        ..catalogue = 'free'
+        ..country = _ctx.country
+        ..catalogue = _ctx.catalogue
         ..taskId = taskId);
 
     for (final uri in uris) {
@@ -365,15 +371,23 @@ class ExtendedMetadataService {
 /// Uses a single JSONL file (one JSON object per line) for fast append-only writes.
 /// Format: {"u":"spotify:track:xxx","t":"Title","s":"Artist","a":"Album","i":{"small":"url","medium":"url","large":"url"},"h":"hexId","d":12345}
 class _TrackMetaDiskCache {
-  static const _maxAge = Duration(days: 7);
-  static const _fileName = 'track_meta_cache.jsonl';
+  static const _policy = CachePolicy.durable;
+  static const _fileName = 'track_meta.jsonl';
 
+  final AppCacheManager _cacheManager;
   File? _file;
+  int _fileGeneration = -1;
+
+  _TrackMetaDiskCache({required AppCacheManager cacheManager})
+      : _cacheManager = cacheManager;
 
   Future<File> _getFile() async {
-    if (_file != null) return _file!;
-    final dir = await getApplicationDocumentsDirectory();
-    _file = File('${dir.path}/$_fileName');
+    if (_file != null && _fileGeneration == _cacheManager.generation) {
+      return _file!;
+    }
+    final dir = await _cacheManager.featureDir('metadata');
+    _file = File('${dir.path}${Platform.pathSeparator}$_fileName');
+    _fileGeneration = _cacheManager.generation;
     return _file!;
   }
 
@@ -386,7 +400,6 @@ class _TrackMetaDiskCache {
       final content = await file.readAsString();
       if (content.isEmpty) return {};
 
-      final now = DateTime.now().millisecondsSinceEpoch;
       final results = <String, TrackMeta>{};
 
       for (final line in content.split('\n')) {
@@ -396,7 +409,7 @@ class _TrackMetaDiskCache {
 
           // Check expiry.
           final ts = j['ts'] as int? ?? 0;
-          if (now - ts > _maxAge.inMilliseconds) continue;
+          if (_policy.isExpired(ts)) continue;
 
           final meta = _fromJson(j);
           if (meta != null) {
@@ -441,14 +454,13 @@ class _TrackMetaDiskCache {
       if (_file == null) return;
       final lines = await _file!.readAsLines();
       if (lines.length < 5000) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
       final valid = <String>[];
       for (final line in lines) {
         if (line.trim().isEmpty) continue;
         try {
           final map = jsonDecode(line) as Map<String, dynamic>;
           final ts = map['ts'] as int? ?? 0;
-          if (now - ts <= _maxAge.inMilliseconds) valid.add(line);
+          if (!_policy.isExpired(ts)) valid.add(line);
         } catch (e) {
           dev.log('Compact cache check line failed: $e');
         }

@@ -3,7 +3,8 @@ import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/cache/cache_policy.dart';
 
 /// Per-playlist disk cache with revision tracking for diff-based updates.
 ///
@@ -13,28 +14,32 @@ import 'package:path_provider/path_provider.dart';
 ///   - Cover image URL (mosaic or custom)
 ///   - Track URIs (for mosaic generation)
 class PlaylistDetailCache {
-  static const _maxAge = Duration(hours: 24);
+  static const _policy = CachePolicy.standard;
+
+  final AppCacheManager _cacheManager;
 
   // In-memory index: playlistId -> PlaylistCacheEntry
   Map<String, PlaylistCacheEntry>? _index;
+  int _loadedGeneration = -1;
 
-  Future<Directory> get _cacheDir async {
-    final dir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${dir.path}/playlist_cache');
-    if (!await cacheDir.exists()) {
-      await cacheDir.create(recursive: true);
-    }
-    return cacheDir;
-  }
+  PlaylistDetailCache({required AppCacheManager cacheManager})
+      : _cacheManager = cacheManager;
+
+  Future<Directory> get _cacheDir => _cacheManager.featureDir('playlists');
 
   /// Loads the index from disk if not already loaded.
   Future<void> _ensureIndex() async {
-    if (_index != null) return;
+    if (_index != null && _loadedGeneration == _cacheManager.generation) {
+      return;
+    }
     _index = {};
+    _loadedGeneration = _cacheManager.generation;
 
     try {
       final dir = await _cacheDir;
-      final indexFile = File('${dir.path}/index.json');
+      final indexFile = File(
+        '${dir.path}${Platform.pathSeparator}index.json',
+      );
       if (!await indexFile.exists()) return;
 
       final raw = await indexFile.readAsString();
@@ -43,12 +48,12 @@ class PlaylistDetailCache {
       for (final e in map.entries) {
         final v = e.value as Map<String, dynamic>;
         final cachedAt = v['t'] as int? ?? 0;
-        final age = DateTime.now().millisecondsSinceEpoch - cachedAt;
-        if (age > _maxAge.inMilliseconds) continue;
+        if (_policy.isExpired(cachedAt)) continue;
 
         _index![e.key] = PlaylistCacheEntry(
           revision: v['r'] as String? ?? '',
           coverUrl: v['c'] as String?,
+          isCustomCover: v['cc'] as bool? ?? false,
           mosaicImageUrls: (v['m'] as List?)?.cast<String>() ?? [],
           trackUris: (v['u'] as List?)?.cast<String>() ?? [],
           cachedAt: cachedAt,
@@ -83,6 +88,7 @@ class PlaylistDetailCache {
     required String revision,
     required List<String> trackUris,
     String? coverUrl,
+    bool isCustomCover = false,
     List<String> mosaicImageUrls = const [],
     Uint8List? rawBytes,
   }) async {
@@ -91,6 +97,7 @@ class PlaylistDetailCache {
     _index![playlistId] = PlaylistCacheEntry(
       revision: revision,
       coverUrl: coverUrl,
+      isCustomCover: isCustomCover,
       mosaicImageUrls: mosaicImageUrls,
       trackUris: trackUris,
       cachedAt: DateTime.now().millisecondsSinceEpoch,
@@ -99,7 +106,9 @@ class PlaylistDetailCache {
     // Store raw bytes separately (large, no need to hold in memory).
     if (rawBytes != null) {
       final dir = await _cacheDir;
-      final file = File('${dir.path}/$playlistId.bin');
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}$playlistId.bin',
+      );
       await file.writeAsBytes(rawBytes, flush: true);
     }
 
@@ -110,7 +119,9 @@ class PlaylistDetailCache {
   Future<Uint8List?> getRawBytes(String playlistId) async {
     try {
       final dir = await _cacheDir;
-      final file = File('${dir.path}/$playlistId.bin');
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}$playlistId.bin',
+      );
       if (!await file.exists()) return null;
       return await file.readAsBytes();
     } catch (e) {
@@ -128,13 +139,16 @@ class PlaylistDetailCache {
   Future<void> _persistIndex() async {
     try {
       final dir = await _cacheDir;
-      final indexFile = File('${dir.path}/index.json');
+      final indexFile = File(
+        '${dir.path}${Platform.pathSeparator}index.json',
+      );
 
       final map = <String, dynamic>{};
       for (final e in _index!.entries) {
         map[e.key] = {
           'r': e.value.revision,
           if (e.value.coverUrl != null) 'c': e.value.coverUrl,
+          if (e.value.isCustomCover) 'cc': true,
           if (e.value.mosaicImageUrls.isNotEmpty) 'm': e.value.mosaicImageUrls,
           'u': e.value.trackUris,
           't': e.value.cachedAt,
@@ -151,6 +165,10 @@ class PlaylistDetailCache {
 class PlaylistCacheEntry {
   final String revision;
   final String? coverUrl;
+
+  /// True when coverUrl is a user-set custom image (from ListAttributes.picture),
+  /// false when it's a track album art fallback or null.
+  final bool isCustomCover;
   final List<String> mosaicImageUrls;
   final List<String> trackUris;
   final int cachedAt;
@@ -158,6 +176,7 @@ class PlaylistCacheEntry {
   const PlaylistCacheEntry({
     required this.revision,
     this.coverUrl,
+    this.isCustomCover = false,
     this.mosaicImageUrls = const [],
     required this.trackUris,
     required this.cachedAt,

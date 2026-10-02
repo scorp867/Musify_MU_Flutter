@@ -1,6 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/features/library/data/library_repository.dart';
-import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
+import 'package:musify_mu/features/library/domain/usecases/load_library.dart';
 
 // ─── Events ──────────────────────────────────────────────────────────
 
@@ -43,10 +42,10 @@ final class LibraryError extends LibraryState {
 // ─── BLoC ────────────────────────────────────────────────────────────
 
 class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
-  final LibraryRepository _repository;
+  final LoadLibrary _loadLibrary;
 
-  LibraryBloc({required LibraryRepository repository})
-      : _repository = repository,
+  LibraryBloc({required LoadLibrary loadLibrary})
+      : _loadLibrary = loadLibrary,
         super(const LibraryLoading()) {
     on<LibraryLoadRequested>(_onLoad);
     on<LibraryRefreshRequested>(_onRefresh);
@@ -60,7 +59,7 @@ class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
 
     // SWR: stream yields cached first, then fresh.
     await emit.forEach<LibraryViewData>(
-      _repository.getLibrary(),
+      _loadLibrary(),
       onData: (data) => LibraryLoaded(data: data),
       onError: (error, stackTrace) => LibraryError(message: 'Failed to load library: $error'),
     );
@@ -80,7 +79,7 @@ class LibraryBloc extends Bloc<LibraryEvent, LibraryState> {
 
     try {
       // Refresh skips cache, fetches fresh only.
-      final data = await _repository.fetchFresh();
+      final data = await _loadLibrary.refresh();
       if (data != null) {
         emit(LibraryLoaded(data: data));
       } else {

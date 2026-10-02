@@ -3,7 +3,8 @@ import 'dart:developer' as dev;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/cache/cache_policy.dart';
 
 /// High-performance two-layer cache for Library data.
 ///
@@ -15,21 +16,20 @@ import 'package:path_provider/path_provider.dart';
 ///   - In-memory Map for fast lookups, persisted to disk periodically
 ///   - 24h TTL per entry
 class LibraryCache {
-  static const _structureTtl = Duration(hours: 1);
-  static const _decorationTtl = Duration(hours: 24);
+  static const _structurePolicy = CachePolicy.frequent;
+  static const _decorationPolicy = CachePolicy.standard;
+
+  final AppCacheManager _cacheManager;
 
   // In-memory decoration cache: uri -> {name, imageUrl, cachedAt}
   final Map<String, _DecorationEntry> _decorations = {};
   bool _decorationsLoaded = false;
+  int _loadedGeneration = -1;
 
-  Future<Directory> get _cacheDir async {
-    final dir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${dir.path}/library_cache');
-    if (!await cacheDir.exists()) {
-      await cacheDir.create(recursive: true);
-    }
-    return cacheDir;
-  }
+  LibraryCache({required AppCacheManager cacheManager})
+      : _cacheManager = cacheManager;
+
+  Future<Directory> get _cacheDir => _cacheManager.featureDir('library');
 
   // ─── Structure cache (raw protobuf bytes) ──────────────────────────
 
@@ -37,8 +37,9 @@ class LibraryCache {
   Future<void> putStructureBytes(String key, Uint8List bytes) async {
     try {
       final dir = await _cacheDir;
-      final file = File('${dir.path}/struct_$key.bin');
-      final meta = File('${dir.path}/struct_$key.ts');
+      final sep = Platform.pathSeparator;
+      final file = File('${dir.path}${sep}struct_$key.bin');
+      final meta = File('${dir.path}${sep}struct_$key.ts');
       await Future.wait([
         file.writeAsBytes(bytes, flush: true),
         meta.writeAsString(
@@ -54,13 +55,13 @@ class LibraryCache {
   Future<Uint8List?> getStructureBytes(String key) async {
     try {
       final dir = await _cacheDir;
-      final file = File('${dir.path}/struct_$key.bin');
-      final meta = File('${dir.path}/struct_$key.ts');
+      final sep = Platform.pathSeparator;
+      final file = File('${dir.path}${sep}struct_$key.bin');
+      final meta = File('${dir.path}${sep}struct_$key.ts');
       if (!await file.exists() || !await meta.exists()) return null;
 
       final ts = int.parse(await meta.readAsString());
-      final age = DateTime.now().millisecondsSinceEpoch - ts;
-      if (age > _structureTtl.inMilliseconds) return null;
+      if (_structurePolicy.isExpired(ts)) return null;
 
       return await file.readAsBytes();
     } catch (e) {
@@ -73,11 +74,11 @@ class LibraryCache {
 
   /// Returns cached decoration for a URI, or null if missing/expired.
   DecorationData? getDecoration(String uri) {
+    _checkGeneration();
     final entry = _decorations[uri];
     if (entry == null) return null;
 
-    final age = DateTime.now().millisecondsSinceEpoch - entry.cachedAt;
-    if (age > _decorationTtl.inMilliseconds) {
+    if (_decorationPolicy.isExpired(entry.cachedAt)) {
       _decorations.remove(uri);
       return null;
     }
@@ -104,23 +105,28 @@ class LibraryCache {
 
   /// Loads decoration cache from disk into memory.
   Future<void> loadDecorations() async {
-    if (_decorationsLoaded) return;
+    if (_decorationsLoaded &&
+        _loadedGeneration == _cacheManager.generation) {
+      return;
+    }
     _decorationsLoaded = true;
+    _loadedGeneration = _cacheManager.generation;
+    _decorations.clear();
 
     try {
       final dir = await _cacheDir;
-      final file = File('${dir.path}/decorations.json');
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}decorations.json',
+      );
       if (!await file.exists()) return;
 
       final raw = await file.readAsString();
       final map = jsonDecode(raw) as Map<String, dynamic>;
-      final now = DateTime.now().millisecondsSinceEpoch;
 
       for (final e in map.entries) {
         final v = e.value as Map<String, dynamic>;
         final cachedAt = v['t'] as int? ?? 0;
-        // Skip expired entries on load.
-        if (now - cachedAt > _decorationTtl.inMilliseconds) continue;
+        if (_decorationPolicy.isExpired(cachedAt)) continue;
 
         _decorations[e.key] = _DecorationEntry(
           name: v['n'] as String? ?? '',
@@ -136,9 +142,10 @@ class LibraryCache {
   Future<void> _persistDecorations() async {
     try {
       final dir = await _cacheDir;
-      final file = File('${dir.path}/decorations.json');
+      final file = File(
+        '${dir.path}${Platform.pathSeparator}decorations.json',
+      );
 
-      // Compact format: short keys to minimize file size.
       final map = <String, dynamic>{};
       for (final e in _decorations.entries) {
         map[e.key] = {
@@ -150,6 +157,14 @@ class LibraryCache {
       await file.writeAsString(jsonEncode(map), flush: true);
     } catch (e) {
       dev.log('Persist decorations failed: $e');
+    }
+  }
+
+  /// Flushes in-memory decorations if the user switched.
+  void _checkGeneration() {
+    if (_loadedGeneration != _cacheManager.generation) {
+      _decorations.clear();
+      _decorationsLoaded = false;
     }
   }
 }

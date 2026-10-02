@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/features/browse/data/browse_repository.dart';
-import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
+import 'package:musify_mu/features/browse/domain/usecases/load_browse.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 // Events
@@ -66,10 +65,10 @@ class BrowseError extends BrowseState {
 // ═══════════════════════════════════════════════════════════════════
 
 class BrowseBloc extends Bloc<BrowseEvent, BrowseState> {
-  final BrowseRepository _repository;
+  final LoadBrowse _loadBrowse;
 
-  BrowseBloc({required BrowseRepository repository})
-      : _repository = repository,
+  BrowseBloc({required LoadBrowse loadBrowse})
+      : _loadBrowse = loadBrowse,
         super(const BrowseLoading()) {
     on<BrowseLoadRequested>(_onLoad);
     on<BrowseRefreshRequested>(_onRefresh);
@@ -82,7 +81,7 @@ class BrowseBloc extends Bloc<BrowseEvent, BrowseState> {
     emit(const BrowseLoading());
 
     try {
-      final data = await _repository.fetchBrowse();
+      final data = await _loadBrowse();
       if (data != null) {
         emit(BrowseLoaded(data));
       } else {
@@ -108,7 +107,7 @@ class BrowseBloc extends Bloc<BrowseEvent, BrowseState> {
     }
 
     try {
-      final fresh = await _repository.fetchBrowse();
+      final fresh = await _loadBrowse();
       if (fresh != null) {
         emit(BrowseLoaded(fresh));
       } else if (currentData != null) {

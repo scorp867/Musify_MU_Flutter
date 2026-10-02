@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/features/home_feed/data/home_repository.dart';
-import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
+import 'package:musify_mu/features/home_feed/domain/usecases/load_home_feed.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 // Events
@@ -56,11 +55,11 @@ class HomeFeedError extends HomeFeedState {
 // ═══════════════════════════════════════════════════════════════════
 
 class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
-  final HomeRepository _repository;
+  final LoadHomeFeed _loadHomeFeed;
   bool _isLoading = false;
 
-  HomeFeedBloc({required HomeRepository repository})
-      : _repository = repository,
+  HomeFeedBloc({required LoadHomeFeed loadHomeFeed})
+      : _loadHomeFeed = loadHomeFeed,
         super(const HomeFeedLoading()) {
     on<HomeFeedLoadRequested>(_onLoad);
     on<HomeFeedRefreshRequested>(_onRefresh);
@@ -75,7 +74,7 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
     emit(const HomeFeedLoading());
 
     await emit.forEach(
-      _repository.getHomeFeed(),
+      _loadHomeFeed(),
       onData: (data) => HomeFeedLoaded(data),
       onError: (error, _) => HomeFeedError(error.toString()),
     );
@@ -97,7 +96,7 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
       emit(HomeFeedLoaded(currentData, isRefreshing: true));
     }
 
-    final fresh = await _repository.fetchFresh();
+    final fresh = await _loadHomeFeed.refresh();
     if (fresh != null) {
       emit(HomeFeedLoaded(fresh));
     } else if (currentData != null) {

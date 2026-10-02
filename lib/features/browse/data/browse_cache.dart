@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
 
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/cache/cache_policy.dart';
 import 'package:musify_mu/features/browse/data/browse_metadata_fetcher.dart';
-import 'package:path_provider/path_provider.dart';
 
 /// Per-URI cache for browse card traits (IdentityTrait + VisualIdentityTrait).
 ///
@@ -23,25 +24,30 @@ import 'package:path_provider/path_provider.dart';
 ///   ...
 /// }
 class BrowseTraitCache {
-  static const _fileName = 'browse_traits_cache.json';
+  static const _fileName = 'browse_traits.json';
+  static const _policy = CachePolicy.durable;
 
-  /// Per-item TTL. Individual card data (genre name, image, color)
-  /// changes very rarely -- days or weeks.
-  static const _itemTtl = Duration(days: 7);
-
-  File? _cacheFile;
+  final AppCacheManager _cacheManager;
   Map<String, _CachedTrait>? _memoryCache;
+  int _loadedGeneration = -1;
+
+  BrowseTraitCache({required AppCacheManager cacheManager})
+      : _cacheManager = cacheManager;
 
   Future<File> _getCacheFile() async {
-    if (_cacheFile != null) return _cacheFile!;
-    final dir = await getApplicationSupportDirectory();
-    _cacheFile = File('${dir.path}/$_fileName');
-    return _cacheFile!;
+    final dir = await _cacheManager.featureDir('browse');
+    return File('${dir.path}${Platform.pathSeparator}$_fileName');
   }
 
-  /// Loads the cache into memory (once).
+  /// Loads the cache into memory (once per user session).
   Future<Map<String, _CachedTrait>> _ensureLoaded() async {
-    if (_memoryCache != null) return _memoryCache!;
+    if (_memoryCache != null &&
+        _loadedGeneration == _cacheManager.generation) {
+      return _memoryCache!;
+    }
+
+    _memoryCache = {};
+    _loadedGeneration = _cacheManager.generation;
 
     try {
       final file = await _getCacheFile();
@@ -56,10 +62,8 @@ class BrowseTraitCache {
       dev.log('BrowseTraitCache: load error: $e', name: 'Browse');
     }
 
-    _memoryCache ??= {};
-    final now = DateTime.now();
-    _memoryCache!.removeWhere((key, value) => now.difference(value.cachedAt) >= _itemTtl);
-    
+    _memoryCache!.removeWhere((_, v) => _policy.isExpired(v.cachedAt));
+
     return _memoryCache!;
   }
 
@@ -69,14 +73,13 @@ class BrowseTraitCache {
   Future<({Map<String, BrowseCardData> cached, List<String> missing})>
       partition(List<String> uris) async {
     final cache = await _ensureLoaded();
-    final now = DateTime.now();
 
     final cached = <String, BrowseCardData>{};
     final missing = <String>[];
 
     for (final uri in uris) {
       final entry = cache[uri];
-      if (entry != null && now.difference(entry.cachedAt) < _itemTtl) {
+      if (entry != null && !_policy.isExpired(entry.cachedAt)) {
         cached[uri] = entry.data;
       } else {
         missing.add(uri);
@@ -95,7 +98,7 @@ class BrowseTraitCache {
     if (freshCards.isEmpty) return;
 
     final cache = await _ensureLoaded();
-    final now = DateTime.now();
+    final now = DateTime.now().millisecondsSinceEpoch;
 
     for (final entry in freshCards.entries) {
       cache[entry.key] = _CachedTrait(data: entry.value, cachedAt: now);
@@ -117,9 +120,8 @@ class BrowseTraitCache {
       if (cache == null) return;
 
       final file = await _getCacheFile();
-      final now = DateTime.now();
       final validEntries = cache.entries
-          .where((e) => now.difference(e.value.cachedAt) < _itemTtl)
+          .where((e) => !_policy.isExpired(e.value.cachedAt))
           .map((e) => MapEntry(e.key, e.value.toJson()));
       await file.writeAsString(jsonEncode(Map.fromEntries(validEntries)));
     } catch (e) {
@@ -131,7 +133,7 @@ class BrowseTraitCache {
 /// A single cached trait entry with timestamp.
 class _CachedTrait {
   final BrowseCardData data;
-  final DateTime cachedAt;
+  final int cachedAt;
 
   _CachedTrait({required this.data, required this.cachedAt});
 
@@ -140,7 +142,7 @@ class _CachedTrait {
         'type': data.type,
         'imageUrl': data.imageUrl,
         'bgColor': data.bgColorArgb,
-        'cachedAt': cachedAt.millisecondsSinceEpoch,
+        'cachedAt': cachedAt,
       };
 
   factory _CachedTrait.fromJson(dynamic json) {
@@ -152,9 +154,7 @@ class _CachedTrait {
         imageUrl: map['imageUrl'] as String?,
         bgColorArgb: map['bgColor'] as int?,
       ),
-      cachedAt: DateTime.fromMillisecondsSinceEpoch(
-        map['cachedAt'] as int? ?? 0,
-      ),
+      cachedAt: map['cachedAt'] as int? ?? 0,
     );
   }
 }

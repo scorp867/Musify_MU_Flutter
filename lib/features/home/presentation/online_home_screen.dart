@@ -6,14 +6,17 @@ import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/auth/presentation/widgets/spotify_login_webview.dart';
 import 'package:musify_mu/features/auth/presentation/widgets/spotify_welcome_landing.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
-import 'package:musify_mu/features/home_feed/data/home_repository.dart';
 import 'package:musify_mu/features/home_feed/presentation/home_feed_view.dart';
-import 'package:musify_mu/app/di/injection.dart';
 
 class OnlineHomeScreen extends StatefulWidget {
   final Widget? headerTitleRow;
+  final HomeFeedBloc Function() createHomeFeedBloc;
 
-  const OnlineHomeScreen({super.key, this.headerTitleRow});
+  const OnlineHomeScreen({
+    super.key,
+    this.headerTitleRow,
+    required this.createHomeFeedBloc,
+  });
 
   @override
   State<OnlineHomeScreen> createState() => _OnlineHomeScreenState();
@@ -42,7 +45,15 @@ class _OnlineHomeScreenState extends State<OnlineHomeScreen> {
   Widget build(BuildContext context) {
     return BlocBuilder<AuthBloc, AuthState>(
       builder: (context, state) {
-        return switch (state) {
+        // Authenticated: header lives inside HomeFeedView as a scrollable
+        // sliver (scrolls away, filter chips pin). No fixed header needed.
+        if (state is Authenticated) {
+          return _buildAuthenticatedFeed();
+        }
+
+        // All other states: show the header fixed above the body so the
+        // mode-toggle icon stays reachable and the user isn't trapped.
+        final body = switch (state) {
           Unauthenticated() => _buildUnauthenticatedView(),
           Authenticating() => SpotifyWelcomeLanding(
               isLoading: true,
@@ -51,11 +62,20 @@ class _OnlineHomeScreenState extends State<OnlineHomeScreen> {
           AuthError(:final message) => _AuthErrorView(
               message: message,
               onRetry: () {
-                context.read<AuthBloc>().add(const AuthLoginRequested());
+                context
+                    .read<AuthBloc>()
+                    .add(const AuthLoginRequested());
               },
             ),
-          Authenticated() => _buildAuthenticatedFeed(),
+          Authenticated() => throw StateError('unreachable'),
         };
+
+        return Column(
+          children: [
+            if (widget.headerTitleRow != null) widget.headerTitleRow!,
+            Expanded(child: body),
+          ],
+        );
       },
     );
   }
@@ -93,7 +113,7 @@ class _OnlineHomeScreenState extends State<OnlineHomeScreen> {
   /// Builds the authenticated home feed with all dependencies wired up.
   Widget _buildAuthenticatedFeed() {
     return BlocProvider(
-      create: (_) => HomeFeedBloc(repository: getIt<HomeRepository>())
+      create: (_) => widget.createHomeFeedBloc()
         ..add(const HomeFeedLoadRequested()),
       child: Container(
         color: const Color(0xFF121212),

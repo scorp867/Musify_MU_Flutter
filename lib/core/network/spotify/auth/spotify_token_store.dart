@@ -50,6 +50,8 @@ class SpotifyTokenStore {
 
   static const _kDisplayName = 'spotify_display_name';
   static const _kAvatarUrl = 'spotify_avatar_url';
+  static const _kCountry = 'spotify_country';
+  static const _kProduct = 'spotify_product';
 
   // ── Username ──────────────────────────────────────────────────────────
 
@@ -65,22 +67,32 @@ class SpotifyTokenStore {
     required String username,
     required String displayName,
     String? avatarUrl,
+    String? country,
+    String? product,
   }) async {
     await _storage.write(key: _kUsername, value: username);
     await _storage.write(key: _kDisplayName, value: displayName);
     if (avatarUrl != null) {
       await _storage.write(key: _kAvatarUrl, value: avatarUrl);
     }
+    if (country != null) {
+      await _storage.write(key: _kCountry, value: country);
+    }
+    if (product != null) {
+      await _storage.write(key: _kProduct, value: product);
+    }
   }
 
-  /// Returns cached profile fields: (username, displayName, avatarUrl).
+  /// Returns cached profile fields.
   /// Returns null if no profile has been cached yet.
-  Future<({String username, String displayName, String? avatarUrl})?> getCachedProfile() async {
+  Future<({String username, String displayName, String? avatarUrl, String? country, String? product})?> getCachedProfile() async {
     final username = await _storage.read(key: _kUsername);
     if (username == null) return null;
     final displayName = await _storage.read(key: _kDisplayName) ?? username;
     final avatarUrl = await _storage.read(key: _kAvatarUrl);
-    return (username: username, displayName: displayName, avatarUrl: avatarUrl);
+    final country = await _storage.read(key: _kCountry);
+    final product = await _storage.read(key: _kProduct);
+    return (username: username, displayName: displayName, avatarUrl: avatarUrl, country: country, product: product);
   }
 
   // ── Client Token ───────────────────────────────────────────────────
@@ -101,6 +113,8 @@ class SpotifyTokenStore {
     await _storage.delete(key: _kUsername);
     await _storage.delete(key: _kDisplayName);
     await _storage.delete(key: _kAvatarUrl);
+    await _storage.delete(key: _kCountry);
+    await _storage.delete(key: _kProduct);
     await _storage.delete(key: _kClientToken);
   }
 }

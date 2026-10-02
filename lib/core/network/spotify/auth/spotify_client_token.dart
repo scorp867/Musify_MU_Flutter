@@ -3,7 +3,8 @@ import 'dart:developer' as dev;
 import 'dart:math';
 
 import 'package:http/http.dart' as http;
-import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
 
 /// Fetches and manages the Spotify Client Token.
 ///
@@ -17,7 +18,6 @@ import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
 class SpotifyClientTokenFetcher {
   static const _url = 'https://clienttoken.spotify.com/v1/clienttoken';
   static const _clientId = 'd8a5ed958d274c2e8ee717e6a4b0971d';
-  static const _clientVersion = '1.2.87.215.g6e7e7fc2';
 
   final SpotifyTokenStore _tokenStore;
   String? _deviceId;
@@ -36,10 +36,11 @@ class SpotifyClientTokenFetcher {
   Future<String?> fetchClientToken() async {
     try {
       _deviceId ??= _generateDeviceId();
+      final profile = DeviceProfile.webPlayer;
 
       final requestBody = jsonEncode({
         'client_data': {
-          'client_version': _clientVersion,
+          'client_version': profile.appVersion,
           'client_id': _clientId,
           'js_sdk_data': {
             'device_brand': 'unknown',
@@ -57,10 +58,9 @@ class SpotifyClientTokenFetcher {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-          'App-Platform': 'WebPlayer',
-          'Spotify-App-Version': _clientVersion,
+          'User-Agent': profile.userAgent,
+          'App-Platform': profile.appPlatform,
+          'Spotify-App-Version': profile.appVersion,
           'Origin': 'https://open.spotify.com',
           'Referer': 'https://open.spotify.com/',
           'Sec-Fetch-Dest': 'empty',

@@ -1,11 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_refresher.dart';
-import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
-import 'package:musify_mu/features/auth/data/spotify_totp.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_totp.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 
@@ -17,15 +18,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final SpotifyTokenStore _tokenStore;
   final SpotifyTokenRefresher _refresher;
   final SpotifyProfileFetcher _profileFetcher;
+  final AppCacheManager _cacheManager;
   Timer? _refreshTimer;
 
   AuthBloc({
-    SpotifyTokenStore? tokenStore,
-    SpotifyTokenRefresher? refresher,
-    SpotifyProfileFetcher? profileFetcher,
-  })  : _tokenStore = tokenStore ?? SpotifyTokenStore(),
-        _refresher = refresher ?? SpotifyTokenRefresher(),
-        _profileFetcher = profileFetcher ?? SpotifyProfileFetcher(),
+    required SpotifyTokenStore tokenStore,
+    required SpotifyTokenRefresher refresher,
+    required SpotifyProfileFetcher profileFetcher,
+    required AppCacheManager cacheManager,
+  })  : _tokenStore = tokenStore,
+        _refresher = refresher,
+        _profileFetcher = profileFetcher,
+        _cacheManager = cacheManager,
         super(const Unauthenticated()) {
     on<AuthSessionRestored>(_onSessionRestored);
     on<AuthLoginRequested>(_onLoginRequested);
@@ -108,19 +112,22 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   /// Emits Authenticated using the locally cached profile.
-  /// Zero network calls — instant on app restart.
+  /// Zero network calls - instant on app restart.
   Future<void> _emitFromCache(Emitter<AuthState> emit) async {
     final cached = await _tokenStore.getCachedProfile();
     if (cached != null) {
+      await _cacheManager.setUser(cached.username);
       emit(Authenticated(
         user: SpotifyUser(
           id: cached.username,
           displayName: cached.displayName,
           avatarUrl: cached.avatarUrl,
+          country: cached.country,
+          product: cached.product,
         ),
       ));
     } else {
-      // No cache yet — must be first login, fetch from network.
+      // No cache yet - must be first login, fetch from network.
       await _emitWithFreshProfile(emit);
     }
   }
@@ -130,6 +137,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> _emitWithFreshProfile(Emitter<AuthState> emit) async {
     final profile = await _profileFetcher.fetchProfile();
     if (profile != null) {
+      await _cacheManager.setUser(profile.id);
       emit(Authenticated(user: profile));
       return;
     }

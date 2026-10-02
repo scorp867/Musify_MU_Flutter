@@ -14,10 +14,13 @@ import 'package:musify_mu/core/protocol/generated/spotify/metadata.pb.dart'
 import 'package:musify_mu/core/protocol/generated/spotify/playlist/rootlist.pb.dart'
     as rootlist_pb;
 import 'package:musify_mu/core/media/extended_metadata_service.dart';
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/features/library/data/library_cache.dart';
 import 'package:musify_mu/features/library/data/playlist_detail_fetcher.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
+import 'package:musify_mu/features/library/domain/repositories/library_repository.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Repository for the Library tab.
 ///
@@ -26,31 +29,40 @@ import 'package:musify_mu/features/spotify_client/spotify_client.dart';
 ///     SWR: yield cached immediately, revalidate in background.
 ///   Layer 2 (Decoration): Per-URI name + imageUrl with 24h TTL.
 ///     Only fetches extended-metadata for URIs not already cached.
-class LibraryRepository {
-  final SpotifyClient _client;
+class LibraryRepositoryImpl implements LibraryRepository {
+  final SpotifyTransport _webTransport;
+  final SpotifyTransport _androidTransport;
   final String _userId;
   final LibraryCache _cache;
   final PlaylistDetailFetcher _playlistFetcher;
+  final RuntimeContext _ctx;
 
   /// Prevents re-fetching all playlist details on every SWR cycle.
   bool _playlistsSynced = false;
 
-  LibraryRepository({
-    required SpotifyClient client,
+  LibraryRepositoryImpl({
+    required SpotifyTransport webTransport,
+    required SpotifyTransport androidTransport,
     required String userId,
     required ExtendedMetadataService metadataService,
+    required RuntimeContext ctx,
+    required AppCacheManager cacheManager,
     LibraryCache? cache,
     PlaylistDetailFetcher? playlistFetcher,
-  })  : _client = client,
+  })  : _webTransport = webTransport,
+        _androidTransport = androidTransport,
         _userId = userId,
-        _cache = cache ?? LibraryCache(),
+        _ctx = ctx,
+        _cache = cache ?? LibraryCache(cacheManager: cacheManager),
         _playlistFetcher = playlistFetcher ??
             PlaylistDetailFetcher(
-              client: client,
+              client: webTransport,
               metadataService: metadataService,
+              cacheManager: cacheManager,
             );
 
   /// SWR stream: yields cached data first (if available), then fresh data.
+  @override
   Stream<LibraryViewData> getLibrary() async* {
     await _cache.loadDecorations();
 
@@ -69,7 +81,8 @@ class LibraryRepository {
   }
 
   /// Fetches fresh library data from network, caches bytes + decorations.
-  Future<LibraryViewData?> fetchFresh() async {
+  @override
+  Future<LibraryViewData?> fetchFresh({bool forceSync = false}) async {
     try {
       // Fire all structure requests in parallel.
       final results = await Future.wait([
@@ -87,6 +100,7 @@ class LibraryRepository {
       final likedSongs = results[4];
 
       // Sync playlist details ONCE. Subsequent calls only fetch NEW playlists.
+      // When forceSync is true (manual refresh), re-check ALL playlists via diff.
       final playlistIds = playlistItems
           .map((item) {
             final parts = item.uri.split(':');
@@ -94,7 +108,7 @@ class LibraryRepository {
           })
           .where((id) => id.isNotEmpty)
           .toList();
-      await _syncPlaylistDetails(playlistIds);
+      await _syncPlaylistDetails(playlistIds, forceSync: forceSync);
 
       return await _assembleViewData(
         playlistItems,
@@ -199,7 +213,7 @@ class LibraryRepository {
         '%2Cstatus_code%2Ctimestamp'
         '&from=0&length=120';
 
-    final bytes = await _client.getAndroid(
+    final bytes = await _androidTransport.get(
       path,
       extraHeaders: {
         'spotify-playlist-sync-reason': 'CAU=',
@@ -300,7 +314,7 @@ class LibraryRepository {
 
     final requestBytes = Uint8List.fromList(request.writeToBuffer());
 
-    final bytes = await _client.post(
+    final bytes = await _webTransport.post(
       '/collection/v2/paging',
       requestBytes,
       contentType: 'application/vnd.collection-v2.spotify.proto',
@@ -354,17 +368,20 @@ class LibraryRepository {
     return items;
   }
 
-  // ─── Playlist sync (network, runs ONCE per session) ────────────────
-
   /// Fetches playlist details for all playlist IDs that haven't been synced yet.
   /// After first sync, only NEW playlists (from rootlist changes) are fetched.
-  Future<void> _syncPlaylistDetails(List<String> playlistIds) async {
+  /// When [forceSync] is true, re-syncs ALL playlists regardless of cache state.
+  Future<void> _syncPlaylistDetails(
+    List<String> playlistIds, {
+    bool forceSync = false,
+  }) async {
     if (playlistIds.isEmpty) return;
 
     List<String> toSync;
 
-    if (!_playlistsSynced) {
-      // First sync: fetch all (diff endpoint handles already-cached ones cheaply).
+    if (!_playlistsSynced || forceSync) {
+      // First sync OR manual refresh: fetch all (diff endpoint handles
+      // already-cached ones cheaply, returning empty if nothing changed).
       toSync = playlistIds;
       _playlistsSynced = true;
     } else {
@@ -487,10 +504,8 @@ class LibraryRepository {
 
       final request = BatchedEntityRequest()
         ..header = (BatchedEntityRequestHeader()
-          // TODO: Derive from user profile or device locale
-          ..country = 'IN'
-          // TODO: Derive from user profile or device locale
-          ..catalogue = 'free'
+          ..country = _ctx.country
+          ..catalogue = _ctx.catalogue
           ..taskId = taskId);
 
       for (final uri in uris) {
@@ -504,7 +519,7 @@ class LibraryRepository {
         request.entityRequest.add(entityReq);
       }
 
-      final responseBytes = await _client.post(
+      final responseBytes = await _webTransport.post(
         '/extended-metadata/v0/extended-metadata',
         Uint8List.fromList(request.writeToBuffer()),
       );

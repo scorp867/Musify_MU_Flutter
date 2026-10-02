@@ -5,7 +5,10 @@ import 'package:musify_mu/features/browse/data/browse_cache.dart';
 import 'package:musify_mu/features/browse/data/browse_metadata_fetcher.dart';
 import 'package:musify_mu/features/browse/data/browsita_parser.dart';
 import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
+import 'package:musify_mu/features/browse/domain/repositories/browse_repository.dart';
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Repository for browse tab data.
 ///
@@ -18,17 +21,23 @@ import 'package:musify_mu/features/spotify_client/spotify_client.dart';
 /// Loading strategies (from decompiled bq70 enum):
 ///   - CACHE_FIRST: show cached, then revalidate
 ///   - REVALIDATE: force network fetch
-class BrowseRepository {
-  final SpotifyClient _client;
+class BrowseRepositoryImpl implements BrowseRepository {
+  final SpotifyTransport _client;
   final BrowseTraitCache _traitCache;
+  final RuntimeContext _ctx;
 
-  BrowseRepository({
-    required SpotifyClient client,
+  BrowseRepositoryImpl({
+    required SpotifyTransport client,
+    required RuntimeContext ctx,
+    required AppCacheManager cacheManager,
     BrowseTraitCache? traitCache,
   })  : _client = client,
-        _traitCache = traitCache ?? BrowseTraitCache();
+        _ctx = ctx,
+        _traitCache = traitCache ??
+            BrowseTraitCache(cacheManager: cacheManager);
 
   /// Fetches browse data with delta trait resolution.
+  @override
   Future<BrowseViewData?> fetchBrowse() async {
     try {
       // Step 1: Always fetch browsita structure (it's lightweight)
@@ -74,7 +83,7 @@ class BrowseRepository {
           name: 'Browse',
         );
 
-        final fetcher = BrowseMetadataFetcher(client: _client);
+        final fetcher = BrowseMetadataFetcher(client: _client, ctx: _ctx);
         final freshCards = await fetcher.fetchBrowseTraits(missing);
 
         // Cache the fresh results
@@ -120,7 +129,6 @@ class BrowseRepository {
 
   /// GET /browsita/v1/browse
   Future<Uint8List?> _fetchBrowsita() {
-    // TODO: Derive from user profile or device locale
-    return _client.get('/browsita/v1/browse?timezone=Asia/Calcutta');
+    return _client.get('/browsita/v1/browse?timezone=${_ctx.timezone}');
   }
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -11,23 +10,26 @@ import 'package:musify_mu/core/protocol/generated/spotify/playlist/recents_list.
     as recents;
 import 'package:musify_mu/features/home_feed/data/casita_parser.dart';
 import 'package:musify_mu/features/home_feed/data/extended_metadata_fetcher.dart';
+import 'package:musify_mu/features/home_feed/data/home_feed_cache.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
-import 'package:musify_mu/features/spotify_client/spotify_client.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Repository for home feed data. Implements SWR (Stale-While-Revalidate).
 ///
 /// Spotify's exact home feed pipeline:
-///   1. GET /casita/v1/home/default?eagerload=...  → ResolvedHome protobuf
+///   1. GET /casita/v1/home/default?eagerload=...  -> ResolvedHome protobuf
 ///   2. Parse ResolvedHome:
 ///      - field 1: HomeStructure (section layout)
 ///      - field 2: EagerlyLoadedTraits (pre-loaded traits for eagerload-covered items)
 ///      - field 999: OndemandSet (URIs that still need trait resolution)
-///   3. GET /ondemand-selector/v1/select-ondemand-set  → filtered URI list
-///   4. POST /extended-metadata/v0/extended-metadata  → SimpleCardTrait for those URIs
-///   5. Merge traits into entities → render
-class HomeRepository {
+///   3. GET /ondemand-selector/v1/select-ondemand-set  -> filtered URI list
+///   4. POST /extended-metadata/v0/extended-metadata  -> SimpleCardTrait for those URIs
+///   5. Merge traits into entities -> render
+class HomeRepositoryImpl implements HomeRepository {
   static const _casitaEagerload =
       'eyJtYXBwaW5nIjp7IjEyIjp7IjEiOlsxNjddfSwiMTMiOnsiMSI6WzE3MV19LCIxNSI6eyIxIjpbOTddLCIyIjpbOTddfSwiMTYiOnsiMSI6WzEyMiwxMjMsMTI0XX0sIjE3Ijp7IjEiOlsxNzgsMTY3LDE3OV19LCIxOCI6eyIxIjpbMTE4XSwiMiI6WzE4MSwyNDksMTE4LDE3OF19LCIyIjp7IjEiOlsxMTldLCIyIjpbMTE5XX0sIjIzIjp7IjEiOls5N119LCIyNCI6eyIxIjpbMTcxXSwiMiI6WzExNl19LCIyNSI6eyIxIjpbMTE4XSwiMiI6WzExOCwxNzgsMTE2XX0sIjI3Ijp7IjEiOlsxMTgsMTE2XSwiMiI6WzE3OF19LCIyOCI6eyIxIjpbMjI5XX0sIjMzIjp7IjEiOlsxMThdfSwiMzUiOnsiMSI6WzI0OF19LCIzNiI6eyIxIjpbMTE4XX0sIjM3Ijp7IjEiOlsxMThdLCIyIjpbMTE4LDE3OCwxMTZdfSwiMzkiOnsiMSI6WzExOF0sIjIiOlsxODEsMjQ5LDExOCwxNzhdfSwiNCI6eyIyIjpbMTE4LDExNl19LCI0MSI6eyIxIjpbMTc5LDE3OF19LCI2Ijp7IjEiOlsxMThdLCIyIjpbMTE2LDE3OF19LCI3Ijp7IjEiOlsxMTldfX19';
 
@@ -40,15 +42,22 @@ class HomeRepository {
     'cache-control': 'no-store',
   };
 
-  static const _cacheMaxAge = Duration(hours: 24);
+  final SpotifyTransport _client;
+  final RuntimeContext _ctx;
+  final HomeFeedCache _cache;
 
-  final SpotifyClient _client;
-
-  HomeRepository({required SpotifyClient client}) : _client = client;
+  HomeRepositoryImpl({
+    required SpotifyTransport client,
+    required RuntimeContext ctx,
+    required AppCacheManager cacheManager,
+  })  : _client = client,
+        _ctx = ctx,
+        _cache = HomeFeedCache(cacheManager: cacheManager);
 
   /// Fetches home feed with SWR pattern.
+  @override
   Stream<HomeViewData> getHomeFeed() async* {
-    final cached = await _loadFromDisk();
+    final cached = await _cache.load();
     if (cached != null) {
       yield cached;
     }
@@ -60,6 +69,7 @@ class HomeRepository {
   }
 
   /// Fetches fresh home feed data using Spotify's exact pipeline.
+  @override
   Future<HomeViewData?> fetchFresh() async {
     try {
       // Step 1: Fetch Casita home + recents in parallel
@@ -104,7 +114,7 @@ class HomeRepository {
         chips: casitaResult.homeData.chips,
       );
 
-      await _saveToDisk(result);
+      await _cache.save(result);
       return result;
     } catch (e) {
       dev.log('HomeRepository.fetchFresh: $e');
@@ -155,7 +165,7 @@ class HomeRepository {
     // Step 4b: Fetch SimpleCardTrait via Extended Metadata API
     final uriList = urisToResolve.toList();
     dev.log('HomeRepository: Resolving SimpleCardTrait for ${uriList.length} URIs...');
-    final fetcher = ExtendedMetadataFetcher(client: _client);
+    final fetcher = ExtendedMetadataFetcher(client: _client, ctx: _ctx);
     final traitMap = await fetcher.fetchTraits(uriList);
 
     // Merge resolved traits into entities
@@ -173,10 +183,9 @@ class HomeRepository {
   // ═══════════════════════════════════════════════════════════════════
 
   Future<Uint8List?> _fetchCasitaHome() {
-    const path = '/casita/v1/home/default'
+    final path = '/casita/v1/home/default'
         '?eagerload=$_casitaEagerload'
-        // TODO: Derive from user profile or device locale
-        '&timezone=Asia/Calcutta'
+        '&timezone=${_ctx.timezone}'
         '&mobile-only-dsa-enabled=false';
     return _client.get(path);
   }
@@ -349,88 +358,6 @@ class HomeRepository {
       'spotify:collection:artists' => 'Following',
       _ => '',
     };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Disk cache (JSON serialization)
-  // ═══════════════════════════════════════════════════════════════════
-
-  Future<File> get _cacheFile async {
-    final dir = await getApplicationDocumentsDirectory();
-    return File('${dir.path}/spotify_home_cache.json');
-  }
-
-  Future<void> _saveToDisk(HomeViewData data) async {
-    try {
-      final file = await _cacheFile;
-      final json = {
-        'cachedAt': DateTime.now().millisecondsSinceEpoch,
-        'greeting': data.greeting,
-        'sections': data.sections
-            .map((s) => {
-                  'title': s.title,
-                  'subtitle': s.subtitle,
-                  'layout': s.layout.name,
-                  'sectionType': s.sectionType,
-                  'sectionUri': s.sectionUri,
-                  'items': s.items.map((i) => i.toJson()).toList(),
-                })
-            .toList(),
-        'chips': data.chips
-            .map((c) => {'id': c.id, 'label': c.label})
-            .toList(),
-      };
-      await file.writeAsString(jsonEncode(json));
-    } catch (e) {
-      dev.log('HomeRepository: Cache write failed: $e');
-    }
-  }
-
-  Future<HomeViewData?> _loadFromDisk() async {
-    try {
-      final file = await _cacheFile;
-      if (!await file.exists()) return null;
-
-      final json =
-          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      final cachedAt = json['cachedAt'] as int? ?? 0;
-      final age = DateTime.now().millisecondsSinceEpoch - cachedAt;
-
-      if (age > _cacheMaxAge.inMilliseconds) {
-        await file.delete();
-        return null;
-      }
-
-      final sections = (json['sections'] as List)
-          .map((s) => HomeSection(
-                title: s['title'] ?? '',
-                subtitle: s['subtitle'] ?? '',
-                layout: SectionLayout.values.firstWhere(
-                  (l) => l.name == s['layout'],
-                  orElse: () => SectionLayout.carousel,
-                ),
-                sectionType: s['sectionType'] ?? '',
-                sectionUri: s['sectionUri'],
-                items: (s['items'] as List)
-                    .map((i) =>
-                        SpotifyEntity.fromJson(i as Map<String, dynamic>))
-                    .toList(),
-              ))
-          .toList();
-
-      final chips = (json['chips'] as List? ?? [])
-          .map((c) => HomeChip(id: c['id'] ?? '', label: c['label'] ?? ''))
-          .toList();
-
-      return HomeViewData(
-        greeting: json['greeting'] ?? '',
-        sections: sections,
-        chips: chips,
-      );
-    } catch (e) {
-      dev.log('HomeRepository: Cache read failed: $e');
-      return null;
-    }
   }
 }
 

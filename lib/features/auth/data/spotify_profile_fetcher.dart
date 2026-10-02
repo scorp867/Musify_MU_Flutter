@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:developer';
 
 import 'package:http/http.dart' as http;
-import 'package:musify_mu/features/auth/data/spotify_token_store.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
 import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 
 /// Fetches the current user's Spotify profile using Pathfinder (GQL).
@@ -10,18 +11,21 @@ import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 /// Uses the same approach as the Kotlin codebase:
 /// POST to `api-partner.spotify.com/pathfinder/v2/query` with the
 /// `profileAttributes` operation.
+///
+/// After a successful fetch, updates [RuntimeContext] with the user's
+/// country and product tier so all downstream services use live values.
 class SpotifyProfileFetcher {
   final SpotifyTokenStore _tokenStore;
-
-  static const _userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
+  final RuntimeContext _ctx;
 
   static const _profileHashV1 =
       '53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced';
 
-  SpotifyProfileFetcher({SpotifyTokenStore? tokenStore})
-      : _tokenStore = tokenStore ?? SpotifyTokenStore();
+  SpotifyProfileFetcher({
+    required RuntimeContext ctx,
+    required SpotifyTokenStore tokenStore,
+  })  : _ctx = ctx,
+        _tokenStore = tokenStore;
 
   /// Fetches and caches the current user's profile.
   /// Returns a [SpotifyUser] on success, null on failure.
@@ -29,6 +33,8 @@ class SpotifyProfileFetcher {
     try {
       final token = await _tokenStore.getAccessToken();
       if (token == null) return null;
+
+      final profile = DeviceProfile.webPlayer;
 
       final body = jsonEncode({
         'variables': <String, dynamic>{},
@@ -46,8 +52,8 @@ class SpotifyProfileFetcher {
         headers: {
           'Authorization': 'Bearer $token',
           'Content-Type': 'application/json;charset=UTF-8',
-          'User-Agent': _userAgent,
-          'app-platform': 'WebPlayer',
+          'User-Agent': profile.userAgent,
+          'app-platform': profile.appPlatform,
           'Origin': 'https://open.spotify.com',
           'Referer': 'https://open.spotify.com/',
         },
@@ -61,28 +67,37 @@ class SpotifyProfileFetcher {
       // Navigate: data > me > profile
       final data = json['data'] as Map<String, dynamic>?;
       final me = data?['me'] as Map<String, dynamic>?;
-      final profile = me?['profile'] as Map<String, dynamic>?;
+      final profileData = me?['profile'] as Map<String, dynamic>?;
 
-      if (profile == null) return null;
+      if (profileData == null) return null;
 
-      final username = profile['username'] as String? ??
-          profile['id'] as String? ??
+      final username = profileData['username'] as String? ??
+          profileData['id'] as String? ??
           'spotify_user';
       final displayName =
-          profile['name'] as String? ?? username;
-      final avatarUrl = _extractAvatarUrl(profile);
+          profileData['name'] as String? ?? username;
+      final avatarUrl = _extractAvatarUrl(profileData);
+      final country = profileData['country'] as String?;
+      final product = profileData['product'] as String?;
+
+      // Populate RuntimeContext with live values from the profile.
+      _ctx.updateFromProfile(userCountry: country, product: product);
 
       // Cache the full profile locally.
       await _tokenStore.saveProfile(
         username: username,
         displayName: displayName,
         avatarUrl: avatarUrl,
+        country: country,
+        product: product,
       );
 
       return SpotifyUser(
         id: username,
         displayName: displayName,
         avatarUrl: avatarUrl,
+        country: country,
+        product: product,
       );
     } catch (e) {
       log('ProfileFetcher error: $e');
