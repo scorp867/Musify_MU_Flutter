@@ -7,18 +7,20 @@ import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/home_feed_shimmer.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/quick_grid_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/action_card_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/audio_spotlight_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/campaign_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/content_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/episode_list_section.dart';
-import 'package:musify_mu/features/home_feed/presentation/widgets/sections/immersive_preview_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/inline_card_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/interactive_prompt_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/live_event_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/play_link_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_feed_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/promotion_banner_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/recents_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/reflection_section.dart';
-import 'package:musify_mu/features/home_feed/presentation/widgets/sections/showcase_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/story_bubble_carousel.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/vertical_card_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';
@@ -139,15 +141,25 @@ class _FeedContent extends StatelessWidget {
         return RecentsCarouselSection(
             title: section.title, items: section.items);
 
-      // ── Full-bleed hero preview ────────────────────────────────────
+      // ── Full-bleed hero preview / Playlist previews ───────────────
       case 'preview':
       case 'immersivePreview':
-        return ImmersivePreviewSection(
+      case 'associatedPreview':
+        if (section.items.any((item) => item.getTrait<VideoCardTrait>() != null)) {
+          return VideoCarouselSection(
+              title: section.title, items: section.items);
+        }
+        if (section.items.any((item) => item.getTrait<PreviewCardTrait>() != null)) {
+          return PreviewFeedSection(
+              title: section.title, items: section.items);
+        }
+        return ContentCarouselSection(
             title: section.title, items: section.items);
 
-      // ── Showcase (featured banner) ─────────────────────────────────
+      // ── Showcase (featured banner / "Picked for you") ──────────────
       case 'showcase':
-        return ShowcaseSection(title: section.title, items: section.items);
+        return PromotionBannerSection(
+            title: section.title, items: section.items);
 
       // ── Audio spotlight / promo ────────────────────────────────────
       case 'audioSpotlight':
@@ -182,10 +194,6 @@ class _FeedContent extends StatelessWidget {
       case 'inlineCard':
         return InlineCardSection(title: section.title, items: section.items);
 
-      // ── Associated preview (inline preview) ────────────────────────
-      case 'associatedPreview':
-        return ImmersivePreviewSection(
-            title: section.title, items: section.items);
 
       // ── Episode list ───────────────────────────────────────────────
       case 'contentEvaluationList':
@@ -203,6 +211,33 @@ class _FeedContent extends StatelessWidget {
         return PreviewCarouselSection(
             title: section.title, items: section.items);
 
+      // ── Action cards (interactive prompts) ─────────────────────────
+      case 'actionCardCarousel':
+        return ActionCardSection(
+            title: section.title, items: section.items);
+
+      // ── Campaign carousels (RADAR, EQUAL, etc.) ────────────────────
+      case 'campaignLinkCarousel':
+        return CampaignCarouselSection(
+            title: section.title, items: section.items);
+
+      // ── Release & promo banners ────────────────────────────────────
+      case 'promotionV1':
+      case 'promotionV3':
+      case 'bannerWithAnimations':
+        return PromotionBannerSection(
+            title: section.title, items: section.items);
+
+      // ── 1-tap quick playback ───────────────────────────────────────
+      case 'playLinkPromo':
+        return PlayLinkSection(
+            title: section.title, items: section.items);
+
+      // ── Video promo ────────────────────────────────────────────────
+      case 'videoPromo':
+        return VideoCarouselSection(
+            title: section.title, items: section.items);
+
       // ── Text-only / non-visual (skip) ──────────────────────────────
       case 'narrative':
       case 'callToAction':
@@ -211,9 +246,6 @@ class _FeedContent extends StatelessWidget {
       // ── Standard horizontal carousels (default) ────────────────────
       case 'imageLink':
       default:
-        if (section.items.any((item) => item.getTrait<PreviewCardTrait>() != null)) {
-          return PreviewFeedSection(title: section.title, items: section.items);
-        }
         return ContentCarouselSection(
             title: section.title, items: section.items);
     }

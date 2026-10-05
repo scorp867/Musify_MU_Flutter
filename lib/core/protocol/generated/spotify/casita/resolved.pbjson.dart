@@ -127,31 +127,82 @@ final $typed_data.Uint8List eagerlyLoadedTraitsDescriptor = $convert.base64Decod
 const ResponseInfo$json = {
   '1': 'ResponseInfo',
   '2': [
-    {'1': 'server_version', '3': 1, '4': 1, '5': 9, '10': 'serverVersion'},
+    {'1': 'response_id', '3': 1, '4': 1, '5': 9, '10': 'responseId'},
+    {'1': 'page_uri', '3': 2, '4': 1, '5': 9, '10': 'pageUri'},
+    {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
+    {'1': 'refresh_token', '3': 4, '4': 1, '5': 9, '10': 'refreshToken'},
   ],
 };
 
 /// Descriptor for `ResponseInfo`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List responseInfoDescriptor = $convert.base64Decode(
-    'CgxSZXNwb25zZUluZm8SJQoOc2VydmVyX3ZlcnNpb24YASABKAlSDXNlcnZlclZlcnNpb24=');
+    'CgxSZXNwb25zZUluZm8SHwoLcmVzcG9uc2VfaWQYASABKAlSCnJlc3BvbnNlSWQSGQoIcGFnZV'
+    '91cmkYAiABKAlSB3BhZ2VVcmkSHQoKcGFnZV90b2tlbhgDIAEoCVIJcGFnZVRva2VuEiMKDXJl'
+    'ZnJlc2hfdG9rZW4YBCABKAlSDHJlZnJlc2hUb2tlbg==');
 
 @$core.Deprecated('Use debugInfoDescriptor instead')
 const DebugInfo$json = {
   '1': 'DebugInfo',
+  '2': [
+    {
+      '1': 'home_logging_span_id',
+      '3': 1,
+      '4': 1,
+      '5': 9,
+      '10': 'homeLoggingSpanId'
+    },
+  ],
 };
 
 /// Descriptor for `DebugInfo`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List debugInfoDescriptor =
-    $convert.base64Decode('CglEZWJ1Z0luZm8=');
+final $typed_data.Uint8List debugInfoDescriptor = $convert.base64Decode(
+    'CglEZWJ1Z0luZm8SLwoUaG9tZV9sb2dnaW5nX3NwYW5faWQYASABKAlSEWhvbWVMb2dnaW5nU3'
+    'Bhbklk');
 
 @$core.Deprecated('Use sandboxDebugInfoDescriptor instead')
 const SandboxDebugInfo$json = {
   '1': 'SandboxDebugInfo',
+  '2': [
+    {
+      '1': 'invalid_section_uris',
+      '3': 1,
+      '4': 3,
+      '5': 9,
+      '10': 'invalidSectionUris'
+    },
+    {
+      '1': 'failed_sections',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.SectionFailure',
+      '10': 'failedSections'
+    },
+  ],
 };
 
 /// Descriptor for `SandboxDebugInfo`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List sandboxDebugInfoDescriptor =
-    $convert.base64Decode('ChBTYW5kYm94RGVidWdJbmZv');
+final $typed_data.Uint8List sandboxDebugInfoDescriptor = $convert.base64Decode(
+    'ChBTYW5kYm94RGVidWdJbmZvEjAKFGludmFsaWRfc2VjdGlvbl91cmlzGAEgAygJUhJpbnZhbG'
+    'lkU2VjdGlvblVyaXMSUwoPZmFpbGVkX3NlY3Rpb25zGAIgAygLMiouc3BvdGlmeS5jYXNpdGEu'
+    'djEucmVzb2x2ZWQuU2VjdGlvbkZhaWx1cmVSDmZhaWxlZFNlY3Rpb25z');
+
+@$core.Deprecated('Use sectionFailureDescriptor instead')
+const SectionFailure$json = {
+  '1': 'SectionFailure',
+  '2': [
+    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
+    {'1': 'reason', '3': 2, '4': 1, '5': 9, '10': 'reason'},
+    {'1': 'service_name', '3': 3, '4': 1, '5': 9, '10': 'serviceName'},
+    {'1': 'status', '3': 4, '4': 1, '5': 9, '10': 'status'},
+  ],
+};
+
+/// Descriptor for `SectionFailure`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List sectionFailureDescriptor = $convert.base64Decode(
+    'Cg5TZWN0aW9uRmFpbHVyZRIQCgN1cmkYASABKAlSA3VyaRIWCgZyZWFzb24YAiABKAlSBnJlYX'
+    'NvbhIhCgxzZXJ2aWNlX25hbWUYAyABKAlSC3NlcnZpY2VOYW1lEhYKBnN0YXR1cxgEIAEoCVIG'
+    'c3RhdHVz');
 
 @$core.Deprecated('Use ondemandSetDescriptor instead')
 const OndemandSet$json = {
@@ -214,6 +265,15 @@ const Section$json = {
       '10': 'immersivePreview'
     },
     {
+      '1': 'anchors',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Anchors',
+      '9': 0,
+      '10': 'anchors'
+    },
+    {
       '1': 'content_evaluation_list',
       '3': 8,
       '4': 1,
@@ -250,6 +310,33 @@ const Section$json = {
       '10': 'watchFeed'
     },
     {
+      '1': 'promotion_v1',
+      '3': 12,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.PromotionV1',
+      '9': 0,
+      '10': 'promotionV1'
+    },
+    {
+      '1': 'promotion_v3',
+      '3': 13,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.PromotionV3',
+      '9': 0,
+      '10': 'promotionV3'
+    },
+    {
+      '1': 'action_card_carousel',
+      '3': 15,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ActionCardCarousel',
+      '9': 0,
+      '10': 'actionCardCarousel'
+    },
+    {
       '1': 'live_event',
       '3': 16,
       '4': 1,
@@ -266,6 +353,51 @@ const Section$json = {
       '6': '.spotify.casita.v1.resolved.Showcase',
       '9': 0,
       '10': 'showcase'
+    },
+    {
+      '1': 'video_promo',
+      '3': 18,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.VideoPromo',
+      '9': 0,
+      '10': 'videoPromo'
+    },
+    {
+      '1': 'banner',
+      '3': 19,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Banner',
+      '9': 0,
+      '10': 'banner'
+    },
+    {
+      '1': 'video_brand_ad',
+      '3': 20,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.VideoBrandAd',
+      '9': 0,
+      '10': 'videoBrandAd'
+    },
+    {
+      '1': 'image_brand_ad',
+      '3': 21,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ImageBrandAd',
+      '9': 0,
+      '10': 'imageBrandAd'
+    },
+    {
+      '1': 'campaign_link_carousel',
+      '3': 23,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.CampaignLinkCarousel',
+      '9': 0,
+      '10': 'campaignLinkCarousel'
     },
     {
       '1': 'vertical_single_entry',
@@ -286,6 +418,15 @@ const Section$json = {
       '10': 'videoCarousel'
     },
     {
+      '1': 'full_bleed_banner',
+      '3': 26,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.FullBleedBanner',
+      '9': 0,
+      '10': 'fullBleedBanner'
+    },
+    {
       '1': 'associated_preview',
       '3': 27,
       '4': 1,
@@ -293,6 +434,15 @@ const Section$json = {
       '6': '.spotify.casita.v1.resolved.AssociatedPreview',
       '9': 0,
       '10': 'associatedPreview'
+    },
+    {
+      '1': 'banner_with_animations',
+      '3': 28,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.BannerWithAnimations',
+      '9': 0,
+      '10': 'bannerWithAnimations'
     },
     {
       '1': 'narrative',
@@ -322,6 +472,15 @@ const Section$json = {
       '10': 'topStoryCarousel'
     },
     {
+      '1': 'promptable_section',
+      '3': 32,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.PromptableSection',
+      '9': 0,
+      '10': 'promptableSection'
+    },
+    {
       '1': 'audio_promo',
       '3': 33,
       '4': 1,
@@ -338,6 +497,15 @@ const Section$json = {
       '6': '.spotify.casita.v1.resolved.InlineCard',
       '9': 0,
       '10': 'inlineCard'
+    },
+    {
+      '1': 'play_link_promo',
+      '3': 35,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.PlayLinkPromo',
+      '9': 0,
+      '10': 'playLinkPromo'
     },
     {
       '1': 'audio_spotlight',
@@ -358,6 +526,15 @@ const Section$json = {
       '10': 'previewCarousel'
     },
     {
+      '1': 'concert_campaign',
+      '3': 38,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ConcertCampaign',
+      '9': 0,
+      '10': 'concertCampaign'
+    },
+    {
       '1': 'preview_promotion_carousel',
       '3': 39,
       '4': 1,
@@ -367,6 +544,15 @@ const Section$json = {
       '10': 'previewPromotionCarousel'
     },
     {
+      '1': 'prompted_worlds_shelf',
+      '3': 40,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.PromptedWorldsShelf',
+      '9': 0,
+      '10': 'promptedWorldsShelf'
+    },
+    {
       '1': 'reflection',
       '3': 41,
       '4': 1,
@@ -374,6 +560,15 @@ const Section$json = {
       '6': '.spotify.casita.v1.resolved.Reflection',
       '9': 0,
       '10': 'reflection'
+    },
+    {
+      '1': 'user_prompted_world_entrypoint',
+      '3': 42,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.UserPromptedWorldEntrypoint',
+      '9': 0,
+      '10': 'userPromptedWorldEntrypoint'
     },
   ],
   '8': [
@@ -389,36 +584,62 @@ final $typed_data.Uint8List sectionDescriptor = $convert.base64Decode(
     'xpbmsYAyABKAsyJS5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5JbWFnZUxpbmtIAFIJaW1h'
     'Z2VMaW5rEj8KB3ByZXZpZXcYBCABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5Qcm'
     'V2aWV3SABSB3ByZXZpZXcSWwoRaW1tZXJzaXZlX3ByZXZpZXcYBiABKAsyLC5zcG90aWZ5LmNh'
-    'c2l0YS52MS5yZXNvbHZlZC5JbW1lcnNpdmVQcmV2aWV3SABSEGltbWVyc2l2ZVByZXZpZXcSaw'
-    'oXY29udGVudF9ldmFsdWF0aW9uX2xpc3QYCCABKAsyMS5zcG90aWZ5LmNhc2l0YS52MS5yZXNv'
-    'bHZlZC5Db250ZW50RXZhbHVhdGlvbkxpc3RIAFIVY29udGVudEV2YWx1YXRpb25MaXN0ElAKDm'
-    'NhbGxfdG9fYWN0aW9uGAkgASgLMiguc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuQ2FsbFRv'
-    'QWN0aW9uSABSDGNhbGxUb0FjdGlvbhJPCg1yZWNlbnRzX3NoZWxmGAogASgLMiguc3BvdGlmeS'
-    '5jYXNpdGEudjEucmVzb2x2ZWQuUmVjZW50c1NoZWxmSABSDHJlY2VudHNTaGVsZhJGCgp3YXRj'
-    'aF9mZWVkGAsgASgLMiUuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuV2F0Y2hGZWVkSABSCX'
-    'dhdGNoRmVlZBJGCgpsaXZlX2V2ZW50GBAgASgLMiUuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2'
-    'ZWQuTGl2ZUV2ZW50SABSCWxpdmVFdmVudBJCCghzaG93Y2FzZRgRIAEoCzIkLnNwb3RpZnkuY2'
-    'FzaXRhLnYxLnJlc29sdmVkLlNob3djYXNlSABSCHNob3djYXNlEmUKFXZlcnRpY2FsX3Npbmds'
-    'ZV9lbnRyeRgYIAEoCzIvLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLlZlcnRpY2FsU2luZ2'
-    'xlRW50cnlIAFITdmVydGljYWxTaW5nbGVFbnRyeRJSCg52aWRlb19jYXJvdXNlbBgZIAEoCzIp'
-    'LnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLlZpZGVvQ2Fyb3VzZWxIAFINdmlkZW9DYXJvdX'
-    'NlbBJeChJhc3NvY2lhdGVkX3ByZXZpZXcYGyABKAsyLS5zcG90aWZ5LmNhc2l0YS52MS5yZXNv'
-    'bHZlZC5Bc3NvY2lhdGVkUHJldmlld0gAUhFhc3NvY2lhdGVkUHJldmlldxJFCgluYXJyYXRpdm'
-    'UYHSABKAsyJS5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5OYXJyYXRpdmVIAFIJbmFycmF0'
-    'aXZlEmoKFmludGVyYWN0aXZlX2VudHJ5cG9pbnQYHiABKAsyMS5zcG90aWZ5LmNhc2l0YS52MS'
-    '5yZXNvbHZlZC5JbnRlcmFjdGl2ZUVudHJ5cG9pbnRIAFIVaW50ZXJhY3RpdmVFbnRyeXBvaW50'
-    'ElwKEnRvcF9zdG9yeV9jYXJvdXNlbBgfIAEoCzIsLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdm'
-    'VkLlRvcFN0b3J5Q2Fyb3VzZWxIAFIQdG9wU3RvcnlDYXJvdXNlbBJJCgthdWRpb19wcm9tbxgh'
-    'IAEoCzImLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkF1ZGlvUHJvbW9IAFIKYXVkaW9Qcm'
-    '9tbxJJCgtpbmxpbmVfY2FyZBgiIAEoCzImLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLklu'
-    'bGluZUNhcmRIAFIKaW5saW5lQ2FyZBJVCg9hdWRpb19zcG90bGlnaHQYJCABKAsyKi5zcG90aW'
-    'Z5LmNhc2l0YS52MS5yZXNvbHZlZC5BdWRpb1Nwb3RsaWdodEgAUg5hdWRpb1Nwb3RsaWdodBJY'
-    'ChBwcmV2aWV3X2Nhcm91c2VsGCUgASgLMisuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuUH'
-    'Jldmlld0Nhcm91c2VsSABSD3ByZXZpZXdDYXJvdXNlbBJ0ChpwcmV2aWV3X3Byb21vdGlvbl9j'
-    'YXJvdXNlbBgnIAEoCzI0LnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLlByZXZpZXdQcm9tb3'
-    'Rpb25DYXJvdXNlbEgAUhhwcmV2aWV3UHJvbW90aW9uQ2Fyb3VzZWwSSAoKcmVmbGVjdGlvbhgp'
-    'IAEoCzImLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLlJlZmxlY3Rpb25IAFIKcmVmbGVjdG'
-    'lvbkIOCgxmZWF0dXJlX3R5cGU=');
+    'c2l0YS52MS5yZXNvbHZlZC5JbW1lcnNpdmVQcmV2aWV3SABSEGltbWVyc2l2ZVByZXZpZXcSPw'
+    'oHYW5jaG9ycxgHIAEoCzIjLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkFuY2hvcnNIAFIH'
+    'YW5jaG9ycxJrChdjb250ZW50X2V2YWx1YXRpb25fbGlzdBgIIAEoCzIxLnNwb3RpZnkuY2FzaX'
+    'RhLnYxLnJlc29sdmVkLkNvbnRlbnRFdmFsdWF0aW9uTGlzdEgAUhVjb250ZW50RXZhbHVhdGlv'
+    'bkxpc3QSUAoOY2FsbF90b19hY3Rpb24YCSABKAsyKC5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbH'
+    'ZlZC5DYWxsVG9BY3Rpb25IAFIMY2FsbFRvQWN0aW9uEk8KDXJlY2VudHNfc2hlbGYYCiABKAsy'
+    'KC5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5SZWNlbnRzU2hlbGZIAFIMcmVjZW50c1NoZW'
+    'xmEkYKCndhdGNoX2ZlZWQYCyABKAsyJS5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5XYXRj'
+    'aEZlZWRIAFIJd2F0Y2hGZWVkEkwKDHByb21vdGlvbl92MRgMIAEoCzInLnNwb3RpZnkuY2FzaX'
+    'RhLnYxLnJlc29sdmVkLlByb21vdGlvblYxSABSC3Byb21vdGlvblYxEkwKDHByb21vdGlvbl92'
+    'MxgNIAEoCzInLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLlByb21vdGlvblYzSABSC3Byb2'
+    '1vdGlvblYzEmIKFGFjdGlvbl9jYXJkX2Nhcm91c2VsGA8gASgLMi4uc3BvdGlmeS5jYXNpdGEu'
+    'djEucmVzb2x2ZWQuQWN0aW9uQ2FyZENhcm91c2VsSABSEmFjdGlvbkNhcmRDYXJvdXNlbBJGCg'
+    'psaXZlX2V2ZW50GBAgASgLMiUuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuTGl2ZUV2ZW50'
+    'SABSCWxpdmVFdmVudBJCCghzaG93Y2FzZRgRIAEoCzIkLnNwb3RpZnkuY2FzaXRhLnYxLnJlc2'
+    '9sdmVkLlNob3djYXNlSABSCHNob3djYXNlEkkKC3ZpZGVvX3Byb21vGBIgASgLMiYuc3BvdGlm'
+    'eS5jYXNpdGEudjEucmVzb2x2ZWQuVmlkZW9Qcm9tb0gAUgp2aWRlb1Byb21vEjwKBmJhbm5lch'
+    'gTIAEoCzIiLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkJhbm5lckgAUgZiYW5uZXISUAoO'
+    'dmlkZW9fYnJhbmRfYWQYFCABKAsyKC5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5WaWRlb0'
+    'JyYW5kQWRIAFIMdmlkZW9CcmFuZEFkElAKDmltYWdlX2JyYW5kX2FkGBUgASgLMiguc3BvdGlm'
+    'eS5jYXNpdGEudjEucmVzb2x2ZWQuSW1hZ2VCcmFuZEFkSABSDGltYWdlQnJhbmRBZBJoChZjYW'
+    '1wYWlnbl9saW5rX2Nhcm91c2VsGBcgASgLMjAuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQu'
+    'Q2FtcGFpZ25MaW5rQ2Fyb3VzZWxIAFIUY2FtcGFpZ25MaW5rQ2Fyb3VzZWwSZQoVdmVydGljYW'
+    'xfc2luZ2xlX2VudHJ5GBggASgLMi8uc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuVmVydGlj'
+    'YWxTaW5nbGVFbnRyeUgAUhN2ZXJ0aWNhbFNpbmdsZUVudHJ5ElIKDnZpZGVvX2Nhcm91c2VsGB'
+    'kgASgLMikuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuVmlkZW9DYXJvdXNlbEgAUg12aWRl'
+    'b0Nhcm91c2VsElkKEWZ1bGxfYmxlZWRfYmFubmVyGBogASgLMisuc3BvdGlmeS5jYXNpdGEudj'
+    'EucmVzb2x2ZWQuRnVsbEJsZWVkQmFubmVySABSD2Z1bGxCbGVlZEJhbm5lchJeChJhc3NvY2lh'
+    'dGVkX3ByZXZpZXcYGyABKAsyLS5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5Bc3NvY2lhdG'
+    'VkUHJldmlld0gAUhFhc3NvY2lhdGVkUHJldmlldxJoChZiYW5uZXJfd2l0aF9hbmltYXRpb25z'
+    'GBwgASgLMjAuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuQmFubmVyV2l0aEFuaW1hdGlvbn'
+    'NIAFIUYmFubmVyV2l0aEFuaW1hdGlvbnMSRQoJbmFycmF0aXZlGB0gASgLMiUuc3BvdGlmeS5j'
+    'YXNpdGEudjEucmVzb2x2ZWQuTmFycmF0aXZlSABSCW5hcnJhdGl2ZRJqChZpbnRlcmFjdGl2ZV'
+    '9lbnRyeXBvaW50GB4gASgLMjEuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuSW50ZXJhY3Rp'
+    'dmVFbnRyeXBvaW50SABSFWludGVyYWN0aXZlRW50cnlwb2ludBJcChJ0b3Bfc3RvcnlfY2Fyb3'
+    'VzZWwYHyABKAsyLC5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5Ub3BTdG9yeUNhcm91c2Vs'
+    'SABSEHRvcFN0b3J5Q2Fyb3VzZWwSXgoScHJvbXB0YWJsZV9zZWN0aW9uGCAgASgLMi0uc3BvdG'
+    'lmeS5jYXNpdGEudjEucmVzb2x2ZWQuUHJvbXB0YWJsZVNlY3Rpb25IAFIRcHJvbXB0YWJsZVNl'
+    'Y3Rpb24SSQoLYXVkaW9fcHJvbW8YISABKAsyJi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC'
+    '5BdWRpb1Byb21vSABSCmF1ZGlvUHJvbW8SSQoLaW5saW5lX2NhcmQYIiABKAsyJi5zcG90aWZ5'
+    'LmNhc2l0YS52MS5yZXNvbHZlZC5JbmxpbmVDYXJkSABSCmlubGluZUNhcmQSUwoPcGxheV9saW'
+    '5rX3Byb21vGCMgASgLMikuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuUGxheUxpbmtQcm9t'
+    'b0gAUg1wbGF5TGlua1Byb21vElUKD2F1ZGlvX3Nwb3RsaWdodBgkIAEoCzIqLnNwb3RpZnkuY2'
+    'FzaXRhLnYxLnJlc29sdmVkLkF1ZGlvU3BvdGxpZ2h0SABSDmF1ZGlvU3BvdGxpZ2h0ElgKEHBy'
+    'ZXZpZXdfY2Fyb3VzZWwYJSABKAsyKy5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5QcmV2aW'
+    'V3Q2Fyb3VzZWxIAFIPcHJldmlld0Nhcm91c2VsElgKEGNvbmNlcnRfY2FtcGFpZ24YJiABKAsy'
+    'Ky5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5Db25jZXJ0Q2FtcGFpZ25IAFIPY29uY2VydE'
+    'NhbXBhaWduEnQKGnByZXZpZXdfcHJvbW90aW9uX2Nhcm91c2VsGCcgASgLMjQuc3BvdGlmeS5j'
+    'YXNpdGEudjEucmVzb2x2ZWQuUHJldmlld1Byb21vdGlvbkNhcm91c2VsSABSGHByZXZpZXdQcm'
+    '9tb3Rpb25DYXJvdXNlbBJlChVwcm9tcHRlZF93b3JsZHNfc2hlbGYYKCABKAsyLy5zcG90aWZ5'
+    'LmNhc2l0YS52MS5yZXNvbHZlZC5Qcm9tcHRlZFdvcmxkc1NoZWxmSABSE3Byb21wdGVkV29ybG'
+    'RzU2hlbGYSSAoKcmVmbGVjdGlvbhgpIAEoCzImLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVk'
+    'LlJlZmxlY3Rpb25IAFIKcmVmbGVjdGlvbhJ+Ch51c2VyX3Byb21wdGVkX3dvcmxkX2VudHJ5cG'
+    '9pbnQYKiABKAsyNy5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5Vc2VyUHJvbXB0ZWRXb3Js'
+    'ZEVudHJ5cG9pbnRIAFIbdXNlclByb21wdGVkV29ybGRFbnRyeXBvaW50Qg4KDGZlYXR1cmVfdH'
+    'lwZQ==');
 
 @$core.Deprecated('Use sectionInfoDescriptor instead')
 const SectionInfo$json = {
@@ -530,13 +751,13 @@ final $typed_data.Uint8List localRecentlyPlayedDescriptor =
 const ListPlatform$json = {
   '1': 'ListPlatform',
   '2': [
-    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
+    {'1': 'list_uri', '3': 1, '4': 1, '5': 9, '10': 'listUri'},
   ],
 };
 
 /// Descriptor for `ListPlatform`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List listPlatformDescriptor =
-    $convert.base64Decode('CgxMaXN0UGxhdGZvcm0SEAoDdXJpGAEgASgJUgN1cmk=');
+final $typed_data.Uint8List listPlatformDescriptor = $convert
+    .base64Decode('CgxMaXN0UGxhdGZvcm0SGQoIbGlzdF91cmkYASABKAlSB2xpc3RVcmk=');
 
 @$core.Deprecated('Use headingDescriptor instead')
 const Heading$json = {
@@ -711,12 +932,14 @@ const SponsoredHeading$json = {
   '1': 'SponsoredHeading',
   '2': [
     {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'subtitle', '3': 2, '4': 1, '5': 9, '10': 'subtitle'},
   ],
 };
 
 /// Descriptor for `SponsoredHeading`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List sponsoredHeadingDescriptor = $convert
-    .base64Decode('ChBTcG9uc29yZWRIZWFkaW5nEhIKBHRleHQYASABKAlSBHRleHQ=');
+final $typed_data.Uint8List sponsoredHeadingDescriptor = $convert.base64Decode(
+    'ChBTcG9uc29yZWRIZWFkaW5nEhIKBHRleHQYASABKAlSBHRleHQSGgoIc3VidGl0bGUYAiABKA'
+    'lSCHN1YnRpdGxl');
 
 @$core.Deprecated('Use headingAssociatedItemDescriptor instead')
 const HeadingAssociatedItem$json = {
@@ -876,6 +1099,26 @@ final $typed_data.Uint8List immersivePreviewDescriptor = $convert.base64Decode(
     '5yZXNvbHZlZC5IZWFkaW5nUgdoZWFkaW5nEjQKBGl0ZW0YAiABKAsyIC5zcG90aWZ5LmNhc2l0'
     'YS52MS5yZXNvbHZlZC5JdGVtUgRpdGVt');
 
+@$core.Deprecated('Use anchorsDescriptor instead')
+const Anchors$json = {
+  '1': 'Anchors',
+  '2': [
+    {
+      '1': 'item_source',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ItemSource',
+      '10': 'itemSource'
+    },
+  ],
+};
+
+/// Descriptor for `Anchors`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List anchorsDescriptor = $convert.base64Decode(
+    'CgdBbmNob3JzEkcKC2l0ZW1fc291cmNlGAEgASgLMiYuc3BvdGlmeS5jYXNpdGEudjEucmVzb2'
+    'x2ZWQuSXRlbVNvdXJjZVIKaXRlbVNvdXJjZQ==');
+
 @$core.Deprecated('Use contentEvaluationListDescriptor instead')
 const ContentEvaluationList$json = {
   '1': 'ContentEvaluationList',
@@ -889,12 +1132,12 @@ const ContentEvaluationList$json = {
       '10': 'heading'
     },
     {
-      '1': 'item_source',
+      '1': 'items',
       '3': 2,
-      '4': 1,
+      '4': 3,
       '5': 11,
-      '6': '.spotify.casita.v1.resolved.ItemSource',
-      '10': 'itemSource'
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'items'
     },
   ],
 };
@@ -902,25 +1145,181 @@ const ContentEvaluationList$json = {
 /// Descriptor for `ContentEvaluationList`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List contentEvaluationListDescriptor = $convert.base64Decode(
     'ChVDb250ZW50RXZhbHVhdGlvbkxpc3QSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZnkuY2FzaX'
-    'RhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSRwoLaXRlbV9zb3VyY2UYAiABKAsyJi5z'
-    'cG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5JdGVtU291cmNlUgppdGVtU291cmNl');
+    'RhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSNgoFaXRlbXMYAiADKAsyIC5zcG90aWZ5'
+    'LmNhc2l0YS52MS5yZXNvbHZlZC5JdGVtUgVpdGVtcw==');
 
 @$core.Deprecated('Use callToActionDescriptor instead')
 const CallToAction$json = {
   '1': 'CallToAction',
   '2': [
-    {'1': 'title', '3': 1, '4': 1, '5': 9, '10': 'title'},
-    {'1': 'subtitle', '3': 2, '4': 1, '5': 9, '10': 'subtitle'},
-    {'1': 'button_text', '3': 3, '4': 1, '5': 9, '10': 'buttonText'},
-    {'1': 'uri', '3': 4, '4': 1, '5': 9, '10': 'uri'},
+    {
+      '1': 'rich_call_to_action',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.RichCallToAction',
+      '9': 0,
+      '10': 'richCallToAction'
+    },
+    {
+      '1': 'simple_call_to_action',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.SimpleCallToAction',
+      '9': 0,
+      '10': 'simpleCallToAction'
+    },
+    {
+      '1': 'dj_call_to_action',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.DjCallToAction',
+      '9': 0,
+      '10': 'djCallToAction'
+    },
+  ],
+  '8': [
+    {'1': 'variant'},
   ],
 };
 
 /// Descriptor for `CallToAction`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List callToActionDescriptor = $convert.base64Decode(
-    'CgxDYWxsVG9BY3Rpb24SFAoFdGl0bGUYASABKAlSBXRpdGxlEhoKCHN1YnRpdGxlGAIgASgJUg'
-    'hzdWJ0aXRsZRIfCgtidXR0b25fdGV4dBgDIAEoCVIKYnV0dG9uVGV4dBIQCgN1cmkYBCABKAlS'
-    'A3VyaQ==');
+    'CgxDYWxsVG9BY3Rpb24SXQoTcmljaF9jYWxsX3RvX2FjdGlvbhgBIAEoCzIsLnNwb3RpZnkuY2'
+    'FzaXRhLnYxLnJlc29sdmVkLlJpY2hDYWxsVG9BY3Rpb25IAFIQcmljaENhbGxUb0FjdGlvbhJj'
+    'ChVzaW1wbGVfY2FsbF90b19hY3Rpb24YAiABKAsyLi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbH'
+    'ZlZC5TaW1wbGVDYWxsVG9BY3Rpb25IAFISc2ltcGxlQ2FsbFRvQWN0aW9uElcKEWRqX2NhbGxf'
+    'dG9fYWN0aW9uGAMgASgLMiouc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuRGpDYWxsVG9BY3'
+    'Rpb25IAFIOZGpDYWxsVG9BY3Rpb25CCQoHdmFyaWFudA==');
+
+@$core.Deprecated('Use richCallToActionDescriptor instead')
+const RichCallToAction$json = {
+  '1': 'RichCallToAction',
+  '2': [
+    {'1': 'type', '3': 1, '4': 1, '5': 5, '10': 'type'},
+    {'1': 'image_url', '3': 2, '4': 1, '5': 9, '10': 'imageUrl'},
+    {'1': 'title', '3': 3, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'subtitle', '3': 4, '4': 1, '5': 9, '10': 'subtitle'},
+    {
+      '1': 'call_to_action_text',
+      '3': 5,
+      '4': 1,
+      '5': 9,
+      '10': 'callToActionText'
+    },
+    {'1': 'is_dismissible', '3': 6, '4': 1, '5': 8, '10': 'isDismissible'},
+  ],
+};
+
+/// Descriptor for `RichCallToAction`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List richCallToActionDescriptor = $convert.base64Decode(
+    'ChBSaWNoQ2FsbFRvQWN0aW9uEhIKBHR5cGUYASABKAVSBHR5cGUSGwoJaW1hZ2VfdXJsGAIgAS'
+    'gJUghpbWFnZVVybBIUCgV0aXRsZRgDIAEoCVIFdGl0bGUSGgoIc3VidGl0bGUYBCABKAlSCHN1'
+    'YnRpdGxlEi0KE2NhbGxfdG9fYWN0aW9uX3RleHQYBSABKAlSEGNhbGxUb0FjdGlvblRleHQSJQ'
+    'oOaXNfZGlzbWlzc2libGUYBiABKAhSDWlzRGlzbWlzc2libGU=');
+
+@$core.Deprecated('Use simpleCallToActionDescriptor instead')
+const SimpleCallToAction$json = {
+  '1': 'SimpleCallToAction',
+  '2': [
+    {'1': 'type', '3': 1, '4': 1, '5': 5, '10': 'type'},
+    {'1': 'title', '3': 2, '4': 1, '5': 9, '10': 'title'},
+    {
+      '1': 'call_to_action_text',
+      '3': 3,
+      '4': 1,
+      '5': 9,
+      '10': 'callToActionText'
+    },
+  ],
+};
+
+/// Descriptor for `SimpleCallToAction`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List simpleCallToActionDescriptor = $convert.base64Decode(
+    'ChJTaW1wbGVDYWxsVG9BY3Rpb24SEgoEdHlwZRgBIAEoBVIEdHlwZRIUCgV0aXRsZRgCIAEoCV'
+    'IFdGl0bGUSLQoTY2FsbF90b19hY3Rpb25fdGV4dBgDIAEoCVIQY2FsbFRvQWN0aW9uVGV4dA==');
+
+@$core.Deprecated('Use djCallToActionDescriptor instead')
+const DjCallToAction$json = {
+  '1': 'DjCallToAction',
+  '2': [
+    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
+    {'1': 'title', '3': 2, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'subtitle', '3': 3, '4': 1, '5': 9, '10': 'subtitle'},
+    {
+      '1': 'visual_metadata',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.DjVisualMetadata',
+      '10': 'visualMetadata'
+    },
+    {'1': 'transcript', '3': 5, '4': 1, '5': 9, '10': 'transcript'},
+    {
+      '1': 'heading',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {'1': 'animation_url', '3': 7, '4': 1, '5': 9, '10': 'animationUrl'},
+    {'1': 'transcript_key', '3': 8, '4': 1, '5': 9, '10': 'transcriptKey'},
+  ],
+};
+
+/// Descriptor for `DjCallToAction`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List djCallToActionDescriptor = $convert.base64Decode(
+    'Cg5EakNhbGxUb0FjdGlvbhIQCgN1cmkYASABKAlSA3VyaRIUCgV0aXRsZRgCIAEoCVIFdGl0bG'
+    'USGgoIc3VidGl0bGUYAyABKAlSCHN1YnRpdGxlElUKD3Zpc3VhbF9tZXRhZGF0YRgEIAEoCzIs'
+    'LnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkRqVmlzdWFsTWV0YWRhdGFSDnZpc3VhbE1ldG'
+    'FkYXRhEh4KCnRyYW5zY3JpcHQYBSABKAlSCnRyYW5zY3JpcHQSPQoHaGVhZGluZxgGIAEoCzIj'
+    'LnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSIwoNYW5pbWF0aW'
+    '9uX3VybBgHIAEoCVIMYW5pbWF0aW9uVXJsEiUKDnRyYW5zY3JpcHRfa2V5GAggASgJUg10cmFu'
+    'c2NyaXB0S2V5');
+
+@$core.Deprecated('Use djVisualMetadataDescriptor instead')
+const DjVisualMetadata$json = {
+  '1': 'DjVisualMetadata',
+  '2': [
+    {'1': 'background_color', '3': 1, '4': 1, '5': 9, '10': 'backgroundColor'},
+    {'1': 'background_image', '3': 2, '4': 1, '5': 9, '10': 'backgroundImage'},
+    {
+      '1': 'jellyfish_top_color',
+      '3': 3,
+      '4': 1,
+      '5': 9,
+      '10': 'jellyfishTopColor'
+    },
+    {
+      '1': 'jellyfish_mid_color',
+      '3': 4,
+      '4': 1,
+      '5': 9,
+      '10': 'jellyfishMidColor'
+    },
+    {
+      '1': 'jellyfish_bottom_color',
+      '3': 5,
+      '4': 1,
+      '5': 9,
+      '10': 'jellyfishBottomColor'
+    },
+    {'1': 'tag_color', '3': 6, '4': 1, '5': 9, '10': 'tagColor'},
+    {'1': 'text_color', '3': 7, '4': 1, '5': 9, '10': 'textColor'},
+  ],
+};
+
+/// Descriptor for `DjVisualMetadata`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List djVisualMetadataDescriptor = $convert.base64Decode(
+    'ChBEalZpc3VhbE1ldGFkYXRhEikKEGJhY2tncm91bmRfY29sb3IYASABKAlSD2JhY2tncm91bm'
+    'RDb2xvchIpChBiYWNrZ3JvdW5kX2ltYWdlGAIgASgJUg9iYWNrZ3JvdW5kSW1hZ2USLgoTamVs'
+    'bHlmaXNoX3RvcF9jb2xvchgDIAEoCVIRamVsbHlmaXNoVG9wQ29sb3ISLgoTamVsbHlmaXNoX2'
+    '1pZF9jb2xvchgEIAEoCVIRamVsbHlmaXNoTWlkQ29sb3ISNAoWamVsbHlmaXNoX2JvdHRvbV9j'
+    'b2xvchgFIAEoCVIUamVsbHlmaXNoQm90dG9tQ29sb3ISGwoJdGFnX2NvbG9yGAYgASgJUgh0YW'
+    'dDb2xvchIdCgp0ZXh0X2NvbG9yGAcgASgJUgl0ZXh0Q29sb3I=');
 
 @$core.Deprecated('Use recentsShelfDescriptor instead')
 const RecentsShelf$json = {
@@ -966,12 +1365,12 @@ const WatchFeed$json = {
       '10': 'heading'
     },
     {
-      '1': 'item_source',
+      '1': 'items',
       '3': 2,
-      '4': 1,
+      '4': 3,
       '5': 11,
-      '6': '.spotify.casita.v1.resolved.ItemSource',
-      '10': 'itemSource'
+      '6': '.spotify.casita.v1.resolved.WatchFeedItem',
+      '10': 'items'
     },
   ],
 };
@@ -979,12 +1378,168 @@ const WatchFeed$json = {
 /// Descriptor for `WatchFeed`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List watchFeedDescriptor = $convert.base64Decode(
     'CglXYXRjaEZlZWQSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdm'
-    'VkLkhlYWRpbmdSB2hlYWRpbmcSRwoLaXRlbV9zb3VyY2UYAiABKAsyJi5zcG90aWZ5LmNhc2l0'
-    'YS52MS5yZXNvbHZlZC5JdGVtU291cmNlUgppdGVtU291cmNl');
+    'VkLkhlYWRpbmdSB2hlYWRpbmcSPwoFaXRlbXMYAiADKAsyKS5zcG90aWZ5LmNhc2l0YS52MS5y'
+    'ZXNvbHZlZC5XYXRjaEZlZWRJdGVtUgVpdGVtcw==');
 
-@$core.Deprecated('Use liveEventDescriptor instead')
-const LiveEvent$json = {
-  '1': 'LiveEvent',
+@$core.Deprecated('Use watchFeedItemDescriptor instead')
+const WatchFeedItem$json = {
+  '1': 'WatchFeedItem',
+  '2': [
+    {
+      '1': 'item',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'item'
+    },
+    {
+      '1': 'entrypoint',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.WatchFeedEntrypoint',
+      '10': 'entrypoint'
+    },
+    {
+      '1': 'watch_feed_item_metadata',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.WatchFeedItemMetadata',
+      '10': 'watchFeedItemMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `WatchFeedItem`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchFeedItemDescriptor = $convert.base64Decode(
+    'Cg1XYXRjaEZlZWRJdGVtEjQKBGl0ZW0YASABKAsyIC5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbH'
+    'ZlZC5JdGVtUgRpdGVtEk8KCmVudHJ5cG9pbnQYAiABKAsyLy5zcG90aWZ5LmNhc2l0YS52MS5y'
+    'ZXNvbHZlZC5XYXRjaEZlZWRFbnRyeXBvaW50UgplbnRyeXBvaW50EmoKGHdhdGNoX2ZlZWRfaX'
+    'RlbV9tZXRhZGF0YRgDIAEoCzIxLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLldhdGNoRmVl'
+    'ZEl0ZW1NZXRhZGF0YVIVd2F0Y2hGZWVkSXRlbU1ldGFkYXRh');
+
+@$core.Deprecated('Use watchFeedEntrypointDescriptor instead')
+const WatchFeedEntrypoint$json = {
+  '1': 'WatchFeedEntrypoint',
+  '2': [
+    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
+    {'1': 'first_item_uri', '3': 2, '4': 1, '5': 9, '10': 'firstItemUri'},
+    {'1': 'overline', '3': 3, '4': 1, '5': 9, '10': 'overline'},
+    {'1': 'title', '3': 4, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'subtitle', '3': 5, '4': 1, '5': 9, '10': 'subtitle'},
+    {
+      '1': 'thumbnail_image',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.WatchFeedImage',
+      '10': 'thumbnailImage'
+    },
+    {
+      '1': 'video_file',
+      '3': 7,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.WatchFeedVideoFile',
+      '10': 'videoFile'
+    },
+    {'1': 'navigation_uri', '3': 8, '4': 1, '5': 9, '10': 'navigationUri'},
+    {'1': 'accessibility', '3': 9, '4': 1, '5': 9, '10': 'accessibility'},
+    {
+      '1': 'cover_image',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.WatchFeedImage',
+      '10': 'coverImage'
+    },
+    {'1': 'decision_id', '3': 11, '4': 1, '5': 9, '10': 'decisionId'},
+    {
+      '1': 'portrait_horizontal_focus_center_percentage',
+      '3': 12,
+      '4': 1,
+      '5': 1,
+      '10': 'portraitHorizontalFocusCenterPercentage'
+    },
+    {
+      '1': 'logo_image',
+      '3': 13,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.WatchFeedImage',
+      '10': 'logoImage'
+    },
+  ],
+};
+
+/// Descriptor for `WatchFeedEntrypoint`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchFeedEntrypointDescriptor = $convert.base64Decode(
+    'ChNXYXRjaEZlZWRFbnRyeXBvaW50EhAKA3VyaRgBIAEoCVIDdXJpEiQKDmZpcnN0X2l0ZW1fdX'
+    'JpGAIgASgJUgxmaXJzdEl0ZW1VcmkSGgoIb3ZlcmxpbmUYAyABKAlSCG92ZXJsaW5lEhQKBXRp'
+    'dGxlGAQgASgJUgV0aXRsZRIaCghzdWJ0aXRsZRgFIAEoCVIIc3VidGl0bGUSUwoPdGh1bWJuYW'
+    'lsX2ltYWdlGAYgASgLMiouc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuV2F0Y2hGZWVkSW1h'
+    'Z2VSDnRodW1ibmFpbEltYWdlEk0KCnZpZGVvX2ZpbGUYByABKAsyLi5zcG90aWZ5LmNhc2l0YS'
+    '52MS5yZXNvbHZlZC5XYXRjaEZlZWRWaWRlb0ZpbGVSCXZpZGVvRmlsZRIlCg5uYXZpZ2F0aW9u'
+    'X3VyaRgIIAEoCVINbmF2aWdhdGlvblVyaRIkCg1hY2Nlc3NpYmlsaXR5GAkgASgJUg1hY2Nlc3'
+    'NpYmlsaXR5EksKC2NvdmVyX2ltYWdlGAogASgLMiouc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2'
+    'ZWQuV2F0Y2hGZWVkSW1hZ2VSCmNvdmVySW1hZ2USHwoLZGVjaXNpb25faWQYCyABKAlSCmRlY2'
+    'lzaW9uSWQSXAorcG9ydHJhaXRfaG9yaXpvbnRhbF9mb2N1c19jZW50ZXJfcGVyY2VudGFnZRgM'
+    'IAEoAVIncG9ydHJhaXRIb3Jpem9udGFsRm9jdXNDZW50ZXJQZXJjZW50YWdlEkkKCmxvZ29faW'
+    '1hZ2UYDSABKAsyKi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5XYXRjaEZlZWRJbWFnZVIJ'
+    'bG9nb0ltYWdl');
+
+@$core.Deprecated('Use watchFeedImageDescriptor instead')
+const WatchFeedImage$json = {
+  '1': 'WatchFeedImage',
+  '2': [
+    {'1': 'url', '3': 1, '4': 1, '5': 9, '10': 'url'},
+    {'1': 'placeholder', '3': 2, '4': 1, '5': 9, '10': 'placeholder'},
+  ],
+};
+
+/// Descriptor for `WatchFeedImage`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchFeedImageDescriptor = $convert.base64Decode(
+    'Cg5XYXRjaEZlZWRJbWFnZRIQCgN1cmwYASABKAlSA3VybBIgCgtwbGFjZWhvbGRlchgCIAEoCV'
+    'ILcGxhY2Vob2xkZXI=');
+
+@$core.Deprecated('Use watchFeedVideoFileDescriptor instead')
+const WatchFeedVideoFile$json = {
+  '1': 'WatchFeedVideoFile',
+  '2': [
+    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
+    {'1': 'type', '3': 2, '4': 1, '5': 5, '10': 'type'},
+    {'1': 'start_time', '3': 3, '4': 1, '5': 3, '10': 'startTime'},
+    {'1': 'end_time', '3': 4, '4': 1, '5': 3, '10': 'endTime'},
+  ],
+};
+
+/// Descriptor for `WatchFeedVideoFile`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchFeedVideoFileDescriptor = $convert.base64Decode(
+    'ChJXYXRjaEZlZWRWaWRlb0ZpbGUSEAoDdXJpGAEgASgJUgN1cmkSEgoEdHlwZRgCIAEoBVIEdH'
+    'lwZRIdCgpzdGFydF90aW1lGAMgASgDUglzdGFydFRpbWUSGQoIZW5kX3RpbWUYBCABKANSB2Vu'
+    'ZFRpbWU=');
+
+@$core.Deprecated('Use watchFeedItemMetadataDescriptor instead')
+const WatchFeedItemMetadata$json = {
+  '1': 'WatchFeedItemMetadata',
+  '2': [
+    {'1': 'decision_id', '3': 1, '4': 1, '5': 9, '10': 'decisionId'},
+    {'1': 'navigation_uri', '3': 2, '4': 1, '5': 9, '10': 'navigationUri'},
+    {'1': 'first_item_uri', '3': 3, '4': 1, '5': 9, '10': 'firstItemUri'},
+  ],
+};
+
+/// Descriptor for `WatchFeedItemMetadata`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchFeedItemMetadataDescriptor = $convert.base64Decode(
+    'ChVXYXRjaEZlZWRJdGVtTWV0YWRhdGESHwoLZGVjaXNpb25faWQYASABKAlSCmRlY2lzaW9uSW'
+    'QSJQoObmF2aWdhdGlvbl91cmkYAiABKAlSDW5hdmlnYXRpb25VcmkSJAoOZmlyc3RfaXRlbV91'
+    'cmkYAyABKAlSDGZpcnN0SXRlbVVyaQ==');
+
+@$core.Deprecated('Use promotionV1Descriptor instead')
+const PromotionV1$json = {
+  '1': 'PromotionV1',
   '2': [
     {
       '1': 'heading',
@@ -1002,14 +1557,112 @@ const LiveEvent$json = {
       '6': '.spotify.casita.v1.resolved.Item',
       '10': 'item'
     },
+    {
+      '1': 'ad_metadata',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+    {'1': 'type', '3': 4, '4': 1, '5': 5, '10': 'type'},
+  ],
+};
+
+/// Descriptor for `PromotionV1`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List promotionV1Descriptor = $convert.base64Decode(
+    'CgtQcm9tb3Rpb25WMRI9CgdoZWFkaW5nGAEgASgLMiMuc3BvdGlmeS5jYXNpdGEudjEucmVzb2'
+    'x2ZWQuSGVhZGluZ1IHaGVhZGluZxI0CgRpdGVtGAIgASgLMiAuc3BvdGlmeS5jYXNpdGEudjEu'
+    'cmVzb2x2ZWQuSXRlbVIEaXRlbRJPCgthZF9tZXRhZGF0YRgDIAEoCzIuLnNwb3RpZnkuY2FzaX'
+    'RhLnYxLnJlc29sdmVkLkVtYmVkZGVkQWRNZXRhZGF0YVIKYWRNZXRhZGF0YRISCgR0eXBlGAQg'
+    'ASgFUgR0eXBl');
+
+@$core.Deprecated('Use promotionV3Descriptor instead')
+const PromotionV3$json = {
+  '1': 'PromotionV3',
+  '2': [
+    {
+      '1': 'item',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'item'
+    },
+    {
+      '1': 'ad_metadata',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `PromotionV3`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List promotionV3Descriptor = $convert.base64Decode(
+    'CgtQcm9tb3Rpb25WMxI0CgRpdGVtGAEgASgLMiAuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZW'
+    'QuSXRlbVIEaXRlbRJPCgthZF9tZXRhZGF0YRgCIAEoCzIuLnNwb3RpZnkuY2FzaXRhLnYxLnJl'
+    'c29sdmVkLkVtYmVkZGVkQWRNZXRhZGF0YVIKYWRNZXRhZGF0YQ==');
+
+@$core.Deprecated('Use actionCardCarouselDescriptor instead')
+const ActionCardCarousel$json = {
+  '1': 'ActionCardCarousel',
+  '2': [
+    {
+      '1': 'heading',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {
+      '1': 'items',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'items'
+    },
+  ],
+};
+
+/// Descriptor for `ActionCardCarousel`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List actionCardCarouselDescriptor = $convert.base64Decode(
+    'ChJBY3Rpb25DYXJkQ2Fyb3VzZWwSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZnkuY2FzaXRhLn'
+    'YxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSNgoFaXRlbXMYAiADKAsyIC5zcG90aWZ5LmNh'
+    'c2l0YS52MS5yZXNvbHZlZC5JdGVtUgVpdGVtcw==');
+
+@$core.Deprecated('Use liveEventDescriptor instead')
+const LiveEvent$json = {
+  '1': 'LiveEvent',
+  '2': [
+    {
+      '1': 'heading',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {
+      '1': 'item_source',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ItemSource',
+      '10': 'itemSource'
+    },
   ],
 };
 
 /// Descriptor for `LiveEvent`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List liveEventDescriptor = $convert.base64Decode(
     'CglMaXZlRXZlbnQSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdm'
-    'VkLkhlYWRpbmdSB2hlYWRpbmcSNAoEaXRlbRgCIAEoCzIgLnNwb3RpZnkuY2FzaXRhLnYxLnJl'
-    'c29sdmVkLkl0ZW1SBGl0ZW0=');
+    'VkLkhlYWRpbmdSB2hlYWRpbmcSRwoLaXRlbV9zb3VyY2UYAiABKAsyJi5zcG90aWZ5LmNhc2l0'
+    'YS52MS5yZXNvbHZlZC5JdGVtU291cmNlUgppdGVtU291cmNl');
 
 @$core.Deprecated('Use showcaseDescriptor instead')
 const Showcase$json = {
@@ -1048,6 +1701,176 @@ final $typed_data.Uint8List showcaseDescriptor = $convert.base64Decode(
     'QuSGVhZGluZ1IHaGVhZGluZxI0CgRpdGVtGAIgASgLMiAuc3BvdGlmeS5jYXNpdGEudjEucmVz'
     'b2x2ZWQuSXRlbVIEaXRlbRJPCgthZF9tZXRhZGF0YRgDIAEoCzIuLnNwb3RpZnkuY2FzaXRhLn'
     'YxLnJlc29sdmVkLkVtYmVkZGVkQWRNZXRhZGF0YVIKYWRNZXRhZGF0YQ==');
+
+@$core.Deprecated('Use videoPromoDescriptor instead')
+const VideoPromo$json = {
+  '1': 'VideoPromo',
+  '2': [
+    {
+      '1': 'heading',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {
+      '1': 'item',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'item'
+    },
+    {'1': 'target_uri', '3': 3, '4': 1, '5': 9, '10': 'targetUri'},
+    {
+      '1': 'ad_metadata',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `VideoPromo`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List videoPromoDescriptor = $convert.base64Decode(
+    'CgpWaWRlb1Byb21vEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbH'
+    'ZlZC5IZWFkaW5nUgdoZWFkaW5nEjQKBGl0ZW0YAiABKAsyIC5zcG90aWZ5LmNhc2l0YS52MS5y'
+    'ZXNvbHZlZC5JdGVtUgRpdGVtEh0KCnRhcmdldF91cmkYAyABKAlSCXRhcmdldFVyaRJPCgthZF'
+    '9tZXRhZGF0YRgEIAEoCzIuLnNwb3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkVtYmVkZGVkQWRN'
+    'ZXRhZGF0YVIKYWRNZXRhZGF0YQ==');
+
+@$core.Deprecated('Use bannerDescriptor instead')
+const Banner$json = {
+  '1': 'Banner',
+  '2': [
+    {'1': 'type', '3': 1, '4': 1, '5': 5, '10': 'type'},
+    {'1': 'color_code', '3': 2, '4': 1, '5': 9, '10': 'colorCode'},
+  ],
+};
+
+/// Descriptor for `Banner`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List bannerDescriptor = $convert.base64Decode(
+    'CgZCYW5uZXISEgoEdHlwZRgBIAEoBVIEdHlwZRIdCgpjb2xvcl9jb2RlGAIgASgJUgljb2xvck'
+    'NvZGU=');
+
+@$core.Deprecated('Use videoBrandAdDescriptor instead')
+const VideoBrandAd$json = {
+  '1': 'VideoBrandAd',
+  '2': [
+    {
+      '1': 'ad',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAd',
+      '10': 'ad'
+    },
+    {
+      '1': 'ad_metadata',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `VideoBrandAd`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List videoBrandAdDescriptor = $convert.base64Decode(
+    'CgxWaWRlb0JyYW5kQWQSNgoCYWQYASABKAsyJi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC'
+    '5FbWJlZGRlZEFkUgJhZBJPCgthZF9tZXRhZGF0YRgCIAEoCzIuLnNwb3RpZnkuY2FzaXRhLnYx'
+    'LnJlc29sdmVkLkVtYmVkZGVkQWRNZXRhZGF0YVIKYWRNZXRhZGF0YQ==');
+
+@$core.Deprecated('Use imageBrandAdDescriptor instead')
+const ImageBrandAd$json = {
+  '1': 'ImageBrandAd',
+  '2': [
+    {
+      '1': 'ad',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAd',
+      '10': 'ad'
+    },
+    {
+      '1': 'ad_metadata',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `ImageBrandAd`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List imageBrandAdDescriptor = $convert.base64Decode(
+    'CgxJbWFnZUJyYW5kQWQSNgoCYWQYASABKAsyJi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC'
+    '5FbWJlZGRlZEFkUgJhZBJPCgthZF9tZXRhZGF0YRgCIAEoCzIuLnNwb3RpZnkuY2FzaXRhLnYx'
+    'LnJlc29sdmVkLkVtYmVkZGVkQWRNZXRhZGF0YVIKYWRNZXRhZGF0YQ==');
+
+@$core.Deprecated('Use embeddedAdDescriptor instead')
+const EmbeddedAd$json = {
+  '1': 'EmbeddedAd',
+  '2': [
+    {'1': 'advertiser', '3': 1, '4': 1, '5': 9, '10': 'advertiser'},
+    {'1': 'call_to_action', '3': 2, '4': 1, '5': 9, '10': 'callToAction'},
+    {'1': 'clickthrough_url', '3': 3, '4': 1, '5': 9, '10': 'clickthroughUrl'},
+    {'1': 'tagline', '3': 7, '4': 1, '5': 9, '10': 'tagline'},
+    {'1': 'logo_image_url', '3': 8, '4': 1, '5': 9, '10': 'logoImageUrl'},
+  ],
+};
+
+/// Descriptor for `EmbeddedAd`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List embeddedAdDescriptor = $convert.base64Decode(
+    'CgpFbWJlZGRlZEFkEh4KCmFkdmVydGlzZXIYASABKAlSCmFkdmVydGlzZXISJAoOY2FsbF90b1'
+    '9hY3Rpb24YAiABKAlSDGNhbGxUb0FjdGlvbhIpChBjbGlja3Rocm91Z2hfdXJsGAMgASgJUg9j'
+    'bGlja3Rocm91Z2hVcmwSGAoHdGFnbGluZRgHIAEoCVIHdGFnbGluZRIkCg5sb2dvX2ltYWdlX3'
+    'VybBgIIAEoCVIMbG9nb0ltYWdlVXJs');
+
+@$core.Deprecated('Use campaignLinkCarouselDescriptor instead')
+const CampaignLinkCarousel$json = {
+  '1': 'CampaignLinkCarousel',
+  '2': [
+    {
+      '1': 'heading',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {
+      '1': 'item_source',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ItemSource',
+      '10': 'itemSource'
+    },
+    {
+      '1': 'ad_metadata',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `CampaignLinkCarousel`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List campaignLinkCarouselDescriptor = $convert.base64Decode(
+    'ChRDYW1wYWlnbkxpbmtDYXJvdXNlbBI9CgdoZWFkaW5nGAEgASgLMiMuc3BvdGlmeS5jYXNpdG'
+    'EudjEucmVzb2x2ZWQuSGVhZGluZ1IHaGVhZGluZxJHCgtpdGVtX3NvdXJjZRgCIAEoCzImLnNw'
+    'b3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkl0ZW1Tb3VyY2VSCml0ZW1Tb3VyY2USTwoLYWRfbW'
+    'V0YWRhdGEYAyABKAsyLi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5FbWJlZGRlZEFkTWV0'
+    'YWRhdGFSCmFkTWV0YWRhdGE=');
 
 @$core.Deprecated('Use verticalSingleEntryDescriptor instead')
 const VerticalSingleEntry$json = {
@@ -1102,12 +1925,12 @@ const VideoCarousel$json = {
       '10': 'heading'
     },
     {
-      '1': 'item_source',
+      '1': 'items',
       '3': 2,
-      '4': 1,
+      '4': 3,
       '5': 11,
-      '6': '.spotify.casita.v1.resolved.ItemSource',
-      '10': 'itemSource'
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'items'
     },
   ],
 };
@@ -1115,8 +1938,25 @@ const VideoCarousel$json = {
 /// Descriptor for `VideoCarousel`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List videoCarouselDescriptor = $convert.base64Decode(
     'Cg1WaWRlb0Nhcm91c2VsEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS5yZX'
-    'NvbHZlZC5IZWFkaW5nUgdoZWFkaW5nEkcKC2l0ZW1fc291cmNlGAIgASgLMiYuc3BvdGlmeS5j'
-    'YXNpdGEudjEucmVzb2x2ZWQuSXRlbVNvdXJjZVIKaXRlbVNvdXJjZQ==');
+    'NvbHZlZC5IZWFkaW5nUgdoZWFkaW5nEjYKBWl0ZW1zGAIgAygLMiAuc3BvdGlmeS5jYXNpdGEu'
+    'djEucmVzb2x2ZWQuSXRlbVIFaXRlbXM=');
+
+@$core.Deprecated('Use fullBleedBannerDescriptor instead')
+const FullBleedBanner$json = {
+  '1': 'FullBleedBanner',
+  '2': [
+    {'1': 'color_code', '3': 2, '4': 1, '5': 9, '10': 'colorCode'},
+    {'1': 'image_url', '3': 3, '4': 1, '5': 9, '10': 'imageUrl'},
+    {'1': 'description', '3': 4, '4': 1, '5': 9, '10': 'description'},
+    {'1': 'accessibility', '3': 5, '4': 1, '5': 9, '10': 'accessibility'},
+  ],
+};
+
+/// Descriptor for `FullBleedBanner`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List fullBleedBannerDescriptor = $convert.base64Decode(
+    'Cg9GdWxsQmxlZWRCYW5uZXISHQoKY29sb3JfY29kZRgCIAEoCVIJY29sb3JDb2RlEhsKCWltYW'
+    'dlX3VybBgDIAEoCVIIaW1hZ2VVcmwSIAoLZGVzY3JpcHRpb24YBCABKAlSC2Rlc2NyaXB0aW9u'
+    'EiQKDWFjY2Vzc2liaWxpdHkYBSABKAlSDWFjY2Vzc2liaWxpdHk=');
 
 @$core.Deprecated('Use associatedPreviewDescriptor instead')
 const AssociatedPreview$json = {
@@ -1147,6 +1987,35 @@ final $typed_data.Uint8List associatedPreviewDescriptor = $convert.base64Decode(
     'EucmVzb2x2ZWQuSGVhZGluZ1IHaGVhZGluZxI0CgRpdGVtGAIgASgLMiAuc3BvdGlmeS5jYXNp'
     'dGEudjEucmVzb2x2ZWQuSXRlbVIEaXRlbQ==');
 
+@$core.Deprecated('Use bannerWithAnimationsDescriptor instead')
+const BannerWithAnimations$json = {
+  '1': 'BannerWithAnimations',
+  '2': [
+    {
+      '1': 'item',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'item'
+    },
+    {
+      '1': 'ad_metadata',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+  ],
+};
+
+/// Descriptor for `BannerWithAnimations`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List bannerWithAnimationsDescriptor = $convert.base64Decode(
+    'ChRCYW5uZXJXaXRoQW5pbWF0aW9ucxI0CgRpdGVtGAEgASgLMiAuc3BvdGlmeS5jYXNpdGEudj'
+    'EucmVzb2x2ZWQuSXRlbVIEaXRlbRJPCgthZF9tZXRhZGF0YRgCIAEoCzIuLnNwb3RpZnkuY2Fz'
+    'aXRhLnYxLnJlc29sdmVkLkVtYmVkZGVkQWRNZXRhZGF0YVIKYWRNZXRhZGF0YQ==');
+
 @$core.Deprecated('Use narrativeDescriptor instead')
 const Narrative$json = {
   '1': 'Narrative',
@@ -1165,6 +2034,65 @@ final $typed_data.Uint8List narrativeDescriptor = $convert.base64Decode(
 const InteractiveEntrypoint$json = {
   '1': 'InteractiveEntrypoint',
   '2': [
+    {'1': 'prompt', '3': 1, '4': 1, '5': 9, '10': 'prompt'},
+  ],
+};
+
+/// Descriptor for `InteractiveEntrypoint`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List interactiveEntrypointDescriptor =
+    $convert.base64Decode(
+        'ChVJbnRlcmFjdGl2ZUVudHJ5cG9pbnQSFgoGcHJvbXB0GAEgASgJUgZwcm9tcHQ=');
+
+@$core.Deprecated('Use topStoryCarouselDescriptor instead')
+const TopStoryCarousel$json = {
+  '1': 'TopStoryCarousel',
+  '2': [
+    {
+      '1': 'stories',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.TopStory',
+      '10': 'stories'
+    },
+  ],
+};
+
+/// Descriptor for `TopStoryCarousel`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List topStoryCarouselDescriptor = $convert.base64Decode(
+    'ChBUb3BTdG9yeUNhcm91c2VsEj4KB3N0b3JpZXMYASADKAsyJC5zcG90aWZ5LmNhc2l0YS52MS'
+    '5yZXNvbHZlZC5Ub3BTdG9yeVIHc3Rvcmllcw==');
+
+@$core.Deprecated('Use topStoryDescriptor instead')
+const TopStory$json = {
+  '1': 'TopStory',
+  '2': [
+    {'1': 'title', '3': 1, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'description', '3': 2, '4': 1, '5': 9, '10': 'description'},
+    {
+      '1': 'items',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'items'
+    },
+    {'1': 'story_id', '3': 4, '4': 1, '5': 9, '10': 'storyId'},
+    {'1': 'created_at', '3': 5, '4': 1, '5': 3, '10': 'createdAt'},
+  ],
+};
+
+/// Descriptor for `TopStory`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List topStoryDescriptor = $convert.base64Decode(
+    'CghUb3BTdG9yeRIUCgV0aXRsZRgBIAEoCVIFdGl0bGUSIAoLZGVzY3JpcHRpb24YAiABKAlSC2'
+    'Rlc2NyaXB0aW9uEjYKBWl0ZW1zGAMgAygLMiAuc3BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQu'
+    'SXRlbVIFaXRlbXMSGQoIc3RvcnlfaWQYBCABKAlSB3N0b3J5SWQSHQoKY3JlYXRlZF9hdBgFIA'
+    'EoA1IJY3JlYXRlZEF0');
+
+@$core.Deprecated('Use promptableSectionDescriptor instead')
+const PromptableSection$json = {
+  '1': 'PromptableSection',
+  '2': [
     {
       '1': 'heading',
       '3': 1,
@@ -1181,43 +2109,36 @@ const InteractiveEntrypoint$json = {
       '6': '.spotify.casita.v1.resolved.Item',
       '10': 'item'
     },
-  ],
-};
-
-/// Descriptor for `InteractiveEntrypoint`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List interactiveEntrypointDescriptor = $convert.base64Decode(
-    'ChVJbnRlcmFjdGl2ZUVudHJ5cG9pbnQSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZnkuY2FzaX'
-    'RhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSNAoEaXRlbRgCIAEoCzIgLnNwb3RpZnku'
-    'Y2FzaXRhLnYxLnJlc29sdmVkLkl0ZW1SBGl0ZW0=');
-
-@$core.Deprecated('Use topStoryCarouselDescriptor instead')
-const TopStoryCarousel$json = {
-  '1': 'TopStoryCarousel',
-  '2': [
     {
-      '1': 'heading',
-      '3': 1,
-      '4': 1,
-      '5': 11,
-      '6': '.spotify.casita.v1.resolved.Heading',
-      '10': 'heading'
-    },
-    {
-      '1': 'items',
-      '3': 2,
+      '1': 'prompt_suggestions',
+      '3': 3,
       '4': 3,
       '5': 11,
-      '6': '.spotify.casita.v1.resolved.Item',
-      '10': 'items'
+      '6': '.spotify.casita.v1.resolved.PromptableSuggestion',
+      '10': 'promptSuggestions'
     },
   ],
 };
 
-/// Descriptor for `TopStoryCarousel`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List topStoryCarouselDescriptor = $convert.base64Decode(
-    'ChBUb3BTdG9yeUNhcm91c2VsEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS'
-    '5yZXNvbHZlZC5IZWFkaW5nUgdoZWFkaW5nEjYKBWl0ZW1zGAIgAygLMiAuc3BvdGlmeS5jYXNp'
-    'dGEudjEucmVzb2x2ZWQuSXRlbVIFaXRlbXM=');
+/// Descriptor for `PromptableSection`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List promptableSectionDescriptor = $convert.base64Decode(
+    'ChFQcm9tcHRhYmxlU2VjdGlvbhI9CgdoZWFkaW5nGAEgASgLMiMuc3BvdGlmeS5jYXNpdGEudj'
+    'EucmVzb2x2ZWQuSGVhZGluZ1IHaGVhZGluZxI0CgRpdGVtGAIgASgLMiAuc3BvdGlmeS5jYXNp'
+    'dGEudjEucmVzb2x2ZWQuSXRlbVIEaXRlbRJfChJwcm9tcHRfc3VnZ2VzdGlvbnMYAyADKAsyMC'
+    '5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5Qcm9tcHRhYmxlU3VnZ2VzdGlvblIRcHJvbXB0'
+    'U3VnZ2VzdGlvbnM=');
+
+@$core.Deprecated('Use promptableSuggestionDescriptor instead')
+const PromptableSuggestion$json = {
+  '1': 'PromptableSuggestion',
+  '2': [
+    {'1': 'suggestion', '3': 1, '4': 1, '5': 9, '10': 'suggestion'},
+  ],
+};
+
+/// Descriptor for `PromptableSuggestion`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List promptableSuggestionDescriptor = $convert.base64Decode(
+    'ChRQcm9tcHRhYmxlU3VnZ2VzdGlvbhIeCgpzdWdnZXN0aW9uGAEgASgJUgpzdWdnZXN0aW9u');
 
 @$core.Deprecated('Use audioPromoDescriptor instead')
 const AudioPromo$json = {
@@ -1239,6 +2160,21 @@ const AudioPromo$json = {
       '6': '.spotify.casita.v1.resolved.Item',
       '10': 'item'
     },
+    {
+      '1': 'ad_metadata',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
+    {
+      '1': 'preview_entity_uri',
+      '3': 4,
+      '4': 1,
+      '5': 9,
+      '10': 'previewEntityUri'
+    },
   ],
 };
 
@@ -1246,11 +2182,25 @@ const AudioPromo$json = {
 final $typed_data.Uint8List audioPromoDescriptor = $convert.base64Decode(
     'CgpBdWRpb1Byb21vEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbH'
     'ZlZC5IZWFkaW5nUgdoZWFkaW5nEjQKBGl0ZW0YAiABKAsyIC5zcG90aWZ5LmNhc2l0YS52MS5y'
-    'ZXNvbHZlZC5JdGVtUgRpdGVt');
+    'ZXNvbHZlZC5JdGVtUgRpdGVtEk8KC2FkX21ldGFkYXRhGAMgASgLMi4uc3BvdGlmeS5jYXNpdG'
+    'EudjEucmVzb2x2ZWQuRW1iZWRkZWRBZE1ldGFkYXRhUgphZE1ldGFkYXRhEiwKEnByZXZpZXdf'
+    'ZW50aXR5X3VyaRgEIAEoCVIQcHJldmlld0VudGl0eVVyaQ==');
 
 @$core.Deprecated('Use inlineCardDescriptor instead')
 const InlineCard$json = {
   '1': 'InlineCard',
+  '2': [
+    {'1': 'type', '3': 1, '4': 1, '5': 5, '10': 'type'},
+  ],
+};
+
+/// Descriptor for `InlineCard`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List inlineCardDescriptor =
+    $convert.base64Decode('CgpJbmxpbmVDYXJkEhIKBHR5cGUYASABKAVSBHR5cGU=');
+
+@$core.Deprecated('Use playLinkPromoDescriptor instead')
+const PlayLinkPromo$json = {
+  '1': 'PlayLinkPromo',
   '2': [
     {
       '1': 'heading',
@@ -1268,14 +2218,23 @@ const InlineCard$json = {
       '6': '.spotify.casita.v1.resolved.Item',
       '10': 'item'
     },
+    {
+      '1': 'ad_metadata',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
+    },
   ],
 };
 
-/// Descriptor for `InlineCard`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List inlineCardDescriptor = $convert.base64Decode(
-    'CgpJbmxpbmVDYXJkEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbH'
-    'ZlZC5IZWFkaW5nUgdoZWFkaW5nEjQKBGl0ZW0YAiABKAsyIC5zcG90aWZ5LmNhc2l0YS52MS5y'
-    'ZXNvbHZlZC5JdGVtUgRpdGVt');
+/// Descriptor for `PlayLinkPromo`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List playLinkPromoDescriptor = $convert.base64Decode(
+    'Cg1QbGF5TGlua1Byb21vEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS52MS5yZX'
+    'NvbHZlZC5IZWFkaW5nUgdoZWFkaW5nEjQKBGl0ZW0YAiABKAsyIC5zcG90aWZ5LmNhc2l0YS52'
+    'MS5yZXNvbHZlZC5JdGVtUgRpdGVtEk8KC2FkX21ldGFkYXRhGAMgASgLMi4uc3BvdGlmeS5jYX'
+    'NpdGEudjEucmVzb2x2ZWQuRW1iZWRkZWRBZE1ldGFkYXRhUgphZE1ldGFkYXRh');
 
 @$core.Deprecated('Use audioSpotlightDescriptor instead')
 const AudioSpotlight$json = {
@@ -1352,6 +2311,18 @@ final $typed_data.Uint8List previewCarouselDescriptor = $convert.base64Decode(
     'Jlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSNgoFaXRlbXMYAiADKAsyIC5zcG90aWZ5LmNhc2l0'
     'YS52MS5yZXNvbHZlZC5JdGVtUgVpdGVtcw==');
 
+@$core.Deprecated('Use concertCampaignDescriptor instead')
+const ConcertCampaign$json = {
+  '1': 'ConcertCampaign',
+  '2': [
+    {'1': 'campaign_uri', '3': 1, '4': 1, '5': 9, '10': 'campaignUri'},
+  ],
+};
+
+/// Descriptor for `ConcertCampaign`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List concertCampaignDescriptor = $convert.base64Decode(
+    'Cg9Db25jZXJ0Q2FtcGFpZ24SIQoMY2FtcGFpZ25fdXJpGAEgASgJUgtjYW1wYWlnblVyaQ==');
+
 @$core.Deprecated('Use previewPromotionCarouselDescriptor instead')
 const PreviewPromotionCarousel$json = {
   '1': 'PreviewPromotionCarousel',
@@ -1364,13 +2335,22 @@ const PreviewPromotionCarousel$json = {
       '6': '.spotify.casita.v1.resolved.Heading',
       '10': 'heading'
     },
+    {'1': 'promotion_uri', '3': 2, '4': 1, '5': 9, '10': 'promotionUri'},
     {
       '1': 'items',
-      '3': 2,
+      '3': 3,
       '4': 3,
       '5': 11,
       '6': '.spotify.casita.v1.resolved.PreviewPromotionCarouselItem',
       '10': 'items'
+    },
+    {
+      '1': 'ad_metadata',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.EmbeddedAdMetadata',
+      '10': 'adMetadata'
     },
   ],
 };
@@ -1378,30 +2358,68 @@ const PreviewPromotionCarousel$json = {
 /// Descriptor for `PreviewPromotionCarousel`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List previewPromotionCarouselDescriptor = $convert.base64Decode(
     'ChhQcmV2aWV3UHJvbW90aW9uQ2Fyb3VzZWwSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZnkuY2'
-    'FzaXRhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSTgoFaXRlbXMYAiADKAsyOC5zcG90'
-    'aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5QcmV2aWV3UHJvbW90aW9uQ2Fyb3VzZWxJdGVtUgVpdG'
-    'Vtcw==');
+    'FzaXRhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSIwoNcHJvbW90aW9uX3VyaRgCIAEo'
+    'CVIMcHJvbW90aW9uVXJpEk4KBWl0ZW1zGAMgAygLMjguc3BvdGlmeS5jYXNpdGEudjEucmVzb2'
+    'x2ZWQuUHJldmlld1Byb21vdGlvbkNhcm91c2VsSXRlbVIFaXRlbXMSTwoLYWRfbWV0YWRhdGEY'
+    'BCABKAsyLi5zcG90aWZ5LmNhc2l0YS52MS5yZXNvbHZlZC5FbWJlZGRlZEFkTWV0YWRhdGFSCm'
+    'FkTWV0YWRhdGE=');
 
 @$core.Deprecated('Use previewPromotionCarouselItemDescriptor instead')
 const PreviewPromotionCarouselItem$json = {
   '1': 'PreviewPromotionCarouselItem',
   '2': [
     {
-      '1': 'item',
+      '1': 'video_promo',
       '3': 1,
       '4': 1,
       '5': 11,
-      '6': '.spotify.casita.v1.resolved.Item',
-      '10': 'item'
+      '6': '.spotify.casita.v1.resolved.VideoPromo',
+      '9': 0,
+      '10': 'videoPromo'
     },
+  ],
+  '8': [
+    {'1': 'content'},
   ],
 };
 
 /// Descriptor for `PreviewPromotionCarouselItem`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List previewPromotionCarouselItemDescriptor =
     $convert.base64Decode(
-        'ChxQcmV2aWV3UHJvbW90aW9uQ2Fyb3VzZWxJdGVtEjQKBGl0ZW0YASABKAsyIC5zcG90aWZ5Lm'
-        'Nhc2l0YS52MS5yZXNvbHZlZC5JdGVtUgRpdGVt');
+        'ChxQcmV2aWV3UHJvbW90aW9uQ2Fyb3VzZWxJdGVtEkkKC3ZpZGVvX3Byb21vGAEgASgLMiYuc3'
+        'BvdGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuVmlkZW9Qcm9tb0gAUgp2aWRlb1Byb21vQgkKB2Nv'
+        'bnRlbnQ=');
+
+@$core.Deprecated('Use promptedWorldsShelfDescriptor instead')
+const PromptedWorldsShelf$json = {
+  '1': 'PromptedWorldsShelf',
+  '2': [
+    {
+      '1': 'heading',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {
+      '1': 'item_source',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.ItemSource',
+      '10': 'itemSource'
+    },
+    {'1': 'list_uri', '3': 3, '4': 1, '5': 9, '10': 'listUri'},
+  ],
+};
+
+/// Descriptor for `PromptedWorldsShelf`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List promptedWorldsShelfDescriptor = $convert.base64Decode(
+    'ChNQcm9tcHRlZFdvcmxkc1NoZWxmEj0KB2hlYWRpbmcYASABKAsyIy5zcG90aWZ5LmNhc2l0YS'
+    '52MS5yZXNvbHZlZC5IZWFkaW5nUgdoZWFkaW5nEkcKC2l0ZW1fc291cmNlGAIgASgLMiYuc3Bv'
+    'dGlmeS5jYXNpdGEudjEucmVzb2x2ZWQuSXRlbVNvdXJjZVIKaXRlbVNvdXJjZRIZCghsaXN0X3'
+    'VyaRgDIAEoCVIHbGlzdFVyaQ==');
 
 @$core.Deprecated('Use reflectionDescriptor instead')
 const Reflection$json = {
@@ -1432,14 +2450,52 @@ final $typed_data.Uint8List reflectionDescriptor = $convert.base64Decode(
     'ZlZC5IZWFkaW5nUgdoZWFkaW5nEjQKBGl0ZW0YAiABKAsyIC5zcG90aWZ5LmNhc2l0YS52MS5y'
     'ZXNvbHZlZC5JdGVtUgRpdGVt');
 
+@$core.Deprecated('Use userPromptedWorldEntrypointDescriptor instead')
+const UserPromptedWorldEntrypoint$json = {
+  '1': 'UserPromptedWorldEntrypoint',
+  '2': [
+    {
+      '1': 'heading',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Heading',
+      '10': 'heading'
+    },
+    {
+      '1': 'item',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.casita.v1.resolved.Item',
+      '10': 'item'
+    },
+  ],
+};
+
+/// Descriptor for `UserPromptedWorldEntrypoint`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List userPromptedWorldEntrypointDescriptor =
+    $convert.base64Decode(
+        'ChtVc2VyUHJvbXB0ZWRXb3JsZEVudHJ5cG9pbnQSPQoHaGVhZGluZxgBIAEoCzIjLnNwb3RpZn'
+        'kuY2FzaXRhLnYxLnJlc29sdmVkLkhlYWRpbmdSB2hlYWRpbmcSNAoEaXRlbRgCIAEoCzIgLnNw'
+        'b3RpZnkuY2FzaXRhLnYxLnJlc29sdmVkLkl0ZW1SBGl0ZW0=');
+
 @$core.Deprecated('Use embeddedAdMetadataDescriptor instead')
 const EmbeddedAdMetadata$json = {
   '1': 'EmbeddedAdMetadata',
   '2': [
-    {'1': 'tracking_id', '3': 1, '4': 1, '5': 9, '10': 'trackingId'},
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'creative_id', '3': 2, '4': 1, '5': 9, '10': 'creativeId'},
+    {'1': 'playback_id', '3': 3, '4': 1, '5': 9, '10': 'playbackId'},
+    {'1': 'product_name', '3': 4, '4': 1, '5': 9, '10': 'productName'},
+    {'1': 'lineitem_id', '3': 5, '4': 1, '5': 9, '10': 'lineitemId'},
+    {'1': 'slot', '3': 6, '4': 1, '5': 9, '10': 'slot'},
   ],
 };
 
 /// Descriptor for `EmbeddedAdMetadata`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List embeddedAdMetadataDescriptor = $convert.base64Decode(
-    'ChJFbWJlZGRlZEFkTWV0YWRhdGESHwoLdHJhY2tpbmdfaWQYASABKAlSCnRyYWNraW5nSWQ=');
+    'ChJFbWJlZGRlZEFkTWV0YWRhdGESDgoCaWQYASABKAlSAmlkEh8KC2NyZWF0aXZlX2lkGAIgAS'
+    'gJUgpjcmVhdGl2ZUlkEh8KC3BsYXliYWNrX2lkGAMgASgJUgpwbGF5YmFja0lkEiEKDHByb2R1'
+    'Y3RfbmFtZRgEIAEoCVILcHJvZHVjdE5hbWUSHwoLbGluZWl0ZW1faWQYBSABKAlSCmxpbmVpdG'
+    'VtSWQSEgoEc2xvdBgGIAEoCVIEc2xvdA==');

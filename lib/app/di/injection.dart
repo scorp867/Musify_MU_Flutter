@@ -10,9 +10,12 @@ import 'package:musify_mu/core/network/spotify/auth/auth_session_provider.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_client_token.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
+import 'package:musify_mu/core/color/color_cache.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
 
 import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
+import 'package:musify_mu/features/playlist_detail/application/playlist_detail_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
@@ -150,6 +153,12 @@ Future<void> setupInjection() async {
       cacheManager: getIt<AppCacheManager>(),
     ),
   );
+  getIt.registerLazySingleton<ColorCache>(
+    () => ColorCache(cacheManager: getIt<AppCacheManager>()),
+  );
+  getIt.registerLazySingleton<ColorExtractionService>(
+    () => ColorExtractionService(cache: getIt<ColorCache>()),
+  );
   getIt.registerLazySingleton<HomeRepository>(
     () => HomeRepositoryImpl(
       client: getIt<AndroidTransport>(),
@@ -221,6 +230,11 @@ Future<void> setupInjection() async {
   getIt.registerFactoryParam<LibraryBloc, String, void>(
     (userId, _) => LibraryBloc(
       loadLibrary: LoadLibrary(getIt<LibraryRepository>(param1: userId)),
+    ),
+  );
+  getIt.registerFactory<PlaylistDetailBloc>(
+    () => PlaylistDetailBloc(
+      colorService: getIt<ColorExtractionService>(),
     ),
   );
 }

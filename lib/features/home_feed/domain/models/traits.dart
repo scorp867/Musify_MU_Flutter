@@ -34,6 +34,8 @@ abstract class Trait {
       'RecentsMetadataTrait' => RecentsMetadataTrait.fromJson(json),
       'AudioPreviewPlaybackTrait' => AudioPreviewPlaybackTrait.fromJson(json),
       'PreviewPlaybackTrait' => PreviewPlaybackTrait.fromJson(json),
+      'VideoCardTrait' => VideoCardTrait.fromJson(json),
+      'VisualIdentityTrait' => VisualIdentityTrait.fromJson(json),
       _ => null,
     };
   }
@@ -339,4 +341,99 @@ class PreviewPlaybackTrait extends Trait {
         videoImageUrl: json['videoImageUrl'] ?? '',
         durationMs: json['durationMs'] ?? 0,
       );
+}
+
+/// Video card metadata for video podcasts and watch feed items.
+/// Carries the 16:9 video thumbnail, square show artwork, and duration badge.
+class VideoCardTrait extends Trait {
+  final String title;
+  final String subtitle;
+  final String? videoThumbnailUrl;
+  final String? showArtworkUrl;
+  final String durationString;
+  final String overline;
+  final bool isPlaying;
+
+  const VideoCardTrait({
+    required this.title,
+    this.subtitle = '',
+    this.videoThumbnailUrl,
+    this.showArtworkUrl,
+    this.durationString = '',
+    this.overline = '',
+    this.isPlaying = false,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'subtitle': subtitle,
+    'videoThumbnailUrl': videoThumbnailUrl,
+    'showArtworkUrl': showArtworkUrl,
+    'durationString': durationString,
+    'overline': overline,
+    'isPlaying': isPlaying,
+  };
+
+  factory VideoCardTrait.fromJson(Map<String, dynamic> json) => VideoCardTrait(
+    title: json['title'] ?? '',
+    subtitle: json['subtitle'] ?? '',
+    videoThumbnailUrl: json['videoThumbnailUrl'],
+    showArtworkUrl: json['showArtworkUrl'],
+    durationString: json['durationString'] ?? '',
+    overline: json['overline'] ?? '',
+    isPlaying: json['isPlaying'] ?? false,
+  );
+}
+
+/// Visual identity metadata (ExtensionKind 179).
+/// Carries square cover art, 16:9 video cover art, full-bleed images,
+/// and Spotify curated color palette (background and text colors).
+class VisualIdentityTrait extends Trait {
+  final String? squareCoverUrl;
+  final String? sixteenByNineCoverUrl;
+  final String? wideFullBleedUrl;
+  final String? squareFullBleedUrl;
+  final String? videoNineBySixteenUrl;
+  final bool hasVideo;
+  final String? backgroundColorHex;
+  final String? textColorHex;
+  final String? textSubduedColorHex;
+
+  const VisualIdentityTrait({
+    this.squareCoverUrl,
+    this.sixteenByNineCoverUrl,
+    this.wideFullBleedUrl,
+    this.squareFullBleedUrl,
+    this.videoNineBySixteenUrl,
+    this.hasVideo = false,
+    this.backgroundColorHex,
+    this.textColorHex,
+    this.textSubduedColorHex,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'squareCoverUrl': squareCoverUrl,
+    'sixteenByNineCoverUrl': sixteenByNineCoverUrl,
+    'wideFullBleedUrl': wideFullBleedUrl,
+    'squareFullBleedUrl': squareFullBleedUrl,
+    'videoNineBySixteenUrl': videoNineBySixteenUrl,
+    'hasVideo': hasVideo,
+    'backgroundColorHex': backgroundColorHex,
+    'textColorHex': textColorHex,
+    'textSubduedColorHex': textSubduedColorHex,
+  };
+
+  factory VisualIdentityTrait.fromJson(Map<String, dynamic> json) => VisualIdentityTrait(
+    squareCoverUrl: json['squareCoverUrl'],
+    sixteenByNineCoverUrl: json['sixteenByNineCoverUrl'],
+    wideFullBleedUrl: json['wideFullBleedUrl'],
+    squareFullBleedUrl: json['squareFullBleedUrl'],
+    videoNineBySixteenUrl: json['videoNineBySixteenUrl'],
+    hasVideo: json['hasVideo'] ?? false,
+    backgroundColorHex: json['backgroundColorHex'],
+    textColorHex: json['textColorHex'],
+    textSubduedColorHex: json['textSubduedColorHex'],
+  );
 }

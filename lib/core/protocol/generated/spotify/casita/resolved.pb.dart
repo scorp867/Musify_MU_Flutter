@@ -12,6 +12,7 @@
 
 import 'dart:core' as $core;
 
+import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
 
 import '../extended_metadata.pb.dart' as $0;
@@ -272,10 +273,16 @@ class EagerlyLoadedTraits extends $pb.GeneratedMessage {
 
 class ResponseInfo extends $pb.GeneratedMessage {
   factory ResponseInfo({
-    $core.String? serverVersion,
+    $core.String? responseId,
+    $core.String? pageUri,
+    $core.String? pageToken,
+    $core.String? refreshToken,
   }) {
     final result = ResponseInfo._();
-    if (serverVersion != null) result.serverVersion = serverVersion;
+    if (responseId != null) result.responseId = responseId;
+    if (pageUri != null) result.pageUri = pageUri;
+    if (pageToken != null) result.pageToken = pageToken;
+    if (refreshToken != null) result.refreshToken = refreshToken;
     return result;
   }
 
@@ -293,7 +300,10 @@ class ResponseInfo extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: ResponseInfo.$_createMessage)
-    ..aOS(1, _omitFieldNames ? '' : 'serverVersion')
+    ..aOS(1, _omitFieldNames ? '' : 'responseId')
+    ..aOS(2, _omitFieldNames ? '' : 'pageUri')
+    ..aOS(3, _omitFieldNames ? '' : 'pageToken')
+    ..aOS(4, _omitFieldNames ? '' : 'refreshToken')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -319,17 +329,50 @@ class ResponseInfo extends $pb.GeneratedMessage {
   static ResponseInfo? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.String get serverVersion => $_getSZ(0);
+  $core.String get responseId => $_getSZ(0);
   @$pb.TagNumber(1)
-  set serverVersion($core.String value) => $_setString(0, value);
+  set responseId($core.String value) => $_setString(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasServerVersion() => $_has(0);
+  $core.bool hasResponseId() => $_has(0);
   @$pb.TagNumber(1)
-  void clearServerVersion() => $_clearField(1);
+  void clearResponseId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get pageUri => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set pageUri($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageUri() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageUri() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get pageToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pageToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPageToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPageToken() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get refreshToken => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set refreshToken($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasRefreshToken() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearRefreshToken() => $_clearField(4);
 }
 
 class DebugInfo extends $pb.GeneratedMessage {
-  factory DebugInfo() => DebugInfo._();
+  factory DebugInfo({
+    $core.String? homeLoggingSpanId,
+  }) {
+    final result = DebugInfo._();
+    if (homeLoggingSpanId != null) result.homeLoggingSpanId = homeLoggingSpanId;
+    return result;
+  }
 
   DebugInfo._();
 
@@ -345,6 +388,7 @@ class DebugInfo extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: DebugInfo.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'homeLoggingSpanId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -366,10 +410,28 @@ class DebugInfo extends $pb.GeneratedMessage {
   static DebugInfo getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<DebugInfo>(DebugInfo.$_createMessage);
   static DebugInfo? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get homeLoggingSpanId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set homeLoggingSpanId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHomeLoggingSpanId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHomeLoggingSpanId() => $_clearField(1);
 }
 
 class SandboxDebugInfo extends $pb.GeneratedMessage {
-  factory SandboxDebugInfo() => SandboxDebugInfo._();
+  factory SandboxDebugInfo({
+    $core.Iterable<$core.String>? invalidSectionUris,
+    $core.Iterable<SectionFailure>? failedSections,
+  }) {
+    final result = SandboxDebugInfo._();
+    if (invalidSectionUris != null)
+      result.invalidSectionUris.addAll(invalidSectionUris);
+    if (failedSections != null) result.failedSections.addAll(failedSections);
+    return result;
+  }
 
   SandboxDebugInfo._();
 
@@ -385,6 +447,9 @@ class SandboxDebugInfo extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: SandboxDebugInfo.$_createMessage)
+    ..pPS(1, _omitFieldNames ? '' : 'invalidSectionUris')
+    ..pPM<SectionFailure>(2, _omitFieldNames ? '' : 'failedSections',
+        subBuilder: SectionFailure.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -408,6 +473,106 @@ class SandboxDebugInfo extends $pb.GeneratedMessage {
       _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SandboxDebugInfo>(
           SandboxDebugInfo.$_createMessage);
   static SandboxDebugInfo? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<$core.String> get invalidSectionUris => $_getList(0);
+
+  @$pb.TagNumber(2)
+  $pb.PbList<SectionFailure> get failedSections => $_getList(1);
+}
+
+class SectionFailure extends $pb.GeneratedMessage {
+  factory SectionFailure({
+    $core.String? uri,
+    $core.String? reason,
+    $core.String? serviceName,
+    $core.String? status,
+  }) {
+    final result = SectionFailure._();
+    if (uri != null) result.uri = uri;
+    if (reason != null) result.reason = reason;
+    if (serviceName != null) result.serviceName = serviceName;
+    if (status != null) result.status = status;
+    return result;
+  }
+
+  SectionFailure._();
+
+  factory SectionFailure.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SectionFailure()..mergeFromBuffer(data, registry);
+  factory SectionFailure.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SectionFailure()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SectionFailure',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: SectionFailure.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'uri')
+    ..aOS(2, _omitFieldNames ? '' : 'reason')
+    ..aOS(3, _omitFieldNames ? '' : 'serviceName')
+    ..aOS(4, _omitFieldNames ? '' : 'status')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SectionFailure clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SectionFailure copyWith(void Function(SectionFailure) updates) =>
+      super.copyWith((message) => updates(message as SectionFailure))
+          as SectionFailure;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SectionFailure() / SectionFailure.new instead')
+  static SectionFailure create() => SectionFailure._();
+  static $pb.GeneratedMessage $_createMessage() => SectionFailure._();
+  @$core.override
+  SectionFailure createEmptyInstance() => SectionFailure._();
+  @$core.pragma('dart2js:noInline')
+  static SectionFailure getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<SectionFailure>(
+          SectionFailure.$_createMessage);
+  static SectionFailure? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get uri => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set uri($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUri() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUri() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get reason => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set reason($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasReason() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearReason() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get serviceName => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set serviceName($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasServiceName() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearServiceName() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get status => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set status($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasStatus() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearStatus() => $_clearField(4);
 }
 
 class OndemandSet extends $pb.GeneratedMessage {
@@ -467,24 +632,40 @@ enum Section_FeatureType {
   imageLink,
   preview,
   immersivePreview,
+  anchors,
   contentEvaluationList,
   callToAction,
   recentsShelf,
   watchFeed,
+  promotionV1,
+  promotionV3,
+  actionCardCarousel,
   liveEvent,
   showcase,
+  videoPromo,
+  banner,
+  videoBrandAd,
+  imageBrandAd,
+  campaignLinkCarousel,
   verticalSingleEntry,
   videoCarousel,
+  fullBleedBanner,
   associatedPreview,
+  bannerWithAnimations,
   narrative,
   interactiveEntrypoint,
   topStoryCarousel,
+  promptableSection,
   audioPromo,
   inlineCard,
+  playLinkPromo,
   audioSpotlight,
   previewCarousel,
+  concertCampaign,
   previewPromotionCarousel,
+  promptedWorldsShelf,
   reflection,
+  userPromptedWorldEntrypoint,
   notSet
 }
 
@@ -495,24 +676,40 @@ class Section extends $pb.GeneratedMessage {
     ImageLink? imageLink,
     Preview? preview,
     ImmersivePreview? immersivePreview,
+    Anchors? anchors,
     ContentEvaluationList? contentEvaluationList,
     CallToAction? callToAction,
     RecentsShelf? recentsShelf,
     WatchFeed? watchFeed,
+    PromotionV1? promotionV1,
+    PromotionV3? promotionV3,
+    ActionCardCarousel? actionCardCarousel,
     LiveEvent? liveEvent,
     Showcase? showcase,
+    VideoPromo? videoPromo,
+    Banner? banner,
+    VideoBrandAd? videoBrandAd,
+    ImageBrandAd? imageBrandAd,
+    CampaignLinkCarousel? campaignLinkCarousel,
     VerticalSingleEntry? verticalSingleEntry,
     VideoCarousel? videoCarousel,
+    FullBleedBanner? fullBleedBanner,
     AssociatedPreview? associatedPreview,
+    BannerWithAnimations? bannerWithAnimations,
     Narrative? narrative,
     InteractiveEntrypoint? interactiveEntrypoint,
     TopStoryCarousel? topStoryCarousel,
+    PromptableSection? promptableSection,
     AudioPromo? audioPromo,
     InlineCard? inlineCard,
+    PlayLinkPromo? playLinkPromo,
     AudioSpotlight? audioSpotlight,
     PreviewCarousel? previewCarousel,
+    ConcertCampaign? concertCampaign,
     PreviewPromotionCarousel? previewPromotionCarousel,
+    PromptedWorldsShelf? promptedWorldsShelf,
     Reflection? reflection,
+    UserPromptedWorldEntrypoint? userPromptedWorldEntrypoint,
   }) {
     final result = Section._();
     if (sectionInfo != null) result.sectionInfo = sectionInfo;
@@ -520,28 +717,49 @@ class Section extends $pb.GeneratedMessage {
     if (imageLink != null) result.imageLink = imageLink;
     if (preview != null) result.preview = preview;
     if (immersivePreview != null) result.immersivePreview = immersivePreview;
+    if (anchors != null) result.anchors = anchors;
     if (contentEvaluationList != null)
       result.contentEvaluationList = contentEvaluationList;
     if (callToAction != null) result.callToAction = callToAction;
     if (recentsShelf != null) result.recentsShelf = recentsShelf;
     if (watchFeed != null) result.watchFeed = watchFeed;
+    if (promotionV1 != null) result.promotionV1 = promotionV1;
+    if (promotionV3 != null) result.promotionV3 = promotionV3;
+    if (actionCardCarousel != null)
+      result.actionCardCarousel = actionCardCarousel;
     if (liveEvent != null) result.liveEvent = liveEvent;
     if (showcase != null) result.showcase = showcase;
+    if (videoPromo != null) result.videoPromo = videoPromo;
+    if (banner != null) result.banner = banner;
+    if (videoBrandAd != null) result.videoBrandAd = videoBrandAd;
+    if (imageBrandAd != null) result.imageBrandAd = imageBrandAd;
+    if (campaignLinkCarousel != null)
+      result.campaignLinkCarousel = campaignLinkCarousel;
     if (verticalSingleEntry != null)
       result.verticalSingleEntry = verticalSingleEntry;
     if (videoCarousel != null) result.videoCarousel = videoCarousel;
+    if (fullBleedBanner != null) result.fullBleedBanner = fullBleedBanner;
     if (associatedPreview != null) result.associatedPreview = associatedPreview;
+    if (bannerWithAnimations != null)
+      result.bannerWithAnimations = bannerWithAnimations;
     if (narrative != null) result.narrative = narrative;
     if (interactiveEntrypoint != null)
       result.interactiveEntrypoint = interactiveEntrypoint;
     if (topStoryCarousel != null) result.topStoryCarousel = topStoryCarousel;
+    if (promptableSection != null) result.promptableSection = promptableSection;
     if (audioPromo != null) result.audioPromo = audioPromo;
     if (inlineCard != null) result.inlineCard = inlineCard;
+    if (playLinkPromo != null) result.playLinkPromo = playLinkPromo;
     if (audioSpotlight != null) result.audioSpotlight = audioSpotlight;
     if (previewCarousel != null) result.previewCarousel = previewCarousel;
+    if (concertCampaign != null) result.concertCampaign = concertCampaign;
     if (previewPromotionCarousel != null)
       result.previewPromotionCarousel = previewPromotionCarousel;
+    if (promptedWorldsShelf != null)
+      result.promptedWorldsShelf = promptedWorldsShelf;
     if (reflection != null) result.reflection = reflection;
+    if (userPromptedWorldEntrypoint != null)
+      result.userPromptedWorldEntrypoint = userPromptedWorldEntrypoint;
     return result;
   }
 
@@ -560,24 +778,40 @@ class Section extends $pb.GeneratedMessage {
     3: Section_FeatureType.imageLink,
     4: Section_FeatureType.preview,
     6: Section_FeatureType.immersivePreview,
+    7: Section_FeatureType.anchors,
     8: Section_FeatureType.contentEvaluationList,
     9: Section_FeatureType.callToAction,
     10: Section_FeatureType.recentsShelf,
     11: Section_FeatureType.watchFeed,
+    12: Section_FeatureType.promotionV1,
+    13: Section_FeatureType.promotionV3,
+    15: Section_FeatureType.actionCardCarousel,
     16: Section_FeatureType.liveEvent,
     17: Section_FeatureType.showcase,
+    18: Section_FeatureType.videoPromo,
+    19: Section_FeatureType.banner,
+    20: Section_FeatureType.videoBrandAd,
+    21: Section_FeatureType.imageBrandAd,
+    23: Section_FeatureType.campaignLinkCarousel,
     24: Section_FeatureType.verticalSingleEntry,
     25: Section_FeatureType.videoCarousel,
+    26: Section_FeatureType.fullBleedBanner,
     27: Section_FeatureType.associatedPreview,
+    28: Section_FeatureType.bannerWithAnimations,
     29: Section_FeatureType.narrative,
     30: Section_FeatureType.interactiveEntrypoint,
     31: Section_FeatureType.topStoryCarousel,
+    32: Section_FeatureType.promptableSection,
     33: Section_FeatureType.audioPromo,
     34: Section_FeatureType.inlineCard,
+    35: Section_FeatureType.playLinkPromo,
     36: Section_FeatureType.audioSpotlight,
     37: Section_FeatureType.previewCarousel,
+    38: Section_FeatureType.concertCampaign,
     39: Section_FeatureType.previewPromotionCarousel,
+    40: Section_FeatureType.promptedWorldsShelf,
     41: Section_FeatureType.reflection,
+    42: Section_FeatureType.userPromptedWorldEntrypoint,
     0: Section_FeatureType.notSet
   };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
@@ -590,24 +824,40 @@ class Section extends $pb.GeneratedMessage {
       3,
       4,
       6,
+      7,
       8,
       9,
       10,
       11,
+      12,
+      13,
+      15,
       16,
       17,
+      18,
+      19,
+      20,
+      21,
+      23,
       24,
       25,
+      26,
       27,
+      28,
       29,
       30,
       31,
+      32,
       33,
       34,
+      35,
       36,
       37,
+      38,
       39,
-      41
+      40,
+      41,
+      42
     ])
     ..aOM<SectionInfo>(1, _omitFieldNames ? '' : 'sectionInfo',
         subBuilder: SectionInfo.$_createMessage)
@@ -619,6 +869,8 @@ class Section extends $pb.GeneratedMessage {
         subBuilder: Preview.$_createMessage)
     ..aOM<ImmersivePreview>(6, _omitFieldNames ? '' : 'immersivePreview',
         subBuilder: ImmersivePreview.$_createMessage)
+    ..aOM<Anchors>(7, _omitFieldNames ? '' : 'anchors',
+        subBuilder: Anchors.$_createMessage)
     ..aOM<ContentEvaluationList>(
         8, _omitFieldNames ? '' : 'contentEvaluationList',
         subBuilder: ContentEvaluationList.$_createMessage)
@@ -628,16 +880,38 @@ class Section extends $pb.GeneratedMessage {
         subBuilder: RecentsShelf.$_createMessage)
     ..aOM<WatchFeed>(11, _omitFieldNames ? '' : 'watchFeed',
         subBuilder: WatchFeed.$_createMessage)
+    ..aOM<PromotionV1>(12, _omitFieldNames ? '' : 'promotionV1',
+        subBuilder: PromotionV1.$_createMessage)
+    ..aOM<PromotionV3>(13, _omitFieldNames ? '' : 'promotionV3',
+        subBuilder: PromotionV3.$_createMessage)
+    ..aOM<ActionCardCarousel>(15, _omitFieldNames ? '' : 'actionCardCarousel',
+        subBuilder: ActionCardCarousel.$_createMessage)
     ..aOM<LiveEvent>(16, _omitFieldNames ? '' : 'liveEvent',
         subBuilder: LiveEvent.$_createMessage)
     ..aOM<Showcase>(17, _omitFieldNames ? '' : 'showcase',
         subBuilder: Showcase.$_createMessage)
+    ..aOM<VideoPromo>(18, _omitFieldNames ? '' : 'videoPromo',
+        subBuilder: VideoPromo.$_createMessage)
+    ..aOM<Banner>(19, _omitFieldNames ? '' : 'banner',
+        subBuilder: Banner.$_createMessage)
+    ..aOM<VideoBrandAd>(20, _omitFieldNames ? '' : 'videoBrandAd',
+        subBuilder: VideoBrandAd.$_createMessage)
+    ..aOM<ImageBrandAd>(21, _omitFieldNames ? '' : 'imageBrandAd',
+        subBuilder: ImageBrandAd.$_createMessage)
+    ..aOM<CampaignLinkCarousel>(
+        23, _omitFieldNames ? '' : 'campaignLinkCarousel',
+        subBuilder: CampaignLinkCarousel.$_createMessage)
     ..aOM<VerticalSingleEntry>(24, _omitFieldNames ? '' : 'verticalSingleEntry',
         subBuilder: VerticalSingleEntry.$_createMessage)
     ..aOM<VideoCarousel>(25, _omitFieldNames ? '' : 'videoCarousel',
         subBuilder: VideoCarousel.$_createMessage)
+    ..aOM<FullBleedBanner>(26, _omitFieldNames ? '' : 'fullBleedBanner',
+        subBuilder: FullBleedBanner.$_createMessage)
     ..aOM<AssociatedPreview>(27, _omitFieldNames ? '' : 'associatedPreview',
         subBuilder: AssociatedPreview.$_createMessage)
+    ..aOM<BannerWithAnimations>(
+        28, _omitFieldNames ? '' : 'bannerWithAnimations',
+        subBuilder: BannerWithAnimations.$_createMessage)
     ..aOM<Narrative>(29, _omitFieldNames ? '' : 'narrative',
         subBuilder: Narrative.$_createMessage)
     ..aOM<InteractiveEntrypoint>(
@@ -645,19 +919,30 @@ class Section extends $pb.GeneratedMessage {
         subBuilder: InteractiveEntrypoint.$_createMessage)
     ..aOM<TopStoryCarousel>(31, _omitFieldNames ? '' : 'topStoryCarousel',
         subBuilder: TopStoryCarousel.$_createMessage)
+    ..aOM<PromptableSection>(32, _omitFieldNames ? '' : 'promptableSection',
+        subBuilder: PromptableSection.$_createMessage)
     ..aOM<AudioPromo>(33, _omitFieldNames ? '' : 'audioPromo',
         subBuilder: AudioPromo.$_createMessage)
     ..aOM<InlineCard>(34, _omitFieldNames ? '' : 'inlineCard',
         subBuilder: InlineCard.$_createMessage)
+    ..aOM<PlayLinkPromo>(35, _omitFieldNames ? '' : 'playLinkPromo',
+        subBuilder: PlayLinkPromo.$_createMessage)
     ..aOM<AudioSpotlight>(36, _omitFieldNames ? '' : 'audioSpotlight',
         subBuilder: AudioSpotlight.$_createMessage)
     ..aOM<PreviewCarousel>(37, _omitFieldNames ? '' : 'previewCarousel',
         subBuilder: PreviewCarousel.$_createMessage)
+    ..aOM<ConcertCampaign>(38, _omitFieldNames ? '' : 'concertCampaign',
+        subBuilder: ConcertCampaign.$_createMessage)
     ..aOM<PreviewPromotionCarousel>(
         39, _omitFieldNames ? '' : 'previewPromotionCarousel',
         subBuilder: PreviewPromotionCarousel.$_createMessage)
+    ..aOM<PromptedWorldsShelf>(40, _omitFieldNames ? '' : 'promptedWorldsShelf',
+        subBuilder: PromptedWorldsShelf.$_createMessage)
     ..aOM<Reflection>(41, _omitFieldNames ? '' : 'reflection',
         subBuilder: Reflection.$_createMessage)
+    ..aOM<UserPromptedWorldEntrypoint>(
+        42, _omitFieldNames ? '' : 'userPromptedWorldEntrypoint',
+        subBuilder: UserPromptedWorldEntrypoint.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -684,48 +969,80 @@ class Section extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   @$pb.TagNumber(4)
   @$pb.TagNumber(6)
+  @$pb.TagNumber(7)
   @$pb.TagNumber(8)
   @$pb.TagNumber(9)
   @$pb.TagNumber(10)
   @$pb.TagNumber(11)
+  @$pb.TagNumber(12)
+  @$pb.TagNumber(13)
+  @$pb.TagNumber(15)
   @$pb.TagNumber(16)
   @$pb.TagNumber(17)
+  @$pb.TagNumber(18)
+  @$pb.TagNumber(19)
+  @$pb.TagNumber(20)
+  @$pb.TagNumber(21)
+  @$pb.TagNumber(23)
   @$pb.TagNumber(24)
   @$pb.TagNumber(25)
+  @$pb.TagNumber(26)
   @$pb.TagNumber(27)
+  @$pb.TagNumber(28)
   @$pb.TagNumber(29)
   @$pb.TagNumber(30)
   @$pb.TagNumber(31)
+  @$pb.TagNumber(32)
   @$pb.TagNumber(33)
   @$pb.TagNumber(34)
+  @$pb.TagNumber(35)
   @$pb.TagNumber(36)
   @$pb.TagNumber(37)
+  @$pb.TagNumber(38)
   @$pb.TagNumber(39)
+  @$pb.TagNumber(40)
   @$pb.TagNumber(41)
+  @$pb.TagNumber(42)
   Section_FeatureType whichFeatureType() =>
       _Section_FeatureTypeByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(2)
   @$pb.TagNumber(3)
   @$pb.TagNumber(4)
   @$pb.TagNumber(6)
+  @$pb.TagNumber(7)
   @$pb.TagNumber(8)
   @$pb.TagNumber(9)
   @$pb.TagNumber(10)
   @$pb.TagNumber(11)
+  @$pb.TagNumber(12)
+  @$pb.TagNumber(13)
+  @$pb.TagNumber(15)
   @$pb.TagNumber(16)
   @$pb.TagNumber(17)
+  @$pb.TagNumber(18)
+  @$pb.TagNumber(19)
+  @$pb.TagNumber(20)
+  @$pb.TagNumber(21)
+  @$pb.TagNumber(23)
   @$pb.TagNumber(24)
   @$pb.TagNumber(25)
+  @$pb.TagNumber(26)
   @$pb.TagNumber(27)
+  @$pb.TagNumber(28)
   @$pb.TagNumber(29)
   @$pb.TagNumber(30)
   @$pb.TagNumber(31)
+  @$pb.TagNumber(32)
   @$pb.TagNumber(33)
   @$pb.TagNumber(34)
+  @$pb.TagNumber(35)
   @$pb.TagNumber(36)
   @$pb.TagNumber(37)
+  @$pb.TagNumber(38)
   @$pb.TagNumber(39)
+  @$pb.TagNumber(40)
   @$pb.TagNumber(41)
+  @$pb.TagNumber(42)
   void clearFeatureType() => $_clearField($_whichOneof(0));
 
   @$pb.TagNumber(1)
@@ -784,221 +1101,384 @@ class Section extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   ImmersivePreview ensureImmersivePreview() => $_ensure(4);
 
-  /// field 7: Anchors (not needed for home)
+  @$pb.TagNumber(7)
+  Anchors get anchors => $_getN(5);
+  @$pb.TagNumber(7)
+  set anchors(Anchors value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasAnchors() => $_has(5);
+  @$pb.TagNumber(7)
+  void clearAnchors() => $_clearField(7);
+  @$pb.TagNumber(7)
+  Anchors ensureAnchors() => $_ensure(5);
+
   @$pb.TagNumber(8)
-  ContentEvaluationList get contentEvaluationList => $_getN(5);
+  ContentEvaluationList get contentEvaluationList => $_getN(6);
   @$pb.TagNumber(8)
   set contentEvaluationList(ContentEvaluationList value) =>
       $_setField(8, value);
   @$pb.TagNumber(8)
-  $core.bool hasContentEvaluationList() => $_has(5);
+  $core.bool hasContentEvaluationList() => $_has(6);
   @$pb.TagNumber(8)
   void clearContentEvaluationList() => $_clearField(8);
   @$pb.TagNumber(8)
-  ContentEvaluationList ensureContentEvaluationList() => $_ensure(5);
+  ContentEvaluationList ensureContentEvaluationList() => $_ensure(6);
 
   @$pb.TagNumber(9)
-  CallToAction get callToAction => $_getN(6);
+  CallToAction get callToAction => $_getN(7);
   @$pb.TagNumber(9)
   set callToAction(CallToAction value) => $_setField(9, value);
   @$pb.TagNumber(9)
-  $core.bool hasCallToAction() => $_has(6);
+  $core.bool hasCallToAction() => $_has(7);
   @$pb.TagNumber(9)
   void clearCallToAction() => $_clearField(9);
   @$pb.TagNumber(9)
-  CallToAction ensureCallToAction() => $_ensure(6);
+  CallToAction ensureCallToAction() => $_ensure(7);
 
   @$pb.TagNumber(10)
-  RecentsShelf get recentsShelf => $_getN(7);
+  RecentsShelf get recentsShelf => $_getN(8);
   @$pb.TagNumber(10)
   set recentsShelf(RecentsShelf value) => $_setField(10, value);
   @$pb.TagNumber(10)
-  $core.bool hasRecentsShelf() => $_has(7);
+  $core.bool hasRecentsShelf() => $_has(8);
   @$pb.TagNumber(10)
   void clearRecentsShelf() => $_clearField(10);
   @$pb.TagNumber(10)
-  RecentsShelf ensureRecentsShelf() => $_ensure(7);
+  RecentsShelf ensureRecentsShelf() => $_ensure(8);
 
   @$pb.TagNumber(11)
-  WatchFeed get watchFeed => $_getN(8);
+  WatchFeed get watchFeed => $_getN(9);
   @$pb.TagNumber(11)
   set watchFeed(WatchFeed value) => $_setField(11, value);
   @$pb.TagNumber(11)
-  $core.bool hasWatchFeed() => $_has(8);
+  $core.bool hasWatchFeed() => $_has(9);
   @$pb.TagNumber(11)
   void clearWatchFeed() => $_clearField(11);
   @$pb.TagNumber(11)
-  WatchFeed ensureWatchFeed() => $_ensure(8);
+  WatchFeed ensureWatchFeed() => $_ensure(9);
 
-  /// field 12: PromotionV1 (ad, skip)
-  /// field 13: PromotionV3 (ad, skip)
-  /// field 15: ActionCardCarousel
+  @$pb.TagNumber(12)
+  PromotionV1 get promotionV1 => $_getN(10);
+  @$pb.TagNumber(12)
+  set promotionV1(PromotionV1 value) => $_setField(12, value);
+  @$pb.TagNumber(12)
+  $core.bool hasPromotionV1() => $_has(10);
+  @$pb.TagNumber(12)
+  void clearPromotionV1() => $_clearField(12);
+  @$pb.TagNumber(12)
+  PromotionV1 ensurePromotionV1() => $_ensure(10);
+
+  @$pb.TagNumber(13)
+  PromotionV3 get promotionV3 => $_getN(11);
+  @$pb.TagNumber(13)
+  set promotionV3(PromotionV3 value) => $_setField(13, value);
+  @$pb.TagNumber(13)
+  $core.bool hasPromotionV3() => $_has(11);
+  @$pb.TagNumber(13)
+  void clearPromotionV3() => $_clearField(13);
+  @$pb.TagNumber(13)
+  PromotionV3 ensurePromotionV3() => $_ensure(11);
+
+  @$pb.TagNumber(15)
+  ActionCardCarousel get actionCardCarousel => $_getN(12);
+  @$pb.TagNumber(15)
+  set actionCardCarousel(ActionCardCarousel value) => $_setField(15, value);
+  @$pb.TagNumber(15)
+  $core.bool hasActionCardCarousel() => $_has(12);
+  @$pb.TagNumber(15)
+  void clearActionCardCarousel() => $_clearField(15);
+  @$pb.TagNumber(15)
+  ActionCardCarousel ensureActionCardCarousel() => $_ensure(12);
+
   @$pb.TagNumber(16)
-  LiveEvent get liveEvent => $_getN(9);
+  LiveEvent get liveEvent => $_getN(13);
   @$pb.TagNumber(16)
   set liveEvent(LiveEvent value) => $_setField(16, value);
   @$pb.TagNumber(16)
-  $core.bool hasLiveEvent() => $_has(9);
+  $core.bool hasLiveEvent() => $_has(13);
   @$pb.TagNumber(16)
   void clearLiveEvent() => $_clearField(16);
   @$pb.TagNumber(16)
-  LiveEvent ensureLiveEvent() => $_ensure(9);
+  LiveEvent ensureLiveEvent() => $_ensure(13);
 
   @$pb.TagNumber(17)
-  Showcase get showcase => $_getN(10);
+  Showcase get showcase => $_getN(14);
   @$pb.TagNumber(17)
   set showcase(Showcase value) => $_setField(17, value);
   @$pb.TagNumber(17)
-  $core.bool hasShowcase() => $_has(10);
+  $core.bool hasShowcase() => $_has(14);
   @$pb.TagNumber(17)
   void clearShowcase() => $_clearField(17);
   @$pb.TagNumber(17)
-  Showcase ensureShowcase() => $_ensure(10);
+  Showcase ensureShowcase() => $_ensure(14);
 
-  /// field 18: VideoPromo (ad)
-  /// field 19: Banner (ad)
-  /// field 20: VideoBrandAd (ad)
-  /// field 21: ImageBrandAd (ad)
-  /// field 23: CampaignLinkCarousel (ad)
+  @$pb.TagNumber(18)
+  VideoPromo get videoPromo => $_getN(15);
+  @$pb.TagNumber(18)
+  set videoPromo(VideoPromo value) => $_setField(18, value);
+  @$pb.TagNumber(18)
+  $core.bool hasVideoPromo() => $_has(15);
+  @$pb.TagNumber(18)
+  void clearVideoPromo() => $_clearField(18);
+  @$pb.TagNumber(18)
+  VideoPromo ensureVideoPromo() => $_ensure(15);
+
+  @$pb.TagNumber(19)
+  Banner get banner => $_getN(16);
+  @$pb.TagNumber(19)
+  set banner(Banner value) => $_setField(19, value);
+  @$pb.TagNumber(19)
+  $core.bool hasBanner() => $_has(16);
+  @$pb.TagNumber(19)
+  void clearBanner() => $_clearField(19);
+  @$pb.TagNumber(19)
+  Banner ensureBanner() => $_ensure(16);
+
+  @$pb.TagNumber(20)
+  VideoBrandAd get videoBrandAd => $_getN(17);
+  @$pb.TagNumber(20)
+  set videoBrandAd(VideoBrandAd value) => $_setField(20, value);
+  @$pb.TagNumber(20)
+  $core.bool hasVideoBrandAd() => $_has(17);
+  @$pb.TagNumber(20)
+  void clearVideoBrandAd() => $_clearField(20);
+  @$pb.TagNumber(20)
+  VideoBrandAd ensureVideoBrandAd() => $_ensure(17);
+
+  @$pb.TagNumber(21)
+  ImageBrandAd get imageBrandAd => $_getN(18);
+  @$pb.TagNumber(21)
+  set imageBrandAd(ImageBrandAd value) => $_setField(21, value);
+  @$pb.TagNumber(21)
+  $core.bool hasImageBrandAd() => $_has(18);
+  @$pb.TagNumber(21)
+  void clearImageBrandAd() => $_clearField(21);
+  @$pb.TagNumber(21)
+  ImageBrandAd ensureImageBrandAd() => $_ensure(18);
+
+  @$pb.TagNumber(23)
+  CampaignLinkCarousel get campaignLinkCarousel => $_getN(19);
+  @$pb.TagNumber(23)
+  set campaignLinkCarousel(CampaignLinkCarousel value) => $_setField(23, value);
+  @$pb.TagNumber(23)
+  $core.bool hasCampaignLinkCarousel() => $_has(19);
+  @$pb.TagNumber(23)
+  void clearCampaignLinkCarousel() => $_clearField(23);
+  @$pb.TagNumber(23)
+  CampaignLinkCarousel ensureCampaignLinkCarousel() => $_ensure(19);
+
   @$pb.TagNumber(24)
-  VerticalSingleEntry get verticalSingleEntry => $_getN(11);
+  VerticalSingleEntry get verticalSingleEntry => $_getN(20);
   @$pb.TagNumber(24)
   set verticalSingleEntry(VerticalSingleEntry value) => $_setField(24, value);
   @$pb.TagNumber(24)
-  $core.bool hasVerticalSingleEntry() => $_has(11);
+  $core.bool hasVerticalSingleEntry() => $_has(20);
   @$pb.TagNumber(24)
   void clearVerticalSingleEntry() => $_clearField(24);
   @$pb.TagNumber(24)
-  VerticalSingleEntry ensureVerticalSingleEntry() => $_ensure(11);
+  VerticalSingleEntry ensureVerticalSingleEntry() => $_ensure(20);
 
   @$pb.TagNumber(25)
-  VideoCarousel get videoCarousel => $_getN(12);
+  VideoCarousel get videoCarousel => $_getN(21);
   @$pb.TagNumber(25)
   set videoCarousel(VideoCarousel value) => $_setField(25, value);
   @$pb.TagNumber(25)
-  $core.bool hasVideoCarousel() => $_has(12);
+  $core.bool hasVideoCarousel() => $_has(21);
   @$pb.TagNumber(25)
   void clearVideoCarousel() => $_clearField(25);
   @$pb.TagNumber(25)
-  VideoCarousel ensureVideoCarousel() => $_ensure(12);
+  VideoCarousel ensureVideoCarousel() => $_ensure(21);
 
-  /// field 26: FullBleedBanner (ad)
+  @$pb.TagNumber(26)
+  FullBleedBanner get fullBleedBanner => $_getN(22);
+  @$pb.TagNumber(26)
+  set fullBleedBanner(FullBleedBanner value) => $_setField(26, value);
+  @$pb.TagNumber(26)
+  $core.bool hasFullBleedBanner() => $_has(22);
+  @$pb.TagNumber(26)
+  void clearFullBleedBanner() => $_clearField(26);
+  @$pb.TagNumber(26)
+  FullBleedBanner ensureFullBleedBanner() => $_ensure(22);
+
   @$pb.TagNumber(27)
-  AssociatedPreview get associatedPreview => $_getN(13);
+  AssociatedPreview get associatedPreview => $_getN(23);
   @$pb.TagNumber(27)
   set associatedPreview(AssociatedPreview value) => $_setField(27, value);
   @$pb.TagNumber(27)
-  $core.bool hasAssociatedPreview() => $_has(13);
+  $core.bool hasAssociatedPreview() => $_has(23);
   @$pb.TagNumber(27)
   void clearAssociatedPreview() => $_clearField(27);
   @$pb.TagNumber(27)
-  AssociatedPreview ensureAssociatedPreview() => $_ensure(13);
+  AssociatedPreview ensureAssociatedPreview() => $_ensure(23);
 
-  /// field 28: BannerWithAnimations (ad)
+  @$pb.TagNumber(28)
+  BannerWithAnimations get bannerWithAnimations => $_getN(24);
+  @$pb.TagNumber(28)
+  set bannerWithAnimations(BannerWithAnimations value) => $_setField(28, value);
+  @$pb.TagNumber(28)
+  $core.bool hasBannerWithAnimations() => $_has(24);
+  @$pb.TagNumber(28)
+  void clearBannerWithAnimations() => $_clearField(28);
+  @$pb.TagNumber(28)
+  BannerWithAnimations ensureBannerWithAnimations() => $_ensure(24);
+
   @$pb.TagNumber(29)
-  Narrative get narrative => $_getN(14);
+  Narrative get narrative => $_getN(25);
   @$pb.TagNumber(29)
   set narrative(Narrative value) => $_setField(29, value);
   @$pb.TagNumber(29)
-  $core.bool hasNarrative() => $_has(14);
+  $core.bool hasNarrative() => $_has(25);
   @$pb.TagNumber(29)
   void clearNarrative() => $_clearField(29);
   @$pb.TagNumber(29)
-  Narrative ensureNarrative() => $_ensure(14);
+  Narrative ensureNarrative() => $_ensure(25);
 
   @$pb.TagNumber(30)
-  InteractiveEntrypoint get interactiveEntrypoint => $_getN(15);
+  InteractiveEntrypoint get interactiveEntrypoint => $_getN(26);
   @$pb.TagNumber(30)
   set interactiveEntrypoint(InteractiveEntrypoint value) =>
       $_setField(30, value);
   @$pb.TagNumber(30)
-  $core.bool hasInteractiveEntrypoint() => $_has(15);
+  $core.bool hasInteractiveEntrypoint() => $_has(26);
   @$pb.TagNumber(30)
   void clearInteractiveEntrypoint() => $_clearField(30);
   @$pb.TagNumber(30)
-  InteractiveEntrypoint ensureInteractiveEntrypoint() => $_ensure(15);
+  InteractiveEntrypoint ensureInteractiveEntrypoint() => $_ensure(26);
 
   @$pb.TagNumber(31)
-  TopStoryCarousel get topStoryCarousel => $_getN(16);
+  TopStoryCarousel get topStoryCarousel => $_getN(27);
   @$pb.TagNumber(31)
   set topStoryCarousel(TopStoryCarousel value) => $_setField(31, value);
   @$pb.TagNumber(31)
-  $core.bool hasTopStoryCarousel() => $_has(16);
+  $core.bool hasTopStoryCarousel() => $_has(27);
   @$pb.TagNumber(31)
   void clearTopStoryCarousel() => $_clearField(31);
   @$pb.TagNumber(31)
-  TopStoryCarousel ensureTopStoryCarousel() => $_ensure(16);
+  TopStoryCarousel ensureTopStoryCarousel() => $_ensure(27);
 
-  /// field 32: PromptableSection
+  @$pb.TagNumber(32)
+  PromptableSection get promptableSection => $_getN(28);
+  @$pb.TagNumber(32)
+  set promptableSection(PromptableSection value) => $_setField(32, value);
+  @$pb.TagNumber(32)
+  $core.bool hasPromptableSection() => $_has(28);
+  @$pb.TagNumber(32)
+  void clearPromptableSection() => $_clearField(32);
+  @$pb.TagNumber(32)
+  PromptableSection ensurePromptableSection() => $_ensure(28);
+
   @$pb.TagNumber(33)
-  AudioPromo get audioPromo => $_getN(17);
+  AudioPromo get audioPromo => $_getN(29);
   @$pb.TagNumber(33)
   set audioPromo(AudioPromo value) => $_setField(33, value);
   @$pb.TagNumber(33)
-  $core.bool hasAudioPromo() => $_has(17);
+  $core.bool hasAudioPromo() => $_has(29);
   @$pb.TagNumber(33)
   void clearAudioPromo() => $_clearField(33);
   @$pb.TagNumber(33)
-  AudioPromo ensureAudioPromo() => $_ensure(17);
+  AudioPromo ensureAudioPromo() => $_ensure(29);
 
   @$pb.TagNumber(34)
-  InlineCard get inlineCard => $_getN(18);
+  InlineCard get inlineCard => $_getN(30);
   @$pb.TagNumber(34)
   set inlineCard(InlineCard value) => $_setField(34, value);
   @$pb.TagNumber(34)
-  $core.bool hasInlineCard() => $_has(18);
+  $core.bool hasInlineCard() => $_has(30);
   @$pb.TagNumber(34)
   void clearInlineCard() => $_clearField(34);
   @$pb.TagNumber(34)
-  InlineCard ensureInlineCard() => $_ensure(18);
+  InlineCard ensureInlineCard() => $_ensure(30);
 
-  /// field 35: PlayLinkPromo
+  @$pb.TagNumber(35)
+  PlayLinkPromo get playLinkPromo => $_getN(31);
+  @$pb.TagNumber(35)
+  set playLinkPromo(PlayLinkPromo value) => $_setField(35, value);
+  @$pb.TagNumber(35)
+  $core.bool hasPlayLinkPromo() => $_has(31);
+  @$pb.TagNumber(35)
+  void clearPlayLinkPromo() => $_clearField(35);
+  @$pb.TagNumber(35)
+  PlayLinkPromo ensurePlayLinkPromo() => $_ensure(31);
+
   @$pb.TagNumber(36)
-  AudioSpotlight get audioSpotlight => $_getN(19);
+  AudioSpotlight get audioSpotlight => $_getN(32);
   @$pb.TagNumber(36)
   set audioSpotlight(AudioSpotlight value) => $_setField(36, value);
   @$pb.TagNumber(36)
-  $core.bool hasAudioSpotlight() => $_has(19);
+  $core.bool hasAudioSpotlight() => $_has(32);
   @$pb.TagNumber(36)
   void clearAudioSpotlight() => $_clearField(36);
   @$pb.TagNumber(36)
-  AudioSpotlight ensureAudioSpotlight() => $_ensure(19);
+  AudioSpotlight ensureAudioSpotlight() => $_ensure(32);
 
   @$pb.TagNumber(37)
-  PreviewCarousel get previewCarousel => $_getN(20);
+  PreviewCarousel get previewCarousel => $_getN(33);
   @$pb.TagNumber(37)
   set previewCarousel(PreviewCarousel value) => $_setField(37, value);
   @$pb.TagNumber(37)
-  $core.bool hasPreviewCarousel() => $_has(20);
+  $core.bool hasPreviewCarousel() => $_has(33);
   @$pb.TagNumber(37)
   void clearPreviewCarousel() => $_clearField(37);
   @$pb.TagNumber(37)
-  PreviewCarousel ensurePreviewCarousel() => $_ensure(20);
+  PreviewCarousel ensurePreviewCarousel() => $_ensure(33);
 
-  /// field 38: ConcertCampaign
+  @$pb.TagNumber(38)
+  ConcertCampaign get concertCampaign => $_getN(34);
+  @$pb.TagNumber(38)
+  set concertCampaign(ConcertCampaign value) => $_setField(38, value);
+  @$pb.TagNumber(38)
+  $core.bool hasConcertCampaign() => $_has(34);
+  @$pb.TagNumber(38)
+  void clearConcertCampaign() => $_clearField(38);
+  @$pb.TagNumber(38)
+  ConcertCampaign ensureConcertCampaign() => $_ensure(34);
+
   @$pb.TagNumber(39)
-  PreviewPromotionCarousel get previewPromotionCarousel => $_getN(21);
+  PreviewPromotionCarousel get previewPromotionCarousel => $_getN(35);
   @$pb.TagNumber(39)
   set previewPromotionCarousel(PreviewPromotionCarousel value) =>
       $_setField(39, value);
   @$pb.TagNumber(39)
-  $core.bool hasPreviewPromotionCarousel() => $_has(21);
+  $core.bool hasPreviewPromotionCarousel() => $_has(35);
   @$pb.TagNumber(39)
   void clearPreviewPromotionCarousel() => $_clearField(39);
   @$pb.TagNumber(39)
-  PreviewPromotionCarousel ensurePreviewPromotionCarousel() => $_ensure(21);
+  PreviewPromotionCarousel ensurePreviewPromotionCarousel() => $_ensure(35);
 
-  /// field 40: PromptedWorldsShelf
+  @$pb.TagNumber(40)
+  PromptedWorldsShelf get promptedWorldsShelf => $_getN(36);
+  @$pb.TagNumber(40)
+  set promptedWorldsShelf(PromptedWorldsShelf value) => $_setField(40, value);
+  @$pb.TagNumber(40)
+  $core.bool hasPromptedWorldsShelf() => $_has(36);
+  @$pb.TagNumber(40)
+  void clearPromptedWorldsShelf() => $_clearField(40);
+  @$pb.TagNumber(40)
+  PromptedWorldsShelf ensurePromptedWorldsShelf() => $_ensure(36);
+
   @$pb.TagNumber(41)
-  Reflection get reflection => $_getN(22);
+  Reflection get reflection => $_getN(37);
   @$pb.TagNumber(41)
   set reflection(Reflection value) => $_setField(41, value);
   @$pb.TagNumber(41)
-  $core.bool hasReflection() => $_has(22);
+  $core.bool hasReflection() => $_has(37);
   @$pb.TagNumber(41)
   void clearReflection() => $_clearField(41);
   @$pb.TagNumber(41)
-  Reflection ensureReflection() => $_ensure(22);
+  Reflection ensureReflection() => $_ensure(37);
+
+  @$pb.TagNumber(42)
+  UserPromptedWorldEntrypoint get userPromptedWorldEntrypoint => $_getN(38);
+  @$pb.TagNumber(42)
+  set userPromptedWorldEntrypoint(UserPromptedWorldEntrypoint value) =>
+      $_setField(42, value);
+  @$pb.TagNumber(42)
+  $core.bool hasUserPromptedWorldEntrypoint() => $_has(38);
+  @$pb.TagNumber(42)
+  void clearUserPromptedWorldEntrypoint() => $_clearField(42);
+  @$pb.TagNumber(42)
+  UserPromptedWorldEntrypoint ensureUserPromptedWorldEntrypoint() =>
+      $_ensure(38);
 }
 
 class SectionInfo extends $pb.GeneratedMessage {
@@ -1327,10 +1807,10 @@ class LocalRecentlyPlayed extends $pb.GeneratedMessage {
 
 class ListPlatform extends $pb.GeneratedMessage {
   factory ListPlatform({
-    $core.String? uri,
+    $core.String? listUri,
   }) {
     final result = ListPlatform._();
-    if (uri != null) result.uri = uri;
+    if (listUri != null) result.listUri = listUri;
     return result;
   }
 
@@ -1348,7 +1828,7 @@ class ListPlatform extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: ListPlatform.$_createMessage)
-    ..aOS(1, _omitFieldNames ? '' : 'uri')
+    ..aOS(1, _omitFieldNames ? '' : 'listUri')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1374,13 +1854,13 @@ class ListPlatform extends $pb.GeneratedMessage {
   static ListPlatform? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.String get uri => $_getSZ(0);
+  $core.String get listUri => $_getSZ(0);
   @$pb.TagNumber(1)
-  set uri($core.String value) => $_setString(0, value);
+  set listUri($core.String value) => $_setString(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasUri() => $_has(0);
+  $core.bool hasListUri() => $_has(0);
   @$pb.TagNumber(1)
-  void clearUri() => $_clearField(1);
+  void clearListUri() => $_clearField(1);
 }
 
 enum Heading_Heading {
@@ -1953,9 +2433,11 @@ class StaticEnrichedHeading extends $pb.GeneratedMessage {
 class SponsoredHeading extends $pb.GeneratedMessage {
   factory SponsoredHeading({
     $core.String? text,
+    $core.String? subtitle,
   }) {
     final result = SponsoredHeading._();
     if (text != null) result.text = text;
+    if (subtitle != null) result.subtitle = subtitle;
     return result;
   }
 
@@ -1974,6 +2456,7 @@ class SponsoredHeading extends $pb.GeneratedMessage {
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: SponsoredHeading.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'text')
+    ..aOS(2, _omitFieldNames ? '' : 'subtitle')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2006,6 +2489,15 @@ class SponsoredHeading extends $pb.GeneratedMessage {
   $core.bool hasText() => $_has(0);
   @$pb.TagNumber(1)
   void clearText() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get subtitle => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set subtitle($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasSubtitle() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearSubtitle() => $_clearField(2);
 }
 
 class HeadingAssociatedItem extends $pb.GeneratedMessage {
@@ -2162,7 +2654,7 @@ class NavigationAction extends $pb.GeneratedMessage {
   void clearUri() => $_clearField(2);
 }
 
-/// field 2: Quick-access shortcut grid (top of home)
+/// field 2: Shortcuts
 class Shortcuts extends $pb.GeneratedMessage {
   factory Shortcuts({
     Heading? heading,
@@ -2237,7 +2729,7 @@ class Shortcuts extends $pb.GeneratedMessage {
   ItemSource ensureItemSource() => $_ensure(1);
 }
 
-/// field 3: Standard horizontal image card carousel (most common section type)
+/// field 3: Standard horizontal image card carousel
 class ImageLink extends $pb.GeneratedMessage {
   factory ImageLink({
     Heading? heading,
@@ -2351,7 +2843,7 @@ class ImageLink extends $pb.GeneratedMessage {
   void clearSource() => $_clearField(5);
 }
 
-/// field 4: Preview section (heading + single item reference)
+/// field 4: Preview section
 class Preview extends $pb.GeneratedMessage {
   factory Preview({
     Heading? heading,
@@ -2426,7 +2918,7 @@ class Preview extends $pb.GeneratedMessage {
   Item ensureItem() => $_ensure(1);
 }
 
-/// field 6: Full-bleed immersive preview (large hero-style card)
+/// field 6: Full-bleed immersive preview
 class ImmersivePreview extends $pb.GeneratedMessage {
   factory ImmersivePreview({
     Heading? heading,
@@ -2503,15 +2995,75 @@ class ImmersivePreview extends $pb.GeneratedMessage {
   Item ensureItem() => $_ensure(1);
 }
 
+/// field 7: Section anchors (jump chips)
+class Anchors extends $pb.GeneratedMessage {
+  factory Anchors({
+    ItemSource? itemSource,
+  }) {
+    final result = Anchors._();
+    if (itemSource != null) result.itemSource = itemSource;
+    return result;
+  }
+
+  Anchors._();
+
+  factory Anchors.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Anchors()..mergeFromBuffer(data, registry);
+  factory Anchors.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Anchors()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Anchors',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: Anchors.$_createMessage)
+    ..aOM<ItemSource>(1, _omitFieldNames ? '' : 'itemSource',
+        subBuilder: ItemSource.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Anchors clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Anchors copyWith(void Function(Anchors) updates) =>
+      super.copyWith((message) => updates(message as Anchors)) as Anchors;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use Anchors() / Anchors.new instead')
+  static Anchors create() => Anchors._();
+  static $pb.GeneratedMessage $_createMessage() => Anchors._();
+  @$core.override
+  Anchors createEmptyInstance() => Anchors._();
+  @$core.pragma('dart2js:noInline')
+  static Anchors getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<Anchors>(Anchors.$_createMessage);
+  static Anchors? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  ItemSource get itemSource => $_getN(0);
+  @$pb.TagNumber(1)
+  set itemSource(ItemSource value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasItemSource() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearItemSource() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ItemSource ensureItemSource() => $_ensure(0);
+}
+
 /// field 8: Content evaluation list
 class ContentEvaluationList extends $pb.GeneratedMessage {
   factory ContentEvaluationList({
     Heading? heading,
-    ItemSource? itemSource,
+    $core.Iterable<Item>? items,
   }) {
     final result = ContentEvaluationList._();
     if (heading != null) result.heading = heading;
-    if (itemSource != null) result.itemSource = itemSource;
+    if (items != null) result.items.addAll(items);
     return result;
   }
 
@@ -2531,8 +3083,8 @@ class ContentEvaluationList extends $pb.GeneratedMessage {
       createEmptyInstance: ContentEvaluationList.$_createMessage)
     ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
         subBuilder: Heading.$_createMessage)
-    ..aOM<ItemSource>(2, _omitFieldNames ? '' : 'itemSource',
-        subBuilder: ItemSource.$_createMessage)
+    ..pPM<Item>(2, _omitFieldNames ? '' : 'items',
+        subBuilder: Item.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2571,30 +3123,28 @@ class ContentEvaluationList extends $pb.GeneratedMessage {
   Heading ensureHeading() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  ItemSource get itemSource => $_getN(1);
-  @$pb.TagNumber(2)
-  set itemSource(ItemSource value) => $_setField(2, value);
-  @$pb.TagNumber(2)
-  $core.bool hasItemSource() => $_has(1);
-  @$pb.TagNumber(2)
-  void clearItemSource() => $_clearField(2);
-  @$pb.TagNumber(2)
-  ItemSource ensureItemSource() => $_ensure(1);
+  $pb.PbList<Item> get items => $_getList(1);
+}
+
+enum CallToAction_Variant {
+  richCallToAction,
+  simpleCallToAction,
+  djCallToAction,
+  notSet
 }
 
 /// field 9: Call to action
 class CallToAction extends $pb.GeneratedMessage {
   factory CallToAction({
-    $core.String? title,
-    $core.String? subtitle,
-    $core.String? buttonText,
-    $core.String? uri,
+    RichCallToAction? richCallToAction,
+    SimpleCallToAction? simpleCallToAction,
+    DjCallToAction? djCallToAction,
   }) {
     final result = CallToAction._();
-    if (title != null) result.title = title;
-    if (subtitle != null) result.subtitle = subtitle;
-    if (buttonText != null) result.buttonText = buttonText;
-    if (uri != null) result.uri = uri;
+    if (richCallToAction != null) result.richCallToAction = richCallToAction;
+    if (simpleCallToAction != null)
+      result.simpleCallToAction = simpleCallToAction;
+    if (djCallToAction != null) result.djCallToAction = djCallToAction;
     return result;
   }
 
@@ -2607,15 +3157,25 @@ class CallToAction extends $pb.GeneratedMessage {
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
       CallToAction()..mergeFromJson(json, registry);
 
+  static const $core.Map<$core.int, CallToAction_Variant>
+      _CallToAction_VariantByTag = {
+    1: CallToAction_Variant.richCallToAction,
+    2: CallToAction_Variant.simpleCallToAction,
+    3: CallToAction_Variant.djCallToAction,
+    0: CallToAction_Variant.notSet
+  };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
       _omitMessageNames ? '' : 'CallToAction',
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: CallToAction.$_createMessage)
-    ..aOS(1, _omitFieldNames ? '' : 'title')
-    ..aOS(2, _omitFieldNames ? '' : 'subtitle')
-    ..aOS(3, _omitFieldNames ? '' : 'buttonText')
-    ..aOS(4, _omitFieldNames ? '' : 'uri')
+    ..oo(0, [1, 2, 3])
+    ..aOM<RichCallToAction>(1, _omitFieldNames ? '' : 'richCallToAction',
+        subBuilder: RichCallToAction.$_createMessage)
+    ..aOM<SimpleCallToAction>(2, _omitFieldNames ? '' : 'simpleCallToAction',
+        subBuilder: SimpleCallToAction.$_createMessage)
+    ..aOM<DjCallToAction>(3, _omitFieldNames ? '' : 'djCallToAction',
+        subBuilder: DjCallToAction.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2641,40 +3201,526 @@ class CallToAction extends $pb.GeneratedMessage {
   static CallToAction? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.String get title => $_getSZ(0);
+  @$pb.TagNumber(2)
+  @$pb.TagNumber(3)
+  CallToAction_Variant whichVariant() =>
+      _CallToAction_VariantByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(1)
-  set title($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(2)
+  @$pb.TagNumber(3)
+  void clearVariant() => $_clearField($_whichOneof(0));
+
   @$pb.TagNumber(1)
-  $core.bool hasTitle() => $_has(0);
+  RichCallToAction get richCallToAction => $_getN(0);
   @$pb.TagNumber(1)
-  void clearTitle() => $_clearField(1);
+  set richCallToAction(RichCallToAction value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasRichCallToAction() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearRichCallToAction() => $_clearField(1);
+  @$pb.TagNumber(1)
+  RichCallToAction ensureRichCallToAction() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  $core.String get subtitle => $_getSZ(1);
+  SimpleCallToAction get simpleCallToAction => $_getN(1);
   @$pb.TagNumber(2)
-  set subtitle($core.String value) => $_setString(1, value);
+  set simpleCallToAction(SimpleCallToAction value) => $_setField(2, value);
   @$pb.TagNumber(2)
-  $core.bool hasSubtitle() => $_has(1);
+  $core.bool hasSimpleCallToAction() => $_has(1);
   @$pb.TagNumber(2)
-  void clearSubtitle() => $_clearField(2);
+  void clearSimpleCallToAction() => $_clearField(2);
+  @$pb.TagNumber(2)
+  SimpleCallToAction ensureSimpleCallToAction() => $_ensure(1);
 
   @$pb.TagNumber(3)
-  $core.String get buttonText => $_getSZ(2);
+  DjCallToAction get djCallToAction => $_getN(2);
   @$pb.TagNumber(3)
-  set buttonText($core.String value) => $_setString(2, value);
+  set djCallToAction(DjCallToAction value) => $_setField(3, value);
   @$pb.TagNumber(3)
-  $core.bool hasButtonText() => $_has(2);
+  $core.bool hasDjCallToAction() => $_has(2);
   @$pb.TagNumber(3)
-  void clearButtonText() => $_clearField(3);
+  void clearDjCallToAction() => $_clearField(3);
+  @$pb.TagNumber(3)
+  DjCallToAction ensureDjCallToAction() => $_ensure(2);
+}
+
+class RichCallToAction extends $pb.GeneratedMessage {
+  factory RichCallToAction({
+    $core.int? type,
+    $core.String? imageUrl,
+    $core.String? title,
+    $core.String? subtitle,
+    $core.String? callToActionText,
+    $core.bool? isDismissible,
+  }) {
+    final result = RichCallToAction._();
+    if (type != null) result.type = type;
+    if (imageUrl != null) result.imageUrl = imageUrl;
+    if (title != null) result.title = title;
+    if (subtitle != null) result.subtitle = subtitle;
+    if (callToActionText != null) result.callToActionText = callToActionText;
+    if (isDismissible != null) result.isDismissible = isDismissible;
+    return result;
+  }
+
+  RichCallToAction._();
+
+  factory RichCallToAction.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RichCallToAction()..mergeFromBuffer(data, registry);
+  factory RichCallToAction.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      RichCallToAction()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RichCallToAction',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: RichCallToAction.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'type')
+    ..aOS(2, _omitFieldNames ? '' : 'imageUrl')
+    ..aOS(3, _omitFieldNames ? '' : 'title')
+    ..aOS(4, _omitFieldNames ? '' : 'subtitle')
+    ..aOS(5, _omitFieldNames ? '' : 'callToActionText')
+    ..aOB(6, _omitFieldNames ? '' : 'isDismissible')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RichCallToAction clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RichCallToAction copyWith(void Function(RichCallToAction) updates) =>
+      super.copyWith((message) => updates(message as RichCallToAction))
+          as RichCallToAction;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use RichCallToAction() / RichCallToAction.new instead')
+  static RichCallToAction create() => RichCallToAction._();
+  static $pb.GeneratedMessage $_createMessage() => RichCallToAction._();
+  @$core.override
+  RichCallToAction createEmptyInstance() => RichCallToAction._();
+  @$core.pragma('dart2js:noInline')
+  static RichCallToAction getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<RichCallToAction>(
+          RichCallToAction.$_createMessage);
+  static RichCallToAction? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get type => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set type($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearType() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get imageUrl => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set imageUrl($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasImageUrl() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearImageUrl() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get title => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set title($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasTitle() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTitle() => $_clearField(3);
 
   @$pb.TagNumber(4)
-  $core.String get uri => $_getSZ(3);
+  $core.String get subtitle => $_getSZ(3);
   @$pb.TagNumber(4)
-  set uri($core.String value) => $_setString(3, value);
+  set subtitle($core.String value) => $_setString(3, value);
   @$pb.TagNumber(4)
-  $core.bool hasUri() => $_has(3);
+  $core.bool hasSubtitle() => $_has(3);
   @$pb.TagNumber(4)
-  void clearUri() => $_clearField(4);
+  void clearSubtitle() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get callToActionText => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set callToActionText($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCallToActionText() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCallToActionText() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.bool get isDismissible => $_getBF(5);
+  @$pb.TagNumber(6)
+  set isDismissible($core.bool value) => $_setBool(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasIsDismissible() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearIsDismissible() => $_clearField(6);
+}
+
+class SimpleCallToAction extends $pb.GeneratedMessage {
+  factory SimpleCallToAction({
+    $core.int? type,
+    $core.String? title,
+    $core.String? callToActionText,
+  }) {
+    final result = SimpleCallToAction._();
+    if (type != null) result.type = type;
+    if (title != null) result.title = title;
+    if (callToActionText != null) result.callToActionText = callToActionText;
+    return result;
+  }
+
+  SimpleCallToAction._();
+
+  factory SimpleCallToAction.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SimpleCallToAction()..mergeFromBuffer(data, registry);
+  factory SimpleCallToAction.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SimpleCallToAction()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SimpleCallToAction',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: SimpleCallToAction.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'type')
+    ..aOS(2, _omitFieldNames ? '' : 'title')
+    ..aOS(3, _omitFieldNames ? '' : 'callToActionText')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SimpleCallToAction clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SimpleCallToAction copyWith(void Function(SimpleCallToAction) updates) =>
+      super.copyWith((message) => updates(message as SimpleCallToAction))
+          as SimpleCallToAction;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use SimpleCallToAction() / SimpleCallToAction.new instead')
+  static SimpleCallToAction create() => SimpleCallToAction._();
+  static $pb.GeneratedMessage $_createMessage() => SimpleCallToAction._();
+  @$core.override
+  SimpleCallToAction createEmptyInstance() => SimpleCallToAction._();
+  @$core.pragma('dart2js:noInline')
+  static SimpleCallToAction getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SimpleCallToAction>(
+          SimpleCallToAction.$_createMessage);
+  static SimpleCallToAction? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get type => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set type($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearType() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get title => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set title($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTitle() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTitle() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get callToActionText => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set callToActionText($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCallToActionText() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCallToActionText() => $_clearField(3);
+}
+
+class DjCallToAction extends $pb.GeneratedMessage {
+  factory DjCallToAction({
+    $core.String? uri,
+    $core.String? title,
+    $core.String? subtitle,
+    DjVisualMetadata? visualMetadata,
+    $core.String? transcript,
+    Heading? heading,
+    $core.String? animationUrl,
+    $core.String? transcriptKey,
+  }) {
+    final result = DjCallToAction._();
+    if (uri != null) result.uri = uri;
+    if (title != null) result.title = title;
+    if (subtitle != null) result.subtitle = subtitle;
+    if (visualMetadata != null) result.visualMetadata = visualMetadata;
+    if (transcript != null) result.transcript = transcript;
+    if (heading != null) result.heading = heading;
+    if (animationUrl != null) result.animationUrl = animationUrl;
+    if (transcriptKey != null) result.transcriptKey = transcriptKey;
+    return result;
+  }
+
+  DjCallToAction._();
+
+  factory DjCallToAction.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DjCallToAction()..mergeFromBuffer(data, registry);
+  factory DjCallToAction.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DjCallToAction()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'DjCallToAction',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: DjCallToAction.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'uri')
+    ..aOS(2, _omitFieldNames ? '' : 'title')
+    ..aOS(3, _omitFieldNames ? '' : 'subtitle')
+    ..aOM<DjVisualMetadata>(4, _omitFieldNames ? '' : 'visualMetadata',
+        subBuilder: DjVisualMetadata.$_createMessage)
+    ..aOS(5, _omitFieldNames ? '' : 'transcript')
+    ..aOM<Heading>(6, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOS(7, _omitFieldNames ? '' : 'animationUrl')
+    ..aOS(8, _omitFieldNames ? '' : 'transcriptKey')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DjCallToAction clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DjCallToAction copyWith(void Function(DjCallToAction) updates) =>
+      super.copyWith((message) => updates(message as DjCallToAction))
+          as DjCallToAction;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use DjCallToAction() / DjCallToAction.new instead')
+  static DjCallToAction create() => DjCallToAction._();
+  static $pb.GeneratedMessage $_createMessage() => DjCallToAction._();
+  @$core.override
+  DjCallToAction createEmptyInstance() => DjCallToAction._();
+  @$core.pragma('dart2js:noInline')
+  static DjCallToAction getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DjCallToAction>(
+          DjCallToAction.$_createMessage);
+  static DjCallToAction? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get uri => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set uri($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUri() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUri() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get title => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set title($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTitle() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTitle() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get subtitle => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set subtitle($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasSubtitle() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearSubtitle() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  DjVisualMetadata get visualMetadata => $_getN(3);
+  @$pb.TagNumber(4)
+  set visualMetadata(DjVisualMetadata value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasVisualMetadata() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearVisualMetadata() => $_clearField(4);
+  @$pb.TagNumber(4)
+  DjVisualMetadata ensureVisualMetadata() => $_ensure(3);
+
+  @$pb.TagNumber(5)
+  $core.String get transcript => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set transcript($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasTranscript() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearTranscript() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  Heading get heading => $_getN(5);
+  @$pb.TagNumber(6)
+  set heading(Heading value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasHeading() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearHeading() => $_clearField(6);
+  @$pb.TagNumber(6)
+  Heading ensureHeading() => $_ensure(5);
+
+  @$pb.TagNumber(7)
+  $core.String get animationUrl => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set animationUrl($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasAnimationUrl() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearAnimationUrl() => $_clearField(7);
+
+  @$pb.TagNumber(8)
+  $core.String get transcriptKey => $_getSZ(7);
+  @$pb.TagNumber(8)
+  set transcriptKey($core.String value) => $_setString(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasTranscriptKey() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearTranscriptKey() => $_clearField(8);
+}
+
+class DjVisualMetadata extends $pb.GeneratedMessage {
+  factory DjVisualMetadata({
+    $core.String? backgroundColor,
+    $core.String? backgroundImage,
+    $core.String? jellyfishTopColor,
+    $core.String? jellyfishMidColor,
+    $core.String? jellyfishBottomColor,
+    $core.String? tagColor,
+    $core.String? textColor,
+  }) {
+    final result = DjVisualMetadata._();
+    if (backgroundColor != null) result.backgroundColor = backgroundColor;
+    if (backgroundImage != null) result.backgroundImage = backgroundImage;
+    if (jellyfishTopColor != null) result.jellyfishTopColor = jellyfishTopColor;
+    if (jellyfishMidColor != null) result.jellyfishMidColor = jellyfishMidColor;
+    if (jellyfishBottomColor != null)
+      result.jellyfishBottomColor = jellyfishBottomColor;
+    if (tagColor != null) result.tagColor = tagColor;
+    if (textColor != null) result.textColor = textColor;
+    return result;
+  }
+
+  DjVisualMetadata._();
+
+  factory DjVisualMetadata.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DjVisualMetadata()..mergeFromBuffer(data, registry);
+  factory DjVisualMetadata.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      DjVisualMetadata()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'DjVisualMetadata',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: DjVisualMetadata.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'backgroundColor')
+    ..aOS(2, _omitFieldNames ? '' : 'backgroundImage')
+    ..aOS(3, _omitFieldNames ? '' : 'jellyfishTopColor')
+    ..aOS(4, _omitFieldNames ? '' : 'jellyfishMidColor')
+    ..aOS(5, _omitFieldNames ? '' : 'jellyfishBottomColor')
+    ..aOS(6, _omitFieldNames ? '' : 'tagColor')
+    ..aOS(7, _omitFieldNames ? '' : 'textColor')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DjVisualMetadata clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  DjVisualMetadata copyWith(void Function(DjVisualMetadata) updates) =>
+      super.copyWith((message) => updates(message as DjVisualMetadata))
+          as DjVisualMetadata;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use DjVisualMetadata() / DjVisualMetadata.new instead')
+  static DjVisualMetadata create() => DjVisualMetadata._();
+  static $pb.GeneratedMessage $_createMessage() => DjVisualMetadata._();
+  @$core.override
+  DjVisualMetadata createEmptyInstance() => DjVisualMetadata._();
+  @$core.pragma('dart2js:noInline')
+  static DjVisualMetadata getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<DjVisualMetadata>(
+          DjVisualMetadata.$_createMessage);
+  static DjVisualMetadata? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get backgroundColor => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set backgroundColor($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasBackgroundColor() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearBackgroundColor() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get backgroundImage => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set backgroundImage($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasBackgroundImage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearBackgroundImage() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get jellyfishTopColor => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set jellyfishTopColor($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasJellyfishTopColor() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearJellyfishTopColor() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get jellyfishMidColor => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set jellyfishMidColor($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasJellyfishMidColor() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearJellyfishMidColor() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get jellyfishBottomColor => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set jellyfishBottomColor($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasJellyfishBottomColor() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearJellyfishBottomColor() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.String get tagColor => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set tagColor($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasTagColor() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearTagColor() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.String get textColor => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set textColor($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasTextColor() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearTextColor() => $_clearField(7);
 }
 
 /// field 10: Recently played shelf
@@ -2770,11 +3816,11 @@ class RecentsShelf extends $pb.GeneratedMessage {
 class WatchFeed extends $pb.GeneratedMessage {
   factory WatchFeed({
     Heading? heading,
-    ItemSource? itemSource,
+    $core.Iterable<WatchFeedItem>? items,
   }) {
     final result = WatchFeed._();
     if (heading != null) result.heading = heading;
-    if (itemSource != null) result.itemSource = itemSource;
+    if (items != null) result.items.addAll(items);
     return result;
   }
 
@@ -2794,8 +3840,8 @@ class WatchFeed extends $pb.GeneratedMessage {
       createEmptyInstance: WatchFeed.$_createMessage)
     ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
         subBuilder: Heading.$_createMessage)
-    ..aOM<ItemSource>(2, _omitFieldNames ? '' : 'itemSource',
-        subBuilder: ItemSource.$_createMessage)
+    ..pPM<WatchFeedItem>(2, _omitFieldNames ? '' : 'items',
+        subBuilder: WatchFeedItem.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2830,26 +3876,828 @@ class WatchFeed extends $pb.GeneratedMessage {
   Heading ensureHeading() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  ItemSource get itemSource => $_getN(1);
-  @$pb.TagNumber(2)
-  set itemSource(ItemSource value) => $_setField(2, value);
-  @$pb.TagNumber(2)
-  $core.bool hasItemSource() => $_has(1);
-  @$pb.TagNumber(2)
-  void clearItemSource() => $_clearField(2);
-  @$pb.TagNumber(2)
-  ItemSource ensureItemSource() => $_ensure(1);
+  $pb.PbList<WatchFeedItem> get items => $_getList(1);
 }
 
-/// field 16: Live event
+class WatchFeedItem extends $pb.GeneratedMessage {
+  factory WatchFeedItem({
+    Item? item,
+    WatchFeedEntrypoint? entrypoint,
+    WatchFeedItemMetadata? watchFeedItemMetadata,
+  }) {
+    final result = WatchFeedItem._();
+    if (item != null) result.item = item;
+    if (entrypoint != null) result.entrypoint = entrypoint;
+    if (watchFeedItemMetadata != null)
+      result.watchFeedItemMetadata = watchFeedItemMetadata;
+    return result;
+  }
+
+  WatchFeedItem._();
+
+  factory WatchFeedItem.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedItem()..mergeFromBuffer(data, registry);
+  factory WatchFeedItem.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedItem()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchFeedItem',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: WatchFeedItem.$_createMessage)
+    ..aOM<Item>(1, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..aOM<WatchFeedEntrypoint>(2, _omitFieldNames ? '' : 'entrypoint',
+        subBuilder: WatchFeedEntrypoint.$_createMessage)
+    ..aOM<WatchFeedItemMetadata>(
+        3, _omitFieldNames ? '' : 'watchFeedItemMetadata',
+        subBuilder: WatchFeedItemMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedItem clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedItem copyWith(void Function(WatchFeedItem) updates) =>
+      super.copyWith((message) => updates(message as WatchFeedItem))
+          as WatchFeedItem;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use WatchFeedItem() / WatchFeedItem.new instead')
+  static WatchFeedItem create() => WatchFeedItem._();
+  static $pb.GeneratedMessage $_createMessage() => WatchFeedItem._();
+  @$core.override
+  WatchFeedItem createEmptyInstance() => WatchFeedItem._();
+  @$core.pragma('dart2js:noInline')
+  static WatchFeedItem getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<WatchFeedItem>(
+          WatchFeedItem.$_createMessage);
+  static WatchFeedItem? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Item get item => $_getN(0);
+  @$pb.TagNumber(1)
+  set item(Item value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasItem() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearItem() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Item ensureItem() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  WatchFeedEntrypoint get entrypoint => $_getN(1);
+  @$pb.TagNumber(2)
+  set entrypoint(WatchFeedEntrypoint value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasEntrypoint() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearEntrypoint() => $_clearField(2);
+  @$pb.TagNumber(2)
+  WatchFeedEntrypoint ensureEntrypoint() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  WatchFeedItemMetadata get watchFeedItemMetadata => $_getN(2);
+  @$pb.TagNumber(3)
+  set watchFeedItemMetadata(WatchFeedItemMetadata value) =>
+      $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasWatchFeedItemMetadata() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearWatchFeedItemMetadata() => $_clearField(3);
+  @$pb.TagNumber(3)
+  WatchFeedItemMetadata ensureWatchFeedItemMetadata() => $_ensure(2);
+}
+
+class WatchFeedEntrypoint extends $pb.GeneratedMessage {
+  factory WatchFeedEntrypoint({
+    $core.String? uri,
+    $core.String? firstItemUri,
+    $core.String? overline,
+    $core.String? title,
+    $core.String? subtitle,
+    WatchFeedImage? thumbnailImage,
+    WatchFeedVideoFile? videoFile,
+    $core.String? navigationUri,
+    $core.String? accessibility,
+    WatchFeedImage? coverImage,
+    $core.String? decisionId,
+    $core.double? portraitHorizontalFocusCenterPercentage,
+    WatchFeedImage? logoImage,
+  }) {
+    final result = WatchFeedEntrypoint._();
+    if (uri != null) result.uri = uri;
+    if (firstItemUri != null) result.firstItemUri = firstItemUri;
+    if (overline != null) result.overline = overline;
+    if (title != null) result.title = title;
+    if (subtitle != null) result.subtitle = subtitle;
+    if (thumbnailImage != null) result.thumbnailImage = thumbnailImage;
+    if (videoFile != null) result.videoFile = videoFile;
+    if (navigationUri != null) result.navigationUri = navigationUri;
+    if (accessibility != null) result.accessibility = accessibility;
+    if (coverImage != null) result.coverImage = coverImage;
+    if (decisionId != null) result.decisionId = decisionId;
+    if (portraitHorizontalFocusCenterPercentage != null)
+      result.portraitHorizontalFocusCenterPercentage =
+          portraitHorizontalFocusCenterPercentage;
+    if (logoImage != null) result.logoImage = logoImage;
+    return result;
+  }
+
+  WatchFeedEntrypoint._();
+
+  factory WatchFeedEntrypoint.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedEntrypoint()..mergeFromBuffer(data, registry);
+  factory WatchFeedEntrypoint.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedEntrypoint()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchFeedEntrypoint',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: WatchFeedEntrypoint.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'uri')
+    ..aOS(2, _omitFieldNames ? '' : 'firstItemUri')
+    ..aOS(3, _omitFieldNames ? '' : 'overline')
+    ..aOS(4, _omitFieldNames ? '' : 'title')
+    ..aOS(5, _omitFieldNames ? '' : 'subtitle')
+    ..aOM<WatchFeedImage>(6, _omitFieldNames ? '' : 'thumbnailImage',
+        subBuilder: WatchFeedImage.$_createMessage)
+    ..aOM<WatchFeedVideoFile>(7, _omitFieldNames ? '' : 'videoFile',
+        subBuilder: WatchFeedVideoFile.$_createMessage)
+    ..aOS(8, _omitFieldNames ? '' : 'navigationUri')
+    ..aOS(9, _omitFieldNames ? '' : 'accessibility')
+    ..aOM<WatchFeedImage>(10, _omitFieldNames ? '' : 'coverImage',
+        subBuilder: WatchFeedImage.$_createMessage)
+    ..aOS(11, _omitFieldNames ? '' : 'decisionId')
+    ..aD(12, _omitFieldNames ? '' : 'portraitHorizontalFocusCenterPercentage')
+    ..aOM<WatchFeedImage>(13, _omitFieldNames ? '' : 'logoImage',
+        subBuilder: WatchFeedImage.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedEntrypoint clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedEntrypoint copyWith(void Function(WatchFeedEntrypoint) updates) =>
+      super.copyWith((message) => updates(message as WatchFeedEntrypoint))
+          as WatchFeedEntrypoint;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use WatchFeedEntrypoint() / WatchFeedEntrypoint.new instead')
+  static WatchFeedEntrypoint create() => WatchFeedEntrypoint._();
+  static $pb.GeneratedMessage $_createMessage() => WatchFeedEntrypoint._();
+  @$core.override
+  WatchFeedEntrypoint createEmptyInstance() => WatchFeedEntrypoint._();
+  @$core.pragma('dart2js:noInline')
+  static WatchFeedEntrypoint getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<WatchFeedEntrypoint>(
+          WatchFeedEntrypoint.$_createMessage);
+  static WatchFeedEntrypoint? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get uri => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set uri($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUri() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUri() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get firstItemUri => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set firstItemUri($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFirstItemUri() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFirstItemUri() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get overline => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set overline($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasOverline() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearOverline() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get title => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set title($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasTitle() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearTitle() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get subtitle => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set subtitle($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSubtitle() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSubtitle() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  WatchFeedImage get thumbnailImage => $_getN(5);
+  @$pb.TagNumber(6)
+  set thumbnailImage(WatchFeedImage value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasThumbnailImage() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearThumbnailImage() => $_clearField(6);
+  @$pb.TagNumber(6)
+  WatchFeedImage ensureThumbnailImage() => $_ensure(5);
+
+  @$pb.TagNumber(7)
+  WatchFeedVideoFile get videoFile => $_getN(6);
+  @$pb.TagNumber(7)
+  set videoFile(WatchFeedVideoFile value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasVideoFile() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearVideoFile() => $_clearField(7);
+  @$pb.TagNumber(7)
+  WatchFeedVideoFile ensureVideoFile() => $_ensure(6);
+
+  @$pb.TagNumber(8)
+  $core.String get navigationUri => $_getSZ(7);
+  @$pb.TagNumber(8)
+  set navigationUri($core.String value) => $_setString(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasNavigationUri() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearNavigationUri() => $_clearField(8);
+
+  @$pb.TagNumber(9)
+  $core.String get accessibility => $_getSZ(8);
+  @$pb.TagNumber(9)
+  set accessibility($core.String value) => $_setString(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasAccessibility() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearAccessibility() => $_clearField(9);
+
+  @$pb.TagNumber(10)
+  WatchFeedImage get coverImage => $_getN(9);
+  @$pb.TagNumber(10)
+  set coverImage(WatchFeedImage value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasCoverImage() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearCoverImage() => $_clearField(10);
+  @$pb.TagNumber(10)
+  WatchFeedImage ensureCoverImage() => $_ensure(9);
+
+  @$pb.TagNumber(11)
+  $core.String get decisionId => $_getSZ(10);
+  @$pb.TagNumber(11)
+  set decisionId($core.String value) => $_setString(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasDecisionId() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearDecisionId() => $_clearField(11);
+
+  @$pb.TagNumber(12)
+  $core.double get portraitHorizontalFocusCenterPercentage => $_getN(11);
+  @$pb.TagNumber(12)
+  set portraitHorizontalFocusCenterPercentage($core.double value) =>
+      $_setDouble(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasPortraitHorizontalFocusCenterPercentage() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearPortraitHorizontalFocusCenterPercentage() => $_clearField(12);
+
+  @$pb.TagNumber(13)
+  WatchFeedImage get logoImage => $_getN(12);
+  @$pb.TagNumber(13)
+  set logoImage(WatchFeedImage value) => $_setField(13, value);
+  @$pb.TagNumber(13)
+  $core.bool hasLogoImage() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearLogoImage() => $_clearField(13);
+  @$pb.TagNumber(13)
+  WatchFeedImage ensureLogoImage() => $_ensure(12);
+}
+
+class WatchFeedImage extends $pb.GeneratedMessage {
+  factory WatchFeedImage({
+    $core.String? url,
+    $core.String? placeholder,
+  }) {
+    final result = WatchFeedImage._();
+    if (url != null) result.url = url;
+    if (placeholder != null) result.placeholder = placeholder;
+    return result;
+  }
+
+  WatchFeedImage._();
+
+  factory WatchFeedImage.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedImage()..mergeFromBuffer(data, registry);
+  factory WatchFeedImage.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedImage()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchFeedImage',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: WatchFeedImage.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'url')
+    ..aOS(2, _omitFieldNames ? '' : 'placeholder')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedImage clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedImage copyWith(void Function(WatchFeedImage) updates) =>
+      super.copyWith((message) => updates(message as WatchFeedImage))
+          as WatchFeedImage;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use WatchFeedImage() / WatchFeedImage.new instead')
+  static WatchFeedImage create() => WatchFeedImage._();
+  static $pb.GeneratedMessage $_createMessage() => WatchFeedImage._();
+  @$core.override
+  WatchFeedImage createEmptyInstance() => WatchFeedImage._();
+  @$core.pragma('dart2js:noInline')
+  static WatchFeedImage getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<WatchFeedImage>(
+          WatchFeedImage.$_createMessage);
+  static WatchFeedImage? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get url => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set url($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUrl() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUrl() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get placeholder => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set placeholder($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPlaceholder() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPlaceholder() => $_clearField(2);
+}
+
+class WatchFeedVideoFile extends $pb.GeneratedMessage {
+  factory WatchFeedVideoFile({
+    $core.String? uri,
+    $core.int? type,
+    $fixnum.Int64? startTime,
+    $fixnum.Int64? endTime,
+  }) {
+    final result = WatchFeedVideoFile._();
+    if (uri != null) result.uri = uri;
+    if (type != null) result.type = type;
+    if (startTime != null) result.startTime = startTime;
+    if (endTime != null) result.endTime = endTime;
+    return result;
+  }
+
+  WatchFeedVideoFile._();
+
+  factory WatchFeedVideoFile.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedVideoFile()..mergeFromBuffer(data, registry);
+  factory WatchFeedVideoFile.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedVideoFile()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchFeedVideoFile',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: WatchFeedVideoFile.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'uri')
+    ..aI(2, _omitFieldNames ? '' : 'type')
+    ..aInt64(3, _omitFieldNames ? '' : 'startTime')
+    ..aInt64(4, _omitFieldNames ? '' : 'endTime')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedVideoFile clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedVideoFile copyWith(void Function(WatchFeedVideoFile) updates) =>
+      super.copyWith((message) => updates(message as WatchFeedVideoFile))
+          as WatchFeedVideoFile;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use WatchFeedVideoFile() / WatchFeedVideoFile.new instead')
+  static WatchFeedVideoFile create() => WatchFeedVideoFile._();
+  static $pb.GeneratedMessage $_createMessage() => WatchFeedVideoFile._();
+  @$core.override
+  WatchFeedVideoFile createEmptyInstance() => WatchFeedVideoFile._();
+  @$core.pragma('dart2js:noInline')
+  static WatchFeedVideoFile getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<WatchFeedVideoFile>(
+          WatchFeedVideoFile.$_createMessage);
+  static WatchFeedVideoFile? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get uri => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set uri($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUri() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUri() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get type => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set type($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasType() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearType() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get startTime => $_getI64(2);
+  @$pb.TagNumber(3)
+  set startTime($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasStartTime() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearStartTime() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get endTime => $_getI64(3);
+  @$pb.TagNumber(4)
+  set endTime($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasEndTime() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearEndTime() => $_clearField(4);
+}
+
+class WatchFeedItemMetadata extends $pb.GeneratedMessage {
+  factory WatchFeedItemMetadata({
+    $core.String? decisionId,
+    $core.String? navigationUri,
+    $core.String? firstItemUri,
+  }) {
+    final result = WatchFeedItemMetadata._();
+    if (decisionId != null) result.decisionId = decisionId;
+    if (navigationUri != null) result.navigationUri = navigationUri;
+    if (firstItemUri != null) result.firstItemUri = firstItemUri;
+    return result;
+  }
+
+  WatchFeedItemMetadata._();
+
+  factory WatchFeedItemMetadata.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedItemMetadata()..mergeFromBuffer(data, registry);
+  factory WatchFeedItemMetadata.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      WatchFeedItemMetadata()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchFeedItemMetadata',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: WatchFeedItemMetadata.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'decisionId')
+    ..aOS(2, _omitFieldNames ? '' : 'navigationUri')
+    ..aOS(3, _omitFieldNames ? '' : 'firstItemUri')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedItemMetadata clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchFeedItemMetadata copyWith(
+          void Function(WatchFeedItemMetadata) updates) =>
+      super.copyWith((message) => updates(message as WatchFeedItemMetadata))
+          as WatchFeedItemMetadata;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use WatchFeedItemMetadata() / WatchFeedItemMetadata.new instead')
+  static WatchFeedItemMetadata create() => WatchFeedItemMetadata._();
+  static $pb.GeneratedMessage $_createMessage() => WatchFeedItemMetadata._();
+  @$core.override
+  WatchFeedItemMetadata createEmptyInstance() => WatchFeedItemMetadata._();
+  @$core.pragma('dart2js:noInline')
+  static WatchFeedItemMetadata getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<WatchFeedItemMetadata>(
+          WatchFeedItemMetadata.$_createMessage);
+  static WatchFeedItemMetadata? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get decisionId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set decisionId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasDecisionId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearDecisionId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get navigationUri => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set navigationUri($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNavigationUri() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNavigationUri() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get firstItemUri => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set firstItemUri($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFirstItemUri() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFirstItemUri() => $_clearField(3);
+}
+
+/// field 12: Promotion V1 (featured release / album drop banner)
+class PromotionV1 extends $pb.GeneratedMessage {
+  factory PromotionV1({
+    Heading? heading,
+    Item? item,
+    EmbeddedAdMetadata? adMetadata,
+    $core.int? type,
+  }) {
+    final result = PromotionV1._();
+    if (heading != null) result.heading = heading;
+    if (item != null) result.item = item;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    if (type != null) result.type = type;
+    return result;
+  }
+
+  PromotionV1._();
+
+  factory PromotionV1.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromotionV1()..mergeFromBuffer(data, registry);
+  factory PromotionV1.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromotionV1()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PromotionV1',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: PromotionV1.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(3, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..aI(4, _omitFieldNames ? '' : 'type')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromotionV1 clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromotionV1 copyWith(void Function(PromotionV1) updates) =>
+      super.copyWith((message) => updates(message as PromotionV1))
+          as PromotionV1;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PromotionV1() / PromotionV1.new instead')
+  static PromotionV1 create() => PromotionV1._();
+  static $pb.GeneratedMessage $_createMessage() => PromotionV1._();
+  @$core.override
+  PromotionV1 createEmptyInstance() => PromotionV1._();
+  @$core.pragma('dart2js:noInline')
+  static PromotionV1 getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PromotionV1>(
+          PromotionV1.$_createMessage);
+  static PromotionV1? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Heading get heading => $_getN(0);
+  @$pb.TagNumber(1)
+  set heading(Heading value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHeading() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHeading() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Heading ensureHeading() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  Item get item => $_getN(1);
+  @$pb.TagNumber(2)
+  set item(Item value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasItem() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearItem() => $_clearField(2);
+  @$pb.TagNumber(2)
+  Item ensureItem() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata get adMetadata => $_getN(2);
+  @$pb.TagNumber(3)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAdMetadata() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAdMetadata() => $_clearField(3);
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(2);
+
+  @$pb.TagNumber(4)
+  $core.int get type => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set type($core.int value) => $_setSignedInt32(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasType() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearType() => $_clearField(4);
+}
+
+/// field 13: Promotion V3 (modern featured release banner - NO heading in APK bytecode)
+class PromotionV3 extends $pb.GeneratedMessage {
+  factory PromotionV3({
+    Item? item,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = PromotionV3._();
+    if (item != null) result.item = item;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  PromotionV3._();
+
+  factory PromotionV3.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromotionV3()..mergeFromBuffer(data, registry);
+  factory PromotionV3.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromotionV3()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PromotionV3',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: PromotionV3.$_createMessage)
+    ..aOM<Item>(1, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(2, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromotionV3 clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromotionV3 copyWith(void Function(PromotionV3) updates) =>
+      super.copyWith((message) => updates(message as PromotionV3))
+          as PromotionV3;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PromotionV3() / PromotionV3.new instead')
+  static PromotionV3 create() => PromotionV3._();
+  static $pb.GeneratedMessage $_createMessage() => PromotionV3._();
+  @$core.override
+  PromotionV3 createEmptyInstance() => PromotionV3._();
+  @$core.pragma('dart2js:noInline')
+  static PromotionV3 getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PromotionV3>(
+          PromotionV3.$_createMessage);
+  static PromotionV3? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Item get item => $_getN(0);
+  @$pb.TagNumber(1)
+  set item(Item value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasItem() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearItem() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Item ensureItem() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata get adMetadata => $_getN(1);
+  @$pb.TagNumber(2)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAdMetadata() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAdMetadata() => $_clearField(2);
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(1);
+}
+
+/// field 15: Action card carousel (repeated items in APK bytecode)
+class ActionCardCarousel extends $pb.GeneratedMessage {
+  factory ActionCardCarousel({
+    Heading? heading,
+    $core.Iterable<Item>? items,
+  }) {
+    final result = ActionCardCarousel._();
+    if (heading != null) result.heading = heading;
+    if (items != null) result.items.addAll(items);
+    return result;
+  }
+
+  ActionCardCarousel._();
+
+  factory ActionCardCarousel.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ActionCardCarousel()..mergeFromBuffer(data, registry);
+  factory ActionCardCarousel.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ActionCardCarousel()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ActionCardCarousel',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: ActionCardCarousel.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..pPM<Item>(2, _omitFieldNames ? '' : 'items',
+        subBuilder: Item.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ActionCardCarousel clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ActionCardCarousel copyWith(void Function(ActionCardCarousel) updates) =>
+      super.copyWith((message) => updates(message as ActionCardCarousel))
+          as ActionCardCarousel;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ActionCardCarousel() / ActionCardCarousel.new instead')
+  static ActionCardCarousel create() => ActionCardCarousel._();
+  static $pb.GeneratedMessage $_createMessage() => ActionCardCarousel._();
+  @$core.override
+  ActionCardCarousel createEmptyInstance() => ActionCardCarousel._();
+  @$core.pragma('dart2js:noInline')
+  static ActionCardCarousel getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ActionCardCarousel>(
+          ActionCardCarousel.$_createMessage);
+  static ActionCardCarousel? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Heading get heading => $_getN(0);
+  @$pb.TagNumber(1)
+  set heading(Heading value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHeading() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHeading() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Heading ensureHeading() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  $pb.PbList<Item> get items => $_getList(1);
+}
+
+/// field 16: Live event (item_source in APK bytecode)
 class LiveEvent extends $pb.GeneratedMessage {
   factory LiveEvent({
     Heading? heading,
-    Item? item,
+    ItemSource? itemSource,
   }) {
     final result = LiveEvent._();
     if (heading != null) result.heading = heading;
-    if (item != null) result.item = item;
+    if (itemSource != null) result.itemSource = itemSource;
     return result;
   }
 
@@ -2869,8 +4717,8 @@ class LiveEvent extends $pb.GeneratedMessage {
       createEmptyInstance: LiveEvent.$_createMessage)
     ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
         subBuilder: Heading.$_createMessage)
-    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
-        subBuilder: Item.$_createMessage)
+    ..aOM<ItemSource>(2, _omitFieldNames ? '' : 'itemSource',
+        subBuilder: ItemSource.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2905,15 +4753,15 @@ class LiveEvent extends $pb.GeneratedMessage {
   Heading ensureHeading() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  Item get item => $_getN(1);
+  ItemSource get itemSource => $_getN(1);
   @$pb.TagNumber(2)
-  set item(Item value) => $_setField(2, value);
+  set itemSource(ItemSource value) => $_setField(2, value);
   @$pb.TagNumber(2)
-  $core.bool hasItem() => $_has(1);
+  $core.bool hasItemSource() => $_has(1);
   @$pb.TagNumber(2)
-  void clearItem() => $_clearField(2);
+  void clearItemSource() => $_clearField(2);
   @$pb.TagNumber(2)
-  Item ensureItem() => $_ensure(1);
+  ItemSource ensureItemSource() => $_ensure(1);
 }
 
 /// field 17: Showcase (featured content)
@@ -2993,6 +4841,528 @@ class Showcase extends $pb.GeneratedMessage {
   void clearItem() => $_clearField(2);
   @$pb.TagNumber(2)
   Item ensureItem() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata get adMetadata => $_getN(2);
+  @$pb.TagNumber(3)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAdMetadata() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAdMetadata() => $_clearField(3);
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(2);
+}
+
+/// field 18: Video promo
+class VideoPromo extends $pb.GeneratedMessage {
+  factory VideoPromo({
+    Heading? heading,
+    Item? item,
+    $core.String? targetUri,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = VideoPromo._();
+    if (heading != null) result.heading = heading;
+    if (item != null) result.item = item;
+    if (targetUri != null) result.targetUri = targetUri;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  VideoPromo._();
+
+  factory VideoPromo.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoPromo()..mergeFromBuffer(data, registry);
+  factory VideoPromo.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoPromo()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'VideoPromo',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: VideoPromo.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..aOS(3, _omitFieldNames ? '' : 'targetUri')
+    ..aOM<EmbeddedAdMetadata>(4, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoPromo clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoPromo copyWith(void Function(VideoPromo) updates) =>
+      super.copyWith((message) => updates(message as VideoPromo)) as VideoPromo;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use VideoPromo() / VideoPromo.new instead')
+  static VideoPromo create() => VideoPromo._();
+  static $pb.GeneratedMessage $_createMessage() => VideoPromo._();
+  @$core.override
+  VideoPromo createEmptyInstance() => VideoPromo._();
+  @$core.pragma('dart2js:noInline')
+  static VideoPromo getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<VideoPromo>(VideoPromo.$_createMessage);
+  static VideoPromo? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Heading get heading => $_getN(0);
+  @$pb.TagNumber(1)
+  set heading(Heading value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHeading() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHeading() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Heading ensureHeading() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  Item get item => $_getN(1);
+  @$pb.TagNumber(2)
+  set item(Item value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasItem() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearItem() => $_clearField(2);
+  @$pb.TagNumber(2)
+  Item ensureItem() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  $core.String get targetUri => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set targetUri($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasTargetUri() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTargetUri() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  EmbeddedAdMetadata get adMetadata => $_getN(3);
+  @$pb.TagNumber(4)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasAdMetadata() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearAdMetadata() => $_clearField(4);
+  @$pb.TagNumber(4)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(3);
+}
+
+/// field 19: Banner ad
+class Banner extends $pb.GeneratedMessage {
+  factory Banner({
+    $core.int? type,
+    $core.String? colorCode,
+  }) {
+    final result = Banner._();
+    if (type != null) result.type = type;
+    if (colorCode != null) result.colorCode = colorCode;
+    return result;
+  }
+
+  Banner._();
+
+  factory Banner.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Banner()..mergeFromBuffer(data, registry);
+  factory Banner.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Banner()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Banner',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: Banner.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'type')
+    ..aOS(2, _omitFieldNames ? '' : 'colorCode')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Banner clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Banner copyWith(void Function(Banner) updates) =>
+      super.copyWith((message) => updates(message as Banner)) as Banner;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use Banner() / Banner.new instead')
+  static Banner create() => Banner._();
+  static $pb.GeneratedMessage $_createMessage() => Banner._();
+  @$core.override
+  Banner createEmptyInstance() => Banner._();
+  @$core.pragma('dart2js:noInline')
+  static Banner getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<Banner>(Banner.$_createMessage);
+  static Banner? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get type => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set type($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearType() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get colorCode => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set colorCode($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasColorCode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearColorCode() => $_clearField(2);
+}
+
+/// field 20: Video brand ad
+class VideoBrandAd extends $pb.GeneratedMessage {
+  factory VideoBrandAd({
+    EmbeddedAd? ad,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = VideoBrandAd._();
+    if (ad != null) result.ad = ad;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  VideoBrandAd._();
+
+  factory VideoBrandAd.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoBrandAd()..mergeFromBuffer(data, registry);
+  factory VideoBrandAd.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoBrandAd()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'VideoBrandAd',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: VideoBrandAd.$_createMessage)
+    ..aOM<EmbeddedAd>(1, _omitFieldNames ? '' : 'ad',
+        subBuilder: EmbeddedAd.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(2, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoBrandAd clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoBrandAd copyWith(void Function(VideoBrandAd) updates) =>
+      super.copyWith((message) => updates(message as VideoBrandAd))
+          as VideoBrandAd;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use VideoBrandAd() / VideoBrandAd.new instead')
+  static VideoBrandAd create() => VideoBrandAd._();
+  static $pb.GeneratedMessage $_createMessage() => VideoBrandAd._();
+  @$core.override
+  VideoBrandAd createEmptyInstance() => VideoBrandAd._();
+  @$core.pragma('dart2js:noInline')
+  static VideoBrandAd getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<VideoBrandAd>(
+          VideoBrandAd.$_createMessage);
+  static VideoBrandAd? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  EmbeddedAd get ad => $_getN(0);
+  @$pb.TagNumber(1)
+  set ad(EmbeddedAd value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAd() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAd() => $_clearField(1);
+  @$pb.TagNumber(1)
+  EmbeddedAd ensureAd() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata get adMetadata => $_getN(1);
+  @$pb.TagNumber(2)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAdMetadata() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAdMetadata() => $_clearField(2);
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(1);
+}
+
+/// field 21: Image brand ad
+class ImageBrandAd extends $pb.GeneratedMessage {
+  factory ImageBrandAd({
+    EmbeddedAd? ad,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = ImageBrandAd._();
+    if (ad != null) result.ad = ad;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  ImageBrandAd._();
+
+  factory ImageBrandAd.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ImageBrandAd()..mergeFromBuffer(data, registry);
+  factory ImageBrandAd.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ImageBrandAd()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ImageBrandAd',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: ImageBrandAd.$_createMessage)
+    ..aOM<EmbeddedAd>(1, _omitFieldNames ? '' : 'ad',
+        subBuilder: EmbeddedAd.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(2, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ImageBrandAd clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ImageBrandAd copyWith(void Function(ImageBrandAd) updates) =>
+      super.copyWith((message) => updates(message as ImageBrandAd))
+          as ImageBrandAd;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ImageBrandAd() / ImageBrandAd.new instead')
+  static ImageBrandAd create() => ImageBrandAd._();
+  static $pb.GeneratedMessage $_createMessage() => ImageBrandAd._();
+  @$core.override
+  ImageBrandAd createEmptyInstance() => ImageBrandAd._();
+  @$core.pragma('dart2js:noInline')
+  static ImageBrandAd getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ImageBrandAd>(
+          ImageBrandAd.$_createMessage);
+  static ImageBrandAd? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  EmbeddedAd get ad => $_getN(0);
+  @$pb.TagNumber(1)
+  set ad(EmbeddedAd value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAd() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAd() => $_clearField(1);
+  @$pb.TagNumber(1)
+  EmbeddedAd ensureAd() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata get adMetadata => $_getN(1);
+  @$pb.TagNumber(2)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAdMetadata() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAdMetadata() => $_clearField(2);
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(1);
+}
+
+class EmbeddedAd extends $pb.GeneratedMessage {
+  factory EmbeddedAd({
+    $core.String? advertiser,
+    $core.String? callToAction,
+    $core.String? clickthroughUrl,
+    $core.String? tagline,
+    $core.String? logoImageUrl,
+  }) {
+    final result = EmbeddedAd._();
+    if (advertiser != null) result.advertiser = advertiser;
+    if (callToAction != null) result.callToAction = callToAction;
+    if (clickthroughUrl != null) result.clickthroughUrl = clickthroughUrl;
+    if (tagline != null) result.tagline = tagline;
+    if (logoImageUrl != null) result.logoImageUrl = logoImageUrl;
+    return result;
+  }
+
+  EmbeddedAd._();
+
+  factory EmbeddedAd.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      EmbeddedAd()..mergeFromBuffer(data, registry);
+  factory EmbeddedAd.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      EmbeddedAd()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'EmbeddedAd',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: EmbeddedAd.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'advertiser')
+    ..aOS(2, _omitFieldNames ? '' : 'callToAction')
+    ..aOS(3, _omitFieldNames ? '' : 'clickthroughUrl')
+    ..aOS(7, _omitFieldNames ? '' : 'tagline')
+    ..aOS(8, _omitFieldNames ? '' : 'logoImageUrl')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  EmbeddedAd clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  EmbeddedAd copyWith(void Function(EmbeddedAd) updates) =>
+      super.copyWith((message) => updates(message as EmbeddedAd)) as EmbeddedAd;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use EmbeddedAd() / EmbeddedAd.new instead')
+  static EmbeddedAd create() => EmbeddedAd._();
+  static $pb.GeneratedMessage $_createMessage() => EmbeddedAd._();
+  @$core.override
+  EmbeddedAd createEmptyInstance() => EmbeddedAd._();
+  @$core.pragma('dart2js:noInline')
+  static EmbeddedAd getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<EmbeddedAd>(EmbeddedAd.$_createMessage);
+  static EmbeddedAd? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get advertiser => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set advertiser($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAdvertiser() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAdvertiser() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get callToAction => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set callToAction($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCallToAction() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCallToAction() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get clickthroughUrl => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set clickthroughUrl($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasClickthroughUrl() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearClickthroughUrl() => $_clearField(3);
+
+  @$pb.TagNumber(7)
+  $core.String get tagline => $_getSZ(3);
+  @$pb.TagNumber(7)
+  set tagline($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(7)
+  $core.bool hasTagline() => $_has(3);
+  @$pb.TagNumber(7)
+  void clearTagline() => $_clearField(7);
+
+  @$pb.TagNumber(8)
+  $core.String get logoImageUrl => $_getSZ(4);
+  @$pb.TagNumber(8)
+  set logoImageUrl($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(8)
+  $core.bool hasLogoImageUrl() => $_has(4);
+  @$pb.TagNumber(8)
+  void clearLogoImageUrl() => $_clearField(8);
+}
+
+/// field 23: Campaign link carousel (editorial campaigns: RADAR, EQUAL, etc.)
+class CampaignLinkCarousel extends $pb.GeneratedMessage {
+  factory CampaignLinkCarousel({
+    Heading? heading,
+    ItemSource? itemSource,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = CampaignLinkCarousel._();
+    if (heading != null) result.heading = heading;
+    if (itemSource != null) result.itemSource = itemSource;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  CampaignLinkCarousel._();
+
+  factory CampaignLinkCarousel.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CampaignLinkCarousel()..mergeFromBuffer(data, registry);
+  factory CampaignLinkCarousel.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CampaignLinkCarousel()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CampaignLinkCarousel',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: CampaignLinkCarousel.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<ItemSource>(2, _omitFieldNames ? '' : 'itemSource',
+        subBuilder: ItemSource.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(3, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CampaignLinkCarousel clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CampaignLinkCarousel copyWith(void Function(CampaignLinkCarousel) updates) =>
+      super.copyWith((message) => updates(message as CampaignLinkCarousel))
+          as CampaignLinkCarousel;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use CampaignLinkCarousel() / CampaignLinkCarousel.new instead')
+  static CampaignLinkCarousel create() => CampaignLinkCarousel._();
+  static $pb.GeneratedMessage $_createMessage() => CampaignLinkCarousel._();
+  @$core.override
+  CampaignLinkCarousel createEmptyInstance() => CampaignLinkCarousel._();
+  @$core.pragma('dart2js:noInline')
+  static CampaignLinkCarousel getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<CampaignLinkCarousel>(
+          CampaignLinkCarousel.$_createMessage);
+  static CampaignLinkCarousel? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Heading get heading => $_getN(0);
+  @$pb.TagNumber(1)
+  set heading(Heading value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHeading() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHeading() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Heading ensureHeading() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  ItemSource get itemSource => $_getN(1);
+  @$pb.TagNumber(2)
+  set itemSource(ItemSource value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasItemSource() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearItemSource() => $_clearField(2);
+  @$pb.TagNumber(2)
+  ItemSource ensureItemSource() => $_ensure(1);
 
   @$pb.TagNumber(3)
   EmbeddedAdMetadata get adMetadata => $_getN(2);
@@ -3111,15 +5481,15 @@ class VerticalSingleEntry extends $pb.GeneratedMessage {
   EmbeddedAdMetadata ensureAdMetadata() => $_ensure(3);
 }
 
-/// field 25: Video carousel
+/// field 25: Video carousel (repeated items in APK bytecode)
 class VideoCarousel extends $pb.GeneratedMessage {
   factory VideoCarousel({
     Heading? heading,
-    ItemSource? itemSource,
+    $core.Iterable<Item>? items,
   }) {
     final result = VideoCarousel._();
     if (heading != null) result.heading = heading;
-    if (itemSource != null) result.itemSource = itemSource;
+    if (items != null) result.items.addAll(items);
     return result;
   }
 
@@ -3139,8 +5509,8 @@ class VideoCarousel extends $pb.GeneratedMessage {
       createEmptyInstance: VideoCarousel.$_createMessage)
     ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
         subBuilder: Heading.$_createMessage)
-    ..aOM<ItemSource>(2, _omitFieldNames ? '' : 'itemSource',
-        subBuilder: ItemSource.$_createMessage)
+    ..pPM<Item>(2, _omitFieldNames ? '' : 'items',
+        subBuilder: Item.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3177,15 +5547,102 @@ class VideoCarousel extends $pb.GeneratedMessage {
   Heading ensureHeading() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  ItemSource get itemSource => $_getN(1);
+  $pb.PbList<Item> get items => $_getList(1);
+}
+
+/// field 26: Full bleed banner
+class FullBleedBanner extends $pb.GeneratedMessage {
+  factory FullBleedBanner({
+    $core.String? colorCode,
+    $core.String? imageUrl,
+    $core.String? description,
+    $core.String? accessibility,
+  }) {
+    final result = FullBleedBanner._();
+    if (colorCode != null) result.colorCode = colorCode;
+    if (imageUrl != null) result.imageUrl = imageUrl;
+    if (description != null) result.description = description;
+    if (accessibility != null) result.accessibility = accessibility;
+    return result;
+  }
+
+  FullBleedBanner._();
+
+  factory FullBleedBanner.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FullBleedBanner()..mergeFromBuffer(data, registry);
+  factory FullBleedBanner.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      FullBleedBanner()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'FullBleedBanner',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: FullBleedBanner.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'colorCode')
+    ..aOS(3, _omitFieldNames ? '' : 'imageUrl')
+    ..aOS(4, _omitFieldNames ? '' : 'description')
+    ..aOS(5, _omitFieldNames ? '' : 'accessibility')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FullBleedBanner clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  FullBleedBanner copyWith(void Function(FullBleedBanner) updates) =>
+      super.copyWith((message) => updates(message as FullBleedBanner))
+          as FullBleedBanner;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use FullBleedBanner() / FullBleedBanner.new instead')
+  static FullBleedBanner create() => FullBleedBanner._();
+  static $pb.GeneratedMessage $_createMessage() => FullBleedBanner._();
+  @$core.override
+  FullBleedBanner createEmptyInstance() => FullBleedBanner._();
+  @$core.pragma('dart2js:noInline')
+  static FullBleedBanner getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<FullBleedBanner>(
+          FullBleedBanner.$_createMessage);
+  static FullBleedBanner? _defaultInstance;
+
   @$pb.TagNumber(2)
-  set itemSource(ItemSource value) => $_setField(2, value);
+  $core.String get colorCode => $_getSZ(0);
   @$pb.TagNumber(2)
-  $core.bool hasItemSource() => $_has(1);
+  set colorCode($core.String value) => $_setString(0, value);
   @$pb.TagNumber(2)
-  void clearItemSource() => $_clearField(2);
+  $core.bool hasColorCode() => $_has(0);
   @$pb.TagNumber(2)
-  ItemSource ensureItemSource() => $_ensure(1);
+  void clearColorCode() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get imageUrl => $_getSZ(1);
+  @$pb.TagNumber(3)
+  set imageUrl($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(3)
+  $core.bool hasImageUrl() => $_has(1);
+  @$pb.TagNumber(3)
+  void clearImageUrl() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get description => $_getSZ(2);
+  @$pb.TagNumber(4)
+  set description($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(4)
+  $core.bool hasDescription() => $_has(2);
+  @$pb.TagNumber(4)
+  void clearDescription() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get accessibility => $_getSZ(3);
+  @$pb.TagNumber(5)
+  set accessibility($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(5)
+  $core.bool hasAccessibility() => $_has(3);
+  @$pb.TagNumber(5)
+  void clearAccessibility() => $_clearField(5);
 }
 
 /// field 27: Associated preview
@@ -3265,6 +5722,84 @@ class AssociatedPreview extends $pb.GeneratedMessage {
   Item ensureItem() => $_ensure(1);
 }
 
+/// field 28: Banner with animations (NO heading in APK bytecode)
+class BannerWithAnimations extends $pb.GeneratedMessage {
+  factory BannerWithAnimations({
+    Item? item,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = BannerWithAnimations._();
+    if (item != null) result.item = item;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  BannerWithAnimations._();
+
+  factory BannerWithAnimations.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      BannerWithAnimations()..mergeFromBuffer(data, registry);
+  factory BannerWithAnimations.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      BannerWithAnimations()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'BannerWithAnimations',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: BannerWithAnimations.$_createMessage)
+    ..aOM<Item>(1, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(2, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BannerWithAnimations clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BannerWithAnimations copyWith(void Function(BannerWithAnimations) updates) =>
+      super.copyWith((message) => updates(message as BannerWithAnimations))
+          as BannerWithAnimations;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use BannerWithAnimations() / BannerWithAnimations.new instead')
+  static BannerWithAnimations create() => BannerWithAnimations._();
+  static $pb.GeneratedMessage $_createMessage() => BannerWithAnimations._();
+  @$core.override
+  BannerWithAnimations createEmptyInstance() => BannerWithAnimations._();
+  @$core.pragma('dart2js:noInline')
+  static BannerWithAnimations getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<BannerWithAnimations>(
+          BannerWithAnimations.$_createMessage);
+  static BannerWithAnimations? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Item get item => $_getN(0);
+  @$pb.TagNumber(1)
+  set item(Item value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasItem() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearItem() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Item ensureItem() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata get adMetadata => $_getN(1);
+  @$pb.TagNumber(2)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAdMetadata() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAdMetadata() => $_clearField(2);
+  @$pb.TagNumber(2)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(1);
+}
+
 /// field 29: Narrative text section
 class Narrative extends $pb.GeneratedMessage {
   factory Narrative({
@@ -3334,15 +5869,13 @@ class Narrative extends $pb.GeneratedMessage {
   void clearMainText() => $_clearField(2);
 }
 
-/// field 30: Interactive entrypoint
+/// field 30: Interactive entrypoint (prompt string only in APK bytecode)
 class InteractiveEntrypoint extends $pb.GeneratedMessage {
   factory InteractiveEntrypoint({
-    Heading? heading,
-    Item? item,
+    $core.String? prompt,
   }) {
     final result = InteractiveEntrypoint._();
-    if (heading != null) result.heading = heading;
-    if (item != null) result.item = item;
+    if (prompt != null) result.prompt = prompt;
     return result;
   }
 
@@ -3360,10 +5893,7 @@ class InteractiveEntrypoint extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: InteractiveEntrypoint.$_createMessage)
-    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
-        subBuilder: Heading.$_createMessage)
-    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
-        subBuilder: Item.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'prompt')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3391,37 +5921,22 @@ class InteractiveEntrypoint extends $pb.GeneratedMessage {
   static InteractiveEntrypoint? _defaultInstance;
 
   @$pb.TagNumber(1)
-  Heading get heading => $_getN(0);
+  $core.String get prompt => $_getSZ(0);
   @$pb.TagNumber(1)
-  set heading(Heading value) => $_setField(1, value);
+  set prompt($core.String value) => $_setString(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasHeading() => $_has(0);
+  $core.bool hasPrompt() => $_has(0);
   @$pb.TagNumber(1)
-  void clearHeading() => $_clearField(1);
-  @$pb.TagNumber(1)
-  Heading ensureHeading() => $_ensure(0);
-
-  @$pb.TagNumber(2)
-  Item get item => $_getN(1);
-  @$pb.TagNumber(2)
-  set item(Item value) => $_setField(2, value);
-  @$pb.TagNumber(2)
-  $core.bool hasItem() => $_has(1);
-  @$pb.TagNumber(2)
-  void clearItem() => $_clearField(2);
-  @$pb.TagNumber(2)
-  Item ensureItem() => $_ensure(1);
+  void clearPrompt() => $_clearField(1);
 }
 
-/// field 31: Top story carousel
+/// field 31: Top story carousel (repeated TopStory in APK bytecode)
 class TopStoryCarousel extends $pb.GeneratedMessage {
   factory TopStoryCarousel({
-    Heading? heading,
-    $core.Iterable<Item>? items,
+    $core.Iterable<TopStory>? stories,
   }) {
     final result = TopStoryCarousel._();
-    if (heading != null) result.heading = heading;
-    if (items != null) result.items.addAll(items);
+    if (stories != null) result.stories.addAll(stories);
     return result;
   }
 
@@ -3439,10 +5954,8 @@ class TopStoryCarousel extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: TopStoryCarousel.$_createMessage)
-    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
-        subBuilder: Heading.$_createMessage)
-    ..pPM<Item>(2, _omitFieldNames ? '' : 'items',
-        subBuilder: Item.$_createMessage)
+    ..pPM<TopStory>(1, _omitFieldNames ? '' : 'stories',
+        subBuilder: TopStory.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3468,6 +5981,168 @@ class TopStoryCarousel extends $pb.GeneratedMessage {
   static TopStoryCarousel? _defaultInstance;
 
   @$pb.TagNumber(1)
+  $pb.PbList<TopStory> get stories => $_getList(0);
+}
+
+class TopStory extends $pb.GeneratedMessage {
+  factory TopStory({
+    $core.String? title,
+    $core.String? description,
+    $core.Iterable<Item>? items,
+    $core.String? storyId,
+    $fixnum.Int64? createdAt,
+  }) {
+    final result = TopStory._();
+    if (title != null) result.title = title;
+    if (description != null) result.description = description;
+    if (items != null) result.items.addAll(items);
+    if (storyId != null) result.storyId = storyId;
+    if (createdAt != null) result.createdAt = createdAt;
+    return result;
+  }
+
+  TopStory._();
+
+  factory TopStory.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TopStory()..mergeFromBuffer(data, registry);
+  factory TopStory.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TopStory()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TopStory',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: TopStory.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'title')
+    ..aOS(2, _omitFieldNames ? '' : 'description')
+    ..pPM<Item>(3, _omitFieldNames ? '' : 'items',
+        subBuilder: Item.$_createMessage)
+    ..aOS(4, _omitFieldNames ? '' : 'storyId')
+    ..aInt64(5, _omitFieldNames ? '' : 'createdAt')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TopStory clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TopStory copyWith(void Function(TopStory) updates) =>
+      super.copyWith((message) => updates(message as TopStory)) as TopStory;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use TopStory() / TopStory.new instead')
+  static TopStory create() => TopStory._();
+  static $pb.GeneratedMessage $_createMessage() => TopStory._();
+  @$core.override
+  TopStory createEmptyInstance() => TopStory._();
+  @$core.pragma('dart2js:noInline')
+  static TopStory getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TopStory>(TopStory.$_createMessage);
+  static TopStory? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get title => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set title($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasTitle() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearTitle() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get description => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set description($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasDescription() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearDescription() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $pb.PbList<Item> get items => $_getList(2);
+
+  @$pb.TagNumber(4)
+  $core.String get storyId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set storyId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasStoryId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearStoryId() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $fixnum.Int64 get createdAt => $_getI64(4);
+  @$pb.TagNumber(5)
+  set createdAt($fixnum.Int64 value) => $_setInt64(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCreatedAt() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCreatedAt() => $_clearField(5);
+}
+
+/// field 32: Promptable section
+class PromptableSection extends $pb.GeneratedMessage {
+  factory PromptableSection({
+    Heading? heading,
+    Item? item,
+    $core.Iterable<PromptableSuggestion>? promptSuggestions,
+  }) {
+    final result = PromptableSection._();
+    if (heading != null) result.heading = heading;
+    if (item != null) result.item = item;
+    if (promptSuggestions != null)
+      result.promptSuggestions.addAll(promptSuggestions);
+    return result;
+  }
+
+  PromptableSection._();
+
+  factory PromptableSection.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromptableSection()..mergeFromBuffer(data, registry);
+  factory PromptableSection.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromptableSection()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PromptableSection',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: PromptableSection.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..pPM<PromptableSuggestion>(3, _omitFieldNames ? '' : 'promptSuggestions',
+        subBuilder: PromptableSuggestion.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromptableSection clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromptableSection copyWith(void Function(PromptableSection) updates) =>
+      super.copyWith((message) => updates(message as PromptableSection))
+          as PromptableSection;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PromptableSection() / PromptableSection.new instead')
+  static PromptableSection create() => PromptableSection._();
+  static $pb.GeneratedMessage $_createMessage() => PromptableSection._();
+  @$core.override
+  PromptableSection createEmptyInstance() => PromptableSection._();
+  @$core.pragma('dart2js:noInline')
+  static PromptableSection getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PromptableSection>(
+          PromptableSection.$_createMessage);
+  static PromptableSection? _defaultInstance;
+
+  @$pb.TagNumber(1)
   Heading get heading => $_getN(0);
   @$pb.TagNumber(1)
   set heading(Heading value) => $_setField(1, value);
@@ -3479,7 +6154,77 @@ class TopStoryCarousel extends $pb.GeneratedMessage {
   Heading ensureHeading() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  $pb.PbList<Item> get items => $_getList(1);
+  Item get item => $_getN(1);
+  @$pb.TagNumber(2)
+  set item(Item value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasItem() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearItem() => $_clearField(2);
+  @$pb.TagNumber(2)
+  Item ensureItem() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  $pb.PbList<PromptableSuggestion> get promptSuggestions => $_getList(2);
+}
+
+class PromptableSuggestion extends $pb.GeneratedMessage {
+  factory PromptableSuggestion({
+    $core.String? suggestion,
+  }) {
+    final result = PromptableSuggestion._();
+    if (suggestion != null) result.suggestion = suggestion;
+    return result;
+  }
+
+  PromptableSuggestion._();
+
+  factory PromptableSuggestion.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromptableSuggestion()..mergeFromBuffer(data, registry);
+  factory PromptableSuggestion.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromptableSuggestion()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PromptableSuggestion',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: PromptableSuggestion.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'suggestion')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromptableSuggestion clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromptableSuggestion copyWith(void Function(PromptableSuggestion) updates) =>
+      super.copyWith((message) => updates(message as PromptableSuggestion))
+          as PromptableSuggestion;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use PromptableSuggestion() / PromptableSuggestion.new instead')
+  static PromptableSuggestion create() => PromptableSuggestion._();
+  static $pb.GeneratedMessage $_createMessage() => PromptableSuggestion._();
+  @$core.override
+  PromptableSuggestion createEmptyInstance() => PromptableSuggestion._();
+  @$core.pragma('dart2js:noInline')
+  static PromptableSuggestion getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PromptableSuggestion>(
+          PromptableSuggestion.$_createMessage);
+  static PromptableSuggestion? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get suggestion => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set suggestion($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSuggestion() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSuggestion() => $_clearField(1);
 }
 
 /// field 33: Audio promo
@@ -3487,10 +6232,14 @@ class AudioPromo extends $pb.GeneratedMessage {
   factory AudioPromo({
     Heading? heading,
     Item? item,
+    EmbeddedAdMetadata? adMetadata,
+    $core.String? previewEntityUri,
   }) {
     final result = AudioPromo._();
     if (heading != null) result.heading = heading;
     if (item != null) result.item = item;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    if (previewEntityUri != null) result.previewEntityUri = previewEntityUri;
     return result;
   }
 
@@ -3512,6 +6261,9 @@ class AudioPromo extends $pb.GeneratedMessage {
         subBuilder: Heading.$_createMessage)
     ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
         subBuilder: Item.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(3, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..aOS(4, _omitFieldNames ? '' : 'previewEntityUri')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3555,17 +6307,35 @@ class AudioPromo extends $pb.GeneratedMessage {
   void clearItem() => $_clearField(2);
   @$pb.TagNumber(2)
   Item ensureItem() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata get adMetadata => $_getN(2);
+  @$pb.TagNumber(3)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAdMetadata() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAdMetadata() => $_clearField(3);
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(2);
+
+  @$pb.TagNumber(4)
+  $core.String get previewEntityUri => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set previewEntityUri($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPreviewEntityUri() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPreviewEntityUri() => $_clearField(4);
 }
 
-/// field 34: Inline card
+/// field 34: Inline card (type enum only in APK bytecode)
 class InlineCard extends $pb.GeneratedMessage {
   factory InlineCard({
-    Heading? heading,
-    Item? item,
+    $core.int? type,
   }) {
     final result = InlineCard._();
-    if (heading != null) result.heading = heading;
-    if (item != null) result.item = item;
+    if (type != null) result.type = type;
     return result;
   }
 
@@ -3583,10 +6353,7 @@ class InlineCard extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: InlineCard.$_createMessage)
-    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
-        subBuilder: Heading.$_createMessage)
-    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
-        subBuilder: Item.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'type')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3610,6 +6377,74 @@ class InlineCard extends $pb.GeneratedMessage {
   static InlineCard? _defaultInstance;
 
   @$pb.TagNumber(1)
+  $core.int get type => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set type($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasType() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearType() => $_clearField(1);
+}
+
+/// field 35: Play link promo (1-tap quick playback banner)
+class PlayLinkPromo extends $pb.GeneratedMessage {
+  factory PlayLinkPromo({
+    Heading? heading,
+    Item? item,
+    EmbeddedAdMetadata? adMetadata,
+  }) {
+    final result = PlayLinkPromo._();
+    if (heading != null) result.heading = heading;
+    if (item != null) result.item = item;
+    if (adMetadata != null) result.adMetadata = adMetadata;
+    return result;
+  }
+
+  PlayLinkPromo._();
+
+  factory PlayLinkPromo.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PlayLinkPromo()..mergeFromBuffer(data, registry);
+  factory PlayLinkPromo.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PlayLinkPromo()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PlayLinkPromo',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: PlayLinkPromo.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(3, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PlayLinkPromo clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PlayLinkPromo copyWith(void Function(PlayLinkPromo) updates) =>
+      super.copyWith((message) => updates(message as PlayLinkPromo))
+          as PlayLinkPromo;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PlayLinkPromo() / PlayLinkPromo.new instead')
+  static PlayLinkPromo create() => PlayLinkPromo._();
+  static $pb.GeneratedMessage $_createMessage() => PlayLinkPromo._();
+  @$core.override
+  PlayLinkPromo createEmptyInstance() => PlayLinkPromo._();
+  @$core.pragma('dart2js:noInline')
+  static PlayLinkPromo getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<PlayLinkPromo>(
+          PlayLinkPromo.$_createMessage);
+  static PlayLinkPromo? _defaultInstance;
+
+  @$pb.TagNumber(1)
   Heading get heading => $_getN(0);
   @$pb.TagNumber(1)
   set heading(Heading value) => $_setField(1, value);
@@ -3630,6 +6465,17 @@ class InlineCard extends $pb.GeneratedMessage {
   void clearItem() => $_clearField(2);
   @$pb.TagNumber(2)
   Item ensureItem() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata get adMetadata => $_getN(2);
+  @$pb.TagNumber(3)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAdMetadata() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAdMetadata() => $_clearField(3);
+  @$pb.TagNumber(3)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(2);
 }
 
 /// field 36: Audio spotlight
@@ -3805,15 +6651,78 @@ class PreviewCarousel extends $pb.GeneratedMessage {
   $pb.PbList<Item> get items => $_getList(1);
 }
 
+/// field 38: Concert campaign (campaign_uri only in APK bytecode)
+class ConcertCampaign extends $pb.GeneratedMessage {
+  factory ConcertCampaign({
+    $core.String? campaignUri,
+  }) {
+    final result = ConcertCampaign._();
+    if (campaignUri != null) result.campaignUri = campaignUri;
+    return result;
+  }
+
+  ConcertCampaign._();
+
+  factory ConcertCampaign.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ConcertCampaign()..mergeFromBuffer(data, registry);
+  factory ConcertCampaign.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ConcertCampaign()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ConcertCampaign',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: ConcertCampaign.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'campaignUri')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ConcertCampaign clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ConcertCampaign copyWith(void Function(ConcertCampaign) updates) =>
+      super.copyWith((message) => updates(message as ConcertCampaign))
+          as ConcertCampaign;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ConcertCampaign() / ConcertCampaign.new instead')
+  static ConcertCampaign create() => ConcertCampaign._();
+  static $pb.GeneratedMessage $_createMessage() => ConcertCampaign._();
+  @$core.override
+  ConcertCampaign createEmptyInstance() => ConcertCampaign._();
+  @$core.pragma('dart2js:noInline')
+  static ConcertCampaign getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ConcertCampaign>(
+          ConcertCampaign.$_createMessage);
+  static ConcertCampaign? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get campaignUri => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set campaignUri($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasCampaignUri() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearCampaignUri() => $_clearField(1);
+}
+
 /// field 39: Preview promotion carousel
 class PreviewPromotionCarousel extends $pb.GeneratedMessage {
   factory PreviewPromotionCarousel({
     Heading? heading,
+    $core.String? promotionUri,
     $core.Iterable<PreviewPromotionCarouselItem>? items,
+    EmbeddedAdMetadata? adMetadata,
   }) {
     final result = PreviewPromotionCarousel._();
     if (heading != null) result.heading = heading;
+    if (promotionUri != null) result.promotionUri = promotionUri;
     if (items != null) result.items.addAll(items);
+    if (adMetadata != null) result.adMetadata = adMetadata;
     return result;
   }
 
@@ -3833,8 +6742,11 @@ class PreviewPromotionCarousel extends $pb.GeneratedMessage {
       createEmptyInstance: PreviewPromotionCarousel.$_createMessage)
     ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
         subBuilder: Heading.$_createMessage)
-    ..pPM<PreviewPromotionCarouselItem>(2, _omitFieldNames ? '' : 'items',
+    ..aOS(2, _omitFieldNames ? '' : 'promotionUri')
+    ..pPM<PreviewPromotionCarouselItem>(3, _omitFieldNames ? '' : 'items',
         subBuilder: PreviewPromotionCarouselItem.$_createMessage)
+    ..aOM<EmbeddedAdMetadata>(4, _omitFieldNames ? '' : 'adMetadata',
+        subBuilder: EmbeddedAdMetadata.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3874,15 +6786,37 @@ class PreviewPromotionCarousel extends $pb.GeneratedMessage {
   Heading ensureHeading() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  $pb.PbList<PreviewPromotionCarouselItem> get items => $_getList(1);
+  $core.String get promotionUri => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set promotionUri($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPromotionUri() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPromotionUri() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $pb.PbList<PreviewPromotionCarouselItem> get items => $_getList(2);
+
+  @$pb.TagNumber(4)
+  EmbeddedAdMetadata get adMetadata => $_getN(3);
+  @$pb.TagNumber(4)
+  set adMetadata(EmbeddedAdMetadata value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasAdMetadata() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearAdMetadata() => $_clearField(4);
+  @$pb.TagNumber(4)
+  EmbeddedAdMetadata ensureAdMetadata() => $_ensure(3);
 }
+
+enum PreviewPromotionCarouselItem_Content { videoPromo, notSet }
 
 class PreviewPromotionCarouselItem extends $pb.GeneratedMessage {
   factory PreviewPromotionCarouselItem({
-    Item? item,
+    VideoPromo? videoPromo,
   }) {
     final result = PreviewPromotionCarouselItem._();
-    if (item != null) result.item = item;
+    if (videoPromo != null) result.videoPromo = videoPromo;
     return result;
   }
 
@@ -3895,13 +6829,19 @@ class PreviewPromotionCarouselItem extends $pb.GeneratedMessage {
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
       PreviewPromotionCarouselItem()..mergeFromJson(json, registry);
 
+  static const $core.Map<$core.int, PreviewPromotionCarouselItem_Content>
+      _PreviewPromotionCarouselItem_ContentByTag = {
+    1: PreviewPromotionCarouselItem_Content.videoPromo,
+    0: PreviewPromotionCarouselItem_Content.notSet
+  };
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
       _omitMessageNames ? '' : 'PreviewPromotionCarouselItem',
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: PreviewPromotionCarouselItem.$_createMessage)
-    ..aOM<Item>(1, _omitFieldNames ? '' : 'item',
-        subBuilder: Item.$_createMessage)
+    ..oo(0, [1])
+    ..aOM<VideoPromo>(1, _omitFieldNames ? '' : 'videoPromo',
+        subBuilder: VideoPromo.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3933,15 +6873,111 @@ class PreviewPromotionCarouselItem extends $pb.GeneratedMessage {
   static PreviewPromotionCarouselItem? _defaultInstance;
 
   @$pb.TagNumber(1)
-  Item get item => $_getN(0);
+  PreviewPromotionCarouselItem_Content whichContent() =>
+      _PreviewPromotionCarouselItem_ContentByTag[$_whichOneof(0)]!;
   @$pb.TagNumber(1)
-  set item(Item value) => $_setField(1, value);
+  void clearContent() => $_clearField($_whichOneof(0));
+
   @$pb.TagNumber(1)
-  $core.bool hasItem() => $_has(0);
+  VideoPromo get videoPromo => $_getN(0);
   @$pb.TagNumber(1)
-  void clearItem() => $_clearField(1);
+  set videoPromo(VideoPromo value) => $_setField(1, value);
   @$pb.TagNumber(1)
-  Item ensureItem() => $_ensure(0);
+  $core.bool hasVideoPromo() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearVideoPromo() => $_clearField(1);
+  @$pb.TagNumber(1)
+  VideoPromo ensureVideoPromo() => $_ensure(0);
+}
+
+/// field 40: Prompted worlds shelf
+class PromptedWorldsShelf extends $pb.GeneratedMessage {
+  factory PromptedWorldsShelf({
+    Heading? heading,
+    ItemSource? itemSource,
+    $core.String? listUri,
+  }) {
+    final result = PromptedWorldsShelf._();
+    if (heading != null) result.heading = heading;
+    if (itemSource != null) result.itemSource = itemSource;
+    if (listUri != null) result.listUri = listUri;
+    return result;
+  }
+
+  PromptedWorldsShelf._();
+
+  factory PromptedWorldsShelf.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromptedWorldsShelf()..mergeFromBuffer(data, registry);
+  factory PromptedWorldsShelf.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PromptedWorldsShelf()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PromptedWorldsShelf',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: PromptedWorldsShelf.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<ItemSource>(2, _omitFieldNames ? '' : 'itemSource',
+        subBuilder: ItemSource.$_createMessage)
+    ..aOS(3, _omitFieldNames ? '' : 'listUri')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromptedWorldsShelf clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PromptedWorldsShelf copyWith(void Function(PromptedWorldsShelf) updates) =>
+      super.copyWith((message) => updates(message as PromptedWorldsShelf))
+          as PromptedWorldsShelf;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core
+      .Deprecated('Use PromptedWorldsShelf() / PromptedWorldsShelf.new instead')
+  static PromptedWorldsShelf create() => PromptedWorldsShelf._();
+  static $pb.GeneratedMessage $_createMessage() => PromptedWorldsShelf._();
+  @$core.override
+  PromptedWorldsShelf createEmptyInstance() => PromptedWorldsShelf._();
+  @$core.pragma('dart2js:noInline')
+  static PromptedWorldsShelf getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PromptedWorldsShelf>(
+          PromptedWorldsShelf.$_createMessage);
+  static PromptedWorldsShelf? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Heading get heading => $_getN(0);
+  @$pb.TagNumber(1)
+  set heading(Heading value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHeading() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHeading() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Heading ensureHeading() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  ItemSource get itemSource => $_getN(1);
+  @$pb.TagNumber(2)
+  set itemSource(ItemSource value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasItemSource() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearItemSource() => $_clearField(2);
+  @$pb.TagNumber(2)
+  ItemSource ensureItemSource() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  $core.String get listUri => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set listUri($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasListUri() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearListUri() => $_clearField(3);
 }
 
 /// field 41: Reflection
@@ -4019,12 +7055,105 @@ class Reflection extends $pb.GeneratedMessage {
   Item ensureItem() => $_ensure(1);
 }
 
+/// field 42: User prompted world entrypoint
+class UserPromptedWorldEntrypoint extends $pb.GeneratedMessage {
+  factory UserPromptedWorldEntrypoint({
+    Heading? heading,
+    Item? item,
+  }) {
+    final result = UserPromptedWorldEntrypoint._();
+    if (heading != null) result.heading = heading;
+    if (item != null) result.item = item;
+    return result;
+  }
+
+  UserPromptedWorldEntrypoint._();
+
+  factory UserPromptedWorldEntrypoint.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UserPromptedWorldEntrypoint()..mergeFromBuffer(data, registry);
+  factory UserPromptedWorldEntrypoint.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UserPromptedWorldEntrypoint()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UserPromptedWorldEntrypoint',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
+      createEmptyInstance: UserPromptedWorldEntrypoint.$_createMessage)
+    ..aOM<Heading>(1, _omitFieldNames ? '' : 'heading',
+        subBuilder: Heading.$_createMessage)
+    ..aOM<Item>(2, _omitFieldNames ? '' : 'item',
+        subBuilder: Item.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UserPromptedWorldEntrypoint clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UserPromptedWorldEntrypoint copyWith(
+          void Function(UserPromptedWorldEntrypoint) updates) =>
+      super.copyWith(
+              (message) => updates(message as UserPromptedWorldEntrypoint))
+          as UserPromptedWorldEntrypoint;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UserPromptedWorldEntrypoint() / UserPromptedWorldEntrypoint.new instead')
+  static UserPromptedWorldEntrypoint create() =>
+      UserPromptedWorldEntrypoint._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UserPromptedWorldEntrypoint._();
+  @$core.override
+  UserPromptedWorldEntrypoint createEmptyInstance() =>
+      UserPromptedWorldEntrypoint._();
+  @$core.pragma('dart2js:noInline')
+  static UserPromptedWorldEntrypoint getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UserPromptedWorldEntrypoint>(
+          UserPromptedWorldEntrypoint.$_createMessage);
+  static UserPromptedWorldEntrypoint? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  Heading get heading => $_getN(0);
+  @$pb.TagNumber(1)
+  set heading(Heading value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasHeading() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearHeading() => $_clearField(1);
+  @$pb.TagNumber(1)
+  Heading ensureHeading() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  Item get item => $_getN(1);
+  @$pb.TagNumber(2)
+  set item(Item value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasItem() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearItem() => $_clearField(2);
+  @$pb.TagNumber(2)
+  Item ensureItem() => $_ensure(1);
+}
+
 class EmbeddedAdMetadata extends $pb.GeneratedMessage {
   factory EmbeddedAdMetadata({
-    $core.String? trackingId,
+    $core.String? id,
+    $core.String? creativeId,
+    $core.String? playbackId,
+    $core.String? productName,
+    $core.String? lineitemId,
+    $core.String? slot,
   }) {
     final result = EmbeddedAdMetadata._();
-    if (trackingId != null) result.trackingId = trackingId;
+    if (id != null) result.id = id;
+    if (creativeId != null) result.creativeId = creativeId;
+    if (playbackId != null) result.playbackId = playbackId;
+    if (productName != null) result.productName = productName;
+    if (lineitemId != null) result.lineitemId = lineitemId;
+    if (slot != null) result.slot = slot;
     return result;
   }
 
@@ -4042,7 +7171,12 @@ class EmbeddedAdMetadata extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.casita.v1.resolved'),
       createEmptyInstance: EmbeddedAdMetadata.$_createMessage)
-    ..aOS(1, _omitFieldNames ? '' : 'trackingId')
+    ..aOS(1, _omitFieldNames ? '' : 'id')
+    ..aOS(2, _omitFieldNames ? '' : 'creativeId')
+    ..aOS(3, _omitFieldNames ? '' : 'playbackId')
+    ..aOS(4, _omitFieldNames ? '' : 'productName')
+    ..aOS(5, _omitFieldNames ? '' : 'lineitemId')
+    ..aOS(6, _omitFieldNames ? '' : 'slot')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -4068,13 +7202,58 @@ class EmbeddedAdMetadata extends $pb.GeneratedMessage {
   static EmbeddedAdMetadata? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.String get trackingId => $_getSZ(0);
+  $core.String get id => $_getSZ(0);
   @$pb.TagNumber(1)
-  set trackingId($core.String value) => $_setString(0, value);
+  set id($core.String value) => $_setString(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasTrackingId() => $_has(0);
+  $core.bool hasId() => $_has(0);
   @$pb.TagNumber(1)
-  void clearTrackingId() => $_clearField(1);
+  void clearId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get creativeId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set creativeId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasCreativeId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearCreativeId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get playbackId => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set playbackId($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPlaybackId() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPlaybackId() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get productName => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set productName($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasProductName() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearProductName() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get lineitemId => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set lineitemId($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasLineitemId() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearLineitemId() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.String get slot => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set slot($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasSlot() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearSlot() => $_clearField(6);
 }
 
 const $core.bool _omitFieldNames =

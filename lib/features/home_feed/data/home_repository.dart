@@ -97,7 +97,7 @@ class HomeRepositoryImpl implements HomeRepository {
 
       // Step 3: Inject recents into the recents section
       if (recentItems.isNotEmpty) {
-        _injectRecents(sections, recentItems, parser);
+        _injectRecents(sections, recentItems, casitaResult.traits);
       }
 
       // Step 4: Resolve traits for items not covered by eagerload
@@ -228,14 +228,14 @@ class HomeRepositoryImpl implements HomeRepository {
   void _injectRecents(
     List<HomeSection> sections,
     List<RecentsItem> recentItems,
-    CasitaParser parser,
+    Map<String, Map<String, Trait>> traitsMap,
   ) {
     final hydratedItems = <SpotifyEntity>[];
     final seen = <String>{};
 
     for (final item in recentItems) {
       if (item.uri.isEmpty || !seen.add(item.uri)) continue;
-      final baseTraits = parser.traitsForUri(item.uri);
+      final baseTraits = traitsMap[item.uri] ?? traitsMap[item.uri.toLowerCase()];
       final traits = baseTraits != null ? Map.of(baseTraits) : <String, Trait>{};
       final type = ContentType.fromUri(item.uri);
 

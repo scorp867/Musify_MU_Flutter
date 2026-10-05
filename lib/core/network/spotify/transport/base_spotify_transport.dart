@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -95,7 +96,14 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
   Uint8List? _handleResponse(
       http.Response response, String method, String path, int elapsedMs) {
     if (response.statusCode == 200) {
-      final bytes = Uint8List.fromList(response.bodyBytes);
+      var bytes = Uint8List.fromList(response.bodyBytes);
+      if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
+        try {
+          bytes = Uint8List.fromList(gzip.decode(bytes));
+        } catch (e) {
+          log('Failed to decompress gzip body ($method $path): $e');
+        }
+      }
       _logResult(method, path, 200, elapsedMs, bytes.length);
       return bytes;
     }

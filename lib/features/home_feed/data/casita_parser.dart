@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/casita/resolved.pb.dart' as casita;
+import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/visual_identity_trait.pb.dart' as vit;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/preview_card_trait.pb.dart' as pct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/shortcuts_card_trait.pb.dart' as sct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/simple_card_trait.pb.dart' as sct2;
@@ -40,17 +41,28 @@ class CasitaParser {
 
       final home = casita.ResolvedHome.fromBuffer(data);
 
-      _parseEagerlyLoadedTraits(home.eagerlyLoadedTraits);
-      dev.log('CasitaParser: ${_traits.length} URIs loaded from repository');
+      try {
+        _parseEagerlyLoadedTraits(home.eagerlyLoadedTraits);
+        dev.log('CasitaParser: ${_traits.length} URIs loaded from repository');
+      } catch (e) {
+        dev.log('CasitaParser: Eager traits failed (non-critical): $e');
+      }
 
       final ondemandUris = home.ondemandSet.uris.toList();
       dev.log('CasitaParser: ${ondemandUris.length} URIs in ondemandSet');
 
       final sections = <HomeSection>[];
       for (final section in home.structure.sections) {
-        final parsed = _parseSection(section);
-        if (parsed != null && (parsed.items.isNotEmpty || parsed.sectionType == 'recents')) {
-          sections.add(parsed);
+        try {
+          final parsed = _parseSection(section);
+          if (parsed != null &&
+              (parsed.items.isNotEmpty ||
+                  parsed.sectionType == 'recentsShelf' ||
+                  parsed.sectionType == 'recents')) {
+            sections.add(parsed);
+          }
+        } catch (e) {
+          dev.log('CasitaParser: Failed parsing section: $e');
         }
       }
 
@@ -81,6 +93,7 @@ class CasitaParser {
       return CasitaResult(
         homeData: HomeViewData(sections: hydratedSections),
         ondemandUris: ondemandUris,
+        traits: Map.of(_traits),
       );
     } catch (e, stack) {
       dev.log('CasitaParser: $e\n$stack');
@@ -121,52 +134,66 @@ class CasitaParser {
       _decodeShortcutsCardTrait(uri, payload);
     } else if (typeUrl.contains('PreviewCardTrait')) {
       _decodePreviewCardTrait(uri, payload);
+    } else if (typeUrl.contains('VisualIdentityTrait')) {
+      _decodeVisualIdentityTrait(uri, payload);
     } else if (typeUrl.contains('IdentityTrait')) {
       _decodeIdentityTrait(uri, payload);
     }
   }
 
   void _decodeSimpleCardTrait(String uri, List<int> payload) {
-    final trait = sct2.SimpleCardTrait.fromBuffer(payload);
+    try {
+      final trait = sct2.SimpleCardTrait.fromBuffer(payload);
 
-    _storeTrait(uri, SimpleCardTrait(
-      title: trait.title,
-      subtitle: trait.subtitle,
-      imageUrl: _cleanImageUrl(trait.imageUri),
-      navigationUri: trait.navigationUri,
-      accessibility: trait.accessibility,
-    ));
+      _storeTrait(uri, SimpleCardTrait(
+        title: trait.title,
+        subtitle: trait.subtitle,
+        imageUrl: _cleanImageUrl(trait.imageUri),
+        navigationUri: trait.navigationUri,
+        accessibility: trait.accessibility,
+      ));
+    } catch (e) {
+      dev.log('CasitaParser: malformed SimpleCardTrait for $uri (skipped): $e');
+    }
   }
 
   void _decodeShortcutsCardTrait(String uri, List<int> payload) {
-    final trait = sct.ShortcutsCardTrait.fromBuffer(payload);
+    try {
+      final trait = sct.ShortcutsCardTrait.fromBuffer(payload);
 
-    _storeTrait(uri, ShortcutsCardTrait(
-      title: trait.title,
-      imageUrl: _cleanImageUrl(trait.imageUrl),
-    ));
+      _storeTrait(uri, ShortcutsCardTrait(
+        title: trait.title,
+        imageUrl: _cleanImageUrl(trait.imageUrl),
+      ));
+    } catch (e) {
+      dev.log('CasitaParser: malformed ShortcutsCardTrait for $uri (skipped): $e');
+    }
   }
 
   void _decodePreviewCardTrait(String uri, List<int> payload) {
-    final trait = pct.PreviewCardTrait.fromBuffer(payload);
+    try {
+      final trait = pct.PreviewCardTrait.fromBuffer(payload);
 
-    _storeTrait(uri, PreviewCardTrait(
-      title: trait.title,
-      contentTypeName: trait.contentTypeName,
-      description: trait.description,
-      imageUrl: _cleanImageUrl(trait.entityImageUrl),
-      backgroundColor: trait.backgroundColorHex,
-      waveformColor: trait.waveformColorHex,
-      trackCount: trait.numberOfItems,
-      entityUri: trait.entityUri,
-      navigateUri: trait.navigateUri,
-      tags: trait.descriptorTags.map((t) => t.name).toList(),
-      previewLabel: trait.hasLabels() ? trait.labels.previewLabel : '',
-      playingLabel: trait.hasLabels() ? trait.labels.playingLabel : '',
-      creatorName: trait.hasContentParent() ? trait.contentParent.name : '',
-      creatorUri: trait.hasContentParent() ? trait.contentParent.uri : '',
-      creatorImageUrl: trait.hasContentParent() ? trait.contentParent.imageUrl : '',
-    ));
+      _storeTrait(uri, PreviewCardTrait(
+        title: trait.title,
+        contentTypeName: trait.contentTypeName,
+        description: trait.description,
+        imageUrl: _cleanImageUrl(trait.entityImageUrl),
+        backgroundColor: trait.backgroundColorHex,
+        waveformColor: trait.waveformColorHex,
+        trackCount: trait.numberOfItems,
+        entityUri: trait.entityUri,
+        navigateUri: trait.navigateUri,
+        tags: trait.descriptorTags.map((t) => t.name).toList(),
+        previewLabel: trait.hasLabels() ? trait.labels.previewLabel : '',
+        playingLabel: trait.hasLabels() ? trait.labels.playingLabel : '',
+        creatorName: trait.hasContentParent() ? trait.contentParent.name : '',
+        creatorUri: trait.hasContentParent() ? trait.contentParent.uri : '',
+        creatorImageUrl: trait.hasContentParent() ? trait.contentParent.imageUrl : '',
+      ));
+    } catch (e) {
+      dev.log('CasitaParser: malformed PreviewCardTrait for $uri (skipped): $e');
+    }
   }
 
   void _decodeIdentityTrait(String uri, List<int> payload) {
@@ -182,6 +209,95 @@ class CasitaParser {
     } catch (e) {
       dev.log('Silently skip malformed identity traits: $e');
     }
+  }
+
+  void _decodeVisualIdentityTrait(String uri, List<int> payload) {
+    try {
+      final trait = vit.VisualIdentityTrait.fromBuffer(payload);
+
+      String? squareUrl;
+      if (trait.hasSquareCoverImage() && trait.squareCoverImage.instances.isNotEmpty) {
+        squareUrl = _cleanImageUrl(trait.squareCoverImage.instances.first.flatFile.cdnUrl);
+      }
+
+      String? sixteenByNineUrl;
+      if (trait.hasSixteenByNineCoverImage() && trait.sixteenByNineCoverImage.instances.isNotEmpty) {
+        sixteenByNineUrl = _cleanImageUrl(trait.sixteenByNineCoverImage.instances.first.flatFile.cdnUrl);
+      }
+
+      String? wideFullBleedUrl;
+      if (trait.hasWideFullBleedImage() && trait.wideFullBleedImage.instances.isNotEmpty) {
+        wideFullBleedUrl = _cleanImageUrl(trait.wideFullBleedImage.instances.first.flatFile.cdnUrl);
+      }
+
+      String? squareFullBleedUrl;
+      if (trait.hasSquareFullBleedImage() && trait.squareFullBleedImage.instances.isNotEmpty) {
+        squareFullBleedUrl = _cleanImageUrl(trait.squareFullBleedImage.instances.first.flatFile.cdnUrl);
+      }
+
+      String? videoUrl;
+      if (trait.hasNineBySixteenCoverVideo() && trait.nineBySixteenCoverVideo.hasAsset()) {
+        final asset = trait.nineBySixteenCoverVideo.asset;
+        if (asset.hasFlatFile()) {
+          videoUrl = asset.flatFile.cdnUrl;
+        }
+      }
+
+      String? bgHex;
+      String? textHex;
+      String? textSubduedHex;
+
+      if (trait.hasCuratedColor() && trait.curatedColor.hasMinContrast()) {
+        final colorSet = trait.curatedColor.minContrast;
+        if (colorSet.hasBackgroundBase()) {
+          final c = colorSet.backgroundBase;
+          bgHex = _rgbaToHex(c.r, c.g, c.b);
+        }
+        if (colorSet.hasTextBase()) {
+          final c = colorSet.textBase;
+          textHex = _rgbaToHex(c.r, c.g, c.b);
+        }
+        if (colorSet.hasTextSubdued()) {
+          final c = colorSet.textSubdued;
+          textSubduedHex = _rgbaToHex(c.r, c.g, c.b);
+        }
+      } else if (trait.hasSquareCoverImage() && trait.squareCoverImage.hasExtractedColorSet()) {
+        final colorSet = trait.squareCoverImage.extractedColorSet.minContrast;
+        if (colorSet.hasBackgroundBase()) {
+          final c = colorSet.backgroundBase;
+          bgHex = _rgbaToHex(c.r, c.g, c.b);
+        }
+      }
+
+      final visualTrait = VisualIdentityTrait(
+        squareCoverUrl: squareUrl,
+        sixteenByNineCoverUrl: sixteenByNineUrl,
+        wideFullBleedUrl: wideFullBleedUrl,
+        squareFullBleedUrl: squareFullBleedUrl,
+        videoNineBySixteenUrl: videoUrl,
+        hasVideo: sixteenByNineUrl != null || videoUrl != null,
+        backgroundColorHex: bgHex,
+        textColorHex: textHex,
+        textSubduedColorHex: textSubduedHex,
+      );
+
+      _storeTrait(uri, visualTrait);
+
+      // Also ensure SimpleCardTrait has an image for standard card consumers
+      final existingSimple = _traits[uri]?['SimpleCardTrait'] as SimpleCardTrait?;
+      if (existingSimple == null && (squareUrl != null || sixteenByNineUrl != null)) {
+        _storeTrait(uri, SimpleCardTrait(
+          title: '',
+          imageUrl: squareUrl ?? sixteenByNineUrl,
+        ));
+      }
+    } catch (e) {
+      dev.log('CasitaParser: malformed VisualIdentityTrait for $uri: $e');
+    }
+  }
+
+  static String _rgbaToHex(int r, int g, int b) {
+    return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
   }
 
   void _storeTrait(String uri, Trait trait) {
@@ -265,13 +381,15 @@ class CasitaParser {
         return null;
 
       case casita.Section_FeatureType.topStoryCarousel:
-        final title = _extractTitle(section.topStoryCarousel.heading);
-        final items = _extractItemsFromList(section.topStoryCarousel.items);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
+        final items = <SpotifyEntity>[];
+        for (final story in section.topStoryCarousel.stories) {
+          items.addAll(_extractItemsFromList(story.items));
+        }
+        return _buildSection('', items, sectionId, SectionLayout.carousel, sectionType: ft);
 
       case casita.Section_FeatureType.videoCarousel:
         final title = _extractTitle(section.videoCarousel.heading);
-        final items = _extractItemsFromSource(section.videoCarousel.itemSource);
+        final items = _extractItemsFromList(section.videoCarousel.items);
         return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
 
       case casita.Section_FeatureType.audioPromo:
@@ -280,23 +398,60 @@ class CasitaParser {
         return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
 
       case casita.Section_FeatureType.inlineCard:
-        final title = _extractTitle(section.inlineCard.heading);
-        final items = _extractItemsFromItem(section.inlineCard.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
+        return null;
 
       case casita.Section_FeatureType.watchFeed:
         final title = _extractTitle(section.watchFeed.heading);
-        final items = _extractItemsFromSource(section.watchFeed.itemSource);
+        final items = <SpotifyEntity>[];
+        for (final wfItem in section.watchFeed.items) {
+          final uri = wfItem.hasItem() ? wfItem.item.identifier : '';
+          if (uri.isEmpty) continue;
+
+          if (wfItem.hasEntrypoint()) {
+            final ep = wfItem.entrypoint;
+            final thumbUrl = _cleanImageUrl(ep.thumbnailImage.url);
+            final coverUrl = _cleanImageUrl(ep.coverImage.url);
+
+            int durationSec = 0;
+            if (ep.hasVideoFile() && ep.videoFile.endTime > ep.videoFile.startTime) {
+              durationSec = ((ep.videoFile.endTime - ep.videoFile.startTime) ~/ 1000).toInt();
+            }
+            final durationStr = durationSec > 0
+                ? '${(durationSec ~/ 60).toString().padLeft(2, '0')}:${(durationSec % 60).toString().padLeft(2, '0')}'
+                : (ep.overline.isNotEmpty ? ep.overline : '');
+
+            _storeTrait(uri, VideoCardTrait(
+              title: ep.title,
+              subtitle: ep.subtitle,
+              videoThumbnailUrl: thumbUrl,
+              showArtworkUrl: coverUrl,
+              durationString: durationStr,
+              overline: ep.overline,
+            ));
+
+            _storeTrait(uri, SimpleCardTrait(
+              title: ep.title,
+              subtitle: ep.subtitle,
+              imageUrl: thumbUrl ?? coverUrl,
+            ));
+          }
+
+          items.add(SpotifyEntity(
+            uri: uri,
+            type: ContentType.fromUri(uri),
+            traits: {},
+          ));
+        }
         return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
 
       case casita.Section_FeatureType.liveEvent:
         final title = _extractTitle(section.liveEvent.heading);
-        final items = _extractItemsFromItem(section.liveEvent.item);
+        final items = _extractItemsFromSource(section.liveEvent.itemSource);
         return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
 
       case casita.Section_FeatureType.contentEvaluationList:
         final title = _extractTitle(section.contentEvaluationList.heading);
-        final items = _extractItemsFromSource(section.contentEvaluationList.itemSource);
+        final items = _extractItemsFromList(section.contentEvaluationList.items);
         return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
 
       case casita.Section_FeatureType.reflection:
@@ -308,23 +463,68 @@ class CasitaParser {
         final title = _extractTitle(section.previewPromotionCarousel.heading);
         final items = <SpotifyEntity>[];
         for (final wrapped in section.previewPromotionCarousel.items) {
-          final uri = wrapped.item.identifier;
-          if (uri.isNotEmpty && uri.contains('spotify:')) {
-            items.add(SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {}));
+          if (wrapped.hasVideoPromo() && wrapped.videoPromo.hasItem()) {
+            items.addAll(_extractItemsFromItem(wrapped.videoPromo.item));
           }
         }
         return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
 
       case casita.Section_FeatureType.interactiveEntrypoint:
-        final title = _extractTitle(section.interactiveEntrypoint.heading);
-        final items = _extractItemsFromItem(section.interactiveEntrypoint.item);
+        return null;
+
+      case casita.Section_FeatureType.actionCardCarousel:
+        final title = _extractTitle(section.actionCardCarousel.heading);
+        final items = _extractItemsFromList(section.actionCardCarousel.items);
+        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
+
+      case casita.Section_FeatureType.campaignLinkCarousel:
+        final title = _extractTitle(section.campaignLinkCarousel.heading);
+        final items = _extractItemsFromSource(section.campaignLinkCarousel.itemSource);
+        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
+
+      case casita.Section_FeatureType.promotionV1:
+        final title = _extractTitle(section.promotionV1.heading);
+        final items = _extractItemsFromItem(section.promotionV1.item);
         return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
 
+      case casita.Section_FeatureType.promotionV3:
+        final items = _extractItemsFromItem(section.promotionV3.item);
+        return _buildSection('', items, sectionId, SectionLayout.feed, sectionType: ft);
+
+      case casita.Section_FeatureType.videoPromo:
+        final title = _extractTitle(section.videoPromo.heading);
+        final items = _extractItemsFromItem(section.videoPromo.item);
+        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
+
+      case casita.Section_FeatureType.playLinkPromo:
+        final title = _extractTitle(section.playLinkPromo.heading);
+        final items = _extractItemsFromItem(section.playLinkPromo.item);
+        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
+
+      case casita.Section_FeatureType.bannerWithAnimations:
+        final items = _extractItemsFromItem(section.bannerWithAnimations.item);
+        return _buildSection('', items, sectionId, SectionLayout.feed, sectionType: ft);
+
+      case casita.Section_FeatureType.anchors:
+        final items = _extractItemsFromSource(section.anchors.itemSource);
+        return _buildSection('', items, sectionId, SectionLayout.carousel, sectionType: ft);
+
+      // ── Commercial brand ads & non-content (skip cleanly) ──────────
+      case casita.Section_FeatureType.videoBrandAd:
+      case casita.Section_FeatureType.imageBrandAd:
+      case casita.Section_FeatureType.banner:
+      case casita.Section_FeatureType.fullBleedBanner:
+      case casita.Section_FeatureType.promptableSection:
+      case casita.Section_FeatureType.concertCampaign:
+      case casita.Section_FeatureType.promptedWorldsShelf:
+      case casita.Section_FeatureType.userPromptedWorldEntrypoint:
       case casita.Section_FeatureType.callToAction:
-        return null; // CTA ads, skip
+        return null;
 
       case casita.Section_FeatureType.notSet:
-        dev.log('CasitaParser: Unknown section type ${featureType.name} (sectionId=$sectionId)');
+        // Option B: Preserved in unknownFields, gracefully skip without crashing
+        final unknownTags = section.unknownFields.asMap().keys.toList();
+        dev.log('CasitaParser: Unrecognized section tag(s) $unknownTags (sectionId=$sectionId), skipped gracefully.');
         return null;
     }
   }
@@ -339,7 +539,7 @@ class CasitaParser {
       case casita.ItemSource_Source.provided:
         return _extractItemsFromList(source.provided.items);
       case casita.ItemSource_Source.listPlatform:
-        final uri = source.listPlatform.uri;
+        final uri = source.listPlatform.listUri;
         if (uri.isNotEmpty) {
           return [SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {})];
         }
@@ -480,10 +680,12 @@ class CasitaParser {
 class CasitaResult {
   final HomeViewData homeData;
   final List<String> ondemandUris;
+  final Map<String, Map<String, Trait>> traits;
 
   const CasitaResult({
     required this.homeData,
     required this.ondemandUris,
+    this.traits = const {},
   });
 }
 

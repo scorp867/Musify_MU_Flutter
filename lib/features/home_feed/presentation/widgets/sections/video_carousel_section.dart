@@ -4,14 +4,11 @@ import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Renders video episode sections matching Spotify's official layout.
 ///
-/// Videos are displayed as full-width immersive cards with:
-///   - Full-bleed 16:9 thumbnail
-///   - Duration badge (top-left)
-///   - Overlay controls (mute, add, play) on right side
-///   - Episode info below: show artwork, title, show name, date
-///
-/// This matches sections like "Videos you might like", "Similar to your
-/// recent listening" from the official Spotify podcasts tab.
+/// Features:
+///   - 16:9 video frame thumbnail with top-left duration badge (e.g. "09:22")
+///   - Clean static display without clutter (playback controls only when actively playing)
+///   - Square show artwork (40x40, 4px rounded corners) next to title and show info
+///   - Horizontally pageable carousel matching Spotify's podcasts feed
 class VideoCarouselSection extends StatelessWidget {
   final String title;
   final List<SpotifyEntity> items;
@@ -43,9 +40,9 @@ class VideoCarouselSection extends StatelessWidget {
               ),
             ),
           ),
-        // Full-width video cards, one at a time, horizontally pageable
+        // Horizontal pageable video cards
         SizedBox(
-          height: 340,
+          height: 275,
           child: PageView.builder(
             controller: PageController(viewportFraction: 0.92),
             itemCount: items.length,
@@ -62,7 +59,7 @@ class VideoCarouselSection extends StatelessWidget {
   }
 }
 
-/// A single full-width immersive video card matching Spotify's layout.
+/// A single video card matching Spotify's official layout.
 class _VideoPreviewCard extends StatelessWidget {
   final SpotifyEntity entity;
 
@@ -72,122 +69,154 @@ class _VideoPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final simpleTrait = entity.getTrait<SimpleCardTrait>();
     final previewTrait = entity.getTrait<PreviewCardTrait>();
+    final videoTrait = entity.getTrait<VideoCardTrait>();
 
-    final title = simpleTrait?.title ?? previewTrait?.title ?? '';
-    final subtitle = simpleTrait?.subtitle ?? previewTrait?.description ?? '';
-    final imageUrl = simpleTrait?.imageUrl ?? previewTrait?.imageUrl;
+    final title = videoTrait?.title.isNotEmpty == true
+        ? videoTrait!.title
+        : (simpleTrait?.title ?? previewTrait?.title ?? '');
+    final subtitle = videoTrait?.subtitle.isNotEmpty == true
+        ? videoTrait!.subtitle
+        : (simpleTrait?.subtitle ?? previewTrait?.description ?? '');
+
+    // Video thumbnail (16:9 frame) vs Show artwork (square cover)
+    final videoThumbnail = entity.videoThumbnailUrl ?? entity.cardImageUrl;
+    final showArtwork = entity.showArtworkUrl ?? entity.cardImageUrl;
+    final durationStr = entity.durationString;
+    final isPlaying = videoTrait?.isPlaying ?? false;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Full-width video thumbnail with overlays
+        // 16:9 Video Thumbnail
         ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(8),
           child: Stack(
             children: [
-              // Thumbnail
               AspectRatio(
                 aspectRatio: 16 / 9,
-                child: imageUrl != null
+                child: videoThumbnail != null && videoThumbnail.isNotEmpty
                     ? CachedNetworkImage(
-                        imageUrl: imageUrl,
+                        imageUrl: videoThumbnail,
                         fit: BoxFit.cover,
                         errorWidget: (_, _, _) => Container(
-                          color: const Color(0xFF282828),
+                          color: const Color(0xFF242424),
                           child: const Icon(Icons.videocam,
                               color: Colors.white24, size: 48),
                         ),
                       )
                     : Container(
-                        color: const Color(0xFF282828),
+                        color: const Color(0xFF242424),
                         child: const Icon(Icons.videocam,
                             color: Colors.white24, size: 48),
                       ),
               ),
-              // Bottom gradient for readability
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 80,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.6),
-                      ],
+
+              // Duration badge in top-left corner
+              if (durationStr.isNotEmpty)
+                Positioned(
+                  left: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      durationStr,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              // Right-side overlay controls
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Play button
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.black,
-                        size: 32,
+
+              // Overlay playback controls: ONLY displayed when actively playing
+              if (isPlaying) ...[
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 60,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.6),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              // Add button (top-right)
-              Positioned(
-                right: 12,
-                top: 56,
-                child: _overlayIcon(Icons.add_circle_outline_rounded),
-              ),
-              // Mute button
-              Positioned(
-                right: 12,
-                top: 104,
-                child: _overlayIcon(Icons.volume_off_rounded),
-              ),
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.black,
+                      size: 28,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 12,
+                  top: 50,
+                  child: _overlayIcon(Icons.add_circle_outline_rounded),
+                ),
+                Positioned(
+                  right: 12,
+                  top: 96,
+                  child: _overlayIcon(Icons.volume_off_rounded),
+                ),
+              ],
             ],
           ),
         ),
+
         const SizedBox(height: 10),
-        // Episode info row
+
+        // Episode info row below the thumbnail
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 2),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Show artwork (small)
-              if (previewTrait?.imageUrl != null &&
-                  simpleTrait?.imageUrl != null &&
-                  previewTrait?.imageUrl != simpleTrait?.imageUrl)
+              // Square show artwork (40x40, 4px corners)
+              if (showArtwork != null && showArtwork.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(right: 10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: CachedNetworkImage(
-                      imageUrl: previewTrait!.imageUrl!,
+                      imageUrl: showArtwork,
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
-                      errorWidget: (_, _, _) =>
-                          const SizedBox(width: 40, height: 40),
+                      errorWidget: (_, _, _) => Container(
+                        width: 40,
+                        height: 40,
+                        color: const Color(0xFF242424),
+                        child: const Icon(Icons.podcasts,
+                            color: Colors.white38, size: 20),
+                      ),
                     ),
                   ),
                 ),
-              // Title + subtitle
+
+              // Episode Title + Show name
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,17 +230,17 @@ class _VideoPreviewCard extends StatelessWidget {
                           color: Colors.white,
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          height: 1.3,
+                          height: 1.25,
                         ),
                       ),
                     if (subtitle.isNotEmpty) ...[
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
                         subtitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.6),
+                          color: Colors.grey.shade400,
                           fontSize: 12,
                         ),
                       ),
@@ -219,14 +248,14 @@ class _VideoPreviewCard extends StatelessWidget {
                   ],
                 ),
               ),
+
+              const SizedBox(width: 8),
+
               // More options
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Icon(
-                  Icons.more_horiz,
-                  color: Colors.white.withValues(alpha: 0.6),
-                  size: 20,
-                ),
+              Icon(
+                Icons.more_vert,
+                color: Colors.grey.shade400,
+                size: 20,
               ),
             ],
           ),
@@ -240,7 +269,7 @@ class _VideoPreviewCard extends StatelessWidget {
       width: 36,
       height: 36,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.4),
+        color: Colors.black.withValues(alpha: 0.5),
         shape: BoxShape.circle,
       ),
       child: Icon(icon, color: Colors.white, size: 20),

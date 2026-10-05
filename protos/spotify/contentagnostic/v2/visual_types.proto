@@ -6,17 +6,32 @@ option optimize_for = CODE_SIZE;
 
 // =========================================================================
 // Shared visual types used across traits
+// Exactly matches com.spotify.contentagnostic.v2 in Spotify APK
 // =========================================================================
+
+enum Mask {
+  MASK_UNSPECIFIED = 0;
+  MASK_CIRCULAR = 1;
+}
+
+enum ImageSize {
+  IMAGE_SIZE_UNSPECIFIED = 0;
+  IMAGE_SIZE_SMALL = 1;
+  IMAGE_SIZE_DEFAULT = 2;
+  IMAGE_SIZE_LARGE = 3;
+  IMAGE_SIZE_XLARGE = 4;
+  IMAGE_SIZE_XXLARGE = 5;
+}
 
 message Image {
   repeated ImageInstance instances = 1;
   ColorSetContrastOptions extracted_color_set = 2;
-  int32 mask = 3;
+  Mask mask = 3;
 }
 
 message ImageInstance {
   FlatFile flat_file = 1;
-  int32 size = 2;
+  ImageSize size = 2;
 }
 
 message FlatFile {
@@ -24,7 +39,36 @@ message FlatFile {
 }
 
 message Video {
-  // Video asset (fields omitted -- not needed for browse)
+  VideoAsset asset = 1;
+  Image fallback_image = 2;
+  Audio fallback_audio = 3;
+  Transcript transcript = 4;
+}
+
+message VideoAsset {
+  oneof video_type {
+    FlatFile flat_file = 1;
+    HLSVideo hls = 2;
+  }
+}
+
+message HLSVideo {
+  string manifest_id = 1;
+}
+
+message Audio {
+  Transcript transcript = 2;
+  AudioAsset asset = 3;
+}
+
+message AudioAsset {
+  oneof audio_type {
+    FlatFile flat_file = 1;
+  }
+}
+
+message Transcript {
+  FlatFile flat_file = 1;
 }
 
 // =========================================================================

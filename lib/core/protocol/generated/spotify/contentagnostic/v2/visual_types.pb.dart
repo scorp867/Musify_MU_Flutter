@@ -14,13 +14,17 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
+import 'visual_types.pbenum.dart';
+
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
+
+export 'visual_types.pbenum.dart';
 
 class Image extends $pb.GeneratedMessage {
   factory Image({
     $core.Iterable<ImageInstance>? instances,
     ColorSetContrastOptions? extractedColorSet,
-    $core.int? mask,
+    Mask? mask,
   }) {
     final result = Image._();
     if (instances != null) result.instances.addAll(instances);
@@ -48,7 +52,7 @@ class Image extends $pb.GeneratedMessage {
     ..aOM<ColorSetContrastOptions>(
         2, _omitFieldNames ? '' : 'extractedColorSet',
         subBuilder: ColorSetContrastOptions.$_createMessage)
-    ..aI(3, _omitFieldNames ? '' : 'mask')
+    ..aE<Mask>(3, _omitFieldNames ? '' : 'mask', enumValues: Mask.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -86,9 +90,9 @@ class Image extends $pb.GeneratedMessage {
   ColorSetContrastOptions ensureExtractedColorSet() => $_ensure(1);
 
   @$pb.TagNumber(3)
-  $core.int get mask => $_getIZ(2);
+  Mask get mask => $_getN(2);
   @$pb.TagNumber(3)
-  set mask($core.int value) => $_setSignedInt32(2, value);
+  set mask(Mask value) => $_setField(3, value);
   @$pb.TagNumber(3)
   $core.bool hasMask() => $_has(2);
   @$pb.TagNumber(3)
@@ -98,7 +102,7 @@ class Image extends $pb.GeneratedMessage {
 class ImageInstance extends $pb.GeneratedMessage {
   factory ImageInstance({
     FlatFile? flatFile,
-    $core.int? size,
+    ImageSize? size,
   }) {
     final result = ImageInstance._();
     if (flatFile != null) result.flatFile = flatFile;
@@ -122,7 +126,8 @@ class ImageInstance extends $pb.GeneratedMessage {
       createEmptyInstance: ImageInstance.$_createMessage)
     ..aOM<FlatFile>(1, _omitFieldNames ? '' : 'flatFile',
         subBuilder: FlatFile.$_createMessage)
-    ..aI(2, _omitFieldNames ? '' : 'size')
+    ..aE<ImageSize>(2, _omitFieldNames ? '' : 'size',
+        enumValues: ImageSize.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -159,9 +164,9 @@ class ImageInstance extends $pb.GeneratedMessage {
   FlatFile ensureFlatFile() => $_ensure(0);
 
   @$pb.TagNumber(2)
-  $core.int get size => $_getIZ(1);
+  ImageSize get size => $_getN(1);
   @$pb.TagNumber(2)
-  set size($core.int value) => $_setSignedInt32(1, value);
+  set size(ImageSize value) => $_setField(2, value);
   @$pb.TagNumber(2)
   $core.bool hasSize() => $_has(1);
   @$pb.TagNumber(2)
@@ -225,7 +230,19 @@ class FlatFile extends $pb.GeneratedMessage {
 }
 
 class Video extends $pb.GeneratedMessage {
-  factory Video() => Video._();
+  factory Video({
+    VideoAsset? asset,
+    Image? fallbackImage,
+    Audio? fallbackAudio,
+    Transcript? transcript,
+  }) {
+    final result = Video._();
+    if (asset != null) result.asset = asset;
+    if (fallbackImage != null) result.fallbackImage = fallbackImage;
+    if (fallbackAudio != null) result.fallbackAudio = fallbackAudio;
+    if (transcript != null) result.transcript = transcript;
+    return result;
+  }
 
   Video._();
 
@@ -241,6 +258,14 @@ class Video extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
       createEmptyInstance: Video.$_createMessage)
+    ..aOM<VideoAsset>(1, _omitFieldNames ? '' : 'asset',
+        subBuilder: VideoAsset.$_createMessage)
+    ..aOM<Image>(2, _omitFieldNames ? '' : 'fallbackImage',
+        subBuilder: Image.$_createMessage)
+    ..aOM<Audio>(3, _omitFieldNames ? '' : 'fallbackAudio',
+        subBuilder: Audio.$_createMessage)
+    ..aOM<Transcript>(4, _omitFieldNames ? '' : 'transcript',
+        subBuilder: Transcript.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -262,6 +287,403 @@ class Video extends $pb.GeneratedMessage {
   static Video getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<Video>(Video.$_createMessage);
   static Video? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  VideoAsset get asset => $_getN(0);
+  @$pb.TagNumber(1)
+  set asset(VideoAsset value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasAsset() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearAsset() => $_clearField(1);
+  @$pb.TagNumber(1)
+  VideoAsset ensureAsset() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  Image get fallbackImage => $_getN(1);
+  @$pb.TagNumber(2)
+  set fallbackImage(Image value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFallbackImage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFallbackImage() => $_clearField(2);
+  @$pb.TagNumber(2)
+  Image ensureFallbackImage() => $_ensure(1);
+
+  @$pb.TagNumber(3)
+  Audio get fallbackAudio => $_getN(2);
+  @$pb.TagNumber(3)
+  set fallbackAudio(Audio value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFallbackAudio() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFallbackAudio() => $_clearField(3);
+  @$pb.TagNumber(3)
+  Audio ensureFallbackAudio() => $_ensure(2);
+
+  @$pb.TagNumber(4)
+  Transcript get transcript => $_getN(3);
+  @$pb.TagNumber(4)
+  set transcript(Transcript value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasTranscript() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearTranscript() => $_clearField(4);
+  @$pb.TagNumber(4)
+  Transcript ensureTranscript() => $_ensure(3);
+}
+
+enum VideoAsset_VideoType { flatFile, hls, notSet }
+
+class VideoAsset extends $pb.GeneratedMessage {
+  factory VideoAsset({
+    FlatFile? flatFile,
+    HLSVideo? hls,
+  }) {
+    final result = VideoAsset._();
+    if (flatFile != null) result.flatFile = flatFile;
+    if (hls != null) result.hls = hls;
+    return result;
+  }
+
+  VideoAsset._();
+
+  factory VideoAsset.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoAsset()..mergeFromBuffer(data, registry);
+  factory VideoAsset.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoAsset()..mergeFromJson(json, registry);
+
+  static const $core.Map<$core.int, VideoAsset_VideoType>
+      _VideoAsset_VideoTypeByTag = {
+    1: VideoAsset_VideoType.flatFile,
+    2: VideoAsset_VideoType.hls,
+    0: VideoAsset_VideoType.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'VideoAsset',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
+      createEmptyInstance: VideoAsset.$_createMessage)
+    ..oo(0, [1, 2])
+    ..aOM<FlatFile>(1, _omitFieldNames ? '' : 'flatFile',
+        subBuilder: FlatFile.$_createMessage)
+    ..aOM<HLSVideo>(2, _omitFieldNames ? '' : 'hls',
+        subBuilder: HLSVideo.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoAsset clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoAsset copyWith(void Function(VideoAsset) updates) =>
+      super.copyWith((message) => updates(message as VideoAsset)) as VideoAsset;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use VideoAsset() / VideoAsset.new instead')
+  static VideoAsset create() => VideoAsset._();
+  static $pb.GeneratedMessage $_createMessage() => VideoAsset._();
+  @$core.override
+  VideoAsset createEmptyInstance() => VideoAsset._();
+  @$core.pragma('dart2js:noInline')
+  static VideoAsset getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<VideoAsset>(VideoAsset.$_createMessage);
+  static VideoAsset? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  @$pb.TagNumber(2)
+  VideoAsset_VideoType whichVideoType() =>
+      _VideoAsset_VideoTypeByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(1)
+  @$pb.TagNumber(2)
+  void clearVideoType() => $_clearField($_whichOneof(0));
+
+  @$pb.TagNumber(1)
+  FlatFile get flatFile => $_getN(0);
+  @$pb.TagNumber(1)
+  set flatFile(FlatFile value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasFlatFile() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearFlatFile() => $_clearField(1);
+  @$pb.TagNumber(1)
+  FlatFile ensureFlatFile() => $_ensure(0);
+
+  @$pb.TagNumber(2)
+  HLSVideo get hls => $_getN(1);
+  @$pb.TagNumber(2)
+  set hls(HLSVideo value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasHls() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearHls() => $_clearField(2);
+  @$pb.TagNumber(2)
+  HLSVideo ensureHls() => $_ensure(1);
+}
+
+class HLSVideo extends $pb.GeneratedMessage {
+  factory HLSVideo({
+    $core.String? manifestId,
+  }) {
+    final result = HLSVideo._();
+    if (manifestId != null) result.manifestId = manifestId;
+    return result;
+  }
+
+  HLSVideo._();
+
+  factory HLSVideo.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      HLSVideo()..mergeFromBuffer(data, registry);
+  factory HLSVideo.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      HLSVideo()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'HLSVideo',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
+      createEmptyInstance: HLSVideo.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'manifestId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  HLSVideo clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  HLSVideo copyWith(void Function(HLSVideo) updates) =>
+      super.copyWith((message) => updates(message as HLSVideo)) as HLSVideo;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use HLSVideo() / HLSVideo.new instead')
+  static HLSVideo create() => HLSVideo._();
+  static $pb.GeneratedMessage $_createMessage() => HLSVideo._();
+  @$core.override
+  HLSVideo createEmptyInstance() => HLSVideo._();
+  @$core.pragma('dart2js:noInline')
+  static HLSVideo getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<HLSVideo>(HLSVideo.$_createMessage);
+  static HLSVideo? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get manifestId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set manifestId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasManifestId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearManifestId() => $_clearField(1);
+}
+
+class Audio extends $pb.GeneratedMessage {
+  factory Audio({
+    Transcript? transcript,
+    AudioAsset? asset,
+  }) {
+    final result = Audio._();
+    if (transcript != null) result.transcript = transcript;
+    if (asset != null) result.asset = asset;
+    return result;
+  }
+
+  Audio._();
+
+  factory Audio.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Audio()..mergeFromBuffer(data, registry);
+  factory Audio.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Audio()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Audio',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
+      createEmptyInstance: Audio.$_createMessage)
+    ..aOM<Transcript>(2, _omitFieldNames ? '' : 'transcript',
+        subBuilder: Transcript.$_createMessage)
+    ..aOM<AudioAsset>(3, _omitFieldNames ? '' : 'asset',
+        subBuilder: AudioAsset.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Audio clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Audio copyWith(void Function(Audio) updates) =>
+      super.copyWith((message) => updates(message as Audio)) as Audio;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use Audio() / Audio.new instead')
+  static Audio create() => Audio._();
+  static $pb.GeneratedMessage $_createMessage() => Audio._();
+  @$core.override
+  Audio createEmptyInstance() => Audio._();
+  @$core.pragma('dart2js:noInline')
+  static Audio getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<Audio>(Audio.$_createMessage);
+  static Audio? _defaultInstance;
+
+  @$pb.TagNumber(2)
+  Transcript get transcript => $_getN(0);
+  @$pb.TagNumber(2)
+  set transcript(Transcript value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTranscript() => $_has(0);
+  @$pb.TagNumber(2)
+  void clearTranscript() => $_clearField(2);
+  @$pb.TagNumber(2)
+  Transcript ensureTranscript() => $_ensure(0);
+
+  @$pb.TagNumber(3)
+  AudioAsset get asset => $_getN(1);
+  @$pb.TagNumber(3)
+  set asset(AudioAsset value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAsset() => $_has(1);
+  @$pb.TagNumber(3)
+  void clearAsset() => $_clearField(3);
+  @$pb.TagNumber(3)
+  AudioAsset ensureAsset() => $_ensure(1);
+}
+
+enum AudioAsset_AudioType { flatFile, notSet }
+
+class AudioAsset extends $pb.GeneratedMessage {
+  factory AudioAsset({
+    FlatFile? flatFile,
+  }) {
+    final result = AudioAsset._();
+    if (flatFile != null) result.flatFile = flatFile;
+    return result;
+  }
+
+  AudioAsset._();
+
+  factory AudioAsset.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AudioAsset()..mergeFromBuffer(data, registry);
+  factory AudioAsset.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AudioAsset()..mergeFromJson(json, registry);
+
+  static const $core.Map<$core.int, AudioAsset_AudioType>
+      _AudioAsset_AudioTypeByTag = {
+    1: AudioAsset_AudioType.flatFile,
+    0: AudioAsset_AudioType.notSet
+  };
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'AudioAsset',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
+      createEmptyInstance: AudioAsset.$_createMessage)
+    ..oo(0, [1])
+    ..aOM<FlatFile>(1, _omitFieldNames ? '' : 'flatFile',
+        subBuilder: FlatFile.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AudioAsset clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AudioAsset copyWith(void Function(AudioAsset) updates) =>
+      super.copyWith((message) => updates(message as AudioAsset)) as AudioAsset;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use AudioAsset() / AudioAsset.new instead')
+  static AudioAsset create() => AudioAsset._();
+  static $pb.GeneratedMessage $_createMessage() => AudioAsset._();
+  @$core.override
+  AudioAsset createEmptyInstance() => AudioAsset._();
+  @$core.pragma('dart2js:noInline')
+  static AudioAsset getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<AudioAsset>(AudioAsset.$_createMessage);
+  static AudioAsset? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  AudioAsset_AudioType whichAudioType() =>
+      _AudioAsset_AudioTypeByTag[$_whichOneof(0)]!;
+  @$pb.TagNumber(1)
+  void clearAudioType() => $_clearField($_whichOneof(0));
+
+  @$pb.TagNumber(1)
+  FlatFile get flatFile => $_getN(0);
+  @$pb.TagNumber(1)
+  set flatFile(FlatFile value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasFlatFile() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearFlatFile() => $_clearField(1);
+  @$pb.TagNumber(1)
+  FlatFile ensureFlatFile() => $_ensure(0);
+}
+
+class Transcript extends $pb.GeneratedMessage {
+  factory Transcript({
+    FlatFile? flatFile,
+  }) {
+    final result = Transcript._();
+    if (flatFile != null) result.flatFile = flatFile;
+    return result;
+  }
+
+  Transcript._();
+
+  factory Transcript.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Transcript()..mergeFromBuffer(data, registry);
+  factory Transcript.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Transcript()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Transcript',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
+      createEmptyInstance: Transcript.$_createMessage)
+    ..aOM<FlatFile>(1, _omitFieldNames ? '' : 'flatFile',
+        subBuilder: FlatFile.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Transcript clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Transcript copyWith(void Function(Transcript) updates) =>
+      super.copyWith((message) => updates(message as Transcript)) as Transcript;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use Transcript() / Transcript.new instead')
+  static Transcript create() => Transcript._();
+  static $pb.GeneratedMessage $_createMessage() => Transcript._();
+  @$core.override
+  Transcript createEmptyInstance() => Transcript._();
+  @$core.pragma('dart2js:noInline')
+  static Transcript getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<Transcript>(Transcript.$_createMessage);
+  static Transcript? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  FlatFile get flatFile => $_getN(0);
+  @$pb.TagNumber(1)
+  set flatFile(FlatFile value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasFlatFile() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearFlatFile() => $_clearField(1);
+  @$pb.TagNumber(1)
+  FlatFile ensureFlatFile() => $_ensure(0);
 }
 
 class ColorSetContrastOptions extends $pb.GeneratedMessage {

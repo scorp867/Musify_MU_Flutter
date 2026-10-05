@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
+import 'package:musify_mu/features/playlist_detail/application/playlist_detail_bloc.dart';
+import 'package:musify_mu/features/playlist_detail/presentation/playlist_detail_screen.dart';
 
 /// The Library tab view.
 class LibraryView extends StatelessWidget {
@@ -380,7 +383,29 @@ class _LibraryItemTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      onTap: () {},
+      onTap: () {
+        if (item.type != 'playlist') return;
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) {
+              final bloc = GetIt.instance<PlaylistDetailBloc>()
+                ..add(PlaylistDetailLoadRequested(item));
+              return MultiBlocProvider(
+                providers: [
+                  BlocProvider<PlaylistDetailBloc>.value(value: bloc),
+                  BlocProvider<LibraryBloc>.value(
+                    value: context.read<LibraryBloc>(),
+                  ),
+                  BlocProvider<AuthBloc>.value(
+                    value: context.read<AuthBloc>(),
+                  ),
+                ],
+                child: PlaylistDetailScreen(item: item),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 

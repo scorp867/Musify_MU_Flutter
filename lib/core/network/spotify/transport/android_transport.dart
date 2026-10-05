@@ -22,7 +22,6 @@ class AndroidTransport extends BaseSpotifyTransport {
       'client-token': ?clientToken,
       'accept': 'application/x-protobuf',
       'accept-language': _ctx.acceptLanguage,
-      'accept-encoding': 'gzip',
       'app-platform': profile.appPlatform,
       'spotify-app-version': profile.appVersion,
       'User-Agent': profile.userAgent,

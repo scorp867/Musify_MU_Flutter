@@ -15,6 +15,38 @@ import 'dart:convert' as $convert;
 import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
+@$core.Deprecated('Use maskDescriptor instead')
+const Mask$json = {
+  '1': 'Mask',
+  '2': [
+    {'1': 'MASK_UNSPECIFIED', '2': 0},
+    {'1': 'MASK_CIRCULAR', '2': 1},
+  ],
+};
+
+/// Descriptor for `Mask`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List maskDescriptor = $convert.base64Decode(
+    'CgRNYXNrEhQKEE1BU0tfVU5TUEVDSUZJRUQQABIRCg1NQVNLX0NJUkNVTEFSEAE=');
+
+@$core.Deprecated('Use imageSizeDescriptor instead')
+const ImageSize$json = {
+  '1': 'ImageSize',
+  '2': [
+    {'1': 'IMAGE_SIZE_UNSPECIFIED', '2': 0},
+    {'1': 'IMAGE_SIZE_SMALL', '2': 1},
+    {'1': 'IMAGE_SIZE_DEFAULT', '2': 2},
+    {'1': 'IMAGE_SIZE_LARGE', '2': 3},
+    {'1': 'IMAGE_SIZE_XLARGE', '2': 4},
+    {'1': 'IMAGE_SIZE_XXLARGE', '2': 5},
+  ],
+};
+
+/// Descriptor for `ImageSize`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List imageSizeDescriptor = $convert.base64Decode(
+    'CglJbWFnZVNpemUSGgoWSU1BR0VfU0laRV9VTlNQRUNJRklFRBAAEhQKEElNQUdFX1NJWkVfU0'
+    '1BTEwQARIWChJJTUFHRV9TSVpFX0RFRkFVTFQQAhIUChBJTUFHRV9TSVpFX0xBUkdFEAMSFQoR'
+    'SU1BR0VfU0laRV9YTEFSR0UQBBIWChJJTUFHRV9TSVpFX1hYTEFSR0UQBQ==');
+
 @$core.Deprecated('Use imageDescriptor instead')
 const Image$json = {
   '1': 'Image',
@@ -35,7 +67,14 @@ const Image$json = {
       '6': '.spotify.contentagnostic.v2.ColorSetContrastOptions',
       '10': 'extractedColorSet'
     },
-    {'1': 'mask', '3': 3, '4': 1, '5': 5, '10': 'mask'},
+    {
+      '1': 'mask',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.spotify.contentagnostic.v2.Mask',
+      '10': 'mask'
+    },
   ],
 };
 
@@ -44,7 +83,8 @@ final $typed_data.Uint8List imageDescriptor = $convert.base64Decode(
     'CgVJbWFnZRJHCglpbnN0YW5jZXMYASADKAsyKS5zcG90aWZ5LmNvbnRlbnRhZ25vc3RpYy52Mi'
     '5JbWFnZUluc3RhbmNlUglpbnN0YW5jZXMSYwoTZXh0cmFjdGVkX2NvbG9yX3NldBgCIAEoCzIz'
     'LnNwb3RpZnkuY29udGVudGFnbm9zdGljLnYyLkNvbG9yU2V0Q29udHJhc3RPcHRpb25zUhFleH'
-    'RyYWN0ZWRDb2xvclNldBISCgRtYXNrGAMgASgFUgRtYXNr');
+    'RyYWN0ZWRDb2xvclNldBI0CgRtYXNrGAMgASgOMiAuc3BvdGlmeS5jb250ZW50YWdub3N0aWMu'
+    'djIuTWFza1IEbWFzaw==');
 
 @$core.Deprecated('Use imageInstanceDescriptor instead')
 const ImageInstance$json = {
@@ -58,14 +98,22 @@ const ImageInstance$json = {
       '6': '.spotify.contentagnostic.v2.FlatFile',
       '10': 'flatFile'
     },
-    {'1': 'size', '3': 2, '4': 1, '5': 5, '10': 'size'},
+    {
+      '1': 'size',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.spotify.contentagnostic.v2.ImageSize',
+      '10': 'size'
+    },
   ],
 };
 
 /// Descriptor for `ImageInstance`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List imageInstanceDescriptor = $convert.base64Decode(
     'Cg1JbWFnZUluc3RhbmNlEkEKCWZsYXRfZmlsZRgBIAEoCzIkLnNwb3RpZnkuY29udGVudGFnbm'
-    '9zdGljLnYyLkZsYXRGaWxlUghmbGF0RmlsZRISCgRzaXplGAIgASgFUgRzaXpl');
+    '9zdGljLnYyLkZsYXRGaWxlUghmbGF0RmlsZRI5CgRzaXplGAIgASgOMiUuc3BvdGlmeS5jb250'
+    'ZW50YWdub3N0aWMudjIuSW1hZ2VTaXplUgRzaXpl');
 
 @$core.Deprecated('Use flatFileDescriptor instead')
 const FlatFile$json = {
@@ -82,11 +130,169 @@ final $typed_data.Uint8List flatFileDescriptor =
 @$core.Deprecated('Use videoDescriptor instead')
 const Video$json = {
   '1': 'Video',
+  '2': [
+    {
+      '1': 'asset',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.VideoAsset',
+      '10': 'asset'
+    },
+    {
+      '1': 'fallback_image',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.Image',
+      '10': 'fallbackImage'
+    },
+    {
+      '1': 'fallback_audio',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.Audio',
+      '10': 'fallbackAudio'
+    },
+    {
+      '1': 'transcript',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.Transcript',
+      '10': 'transcript'
+    },
+  ],
 };
 
 /// Descriptor for `Video`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List videoDescriptor =
-    $convert.base64Decode('CgVWaWRlbw==');
+final $typed_data.Uint8List videoDescriptor = $convert.base64Decode(
+    'CgVWaWRlbxI8CgVhc3NldBgBIAEoCzImLnNwb3RpZnkuY29udGVudGFnbm9zdGljLnYyLlZpZG'
+    'VvQXNzZXRSBWFzc2V0EkgKDmZhbGxiYWNrX2ltYWdlGAIgASgLMiEuc3BvdGlmeS5jb250ZW50'
+    'YWdub3N0aWMudjIuSW1hZ2VSDWZhbGxiYWNrSW1hZ2USSAoOZmFsbGJhY2tfYXVkaW8YAyABKA'
+    'syIS5zcG90aWZ5LmNvbnRlbnRhZ25vc3RpYy52Mi5BdWRpb1INZmFsbGJhY2tBdWRpbxJGCgp0'
+    'cmFuc2NyaXB0GAQgASgLMiYuc3BvdGlmeS5jb250ZW50YWdub3N0aWMudjIuVHJhbnNjcmlwdF'
+    'IKdHJhbnNjcmlwdA==');
+
+@$core.Deprecated('Use videoAssetDescriptor instead')
+const VideoAsset$json = {
+  '1': 'VideoAsset',
+  '2': [
+    {
+      '1': 'flat_file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.FlatFile',
+      '9': 0,
+      '10': 'flatFile'
+    },
+    {
+      '1': 'hls',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.HLSVideo',
+      '9': 0,
+      '10': 'hls'
+    },
+  ],
+  '8': [
+    {'1': 'video_type'},
+  ],
+};
+
+/// Descriptor for `VideoAsset`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List videoAssetDescriptor = $convert.base64Decode(
+    'CgpWaWRlb0Fzc2V0EkMKCWZsYXRfZmlsZRgBIAEoCzIkLnNwb3RpZnkuY29udGVudGFnbm9zdG'
+    'ljLnYyLkZsYXRGaWxlSABSCGZsYXRGaWxlEjgKA2hscxgCIAEoCzIkLnNwb3RpZnkuY29udGVu'
+    'dGFnbm9zdGljLnYyLkhMU1ZpZGVvSABSA2hsc0IMCgp2aWRlb190eXBl');
+
+@$core.Deprecated('Use hLSVideoDescriptor instead')
+const HLSVideo$json = {
+  '1': 'HLSVideo',
+  '2': [
+    {'1': 'manifest_id', '3': 1, '4': 1, '5': 9, '10': 'manifestId'},
+  ],
+};
+
+/// Descriptor for `HLSVideo`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List hLSVideoDescriptor = $convert.base64Decode(
+    'CghITFNWaWRlbxIfCgttYW5pZmVzdF9pZBgBIAEoCVIKbWFuaWZlc3RJZA==');
+
+@$core.Deprecated('Use audioDescriptor instead')
+const Audio$json = {
+  '1': 'Audio',
+  '2': [
+    {
+      '1': 'transcript',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.Transcript',
+      '10': 'transcript'
+    },
+    {
+      '1': 'asset',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.AudioAsset',
+      '10': 'asset'
+    },
+  ],
+};
+
+/// Descriptor for `Audio`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List audioDescriptor = $convert.base64Decode(
+    'CgVBdWRpbxJGCgp0cmFuc2NyaXB0GAIgASgLMiYuc3BvdGlmeS5jb250ZW50YWdub3N0aWMudj'
+    'IuVHJhbnNjcmlwdFIKdHJhbnNjcmlwdBI8CgVhc3NldBgDIAEoCzImLnNwb3RpZnkuY29udGVu'
+    'dGFnbm9zdGljLnYyLkF1ZGlvQXNzZXRSBWFzc2V0');
+
+@$core.Deprecated('Use audioAssetDescriptor instead')
+const AudioAsset$json = {
+  '1': 'AudioAsset',
+  '2': [
+    {
+      '1': 'flat_file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.FlatFile',
+      '9': 0,
+      '10': 'flatFile'
+    },
+  ],
+  '8': [
+    {'1': 'audio_type'},
+  ],
+};
+
+/// Descriptor for `AudioAsset`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List audioAssetDescriptor = $convert.base64Decode(
+    'CgpBdWRpb0Fzc2V0EkMKCWZsYXRfZmlsZRgBIAEoCzIkLnNwb3RpZnkuY29udGVudGFnbm9zdG'
+    'ljLnYyLkZsYXRGaWxlSABSCGZsYXRGaWxlQgwKCmF1ZGlvX3R5cGU=');
+
+@$core.Deprecated('Use transcriptDescriptor instead')
+const Transcript$json = {
+  '1': 'Transcript',
+  '2': [
+    {
+      '1': 'flat_file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.contentagnostic.v2.FlatFile',
+      '10': 'flatFile'
+    },
+  ],
+};
+
+/// Descriptor for `Transcript`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transcriptDescriptor = $convert.base64Decode(
+    'CgpUcmFuc2NyaXB0EkEKCWZsYXRfZmlsZRgBIAEoCzIkLnNwb3RpZnkuY29udGVudGFnbm9zdG'
+    'ljLnYyLkZsYXRGaWxlUghmbGF0RmlsZQ==');
 
 @$core.Deprecated('Use colorSetContrastOptionsDescriptor instead')
 const ColorSetContrastOptions$json = {
