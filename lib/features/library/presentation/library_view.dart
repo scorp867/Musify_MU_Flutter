@@ -67,17 +67,31 @@ class _LibraryContent extends StatefulWidget {
 
 class _LibraryContentState extends State<_LibraryContent> {
   LibraryFilter _activeFilter = LibraryFilter.all;
+  late List<LibraryItem> _sortedItems;
+
+  @override
+  void initState() {
+    super.initState();
+    _sortedItems = widget.data.sortedByRecents();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LibraryContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.data != widget.data) {
+      _sortedItems = widget.data.sortedByRecents();
+    }
+  }
 
   List<LibraryItem> get _filteredItems {
-    final sorted = widget.data.sortedByRecents();
     return switch (_activeFilter) {
-      LibraryFilter.all => sorted,
+      LibraryFilter.all => _sortedItems,
       LibraryFilter.playlists =>
-        sorted.where((i) => i.type == 'playlist').toList(),
+        _sortedItems.where((i) => i.type == 'playlist').toList(),
       LibraryFilter.podcasts =>
-        sorted.where((i) => i.type == 'show').toList(),
+        _sortedItems.where((i) => i.type == 'show').toList(),
       LibraryFilter.artists =>
-        sorted.where((i) => i.type == 'artist').toList(),
+        _sortedItems.where((i) => i.type == 'artist').toList(),
     };
   }
 
