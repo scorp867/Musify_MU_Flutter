@@ -10,8 +10,10 @@ class LoadHomeFeed {
   const LoadHomeFeed(this._repository);
 
   /// SWR stream: yields cached data first, then fresh.
-  Stream<HomeViewData> call() => _repository.getHomeFeed();
+  Stream<HomeViewData> call({HomeFacet facet = HomeFacet.all}) =>
+      _repository.getHomeFeed(facet: facet);
 
   /// Network-only refresh, skipping cache.
-  Future<HomeViewData?> refresh() => _repository.fetchFresh();
+  Future<HomeViewData?> refresh({HomeFacet facet = HomeFacet.all}) =>
+      _repository.fetchFresh(facet: facet);
 }

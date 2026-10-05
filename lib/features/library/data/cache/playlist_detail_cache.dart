@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
-import 'package:musify_mu/core/cache/cache_policy.dart';
 
 /// Per-playlist disk cache with revision tracking for diff-based updates.
 ///
@@ -14,8 +13,6 @@ import 'package:musify_mu/core/cache/cache_policy.dart';
 ///   - Cover image URL (mosaic or custom)
 ///   - Track URIs (for mosaic generation)
 class PlaylistDetailCache {
-  static const _policy = CachePolicy.standard;
-
   final AppCacheManager _cacheManager;
 
   // In-memory index: playlistId -> PlaylistCacheEntry
@@ -47,16 +44,12 @@ class PlaylistDetailCache {
 
       for (final e in map.entries) {
         final v = e.value as Map<String, dynamic>;
-        final cachedAt = v['t'] as int? ?? 0;
-        if (_policy.isExpired(cachedAt)) continue;
-
         _index![e.key] = PlaylistCacheEntry(
           revision: v['r'] as String? ?? '',
           coverUrl: v['c'] as String?,
           isCustomCover: v['cc'] as bool? ?? false,
           mosaicImageUrls: (v['m'] as List?)?.cast<String>() ?? [],
           trackUris: (v['u'] as List?)?.cast<String>() ?? [],
-          cachedAt: cachedAt,
         );
       }
     } catch (e) {
@@ -64,7 +57,7 @@ class PlaylistDetailCache {
     }
   }
 
-  /// Returns cached entry for a playlist, or null if missing/expired.
+  /// Returns cached entry for a playlist, or null if not cached.
   Future<PlaylistCacheEntry?> get(String playlistId) async {
     await _ensureIndex();
     return _index![playlistId];
@@ -100,7 +93,6 @@ class PlaylistDetailCache {
       isCustomCover: isCustomCover,
       mosaicImageUrls: mosaicImageUrls,
       trackUris: trackUris,
-      cachedAt: DateTime.now().millisecondsSinceEpoch,
     );
 
     // Store raw bytes separately (large, no need to hold in memory).
@@ -151,7 +143,6 @@ class PlaylistDetailCache {
           if (e.value.isCustomCover) 'cc': true,
           if (e.value.mosaicImageUrls.isNotEmpty) 'm': e.value.mosaicImageUrls,
           'u': e.value.trackUris,
-          't': e.value.cachedAt,
         };
       }
 
@@ -171,7 +162,6 @@ class PlaylistCacheEntry {
   final bool isCustomCover;
   final List<String> mosaicImageUrls;
   final List<String> trackUris;
-  final int cachedAt;
 
   const PlaylistCacheEntry({
     required this.revision,
@@ -179,6 +169,5 @@ class PlaylistCacheEntry {
     this.isCustomCover = false,
     this.mosaicImageUrls = const [],
     required this.trackUris,
-    required this.cachedAt,
   });
 }

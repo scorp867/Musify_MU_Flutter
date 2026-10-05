@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -41,12 +42,12 @@ class PreviewCard extends StatelessWidget {
               if (trait.imageUrl != null) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: Image.network(
-                    trait.imageUrl!,
+                  child: CachedNetworkImage(
+                    imageUrl: trait.imageUrl!,
                     width: 88,
                     height: 88,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
+                    errorWidget: (_, _, _) => Container(
                       width: 88,
                       height: 88,
                       color: Colors.black26,

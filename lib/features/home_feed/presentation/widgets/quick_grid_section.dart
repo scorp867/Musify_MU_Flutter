@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -56,8 +57,8 @@ class _QuickGridTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = (MediaQuery.of(context).size.width - 40) / 2;
-    final title = item.fallbackTitle;
-    final imageUrl = item.fallbackImageUrl;
+    final title = item.shortcutTitle;
+    final imageUrl = item.shortcutImageUrl;
 
     return GestureDetector(
       onTap: () {},
@@ -76,10 +77,10 @@ class _QuickGridTile extends StatelessWidget {
               width: 56,
               height: 56,
               child: imageUrl != null
-                  ? Image.network(
-                      imageUrl,
+                  ? CachedNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => _placeholder(),
+                      errorWidget: (_, _, _) => _placeholder(),
                     )
                   : _placeholder(),
             ),

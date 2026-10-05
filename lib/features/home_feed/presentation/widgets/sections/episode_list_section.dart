@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -83,10 +84,10 @@ class _EpisodeCard extends StatelessWidget {
                       width: 56,
                       height: 56,
                       child: imageUrl != null
-                          ? Image.network(
-                              imageUrl,
+                          ? CachedNetworkImage(
+                              imageUrl: imageUrl,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => Container(
+                              errorWidget: (_, _, _) => Container(
                                 color: const Color(0xFF282828),
                                 child: const Icon(Icons.podcasts,
                                     color: Colors.white24, size: 24),

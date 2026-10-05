@@ -5,16 +5,49 @@ package spotify.playlist.v2;
 option optimize_for = CODE_SIZE;
 
 // Response from /playlist/v2/list/recents/main
-// Inferred from the manual parsing in home_repository.dart
+// Maps to com.spotify.playlist4.proto.Playlist4ApiProto.SelectedListContent
 
 message RecentsListResponse {
-  // Fields 1-4 are unknown/unused
+  bytes revision = 1;
+  int32 length = 2;
+  RecentsListAttributes list_attributes = 3;
+  // Field 4 reserved
   RecentsItemList list = 5;
+  // Fields 6-7: Diff/SyncResult (unused)
+  // Field 8: resulting_revisions (unused)
+  bool multiple_heads = 9;
+  bool up_to_date = 10;
+  // Fields 11-13 reserved
+  repeated int64 nonces = 14;
+  int64 timestamp = 15;
+  string owner_username = 16;
+  bool abuse_reporting_enabled = 17;
+  // Field 18: Capabilities (unused)
+  repeated int32 geoblock = 19;
+  bool changes_require_resync = 20;
+  int64 created_at = 21;
+}
+
+message RecentsListAttributes {
+  string name = 1;
+  string description = 2;
+  bytes picture = 3;
+  bool collaborative = 4;
+  string pl3_version = 5;
+  bool deleted_by_owner = 6;
+  // Fields 7-9 unused
+  string client_id = 10;
+  string format = 11;
+  repeated FormatAttribute format_attributes = 12;
 }
 
 message RecentsItemList {
-  // Fields 1-2 are unknown/unused
+  int32 pos = 1;
+  bool truncated = 2;
   repeated RecentsListItem items = 3;
+  // Field 4: MetaItems (unused)
+  // Field 5: Signals (unused)
+  string continuation_token = 6;
 }
 
 message RecentsListItem {
@@ -23,11 +56,39 @@ message RecentsListItem {
 }
 
 message RecentsItemAttributes {
-  // Fields 1-10 are unknown/unused
+  string added_by = 1;
+  int64 timestamp = 2;
+  // Fields 3-8 unused
+  int64 seen_at = 9;
+  bool public = 10;
   repeated FormatAttribute format_attributes = 11;
+  bytes item_id = 12;
+  // Field 13: SourceLens (unused)
+  // Field 14: Signals (unused)
+  // Field 15: RecommendationInfo (unused)
+  // Field 16: sequence_child_template (unused)
+  int32 save_source = 17;
 }
 
 message FormatAttribute {
   string key = 1;
   string value = 2;
+}
+
+// Sub-proto decoded from format_attribute key="group_metadata" (Base64-encoded).
+// Maps to com.spotify.recents.recentsdatasourceimpl.GroupMetadata
+message GroupMetadata {
+  int32 items_count = 1;
+  repeated string entity_uris = 2;
+  repeated string user_uris = 3;
+  map<string, int32> filtered_count = 4;
+  string group_name = 5;
+}
+
+// Sub-proto decoded from format_attribute key="share" (Base64-encoded).
+// Maps to com.spotify.recents.recentsdatasourceimpl.Share
+message ShareMetadata {
+  string user_uri = 1;
+  string share_deeplink = 2;
+  string source = 3;
 }

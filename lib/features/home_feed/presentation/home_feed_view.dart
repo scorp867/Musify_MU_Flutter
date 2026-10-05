@@ -7,12 +7,20 @@ import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/home_feed_shimmer.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/quick_grid_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/audio_spotlight_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/content_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/episode_list_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/immersive_preview_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/inline_card_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/interactive_prompt_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/live_event_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_feed_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/recents_carousel_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/reflection_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/showcase_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/story_bubble_carousel.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/vertical_card_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';
 
 /// The authenticated home feed -- renders sections from Casita data.
@@ -120,52 +128,87 @@ class _FeedContent extends StatelessWidget {
   }
 
   Widget _buildSection(HomeSection section) {
-    // Route 1:1 with Casita feature_type — Spotify's rendering decision.
-    // sectionType == featureType.name from CasitaParser.
     switch (section.sectionType) {
 
-      // ── Grid layouts ─────────────────────────────────────────────────
+      // ── Grid ───────────────────────────────────────────────────────
       case 'shortcuts':
         return QuickGridSection(title: section.title, items: section.items);
 
-      // ── Recents ──────────────────────────────────────────────────────
+      // ── Recents ────────────────────────────────────────────────────
       case 'recentsShelf':
         return RecentsCarouselSection(
             title: section.title, items: section.items);
 
-      // ── Full-width immersive previews (single item, full bleed) ─────
+      // ── Full-bleed hero preview ────────────────────────────────────
       case 'preview':
       case 'immersivePreview':
-      case 'associatedPreview':
+        return ImmersivePreviewSection(
+            title: section.title, items: section.items);
+
+      // ── Showcase (featured banner) ─────────────────────────────────
       case 'showcase':
-      case 'audioSpotlight':
-      case 'verticalSingleEntry':
-      case 'audioPromo':
-      case 'liveEvent':
-      case 'interactiveEntrypoint':
-      case 'reflection':
-      case 'inlineCard':
         return ShowcaseSection(title: section.title, items: section.items);
 
-      // ── Video sections (full-width video preview cards) ─────────────
+      // ── Audio spotlight / promo ────────────────────────────────────
+      case 'audioSpotlight':
+      case 'audioPromo':
+        return AudioSpotlightSection(
+            title: section.title, items: section.items);
+
+      // ── Live events ────────────────────────────────────────────────
+      case 'liveEvent':
+        return LiveEventSection(title: section.title, items: section.items);
+
+      // ── Interactive search / AI prompt ─────────────────────────────
+      case 'interactiveEntrypoint':
+        return InteractivePromptSection(
+            title: section.title, items: section.items);
+
+      // ── Story bubbles ──────────────────────────────────────────────
+      case 'topStoryCarousel':
+        return StoryBubbleCarousel(
+            title: section.title, items: section.items);
+
+      // ── Single large vertical card ─────────────────────────────────
+      case 'verticalSingleEntry':
+        return VerticalCardSection(
+            title: section.title, items: section.items);
+
+      // ── Reflection (Wrapped-style) ─────────────────────────────────
+      case 'reflection':
+        return ReflectionSection(title: section.title, items: section.items);
+
+      // ── Inline card ────────────────────────────────────────────────
+      case 'inlineCard':
+        return InlineCardSection(title: section.title, items: section.items);
+
+      // ── Associated preview (inline preview) ────────────────────────
+      case 'associatedPreview':
+        return ImmersivePreviewSection(
+            title: section.title, items: section.items);
+
+      // ── Episode list ───────────────────────────────────────────────
+      case 'contentEvaluationList':
+        return EpisodeListSection(title: section.title, items: section.items);
+
+      // ── Video carousels ────────────────────────────────────────────
       case 'videoCarousel':
       case 'watchFeed':
         return VideoCarouselSection(
             title: section.title, items: section.items);
 
-      // ── Preview carousels (horizontal scroll of preview cards) ──────
+      // ── Preview carousels ──────────────────────────────────────────
       case 'previewCarousel':
       case 'previewPromotionCarousel':
-      case 'topStoryCarousel':
         return PreviewCarouselSection(
             title: section.title, items: section.items);
 
-      // ── Content evaluation list (episode list cards) ────────────────
-      case 'contentEvaluationList':
-        return EpisodeListSection(
-            title: section.title, items: section.items);
+      // ── Text-only / non-visual (skip) ──────────────────────────────
+      case 'narrative':
+      case 'callToAction':
+        return const SizedBox.shrink();
 
-      // ── Standard horizontal carousels ───────────────────────────────
+      // ── Standard horizontal carousels (default) ────────────────────
       case 'imageLink':
       default:
         if (section.items.any((item) => item.getTrait<PreviewCardTrait>() != null)) {

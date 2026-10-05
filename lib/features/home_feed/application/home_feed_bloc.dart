@@ -21,6 +21,12 @@ class HomeFeedRefreshRequested extends HomeFeedEvent {
   const HomeFeedRefreshRequested();
 }
 
+/// User tapped a facet chip (All / Music / Podcasts & Shows).
+class HomeFeedFacetChanged extends HomeFeedEvent {
+  final HomeFacet facet;
+  const HomeFeedFacetChanged(this.facet);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // States
 // ═══════════════════════════════════════════════════════════════════
@@ -38,8 +44,13 @@ class HomeFeedLoading extends HomeFeedState {
 class HomeFeedLoaded extends HomeFeedState {
   final HomeViewData data;
   final bool isRefreshing;
+  final HomeFacet activeFacet;
 
-  const HomeFeedLoaded(this.data, {this.isRefreshing = false});
+  const HomeFeedLoaded(
+    this.data, {
+    this.isRefreshing = false,
+    this.activeFacet = HomeFacet.all,
+  });
 }
 
 /// Error with optional stale data to still show.
@@ -57,12 +68,14 @@ class HomeFeedError extends HomeFeedState {
 class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
   final LoadHomeFeed _loadHomeFeed;
   bool _isLoading = false;
+  HomeFacet _activeFacet = HomeFacet.all;
 
   HomeFeedBloc({required LoadHomeFeed loadHomeFeed})
       : _loadHomeFeed = loadHomeFeed,
         super(const HomeFeedLoading()) {
     on<HomeFeedLoadRequested>(_onLoad);
     on<HomeFeedRefreshRequested>(_onRefresh);
+    on<HomeFeedFacetChanged>(_onFacetChanged);
   }
 
   Future<void> _onLoad(
@@ -74,8 +87,8 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
     emit(const HomeFeedLoading());
 
     await emit.forEach(
-      _loadHomeFeed(),
-      onData: (data) => HomeFeedLoaded(data),
+      _loadHomeFeed(facet: _activeFacet),
+      onData: (data) => HomeFeedLoaded(data, activeFacet: _activeFacet),
       onError: (error, _) => HomeFeedError(error.toString()),
     );
     _isLoading = false;
@@ -85,7 +98,6 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
     HomeFeedRefreshRequested event,
     Emitter<HomeFeedState> emit,
   ) async {
-    // If we already have data, show it with a refreshing indicator.
     final currentData = switch (state) {
       HomeFeedLoaded(:final data) => data,
       HomeFeedError(:final staleData) => staleData,
@@ -93,16 +105,51 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
     };
 
     if (currentData != null) {
-      emit(HomeFeedLoaded(currentData, isRefreshing: true));
+      emit(HomeFeedLoaded(currentData, isRefreshing: true, activeFacet: _activeFacet));
     }
 
-    final fresh = await _loadHomeFeed.refresh();
+    final fresh = await _loadHomeFeed.refresh(facet: _activeFacet);
     if (fresh != null) {
-      emit(HomeFeedLoaded(fresh));
+      emit(HomeFeedLoaded(fresh, activeFacet: _activeFacet));
     } else if (currentData != null) {
-      emit(HomeFeedLoaded(currentData));
+      emit(HomeFeedLoaded(currentData, activeFacet: _activeFacet));
     } else {
       emit(const HomeFeedError('Failed to load home feed'));
     }
+  }
+
+  /// Optimistic SWR: show cached facet instantly, then refresh in background.
+  Future<void> _onFacetChanged(
+    HomeFeedFacetChanged event,
+    Emitter<HomeFeedState> emit,
+  ) async {
+    if (event.facet == _activeFacet) return;
+    _activeFacet = event.facet;
+
+    // Try to show cached data for this facet immediately
+    final currentData = switch (state) {
+      HomeFeedLoaded(:final data) => data,
+      HomeFeedError(:final staleData) => staleData,
+      _ => null,
+    };
+
+    // Emit refreshing state with current data while we fetch
+    if (currentData != null) {
+      emit(HomeFeedLoaded(currentData, isRefreshing: true, activeFacet: _activeFacet));
+    } else {
+      emit(const HomeFeedLoading());
+    }
+
+    // SWR: stream cached then fresh for the new facet
+    await emit.forEach(
+      _loadHomeFeed(facet: _activeFacet),
+      onData: (data) => HomeFeedLoaded(data, activeFacet: _activeFacet),
+      onError: (error, _) {
+        if (currentData != null) {
+          return HomeFeedLoaded(currentData, activeFacet: _activeFacet);
+        }
+        return HomeFeedError(error.toString());
+      },
+    );
   }
 }

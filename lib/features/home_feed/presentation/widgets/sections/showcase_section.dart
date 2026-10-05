@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -21,8 +22,8 @@ class ShowcaseSection extends StatelessWidget {
     if (items.isEmpty) return const SizedBox.shrink();
 
     final item = items.first;
-    final imageUrl = item.fallbackImageUrl;
-    final itemTitle = item.fallbackTitle;
+    final imageUrl = item.previewImageUrl;
+    final itemTitle = item.previewTitle;
     final subtitle = item.getTrait<SimpleCardTrait>()?.subtitle ?? '';
 
     return Column(
@@ -53,10 +54,10 @@ class ShowcaseSection extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   if (imageUrl != null)
-                    Image.network(
-                      imageUrl,
+                    CachedNetworkImage(
+                      imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      errorWidget: (_, _, _) => const SizedBox.shrink(),
                     ),
                   // Bottom gradient for text readability
                   Positioned(

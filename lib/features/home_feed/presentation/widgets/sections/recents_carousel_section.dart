@@ -1,7 +1,8 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
-/// Recents carousel — smaller cards (~100px) with title + type badge.
+/// Recents carousel — compact cards with title + action metadata.
 /// Matches Spotify's "Recents" / "Jump back in" section.
 class RecentsCarouselSection extends StatelessWidget {
   final String title;
@@ -46,14 +47,14 @@ class RecentsCarouselSection extends StatelessWidget {
             ],
           ),
         ),
-        // Smaller horizontal cards
+        // Compact horizontal cards
         SizedBox(
-          height: 175,
+          height: 158,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, index) =>
                 _RecentsCard(item: items[index]),
           ),
@@ -69,32 +70,62 @@ class _RecentsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = item.fallbackTitle;
-    final subtitle = item.getTrait<SimpleCardTrait>()?.subtitle ?? '';
-    final imageUrl = item.fallbackImageUrl;
+    final title = item.cardTitle;
+    final imageUrl = item.cardImageUrl;
+    final recentsMeta = item.getTrait<RecentsMetadataTrait>();
+    final subtitle = _buildSubtitle(item, recentsMeta);
+    final isEpisode = item.type == ContentType.episode;
 
     return SizedBox(
-      width: 100,
+      width: 85,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Small artwork (circle for artists, square for rest)
-          ClipRRect(
-            borderRadius: item.type == ContentType.artist
-                ? BorderRadius.circular(50)
-                : BorderRadius.circular(6),
-            child: Container(
-              width: 100,
-              height: 100,
-              color: const Color(0xFF282828),
-              child: imageUrl != null
-                  ? Image.network(
-                      imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => _placeholder(),
-                    )
-                  : _placeholder(),
-            ),
+          // Artwork with optional episode progress bar
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: item.type == ContentType.artist
+                    ? BorderRadius.circular(42.5)
+                    : BorderRadius.circular(6),
+                child: Container(
+                  width: 85,
+                  height: 85,
+                  color: const Color(0xFF282828),
+                  child: imageUrl != null
+                      ? CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, _, _) => _placeholder(),
+                        )
+                      : _placeholder(),
+                ),
+              ),
+              // Episode progress bar
+              if (isEpisode)
+                Positioned(
+                  left: 4,
+                  right: 4,
+                  bottom: 3,
+                  child: Container(
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(1.5),
+                    ),
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: 0.35,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1DB954),
+                          borderRadius: BorderRadius.circular(1.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 6),
           // Title
@@ -109,26 +140,69 @@ class _RecentsCard extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          // Subtitle
+          // Action subtitle
           if (subtitle.isNotEmpty)
-            Text(
-              subtitle,
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey.shade500,
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 9.5,
+                  color: Colors.grey.shade500,
+                  height: 1.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
         ],
       ),
     );
   }
 
+  String _buildSubtitle(SpotifyEntity item, RecentsMetadataTrait? meta) {
+    if (meta == null) {
+      return item.getTrait<SimpleCardTrait>()?.subtitle ?? '';
+    }
+
+    final parts = <String>[];
+
+    // Item count
+    if (meta.songsCount > 0) {
+      parts.add('${meta.songsCount} songs');
+    }
+
+    // Action verb
+    switch (meta.recentType) {
+      case 'saved':
+        parts.add('added');
+      case 'shared':
+        parts.add('shared');
+      case 'autoGenerated':
+        parts.add('made for you');
+      case 'played':
+      default:
+        if (meta.songsCount > 0) {
+          parts.add('played');
+        }
+    }
+
+    if (parts.isNotEmpty) return parts.join(' ');
+
+    // Fall back to content type
+    return switch (item.type) {
+      ContentType.album => 'Album',
+      ContentType.playlist => 'Playlist',
+      ContentType.artist => 'Artist',
+      ContentType.podcast => 'Podcast',
+      ContentType.episode => 'Episode',
+      _ => '',
+    };
+  }
+
   Widget _placeholder() {
     return Center(
-      child: Icon(Icons.music_note, color: Colors.grey.shade700, size: 24),
+      child: Icon(Icons.music_note, color: Colors.grey.shade700, size: 20),
     );
   }
 }
-

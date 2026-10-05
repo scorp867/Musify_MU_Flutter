@@ -20,6 +20,7 @@ class AndroidTransport extends BaseSpotifyTransport {
     final headers = <String, String>{
       if (accessToken != null) 'Authorization': 'Bearer $accessToken',
       'client-token': ?clientToken,
+      'accept': 'application/x-protobuf',
       'accept-language': _ctx.acceptLanguage,
       'accept-encoding': 'gzip',
       'app-platform': profile.appPlatform,
@@ -29,6 +30,7 @@ class AndroidTransport extends BaseSpotifyTransport {
     };
 
     if (extra != null) headers.addAll(extra);
+    headers.removeWhere((_, v) => v.isEmpty);
     return headers;
   }
 }

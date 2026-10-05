@@ -24,7 +24,11 @@ import 'package:musify_mu/features/home_feed/data/home_repository.dart';
 import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
 import 'package:musify_mu/features/home_feed/domain/usecases/load_home_feed.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
-import 'package:musify_mu/features/library/data/library_repository.dart';
+import 'package:musify_mu/features/library/data/cache/library_cache.dart';
+import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
+import 'package:musify_mu/features/library/data/repository/library_repository_impl.dart';
+import 'package:musify_mu/features/library/data/sources/library_remote_source.dart';
+import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/library/domain/repositories/library_repository.dart';
 import 'package:musify_mu/features/library/domain/usecases/load_library.dart';
 import 'package:musify_mu/features/local_music/application/local_music_playback_synchronizer.dart';
@@ -148,7 +152,7 @@ Future<void> setupInjection() async {
   );
   getIt.registerLazySingleton<HomeRepository>(
     () => HomeRepositoryImpl(
-      client: getIt<WebPlayerTransport>(),
+      client: getIt<AndroidTransport>(),
       ctx: getIt<RuntimeContext>(),
       cacheManager: getIt<AppCacheManager>(),
     ),
@@ -162,12 +166,23 @@ Future<void> setupInjection() async {
   );
   getIt.registerFactoryParam<LibraryRepository, String, void>(
     (userId, _) => LibraryRepositoryImpl(
-      webTransport: getIt<WebPlayerTransport>(),
-      androidTransport: getIt<AndroidTransport>(),
-      userId: userId,
+      librarySource: LibraryRemoteSource(
+        webTransport: getIt<WebPlayerTransport>(),
+        androidTransport: getIt<AndroidTransport>(),
+        ctx: getIt<RuntimeContext>(),
+        userId: userId,
+      ),
+      playlistSource: PlaylistRemoteSource(
+        client: getIt<WebPlayerTransport>(),
+      ),
+      libraryCache: LibraryCache(
+        cacheManager: getIt<AppCacheManager>(),
+      ),
+      playlistCache: PlaylistDetailCache(
+        cacheManager: getIt<AppCacheManager>(),
+      ),
       metadataService: getIt<ExtendedMetadataService>(),
-      ctx: getIt<RuntimeContext>(),
-      cacheManager: getIt<AppCacheManager>(),
+      userId: userId,
     ),
   );
   getIt.registerLazySingleton<SpotifyProfileFetcher>(

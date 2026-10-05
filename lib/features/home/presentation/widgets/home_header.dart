@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
+import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/facet_chip_row.dart';
 
 /// Builds the home header title row (app icon + name + avatar).
@@ -103,6 +106,24 @@ class HomeFilterChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const FacetChipRow();
+    return BlocBuilder<HomeFeedBloc, HomeFeedState>(
+      buildWhen: (prev, curr) {
+        final prevFacet = prev is HomeFeedLoaded ? prev.activeFacet : null;
+        final currFacet = curr is HomeFeedLoaded ? curr.activeFacet : null;
+        return prevFacet != currFacet;
+      },
+      builder: (context, state) {
+        final activeFacet = state is HomeFeedLoaded
+            ? state.activeFacet
+            : HomeFacet.all;
+
+        return FacetChipRow(
+          selectedFacet: activeFacet,
+          onSelected: (facet) {
+            context.read<HomeFeedBloc>().add(HomeFeedFacetChanged(facet));
+          },
+        );
+      },
+    );
   }
 }

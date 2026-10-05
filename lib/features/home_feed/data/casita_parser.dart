@@ -63,7 +63,7 @@ class CasitaParser {
           return SpotifyEntity(
             uri: item.uri,
             type: item.type,
-            traits: uriTraits,
+            traits: Map.of(uriTraits),
           );
         }).toList();
 

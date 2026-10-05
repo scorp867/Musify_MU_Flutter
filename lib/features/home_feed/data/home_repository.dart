@@ -1,16 +1,14 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/ondemand_selector.pb.dart'
     as ods;
-import 'package:musify_mu/core/protocol/generated/spotify/playlist/recents_list.pb.dart'
-    as recents;
 import 'package:musify_mu/features/home_feed/data/casita_parser.dart';
 import 'package:musify_mu/features/home_feed/data/extended_metadata_fetcher.dart';
 import 'package:musify_mu/features/home_feed/data/home_feed_cache.dart';
+import 'package:musify_mu/features/home_feed/data/recents_parser.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
@@ -56,13 +54,13 @@ class HomeRepositoryImpl implements HomeRepository {
 
   /// Fetches home feed with SWR pattern.
   @override
-  Stream<HomeViewData> getHomeFeed() async* {
-    final cached = await _cache.load();
+  Stream<HomeViewData> getHomeFeed({HomeFacet facet = HomeFacet.all}) async* {
+    final cached = await _cache.load(facet: facet);
     if (cached != null) {
       yield cached;
     }
 
-    final fresh = await fetchFresh();
+    final fresh = await fetchFresh(facet: facet);
     if (fresh != null) {
       yield fresh;
     }
@@ -70,16 +68,21 @@ class HomeRepositoryImpl implements HomeRepository {
 
   /// Fetches fresh home feed data using Spotify's exact pipeline.
   @override
-  Future<HomeViewData?> fetchFresh() async {
+  Future<HomeViewData?> fetchFresh({HomeFacet facet = HomeFacet.all}) async {
     try {
       // Step 1: Fetch Casita home + recents in parallel
-      final results = await Future.wait([
-        _fetchCasitaHome(),
-        _fetchRecentsItems(),
-      ]);
+      // Only fetch recents for the "All" facet
+      final futures = <Future>[_fetchCasitaHome(facet)];
+      if (facet == HomeFacet.all) {
+        futures.add(_fetchRecentsItems());
+      }
+
+      final results = await Future.wait(futures);
 
       final casitaBytes = results[0] as Uint8List?;
-      final recentItems = results[1] as List<_RecentsItem>;
+      final recentItems = facet == HomeFacet.all
+          ? results[1] as List<RecentsItem>
+          : <RecentsItem>[];
 
       if (casitaBytes == null || casitaBytes.isEmpty) return null;
 
@@ -87,6 +90,10 @@ class HomeRepositoryImpl implements HomeRepository {
       final parser = CasitaParser(casitaBytes);
       final casitaResult = await parser.parse();
       final sections = casitaResult.homeData.sections.toList();
+      dev.log(
+        'Casita parsed ${sections.length} sections for ${facet.name}: '
+        '${sections.map((s) => s.sectionType).toList()}',
+      );
 
       // Step 3: Inject recents into the recents section
       if (recentItems.isNotEmpty) {
@@ -94,10 +101,6 @@ class HomeRepositoryImpl implements HomeRepository {
       }
 
       // Step 4: Resolve traits for items not covered by eagerload
-      // This follows Spotify's exact flow:
-      //   a. Read ondemandSet.uris from the Casita response
-      //   b. Call /ondemand-selector/v1/select-ondemand-set to filter them
-      //   c. Call /extended-metadata/v0/extended-metadata for SimpleCardTrait
       final allEntities = <SpotifyEntity>[];
       for (final section in sections) {
         allEntities.addAll(section.items);
@@ -114,7 +117,7 @@ class HomeRepositoryImpl implements HomeRepository {
         chips: casitaResult.homeData.chips,
       );
 
-      await _cache.save(result);
+      await _cache.save(result, facet: facet);
       return result;
     } catch (e) {
       dev.log('HomeRepository.fetchFresh: $e');
@@ -182,8 +185,8 @@ class HomeRepositoryImpl implements HomeRepository {
   // Network calls
   // ═══════════════════════════════════════════════════════════════════
 
-  Future<Uint8List?> _fetchCasitaHome() {
-    final path = '/casita/v1/home/default'
+  Future<Uint8List?> _fetchCasitaHome(HomeFacet facet) {
+    final path = '/casita/v1/home/${facet.pathSegment}'
         '?eagerload=$_casitaEagerload'
         '&timezone=${_ctx.timezone}'
         '&mobile-only-dsa-enabled=false';
@@ -204,14 +207,14 @@ class HomeRepositoryImpl implements HomeRepository {
     return response.uris.toList();
   }
 
-  Future<List<_RecentsItem>> _fetchRecentsItems() async {
+  Future<List<RecentsItem>> _fetchRecentsItems() async {
     try {
       final data = await _client.get(
         '/playlist/v2/list/recents/main',
         extraHeaders: _playlistHeaders,
       );
       if (data == null || data.isEmpty) return [];
-      return await Isolate.run(() => _parseRecentsItemsSync(data));
+      return await Isolate.run(() => parseRecentsItems(data));
     } catch (e) {
       dev.log('HomeRepository: Recents fetch failed: $e');
       return [];
@@ -224,7 +227,7 @@ class HomeRepositoryImpl implements HomeRepository {
 
   void _injectRecents(
     List<HomeSection> sections,
-    List<_RecentsItem> recentItems,
+    List<RecentsItem> recentItems,
     CasitaParser parser,
   ) {
     final hydratedItems = <SpotifyEntity>[];
@@ -232,7 +235,8 @@ class HomeRepositoryImpl implements HomeRepository {
 
     for (final item in recentItems) {
       if (item.uri.isEmpty || !seen.add(item.uri)) continue;
-      final traits = parser.traitsForUri(item.uri) ?? {};
+      final baseTraits = parser.traitsForUri(item.uri);
+      final traits = baseTraits != null ? Map.of(baseTraits) : <String, Trait>{};
       final type = ContentType.fromUri(item.uri);
 
       final simpleTrait = traits['SimpleCardTrait'] as SimpleCardTrait?;
@@ -262,6 +266,14 @@ class HomeRepositoryImpl implements HomeRepository {
         );
       }
 
+      traits['RecentsMetadataTrait'] = RecentsMetadataTrait(
+        songsCount: item.songsCount,
+        recentType: item.recentType.name,
+        contentCategory: item.contentCategory.name,
+        groupName: item.groupName,
+        timestamp: item.timestamp,
+      );
+
       hydratedItems.add(SpotifyEntity(
         uri: item.uri,
         type: type,
@@ -271,12 +283,12 @@ class HomeRepositoryImpl implements HomeRepository {
 
     bool found = false;
     for (int i = 0; i < sections.length; i++) {
-      if (sections[i].sectionType == 'recents') {
+      if (sections[i].sectionType == 'recentsShelf') {
         sections[i] = HomeSection(
           title: sections[i].title.isEmpty ? 'Recents' : sections[i].title,
           items: hydratedItems,
           layout: SectionLayout.carousel,
-          sectionType: 'recents',
+          sectionType: 'recentsShelf',
         );
         found = true;
         break;
@@ -292,7 +304,7 @@ class HomeRepositoryImpl implements HomeRepository {
           title: 'Recents',
           items: hydratedItems,
           layout: SectionLayout.carousel,
-          sectionType: 'recents',
+          sectionType: 'recentsShelf',
         ),
       );
     }
@@ -301,53 +313,6 @@ class HomeRepositoryImpl implements HomeRepository {
   // ═══════════════════════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════════════════════
-
-  static List<_RecentsItem> _parseRecentsItemsSync(Uint8List data) {
-    final items = <_RecentsItem>[];
-
-    try {
-      final response = recents.RecentsListResponse.fromBuffer(data);
-
-      for (final listItem in response.list.items) {
-        final uri = listItem.uri;
-        if (uri.isEmpty) continue;
-
-        int songsCount = 0;
-        bool isSaved = false;
-        bool isGroupHeader = false;
-
-        for (final attr in listItem.attributes.formatAttributes) {
-          switch (attr.key) {
-            case 'group_id_0':
-              isGroupHeader = true;
-            case 'recent_type_saved':
-              isSaved = true;
-            case 'group_metadata':
-              try {
-                final decoded = base64.decode(attr.value);
-                if (decoded.length >= 2 && decoded[0] == 8) {
-                  songsCount = decoded[1];
-                }
-              } catch (e) {
-                dev.log('Recents parse group metadata failed: $e');
-              }
-          }
-        }
-
-        items.add(_RecentsItem(
-          uri: uri,
-          songsCount: songsCount,
-          isSaved: isSaved,
-          isGroupHeader: isGroupHeader,
-        ));
-      }
-    } catch (e) {
-      dev.log('HomeRepository: Recents parse error: $e');
-    }
-
-    dev.log('Recents: ${items.length} items parsed');
-    return items;
-  }
 
   String _specialUriTitle(String uri) {
     return switch (uri) {
@@ -359,18 +324,4 @@ class HomeRepositoryImpl implements HomeRepository {
       _ => '',
     };
   }
-}
-
-class _RecentsItem {
-  final String uri;
-  final int songsCount;
-  final bool isSaved;
-  final bool isGroupHeader;
-
-  const _RecentsItem({
-    required this.uri,
-    this.songsCount = 0,
-    this.isSaved = false,
-    this.isGroupHeader = false,
-  });
 }

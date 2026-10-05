@@ -1,22 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 
-/// Sticky horizontal chip row for filtering home feed (All, Music, Podcasts…).
-class FacetChipRow extends StatefulWidget {
-  final List<String> labels;
-  final ValueChanged<int>? onSelected;
+/// Horizontal filter chip row for home feed facets.
+/// Controlled widget: selectedFacet and onSelected are owned by the parent.
+class FacetChipRow extends StatelessWidget {
+  final HomeFacet selectedFacet;
+  final ValueChanged<HomeFacet> onSelected;
 
   const FacetChipRow({
     super.key,
-    this.labels = const ['All', 'Music', 'Podcasts & Shows'],
-    this.onSelected,
+    required this.selectedFacet,
+    required this.onSelected,
   });
-
-  @override
-  State<FacetChipRow> createState() => _FacetChipRowState();
-}
-
-class _FacetChipRowState extends State<FacetChipRow> {
-  int _selected = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -26,32 +21,31 @@ class _FacetChipRowState extends State<FacetChipRow> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: widget.labels.length,
+        itemCount: HomeFacet.values.length,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final isActive = index == _selected;
+          final facet = HomeFacet.values[index];
+          final isSelected = facet == selectedFacet;
+
           return GestureDetector(
-            onTap: () {
-              setState(() => _selected = index);
-              widget.onSelected?.call(index);
-            },
+            onTap: () => onSelected(facet),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeOut,
               padding: const EdgeInsets.symmetric(horizontal: 14),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: isActive
+                color: isSelected
                     ? const Color(0xFF1DB954)
                     : const Color(0xFF2A2A2A),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                widget.labels[index],
+                facet.label,
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: isActive ? Colors.black : Colors.white,
+                  color: isSelected ? Colors.black : Colors.white,
                 ),
               ),
             ),

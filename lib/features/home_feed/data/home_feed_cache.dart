@@ -9,26 +9,25 @@ import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Disk cache for the home feed response.
 ///
-/// Stores the full HomeViewData (greeting, sections, chips) as a single
-/// JSON blob with a timestamp for TTL-based expiration.
+/// Stores per-facet HomeViewData (greeting, sections, chips) as separate
+/// JSON blobs with timestamps for TTL-based expiration.
 class HomeFeedCache {
   static const _policy = CachePolicy.standard;
-  static const _fileName = 'home_feed.json';
 
   final AppCacheManager _cacheManager;
 
   HomeFeedCache({required AppCacheManager cacheManager})
       : _cacheManager = cacheManager;
 
-  Future<File> _getCacheFile() async {
+  Future<File> _getCacheFile(HomeFacet facet) async {
     final dir = await _cacheManager.featureDir('home');
-    return File('${dir.path}${Platform.pathSeparator}$_fileName');
+    return File('${dir.path}${Platform.pathSeparator}home_feed_${facet.name}.json');
   }
 
   /// Persists the home feed data to disk.
-  Future<void> save(HomeViewData data) async {
+  Future<void> save(HomeViewData data, {HomeFacet facet = HomeFacet.all}) async {
     try {
-      final file = await _getCacheFile();
+      final file = await _getCacheFile(facet);
       final json = {
         'cachedAt': DateTime.now().millisecondsSinceEpoch,
         'greeting': data.greeting,
@@ -53,9 +52,9 @@ class HomeFeedCache {
   }
 
   /// Loads the cached home feed from disk. Returns null if missing or expired.
-  Future<HomeViewData?> load() async {
+  Future<HomeViewData?> load({HomeFacet facet = HomeFacet.all}) async {
     try {
-      final file = await _getCacheFile();
+      final file = await _getCacheFile(facet);
       if (!await file.exists()) return null;
 
       final json =

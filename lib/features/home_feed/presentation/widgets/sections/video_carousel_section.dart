@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -88,10 +89,10 @@ class _VideoPreviewCard extends StatelessWidget {
               AspectRatio(
                 aspectRatio: 16 / 9,
                 child: imageUrl != null
-                    ? Image.network(
-                        imageUrl,
+                    ? CachedNetworkImage(
+                        imageUrl: imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(
+                        errorWidget: (_, _, _) => Container(
                           color: const Color(0xFF282828),
                           child: const Icon(Icons.videocam,
                               color: Colors.white24, size: 48),
@@ -176,12 +177,12 @@ class _VideoPreviewCard extends StatelessWidget {
                   padding: const EdgeInsets.only(right: 10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
-                    child: Image.network(
-                      previewTrait!.imageUrl!,
+                    child: CachedNetworkImage(
+                      imageUrl: previewTrait!.imageUrl!,
                       width: 40,
                       height: 40,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) =>
+                      errorWidget: (_, _, _) =>
                           const SizedBox(width: 40, height: 40),
                     ),
                   ),

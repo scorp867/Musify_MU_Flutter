@@ -15,8 +15,8 @@ class ArtistCircleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = item.fallbackTitle;
-    final imageUrl = item.fallbackImageUrl;
+    final title = item.cardTitle;
+    final imageUrl = item.cardImageUrl;
 
     return SizedBox(
       width: size,

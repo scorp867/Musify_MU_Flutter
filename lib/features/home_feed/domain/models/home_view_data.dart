@@ -1,6 +1,19 @@
 import 'package:equatable/equatable.dart';
 import 'spotify_entity.dart';
 
+/// Spotify home feed facets (filter chips).
+/// Maps 1:1 with Casita endpoint paths: /casita/v1/home/{pathSegment}.
+enum HomeFacet {
+  all(pathSegment: 'default', label: 'All'),
+  music(pathSegment: 'music', label: 'Music'),
+  podcasts(pathSegment: 'podcasts', label: 'Podcasts & Shows');
+
+  final String pathSegment;
+  final String label;
+
+  const HomeFacet({required this.pathSegment, required this.label});
+}
+
 /// Complete home feed data — everything the UI needs.
 class HomeViewData extends Equatable {
   final String greeting;
