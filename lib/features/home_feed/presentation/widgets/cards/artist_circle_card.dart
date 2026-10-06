@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -34,7 +35,7 @@ class ArtistCircleCard extends StatelessWidget {
                 color: const Color(0xFF282828),
                 image: imageUrl != null
                     ? DecorationImage(
-                        image: NetworkImage(imageUrl),
+                        image: CachedNetworkImageProvider(imageUrl),
                         fit: BoxFit.cover,
                       )
                     : null,
