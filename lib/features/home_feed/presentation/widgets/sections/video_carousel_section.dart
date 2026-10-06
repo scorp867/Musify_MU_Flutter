@@ -1,15 +1,18 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/app/di/injection.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Renders video episode sections matching Spotify's official layout.
 ///
 /// Features:
-///   - 16:9 video frame thumbnail with top-left duration badge (e.g. "09:22")
-///   - Clean static display without clutter (playback controls only when actively playing)
-///   - Square show artwork (40x40, 4px rounded corners) next to title and show info
+///   - 16:9 video frame thumbnail with top-left duration badge (e.g. "09:22" or "25:26")
+///   - Right-edge overlay controls: (+) add, mute, play button
+///   - Square show artwork (44x44, 4px rounded corners) next to title and show info
 ///   - Horizontally pageable carousel matching Spotify's podcasts feed
-class VideoCarouselSection extends StatelessWidget {
+class VideoCarouselSection extends StatefulWidget {
   final String title;
   final List<SpotifyEntity> items;
 
@@ -20,18 +23,51 @@ class VideoCarouselSection extends StatelessWidget {
   });
 
   @override
+  State<VideoCarouselSection> createState() => _VideoCarouselSectionState();
+}
+
+class _VideoCarouselSectionState extends State<VideoCarouselSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSectionTraits();
+  }
+
+  @override
+  void didUpdateWidget(covariant VideoCarouselSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items) {
+      _loadSectionTraits();
+    }
+  }
+
+  void _loadSectionTraits() {
+    if (widget.items.isEmpty) return;
+    final pool = getIt<DataPool>();
+    final uris = widget.items.map((e) => e.uri).toList();
+    pool.loadBatch(uris: uris, statement: PreviewCardDataElement.statement);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
+    super.build(context);
+    if (widget.items.isEmpty) return const SizedBox.shrink();
+
+    final pool = getIt<DataPool>();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Section title
-        if (title.isNotEmpty)
+        if (widget.title.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
             child: Text(
-              title,
+              widget.title,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
@@ -42,14 +78,30 @@ class VideoCarouselSection extends StatelessWidget {
           ),
         // Horizontal pageable video cards
         SizedBox(
-          height: 275,
+          height: 285,
           child: PageView.builder(
             controller: PageController(viewportFraction: 0.92),
-            itemCount: items.length,
+            itemCount: widget.items.length,
             itemBuilder: (context, index) {
+              final rawItem = widget.items[index];
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: VideoPreviewCard(entity: items[index]),
+                child: StreamBuilder<Map<String, Trait>>(
+                  stream: pool.watchEntity(rawItem.uri),
+                  initialData: pool.getTraits(rawItem.uri),
+                  builder: (context, snapshot) {
+                    final currentTraits = <String, Trait>{
+                      ...rawItem.traits,
+                      ...?snapshot.data,
+                    };
+                    final item = SpotifyEntity(
+                      uri: rawItem.uri,
+                      type: rawItem.type,
+                      traits: currentTraits,
+                    );
+                    return VideoPreviewCard(entity: item);
+                  },
+                ),
               );
             },
           ),
@@ -73,16 +125,24 @@ class VideoPreviewCard extends StatelessWidget {
 
     final title = videoTrait?.title.isNotEmpty == true
         ? videoTrait!.title
-        : (simpleTrait?.title ?? previewTrait?.title ?? '');
-    final subtitle = videoTrait?.subtitle.isNotEmpty == true
-        ? videoTrait!.subtitle
-        : (simpleTrait?.subtitle ?? previewTrait?.description ?? '');
+        : (simpleTrait?.title.isNotEmpty == true
+            ? simpleTrait!.title
+            : (previewTrait?.title.isNotEmpty == true
+                ? previewTrait!.title
+                : (entity.cardTitle.isNotEmpty ? entity.cardTitle : entity.previewTitle)));
+
+    final showName = previewTrait?.creatorName.isNotEmpty == true
+        ? previewTrait!.creatorName
+        : (simpleTrait?.subtitle.isNotEmpty == true
+            ? simpleTrait!.subtitle
+            : (videoTrait?.subtitle.isNotEmpty == true
+                ? videoTrait!.subtitle
+                : entity.cardSubtitle));
 
     // Video thumbnail (16:9 frame) vs Show artwork (square cover)
     final videoThumbnail = entity.videoThumbnailUrl ?? entity.cardImageUrl;
     final showArtwork = entity.showArtworkUrl ?? entity.cardImageUrl;
     final durationStr = entity.durationString;
-    final isPlaying = videoTrait?.isPlaying ?? false;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,54 +194,34 @@ class VideoPreviewCard extends StatelessWidget {
                   ),
                 ),
 
-              // Overlay playback controls: ONLY displayed when actively playing
-              if (isPlaying) ...[
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: 60,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.6),
-                        ],
-                      ),
-                    ),
+              // Overlay playback controls (Spotify 1:1)
+              Positioned(
+                right: 12,
+                top: 12,
+                child: _overlayIcon(Icons.add_circle_outline_rounded),
+              ),
+              Positioned(
+                right: 12,
+                top: 54,
+                child: _overlayIcon(Icons.volume_off_rounded),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.black,
+                    size: 26,
                   ),
                 ),
-                Positioned(
-                  right: 12,
-                  bottom: 12,
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: Colors.black,
-                      size: 28,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: 12,
-                  top: 50,
-                  child: _overlayIcon(Icons.add_circle_outline_rounded),
-                ),
-                Positioned(
-                  right: 12,
-                  top: 96,
-                  child: _overlayIcon(Icons.volume_off_rounded),
-                ),
-              ],
+              ),
             ],
           ),
         ),
@@ -194,7 +234,7 @@ class VideoPreviewCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Square show artwork (40x40, 4px corners)
+              // Square show artwork (44x44, 4px corners)
               if (showArtwork != null && showArtwork.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(right: 10),
@@ -202,12 +242,12 @@ class VideoPreviewCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                     child: CachedNetworkImage(
                       imageUrl: showArtwork,
-                      width: 40,
-                      height: 40,
+                      width: 44,
+                      height: 44,
                       fit: BoxFit.cover,
                       errorWidget: (_, _, _) => Container(
-                        width: 40,
-                        height: 40,
+                        width: 44,
+                        height: 44,
                         color: const Color(0xFF242424),
                         child: const Icon(Icons.podcasts,
                             color: Colors.white38, size: 20),
@@ -233,10 +273,10 @@ class VideoPreviewCard extends StatelessWidget {
                           height: 1.25,
                         ),
                       ),
-                    if (subtitle.isNotEmpty) ...[
+                    if (showName.isNotEmpty) ...[
                       const SizedBox(height: 3),
                       Text(
-                        subtitle,
+                        showName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -266,13 +306,13 @@ class VideoPreviewCard extends StatelessWidget {
 
   Widget _overlayIcon(IconData icon) {
     return Container(
-      width: 36,
-      height: 36,
+      width: 32,
+      height: 32,
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.5),
+        color: Colors.black.withValues(alpha: 0.65),
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: Colors.white, size: 20),
+      child: Icon(icon, color: Colors.white, size: 18),
     );
   }
 }

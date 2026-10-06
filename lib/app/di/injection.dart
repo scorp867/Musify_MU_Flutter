@@ -23,9 +23,13 @@ import 'package:musify_mu/features/browse/data/browse_repository.dart';
 import 'package:musify_mu/features/browse/domain/repositories/browse_repository.dart';
 import 'package:musify_mu/features/browse/domain/usecases/load_browse.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool_impl.dart';
 import 'package:musify_mu/core/kodiak/dataloader/kodiak_disk_cache.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_client.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
-import 'package:musify_mu/features/home_feed/data/extended_metadata_fetcher.dart';
 import 'package:musify_mu/features/home_feed/data/home_repository.dart';
 import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
 import 'package:musify_mu/features/home_feed/domain/usecases/load_home_feed.dart';
@@ -148,12 +152,41 @@ Future<void> setupInjection() async {
     ),
   );
 
+  // --- Extended Metadata & Kodiak Infrastructure ---
+  getIt.registerLazySingleton<ExtendedMetadataPluginRegistry>(
+    () => ExtendedMetadataPluginRegistry(
+      createDefaultExtendedMetadataPlugins(),
+    ),
+  );
+  getIt.registerLazySingleton<ExtendedMetadataClient>(
+    () => ExtendedMetadataClient(
+      transport: getIt<AndroidTransport>(),
+      ctx: getIt<RuntimeContext>(),
+      registry: getIt<ExtendedMetadataPluginRegistry>(),
+    ),
+  );
+  getIt.registerLazySingleton<ExtendedMetadataDataSourceImpl>(
+    () => ExtendedMetadataDataSourceImpl(
+      client: getIt<ExtendedMetadataClient>(),
+    ),
+  );
+  getIt.registerLazySingleton<KodiakDiskCache>(
+    () => KodiakDiskCache(cacheManager: getIt<AppCacheManager>()),
+  );
+  getIt.registerLazySingleton<DataPool>(
+    () => DataPoolImpl(
+      dataSource: getIt<ExtendedMetadataDataSourceImpl>(),
+      diskCache: getIt<KodiakDiskCache>(),
+    ),
+  );
+
   // --- Online Services ---
   getIt.registerLazySingleton<ExtendedMetadataService>(
     () => ExtendedMetadataService(
       client: getIt<WebPlayerTransport>(),
       ctx: getIt<RuntimeContext>(),
       cacheManager: getIt<AppCacheManager>(),
+      metadataClient: getIt<ExtendedMetadataClient>(),
     ),
   );
   getIt.registerLazySingleton<ColorCache>(
@@ -162,28 +195,12 @@ Future<void> setupInjection() async {
   getIt.registerLazySingleton<ColorExtractionService>(
     () => ColorExtractionService(cache: getIt<ColorCache>()),
   );
-  getIt.registerLazySingleton<ExtendedMetadataFetcher>(
-    () => ExtendedMetadataFetcher(
-      client: getIt<AndroidTransport>(),
-      ctx: getIt<RuntimeContext>(),
-    ),
-  );
-  getIt.registerLazySingleton<KodiakDiskCache>(
-    () => KodiakDiskCache(cacheManager: getIt<AppCacheManager>()),
-  );
-  getIt.registerLazySingleton<DataPool>(
-    () => DataPool(
-      fetcher: getIt<ExtendedMetadataFetcher>(),
-      diskCache: getIt<KodiakDiskCache>(),
-    ),
-  );
   getIt.registerLazySingleton<HomeRepository>(
     () => HomeRepositoryImpl(
       client: getIt<AndroidTransport>(),
       ctx: getIt<RuntimeContext>(),
       cacheManager: getIt<AppCacheManager>(),
       dataPool: getIt<DataPool>(),
-      metadataFetcher: getIt<ExtendedMetadataFetcher>(),
     ),
   );
   getIt.registerLazySingleton<BrowseRepository>(

@@ -28,7 +28,7 @@ class PreviewTraitProvider implements SectionTraitProvider {
   int get sectionId => 4;
   @override
   Map<int, List<int>> getTraitRequirements() => {
-    2: [118, 116], // PREVIEW_CARD_TRAIT, AUDIO_PREVIEW_PLAYBACK_TRAIT
+    2: [118, 116, 179, 12], // PREVIEW_CARD_TRAIT, AUDIO_PREVIEW_PLAYBACK_TRAIT, VISUAL_IDENTITY_TRAIT, EPISODE_V4
   };
 }
 

@@ -3,6 +3,7 @@ import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/cards/episode_preview_card.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/preview_card.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';
 
@@ -82,17 +83,22 @@ class _PreviewFeedSectionState extends State<PreviewFeedSection>
                   stream: pool.watchEntity(widget.items[i].uri),
                   initialData: pool.getTraits(widget.items[i].uri),
                   builder: (context, snapshot) {
-                    final currentTraits = snapshot.data ?? widget.items[i].traits;
+                    final currentTraits = <String, Trait>{
+                      ...widget.items[i].traits,
+                      ...?snapshot.data,
+                    };
                     final item = SpotifyEntity(
                       uri: widget.items[i].uri,
                       type: widget.items[i].type,
                       traits: currentTraits,
                     );
 
-                    // 1. If entity has a video trait, render a video preview card
+                    // 1. If entity has video traits or metadata, render a video preview card
                     final videoTrait = item.getTrait<VideoCardTrait>();
-                    if (videoTrait != null) {
+                    if (videoTrait != null || item.hasVideo || item.videoThumbnailUrl != null) {
                       return VideoPreviewCard(entity: item);
+                    } else if (item.type == ContentType.episode || item.uri.contains(':episode:')) {
+                      return EpisodePreviewCard(item: item);
                     }
 
                     // 2. Otherwise render preview card with PreviewCardTrait (or synthesized fallback)

@@ -81,7 +81,10 @@ class _EpisodeListSectionState extends State<EpisodeListSection>
             stream: pool.watchEntity(item.uri),
             initialData: pool.getTraits(item.uri),
             builder: (context, snapshot) {
-              final currentTraits = snapshot.data ?? item.traits;
+              final currentTraits = <String, Trait>{
+                ...item.traits,
+                ...?snapshot.data,
+              };
               final entity = SpotifyEntity(
                 uri: item.uri,
                 type: item.type,

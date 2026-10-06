@@ -10,6 +10,7 @@ import 'package:musify_mu/features/home_feed/presentation/widgets/sections/inlin
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/interactive_prompt_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/live_event_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/play_link_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/podcast_preview_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_feed_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/promotion_banner_section.dart';
@@ -36,9 +37,11 @@ class SectionRegistry {
       case 'recentsShelf':
         return RecentsCarouselSection(title: section.title, items: section.items);
 
-      // ── Preview & Immersive Preview (Tag 4 & 6: p.kkn0 / p.hif0 -> u9p0) ─
-      // Both render Spotify's Preview Card layout (colored background card, album art, play button)
+      // ── Podcast & Video Feed Previews (Tag 4: p.kkn0 -> vab0/wab0/xab0) ─
       case 'preview':
+        return PodcastPreviewSection(title: section.title, items: section.items);
+
+      // ── Immersive Music Previews (Tag 6: p.hif0 -> iab0/jab0/kab0) ─────
       case 'immersivePreview':
       case 'associatedPreview':
         return PreviewFeedSection(title: section.title, items: section.items);

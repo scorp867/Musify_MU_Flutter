@@ -9,7 +9,6 @@ import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 import 'package:musify_mu/features/home_feed/data/casita_parser.dart';
 import 'package:musify_mu/features/home_feed/data/eagerload/eagerload_payload_builder.dart';
-import 'package:musify_mu/features/home_feed/data/extended_metadata_fetcher.dart';
 import 'package:musify_mu/features/home_feed/data/home_feed_cache.dart';
 import 'package:musify_mu/features/home_feed/data/recents_parser.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
@@ -48,7 +47,6 @@ class HomeRepositoryImpl implements HomeRepository {
     required RuntimeContext ctx,
     required AppCacheManager cacheManager,
     required DataPool dataPool,
-    ExtendedMetadataFetcher? metadataFetcher,
   })  : _client = client,
         _ctx = ctx,
         _cache = HomeFeedCache(cacheManager: cacheManager),
@@ -89,17 +87,13 @@ class HomeRepositoryImpl implements HomeRepository {
   Future<HomeViewData?> fetchFresh({HomeFacet facet = HomeFacet.all}) async {
     try {
       // Step 1: Fetch Casita home + recents in parallel
-      final futures = <Future>[_fetchCasitaHome(facet)];
-      if (facet == HomeFacet.all) {
-        futures.add(_fetchRecentsItems());
-      }
-
-      final results = await Future.wait(futures);
+      final results = await Future.wait([
+        _fetchCasitaHome(facet),
+        _fetchRecentsItems(facet),
+      ]);
 
       final casitaBytes = results[0] as Uint8List?;
-      final recentItems = facet == HomeFacet.all
-          ? results[1] as List<RecentsItem>
-          : <RecentsItem>[];
+      final recentItems = results[1] as List<RecentsItem>;
 
       if (casitaBytes == null || casitaBytes.isEmpty) return null;
 
@@ -112,8 +106,13 @@ class HomeRepositoryImpl implements HomeRepository {
         '${sections.map((s) => s.sectionType).toList()}',
       );
 
-      // Ingest Casita preloaded traits into Kodiak DataPool
-      _dataPool.ingestBatch(casitaResult.traits);
+      // Ingest Casita preloaded traits into Kodiak DataPool (1:1 with Spotify z510.d -> t1w.f)
+      if (casitaResult.traits.isNotEmpty) {
+        _dataPool.ingestBatch(casitaResult.traits);
+      }
+      if (casitaResult.eagerCells.isNotEmpty) {
+        _dataPool.ingestCells(casitaResult.eagerCells);
+      }
 
       // Step 3: Inject recents into the recents section and ingest into DataPool
       if (recentItems.isNotEmpty) {
@@ -149,16 +148,16 @@ class HomeRepositoryImpl implements HomeRepository {
     return _client.get(path);
   }
 
-  Future<List<RecentsItem>> _fetchRecentsItems() async {
+  Future<List<RecentsItem>> _fetchRecentsItems(HomeFacet facet) async {
     try {
       final data = await _client.get(
-        '/playlist/v2/list/recents/main',
+        facet.recentsPath,
         extraHeaders: _playlistHeaders,
       );
       if (data == null || data.isEmpty) return [];
       return await Isolate.run(() => parseRecentsItems(data));
     } catch (e) {
-      dev.log('HomeRepository: Recents fetch failed: $e');
+      dev.log('HomeRepository: Recents fetch failed for ${facet.name}: $e');
       return [];
     }
   }
@@ -214,6 +213,7 @@ class HomeRepositoryImpl implements HomeRepository {
         contentCategory: item.contentCategory.name,
         groupName: item.groupName,
         timestamp: item.timestamp,
+        entityUris: item.entityUris,
       );
 
       _dataPool.ingestTraits(item.uri, traits);
@@ -259,8 +259,12 @@ class HomeRepositoryImpl implements HomeRepository {
   // ═══════════════════════════════════════════════════════════════════
 
   String _specialUriTitle(String uri) {
+    if (uri == 'spotify:collection:tracks' ||
+        uri.endsWith(':collection') ||
+        uri == 'spotify:collection') {
+      return 'Liked Songs';
+    }
     return switch (uri) {
-      'spotify:collection:tracks' => 'Liked Songs',
       'spotify:collection:your-episodes' => 'Your Episodes',
       'spotify:collection:podcasts' => 'Your Podcasts',
       'spotify:collection:albums' => 'Saved Albums',

@@ -4,14 +4,19 @@ import 'spotify_entity.dart';
 /// Spotify home feed facets (filter chips).
 /// Maps 1:1 with Casita endpoint paths: /casita/v1/home/{pathSegment}.
 enum HomeFacet {
-  all(pathSegment: 'default', label: 'All'),
-  music(pathSegment: 'music', label: 'Music'),
-  podcasts(pathSegment: 'podcasts', label: 'Podcasts & Shows');
+  all(pathSegment: 'default', label: 'All', recentsPath: '/playlist/v2/list/recents/main'),
+  music(pathSegment: 'music-chip', label: 'Music', recentsPath: '/playlist/v2/list/recents/music'),
+  podcasts(pathSegment: 'podcasts-chip', label: 'Podcasts', recentsPath: '/playlist/v2/list/recents/podcasts');
 
   final String pathSegment;
   final String label;
+  final String recentsPath;
 
-  const HomeFacet({required this.pathSegment, required this.label});
+  const HomeFacet({
+    required this.pathSegment,
+    required this.label,
+    required this.recentsPath,
+  });
 }
 
 /// Complete home feed data — everything the UI needs.
@@ -23,7 +28,7 @@ class HomeViewData extends Equatable {
   static const List<HomeChip> defaultChips = [
     HomeChip(id: 'all', label: 'All'),
     HomeChip(id: 'music', label: 'Music'),
-    HomeChip(id: 'podcasts', label: 'Podcasts & Shows'),
+    HomeChip(id: 'podcasts', label: 'Podcasts'),
   ];
 
   const HomeViewData({

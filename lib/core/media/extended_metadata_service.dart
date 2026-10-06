@@ -2,18 +2,17 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
-import 'dart:isolate';
-import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/core/cache/cache_policy.dart';
-import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
-import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
-import 'package:musify_mu/core/protocol/generated/spotify/metadata.pb.dart'
-    as meta_pb;
 import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_client.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
+import 'package:musify_mu/core/kodiak/table/cell_key.dart';
+import 'package:musify_mu/core/kodiak/table/table_key.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 
 /// Resolved metadata for a single track or episode.
 ///
@@ -51,8 +50,6 @@ class TrackMeta {
   });
 }
 
-const _imageCdnPrefix = 'https://i.scdn.co/image/';
-
 /// App-wide centralized service for fetching and caching entity metadata
 /// via the extended-metadata endpoint.
 ///
@@ -65,8 +62,7 @@ const _imageCdnPrefix = 'https://i.scdn.co/image/';
 ///   - Now Playing / Queue: track info display
 ///   - Playback: duration, title, artist
 class ExtendedMetadataService {
-  final SpotifyTransport _client;
-  final RuntimeContext _ctx;
+  final ExtendedMetadataClient _metadataClient;
 
   // Layer 1: In-memory LRU for zero-cost reads.
   final _memCache = _LruCache<String, TrackMeta>(2000);
@@ -80,8 +76,15 @@ class ExtendedMetadataService {
     required SpotifyTransport client,
     required RuntimeContext ctx,
     required AppCacheManager cacheManager,
-  })  : _client = client,
-        _ctx = ctx,
+    ExtendedMetadataClient? metadataClient,
+  })  : _metadataClient = metadataClient ??
+            ExtendedMetadataClient(
+              transport: client,
+              ctx: ctx,
+              registry: ExtendedMetadataPluginRegistry(
+                createDefaultExtendedMetadataPlugins(),
+              ),
+            ),
         _diskCache = _TrackMetaDiskCache(cacheManager: cacheManager);
 
   /// Loads disk cache into memory (called once lazily).
@@ -177,14 +180,29 @@ class ExtendedMetadataService {
 
   Future<Map<String, TrackMeta>> _fetchBatch(List<String> uris) async {
     try {
-      final payload = _buildRequest(uris);
-      final response = await _client.post(
-        '/extended-metadata/v0/extended-metadata',
-        Uint8List.fromList(payload),
-      );
-      if (response == null) return {};
-
-      return await Isolate.run(() => _parseResponse(response));
+      final keys = uris.map((u) {
+        if (u.startsWith('spotify:episode:')) {
+          return CellKey(const TableKey<EpisodeMetaTrait>(), u);
+        }
+        return CellKey(const TableKey<TrackMetaTrait>(), u);
+      }).toSet();
+      final cells = await _metadataClient.fetchCells(keys);
+      final results = <String, TrackMeta>{};
+      for (final entry in cells.entries) {
+        final trait = entry.value;
+        if (trait is TrackMetaTrait) {
+          results[entry.key.entityUri] = TrackMeta(
+            uri: entry.key.entityUri,
+            title: trait.title,
+            subtitle: trait.subtitle,
+            albumName: trait.albumName,
+            imageUrls: trait.imageUrls,
+            largeImageHex: trait.largeImageHex,
+            durationMs: trait.durationMs,
+          );
+        }
+      }
+      return results;
     } catch (e, st) {
       dev.log(
         'ExtMetadataService batch error: $e',
@@ -194,175 +212,6 @@ class ExtendedMetadataService {
       );
       return {};
     }
-  }
-
-  List<int> _buildRequest(List<String> uris) {
-    final taskId = List<int>.generate(16, (_) => Random().nextInt(256));
-
-    final request = BatchedEntityRequest()
-      ..header = (BatchedEntityRequestHeader()
-        ..country = _ctx.country
-        ..catalogue = _ctx.catalogue
-        ..taskId = taskId);
-
-    for (final uri in uris) {
-      final entityReq = EntityRequest()..entityUri = uri;
-
-      // Ask for TRACK_V4 for tracks, EPISODE_V4 for episodes.
-      if (uri.startsWith('spotify:track:')) {
-        entityReq.query.add(
-          ExtensionQuery()..extensionKind = ExtensionKind.TRACK_V4,
-        );
-      } else if (uri.startsWith('spotify:episode:')) {
-        entityReq.query.add(
-          ExtensionQuery()..extensionKind = ExtensionKind.EPISODE_V4,
-        );
-      } else {
-        // Fallback: request TRACK_V4 (works for most entities).
-        entityReq.query.add(
-          ExtensionQuery()..extensionKind = ExtensionKind.TRACK_V4,
-        );
-      }
-
-      request.entityRequest.add(entityReq);
-    }
-
-    return request.writeToBuffer();
-  }
-
-  // ─── Parsing (static, runs in isolate) ────────────────────────────
-
-  static Map<String, TrackMeta> _parseResponse(Uint8List data) {
-    final results = <String, TrackMeta>{};
-    final response = BatchedExtensionResponse.fromBuffer(data);
-
-    for (final array in response.extendedMetadata) {
-      final kindValue = array.extensionKind.value;
-
-      for (final extData in array.extensionData) {
-        final uri = extData.entityUri;
-        if (uri.isEmpty || !extData.hasExtensionData()) continue;
-
-        final payload = extData.extensionData.value;
-        if (payload.isEmpty) continue;
-
-        try {
-          TrackMeta? meta;
-          if (kindValue == 10) {
-            // TRACK_V4
-            meta = _parseTrackV4(uri, payload);
-          } else if (kindValue == 12) {
-            // EPISODE_V4
-            meta = _parseEpisodeV4(uri, payload);
-          }
-          if (meta != null) {
-            results[uri] = meta;
-          }
-        } catch (e) {
-          dev.log('Parse metadata payload failed: $e');
-        }
-      }
-    }
-
-    return results;
-  }
-
-  static TrackMeta? _parseTrackV4(String uri, List<int> payload) {
-    final track = meta_pb.Track.fromBuffer(payload);
-
-    final title = track.name;
-    final artists = track.artist.map((a) => a.name).where((n) => n.isNotEmpty);
-    final albumName = track.hasAlbum() ? track.album.name : '';
-    final duration = track.hasDuration() ? track.duration : 0;
-
-    final imageUrls = <String, String>{};
-    String? largeImageHex;
-
-    if (track.hasAlbum() && track.album.hasCoverGroup()) {
-      for (final image in track.album.coverGroup.image) {
-        if (!image.hasFileId() || image.fileId.isEmpty) continue;
-
-        final hex = image.fileId
-            .map((b) => b.toRadixString(16).padLeft(2, '0'))
-            .join();
-        final url = '$_imageCdnPrefix$hex';
-
-        switch (image.size) {
-          case meta_pb.Image_Size.SMALL:
-            imageUrls['small'] = url;
-            break;
-          case meta_pb.Image_Size.LARGE:
-            imageUrls['medium'] = url; // LARGE = ~300px = medium slot
-            largeImageHex ??= hex; // Use for mosaic if no bigger available
-            break;
-          case meta_pb.Image_Size.XLARGE:
-            imageUrls['large'] = url;
-            largeImageHex = hex; // Prefer XLARGE hex for mosaic
-            break;
-          default:
-            imageUrls.putIfAbsent('medium', () => url);
-            largeImageHex ??= hex;
-        }
-      }
-    }
-
-    return TrackMeta(
-      uri: uri,
-      title: title,
-      subtitle: artists.join(', '),
-      albumName: albumName,
-      imageUrls: imageUrls,
-      largeImageHex: largeImageHex,
-      durationMs: duration,
-    );
-  }
-
-  static TrackMeta? _parseEpisodeV4(String uri, List<int> payload) {
-    final episode = meta_pb.Episode.fromBuffer(payload);
-
-    final title = episode.name;
-    final showName =
-        (episode.hasShow() && episode.show.hasName()) ? episode.show.name : '';
-    final duration = episode.hasDuration() ? episode.duration : 0;
-
-    final imageUrls = <String, String>{};
-    String? largeImageHex;
-
-    if (episode.hasCoverImage()) {
-      for (final image in episode.coverImage.image) {
-        if (!image.hasFileId() || image.fileId.isEmpty) continue;
-
-        final hex = image.fileId
-            .map((b) => b.toRadixString(16).padLeft(2, '0'))
-            .join();
-        final url = '$_imageCdnPrefix$hex';
-
-        switch (image.size) {
-          case meta_pb.Image_Size.SMALL:
-            imageUrls['small'] = url;
-            break;
-          case meta_pb.Image_Size.LARGE:
-            imageUrls['large'] = url;
-            largeImageHex = hex;
-            break;
-          case meta_pb.Image_Size.XLARGE:
-            imageUrls['large'] = url;
-            largeImageHex = hex;
-            break;
-          default:
-            imageUrls.putIfAbsent('medium', () => url);
-        }
-      }
-    }
-
-    return TrackMeta(
-      uri: uri,
-      title: title,
-      subtitle: showName,
-      durationMs: duration,
-      imageUrls: imageUrls,
-      largeImageHex: largeImageHex,
-    );
   }
 }
 

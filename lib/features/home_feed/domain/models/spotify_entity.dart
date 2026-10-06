@@ -64,6 +64,22 @@ class SpotifyEntity {
     return '';
   }
 
+  /// Standard card subtitle: prioritizes SimpleCardTrait -> PreviewCardTrait -> TrackMetaTrait -> VideoCardTrait -> IdentityTrait.
+  String get cardSubtitle {
+    final simple = getTrait<SimpleCardTrait>();
+    if (simple != null && simple.subtitle.isNotEmpty) return simple.subtitle;
+    final preview = getTrait<PreviewCardTrait>();
+    if (preview != null && preview.creatorName.isNotEmpty) return preview.creatorName;
+    if (preview != null && preview.description.isNotEmpty) return preview.description;
+    final trackMeta = getTrait<TrackMetaTrait>();
+    if (trackMeta != null && trackMeta.subtitle.isNotEmpty) return trackMeta.subtitle;
+    final video = getTrait<VideoCardTrait>();
+    if (video != null && video.subtitle.isNotEmpty) return video.subtitle;
+    final identity = getTrait<IdentityTrait>();
+    if (identity != null && identity.description.isNotEmpty) return identity.description;
+    return '';
+  }
+
   String? get cardImageUrl {
     return getTrait<VisualIdentityTrait>()?.squareCoverUrl
         ?? getTrait<SimpleCardTrait>()?.imageUrl
@@ -108,18 +124,25 @@ class SpotifyEntity {
     if (at?.videoPlaceholderImageUrl != null && at!.videoPlaceholderImageUrl.isNotEmpty) {
       return at.videoPlaceholderImageUrl;
     }
+    if (hasVideo) {
+      return previewImageUrl ?? cardImageUrl;
+    }
     return null;
   }
 
-  /// Show/podcast artwork (square): prioritizes VisualIdentityTrait (square) -> VideoCardTrait -> cardImageUrl.
+  /// Show/podcast artwork (square): prioritizes creatorImageUrl (from PreviewCardTrait/ContentParent) -> VideoCardTrait -> VisualIdentityTrait (square) -> cardImageUrl.
   String? get showArtworkUrl {
-    final vit = getTrait<VisualIdentityTrait>();
-    if (vit?.squareCoverUrl != null && vit!.squareCoverUrl!.isNotEmpty) {
-      return vit.squareCoverUrl;
+    final preview = getTrait<PreviewCardTrait>();
+    if (preview?.creatorImageUrl != null && preview!.creatorImageUrl.isNotEmpty) {
+      return preview.creatorImageUrl;
     }
     final vt = getTrait<VideoCardTrait>();
     if (vt?.showArtworkUrl != null && vt!.showArtworkUrl!.isNotEmpty) {
       return vt.showArtworkUrl;
+    }
+    final vit = getTrait<VisualIdentityTrait>();
+    if (vit?.squareCoverUrl != null && vit!.squareCoverUrl!.isNotEmpty) {
+      return vit.squareCoverUrl;
     }
     return cardImageUrl;
   }
@@ -128,6 +151,13 @@ class SpotifyEntity {
   String get durationString {
     final vt = getTrait<VideoCardTrait>();
     if (vt != null && vt.durationString.isNotEmpty) return vt.durationString;
+    final ep = getTrait<EpisodeMetaTrait>();
+    if (ep != null && ep.durationMs > 0) {
+      final totalSec = ep.durationMs ~/ 1000;
+      final m = totalSec ~/ 60;
+      final s = totalSec % 60;
+      return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    }
     return '';
   }
 
@@ -144,6 +174,16 @@ class SpotifyEntity {
     final pt = getTrait<PreviewPlaybackTrait>();
     if (pt?.hasVideo == true) {
       return true;
+    }
+    final at = getTrait<AudioPreviewPlaybackTrait>();
+    if (at != null && (at.videoFileId.isNotEmpty || at.videoPlaceholderImageUrl.isNotEmpty)) {
+      return true;
+    }
+    final pct = getTrait<PreviewCardTrait>();
+    if (pct != null) {
+      if (pct.contentTypeName.toLowerCase().contains('video')) return true;
+      if (pct.previewLabel.toLowerCase().contains('video')) return true;
+      if (pct.tags.any((t) => t.toLowerCase().contains('video'))) return true;
     }
     return false;
   }

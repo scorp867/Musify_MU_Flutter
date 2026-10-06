@@ -126,30 +126,13 @@ class HomeFeedBloc extends Bloc<HomeFeedEvent, HomeFeedState> {
     if (event.facet == _activeFacet) return;
     _activeFacet = event.facet;
 
-    // Try to show cached data for this facet immediately
-    final currentData = switch (state) {
-      HomeFeedLoaded(:final data) => data,
-      HomeFeedError(:final staleData) => staleData,
-      _ => null,
-    };
-
-    // Emit refreshing state with current data while we fetch
-    if (currentData != null) {
-      emit(HomeFeedLoaded(currentData, isRefreshing: true, activeFacet: _activeFacet));
-    } else {
-      emit(const HomeFeedLoading());
-    }
+    emit(const HomeFeedLoading());
 
     // SWR: stream cached then fresh for the new facet
     await emit.forEach(
       _loadHomeFeed(facet: _activeFacet),
       onData: (data) => HomeFeedLoaded(data, activeFacet: _activeFacet),
-      onError: (error, _) {
-        if (currentData != null) {
-          return HomeFeedLoaded(currentData, activeFacet: _activeFacet);
-        }
-        return HomeFeedError(error.toString());
-      },
+      onError: (error, _) => HomeFeedError(error.toString()),
     );
   }
 }

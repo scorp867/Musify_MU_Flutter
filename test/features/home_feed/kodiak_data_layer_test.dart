@@ -1,14 +1,24 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
-import 'package:musify_mu/core/kodiak/statement/data_requirement.dart';
-import 'package:musify_mu/core/kodiak/statement/data_statement.dart';
-import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool_impl.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/kodiak_cell_mapper.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
+import 'package:musify_mu/core/kodiak/table/cell_key.dart';
+import 'package:musify_mu/core/kodiak/table/data_source_result.dart';
+import 'package:musify_mu/core/kodiak/table/table_key.dart';
 import 'package:musify_mu/features/home_feed/data/eagerload/eagerload_payload_builder.dart';
 import 'package:musify_mu/features/home_feed/data/elements/image_link_card_data_element.dart';
+import 'package:musify_mu/features/home_feed/data/elements/podcast_preview_data_element.dart';
 import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
-import 'package:musify_mu/features/home_feed/data/extended_metadata_fetcher.dart';
+import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
+import 'package:musify_mu/features/home_feed/presentation/section_registry.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/podcast_preview_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_feed_section.dart';
 
 void main() {
   group('Kodiak DataStatement & DataRequirement', () {
@@ -33,17 +43,63 @@ void main() {
       expect(stmt.requiredRequirements.map((r) => r.extensionKindValue), containsAll([118, 116]));
       expect(stmt.optionalRequirements.map((r) => r.extensionKindValue), containsAll([178, 179, 181, 31]));
     });
+
+    test('PodcastPreviewDataElement declares required and optional traits', () {
+      final stmt = PodcastPreviewDataElement.statement;
+      expect(stmt.optionalRequirements.map((r) => r.extensionKindValue),
+          containsAll([118, 116, 178, 179, 181, 12, 97, 31]));
+    });
+
+    test('SectionRegistry decouples preview from immersivePreview', () {
+      const registry = SectionRegistry();
+      final previewSection = registry.buildSection(
+        const HomeSection(title: 'Similar to your interests', sectionType: 'preview'),
+      );
+      expect(previewSection, isA<PodcastPreviewSection>());
+
+      final immersiveSection = registry.buildSection(
+        const HomeSection(title: 'Based on your recent listening', sectionType: 'immersivePreview'),
+      );
+      expect(immersiveSection, isA<PreviewFeedSection>());
+    });
   });
 
-  group('Kodiak DataPool', () {
+  group('Kodiak DataPool & ExtendedMetadataDataSourceImpl (1:1 Spotify)', () {
     late DataPool dataPool;
+    late ExtendedMetadataDataSourceImpl dataSource;
 
     setUp(() {
-      dataPool = DataPool();
+      dataSource = ExtendedMetadataDataSourceImpl();
+      dataPool = DataPoolImpl(dataSource: dataSource);
     });
 
     tearDown(() {
       dataPool.dispose();
+      dataSource.dispose();
+    });
+
+    test('ingestCells (t1w.f) warms up cache synchronously without network delay', () {
+      const uri = 'spotify:album:eager123';
+      final simple = const SimpleCardTrait(title: 'Eager Title', subtitle: 'Eager Subtitle');
+      final identity = const IdentityTrait(name: 'Identity Title');
+
+      final cell1 = CellKey(const TableKey<SimpleCardTrait>(), uri);
+      final cell2 = CellKey(const TableKey<IdentityTrait>(), uri);
+
+      // Warm up Kodiak cache exactly like ResolvedHome parser (z510.java:125 -> t1w.f)
+      dataPool.ingestCells({
+        cell1: simple,
+        cell2: identity,
+      });
+
+      // Data is immediately available (Available) without network call
+      final r1 = dataSource.getCached({cell1})[cell1];
+      expect(r1, isA<Available>());
+      expect((r1 as Available).value, equals(simple));
+
+      expect(dataPool.getTrait<SimpleCardTrait>(uri)?.title, equals('Eager Title'));
+      expect(dataPool.getTrait<IdentityTrait>(uri)?.title, equals('Identity Title'));
+      expect(dataPool.getTrait<VisualIdentityTrait>(uri), isNull);
     });
 
     test('ingestTraits stores and retrieves traits correctly', () {
@@ -97,30 +153,26 @@ void main() {
       expect(emissions.isNotEmpty, isTrue);
       expect(emissions.last['IdentityTrait'], isNotNull);
     });
+  });
 
-    test('loadBatch records resolved kinds and skips subsequent queries for optional traits', () async {
-      final mockFetcher = _MockExtendedMetadataFetcher();
-      final pool = DataPool(fetcher: mockFetcher);
+  group('BatchedExtensionResponseParser & KodiakCellMapper', () {
+    test('KodiakCellMapper maps nested map to flat CellKey map (p.aba1.r)', () {
+      final registry = ExtendedMetadataPluginRegistry(createDefaultExtendedMetadataPlugins());
+      expect(registry.pluginForKind(97), isA<SimpleCardTraitPlugin>());
+      expect(registry.pluginForKind(10), isA<TrackV4Plugin>());
 
-      const uri = 'spotify:album:cached_test';
-      final stmt = ImageLinkCardDataElement.statement;
+      final traitsMap = {
+        'spotify:album:xyz': {
+          SimpleCardTrait: const SimpleCardTrait(title: 'Test Album', subtitle: 'Artist'),
+        },
+      };
 
-      // First load: queries all 6 kinds
-      await pool.loadBatch(uris: [uri], statement: stmt);
-      expect(mockFetcher.callCount, equals(1));
-      expect(mockFetcher.lastQueries[uri], containsAll([97, 178, 179, 31, 52, 64]));
+      final cells = KodiakCellMapper.map(traitsMap);
+      expect(cells.length, equals(1));
 
-      // Verify that even though traits 179, 31, 52, 64 were not returned by backend,
-      // DataPool marked them as resolved
-      expect(pool.isKindResolved(uri, 31), isTrue);
-      expect(pool.isKindResolved(uri, 52), isTrue);
-      expect(pool.isKindResolved(uri, 64), isTrue);
-
-      // Second load: same section comes into viewport again
-      await pool.loadBatch(uris: [uri], statement: stmt);
-
-      // NO redundant network request made!
-      expect(mockFetcher.callCount, equals(1));
+      final key = CellKey(const TableKey<SimpleCardTrait>(), 'spotify:album:xyz');
+      expect(cells.containsKey(key), isTrue);
+      expect((cells[key] as SimpleCardTrait).title, equals('Test Album'));
     });
   });
 
@@ -150,28 +202,4 @@ void main() {
       expect(mapping.containsKey('18'), isTrue);
     });
   });
-}
-
-class _MockExtendedMetadataFetcher implements ExtendedMetadataFetcher {
-  int callCount = 0;
-  Map<String, List<int>> lastQueries = {};
-
-  @override
-  Future<Map<String, Map<String, Trait>>> fetchEntityTraits(
-    Map<String, List<int>> entityQueries,
-  ) async {
-    callCount++;
-    lastQueries = entityQueries;
-    final res = <String, Map<String, Trait>>{};
-    for (final uri in entityQueries.keys) {
-      res[uri] = {
-        'SimpleCardTrait': const SimpleCardTrait(title: 'Album', subtitle: 'Artist'),
-        'IdentityTrait': const IdentityTrait(name: 'Album'),
-      };
-    }
-    return res;
-  }
-
-  @override
-  Future<Map<String, SimpleCardTrait>> fetchTraits(List<String> uris) async => {};
 }

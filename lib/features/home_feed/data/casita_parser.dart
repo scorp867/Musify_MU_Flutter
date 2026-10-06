@@ -3,11 +3,11 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/casita/resolved.pb.dart' as casita;
-import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/identity_trait.pb.dart' as it;
-import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/visual_identity_trait.pb.dart' as vit;
-import 'package:musify_mu/core/protocol/generated/spotify/traits/preview_card_trait.pb.dart' as pct;
-import 'package:musify_mu/core/protocol/generated/spotify/traits/shortcuts_card_trait.pb.dart' as sct;
-import 'package:musify_mu/core/protocol/generated/spotify/traits/simple_card_trait.pb.dart' as sct2;
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/batched_extension_response_parser.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/kodiak_cell_mapper.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
+import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/features/home_feed/data/section_mapper.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
@@ -18,12 +18,15 @@ import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 /// (extracted from the decompiled APK) instead of manual binary parsing.
 class CasitaParser {
   final Uint8List data;
+  final ExtendedMetadataPluginRegistry _registry;
 
   /// URI -> { traitTypeName -> Trait } lookup
   final Map<String, Map<String, Trait>> _traits = {};
 
-  CasitaParser(this.data);
-  CasitaParser._(this.data);
+  CasitaParser(this.data, [ExtendedMetadataPluginRegistry? registry])
+      : _registry = registry ??
+            ExtendedMetadataPluginRegistry(createDefaultExtendedMetadataPlugins());
+  CasitaParser._(this.data, this._registry);
 
   /// Result of parsing a Casita response.
   Future<CasitaResult> parse() async {
@@ -33,7 +36,9 @@ class CasitaParser {
 
   /// Synchronous parsing -- runs in background isolate.
   static CasitaResult _parseSync(Uint8List data) {
-    final parser = CasitaParser._(data);
+    final registry =
+        ExtendedMetadataPluginRegistry(createDefaultExtendedMetadataPlugins());
+    final parser = CasitaParser._(data, registry);
     return parser._doParse();
   }
 
@@ -42,10 +47,24 @@ class CasitaParser {
       _traits.clear();
 
       final home = casita.ResolvedHome.fromBuffer(data);
+      Map<CellKey, Trait> eagerCells = const {};
 
       try {
-        _parseEagerlyLoadedTraits(home.eagerlyLoadedTraits);
-        dev.log('CasitaParser: ${_traits.length} URIs loaded from repository');
+        if (home.hasEagerlyLoadedTraits() && home.eagerlyLoadedTraits.hasTraits()) {
+          final parsed = BatchedExtensionResponseParser.parseProtobuf(
+            home.eagerlyLoadedTraits.traits,
+            _registry,
+          );
+          eagerCells = KodiakCellMapper.map(parsed);
+          for (final entry in parsed.entries) {
+            final uri = entry.key;
+            final map = _traits.putIfAbsent(uri, () => {});
+            for (final traitEntry in entry.value.entries) {
+              map[traitEntry.key.toString()] = traitEntry.value;
+            }
+          }
+        }
+        dev.log('CasitaParser: ${eagerCells.length} eager cells loaded via plugin registry');
       } catch (e) {
         dev.log('CasitaParser: Eager traits failed (non-critical): $e');
       }
@@ -104,244 +123,31 @@ class CasitaParser {
         );
       }).toList();
 
-      final chips = <HomeChip>[];
-      for (final sec in hydratedSections) {
-        if (sec.sectionType == 'anchors') {
-          for (final item in sec.items) {
-            final simple = item.getTrait<SimpleCardTrait>();
-            final label = simple?.title.isNotEmpty == true
-                ? simple!.title
-                : (item.uri.split(':').isNotEmpty ? item.uri.split(':').last : item.uri);
-            chips.add(HomeChip(id: item.uri, label: label));
-          }
-        }
-      }
-
       final filteredSections = hydratedSections.where((s) => s.sectionType != 'anchors').toList();
 
-      dev.log('CasitaParser: ${filteredSections.length} sections, $hydrated items hydrated, ${chips.length} chips');
+      dev.log('CasitaParser: ${filteredSections.length} sections, $hydrated items hydrated');
       return CasitaResult(
         homeData: HomeViewData(
           sections: filteredSections,
-          chips: chips.isNotEmpty ? chips : HomeViewData.defaultChips,
+          chips: HomeViewData.defaultChips,
         ),
         ondemandUris: ondemandUris,
         traits: Map.of(_traits),
+        eagerCells: eagerCells,
       );
     } catch (e, stack) {
       dev.log('CasitaParser: $e\n$stack');
       return CasitaResult(
         homeData: const HomeViewData(),
         ondemandUris: const [],
+        eagerCells: const {},
       );
     }
   }
 
   Map<String, Trait>? traitsForUri(String uri) => _traits[uri] ?? _traits[uri.toLowerCase()];
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Repository / EagerlyLoadedTraits parsing
-  // ═══════════════════════════════════════════════════════════════════
 
-  void _parseEagerlyLoadedTraits(casita.EagerlyLoadedTraits eagerTraits) {
-    final batchedResponse = eagerTraits.traits;
-
-    for (final dataArray in batchedResponse.extendedMetadata) {
-      for (final extData in dataArray.extensionData) {
-        final uri = extData.entityUri;
-        if (uri.isEmpty) continue;
-
-        final anyData = extData.extensionData;
-        if (!anyData.hasValue() || anyData.value.isEmpty) continue;
-        final payload = anyData.value;
-
-        _decodeTraitByTypeUrl(uri, anyData.typeUrl, payload);
-      }
-    }
-  }
-
-  void _decodeTraitByTypeUrl(String uri, String typeUrl, List<int> payload) {
-    if (typeUrl.contains('SimpleCardTrait')) {
-      _decodeSimpleCardTrait(uri, payload);
-    } else if (typeUrl.contains('ShortcutsCardTrait')) {
-      _decodeShortcutsCardTrait(uri, payload);
-    } else if (typeUrl.contains('PreviewCardTrait')) {
-      _decodePreviewCardTrait(uri, payload);
-    } else if (typeUrl.contains('VisualIdentityTrait')) {
-      _decodeVisualIdentityTrait(uri, payload);
-    } else if (typeUrl.contains('IdentityTrait')) {
-      _decodeIdentityTrait(uri, payload);
-    }
-  }
-
-  void _decodeSimpleCardTrait(String uri, List<int> payload) {
-    try {
-      final trait = sct2.SimpleCardTrait.fromBuffer(payload);
-
-      _storeTrait(uri, SimpleCardTrait(
-        title: trait.title,
-        subtitle: trait.subtitle,
-        imageUrl: _cleanImageUrl(trait.imageUri),
-        navigationUri: trait.navigationUri,
-        accessibility: trait.accessibility,
-      ));
-    } catch (e) {
-      dev.log('CasitaParser: malformed SimpleCardTrait for $uri (skipped): $e');
-    }
-  }
-
-  void _decodeShortcutsCardTrait(String uri, List<int> payload) {
-    try {
-      final trait = sct.ShortcutsCardTrait.fromBuffer(payload);
-
-      _storeTrait(uri, ShortcutsCardTrait(
-        title: trait.title,
-        imageUrl: _cleanImageUrl(trait.imageUrl),
-      ));
-    } catch (e) {
-      dev.log('CasitaParser: malformed ShortcutsCardTrait for $uri (skipped): $e');
-    }
-  }
-
-  void _decodePreviewCardTrait(String uri, List<int> payload) {
-    try {
-      final trait = pct.PreviewCardTrait.fromBuffer(payload);
-
-      _storeTrait(uri, PreviewCardTrait(
-        title: trait.title,
-        contentTypeName: trait.contentTypeName,
-        description: trait.description,
-        imageUrl: _cleanImageUrl(trait.entityImageUrl),
-        backgroundColor: trait.backgroundColorHex,
-        waveformColor: trait.waveformColorHex,
-        trackCount: trait.numberOfItems,
-        entityUri: trait.entityUri,
-        navigateUri: trait.navigateUri,
-        tags: trait.descriptorTags.map((t) => t.name).toList(),
-        previewLabel: trait.hasLabels() ? trait.labels.previewLabel : '',
-        playingLabel: trait.hasLabels() ? trait.labels.playingLabel : '',
-        creatorName: trait.hasContentParent() ? trait.contentParent.name : '',
-        creatorUri: trait.hasContentParent() ? trait.contentParent.uri : '',
-        creatorImageUrl: trait.hasContentParent() ? trait.contentParent.imageUrl : '',
-      ));
-
-      // Also ensure SimpleCardTrait has title/image for standard card consumers
-      final existingSimple = _traits[uri]?['SimpleCardTrait'] as SimpleCardTrait?;
-      if (existingSimple == null) {
-        _storeTrait(uri, SimpleCardTrait(
-          title: trait.title,
-          subtitle: trait.description.isNotEmpty ? trait.description : (trait.hasContentParent() ? trait.contentParent.name : ''),
-          imageUrl: _cleanImageUrl(trait.entityImageUrl),
-        ));
-      }
-    } catch (e) {
-      dev.log('CasitaParser: malformed PreviewCardTrait for $uri (skipped): $e');
-    }
-  }
-
-  void _decodeIdentityTrait(String uri, List<int> payload) {
-    try {
-      final trait = it.IdentityTrait.fromBuffer(payload);
-      if (trait.name.isNotEmpty) {
-        _storeTrait(uri, IdentityTrait(
-          name: trait.name,
-          type: trait.type,
-          description: trait.description,
-        ));
-      }
-    } catch (e) {
-      dev.log('Silently skip malformed identity traits: $e');
-    }
-  }
-
-  void _decodeVisualIdentityTrait(String uri, List<int> payload) {
-    try {
-      final trait = vit.VisualIdentityTrait.fromBuffer(payload);
-
-      String? squareUrl;
-      if (trait.hasSquareCoverImage() && trait.squareCoverImage.instances.isNotEmpty) {
-        squareUrl = _cleanImageUrl(trait.squareCoverImage.instances.first.flatFile.cdnUrl);
-      }
-
-      String? sixteenByNineUrl;
-      if (trait.hasSixteenByNineCoverImage() && trait.sixteenByNineCoverImage.instances.isNotEmpty) {
-        sixteenByNineUrl = _cleanImageUrl(trait.sixteenByNineCoverImage.instances.first.flatFile.cdnUrl);
-      }
-
-      String? wideFullBleedUrl;
-      if (trait.hasWideFullBleedImage() && trait.wideFullBleedImage.instances.isNotEmpty) {
-        wideFullBleedUrl = _cleanImageUrl(trait.wideFullBleedImage.instances.first.flatFile.cdnUrl);
-      }
-
-      String? squareFullBleedUrl;
-      if (trait.hasSquareFullBleedImage() && trait.squareFullBleedImage.instances.isNotEmpty) {
-        squareFullBleedUrl = _cleanImageUrl(trait.squareFullBleedImage.instances.first.flatFile.cdnUrl);
-      }
-
-      String? videoUrl;
-      if (trait.hasNineBySixteenCoverVideo() && trait.nineBySixteenCoverVideo.hasAsset()) {
-        final asset = trait.nineBySixteenCoverVideo.asset;
-        if (asset.hasFlatFile()) {
-          videoUrl = asset.flatFile.cdnUrl;
-        }
-      }
-
-      String? bgHex;
-      String? textHex;
-      String? textSubduedHex;
-
-      if (trait.hasCuratedColor() && trait.curatedColor.hasMinContrast()) {
-        final colorSet = trait.curatedColor.minContrast;
-        if (colorSet.hasBackgroundBase()) {
-          final c = colorSet.backgroundBase;
-          bgHex = _rgbaToHex(c.r, c.g, c.b);
-        }
-        if (colorSet.hasTextBase()) {
-          final c = colorSet.textBase;
-          textHex = _rgbaToHex(c.r, c.g, c.b);
-        }
-        if (colorSet.hasTextSubdued()) {
-          final c = colorSet.textSubdued;
-          textSubduedHex = _rgbaToHex(c.r, c.g, c.b);
-        }
-      } else if (trait.hasSquareCoverImage() && trait.squareCoverImage.hasExtractedColorSet()) {
-        final colorSet = trait.squareCoverImage.extractedColorSet.minContrast;
-        if (colorSet.hasBackgroundBase()) {
-          final c = colorSet.backgroundBase;
-          bgHex = _rgbaToHex(c.r, c.g, c.b);
-        }
-      }
-
-      final visualTrait = VisualIdentityTrait(
-        squareCoverUrl: squareUrl,
-        sixteenByNineCoverUrl: sixteenByNineUrl,
-        wideFullBleedUrl: wideFullBleedUrl,
-        squareFullBleedUrl: squareFullBleedUrl,
-        videoNineBySixteenUrl: videoUrl,
-        hasVideo: sixteenByNineUrl != null || videoUrl != null,
-        backgroundColorHex: bgHex,
-        textColorHex: textHex,
-        textSubduedColorHex: textSubduedHex,
-      );
-
-      _storeTrait(uri, visualTrait);
-
-      // Also ensure SimpleCardTrait has an image for standard card consumers
-      final existingSimple = _traits[uri]?['SimpleCardTrait'] as SimpleCardTrait?;
-      if (existingSimple == null && (squareUrl != null || sixteenByNineUrl != null)) {
-        _storeTrait(uri, SimpleCardTrait(
-          title: '',
-          imageUrl: squareUrl ?? sixteenByNineUrl,
-        ));
-      }
-    } catch (e) {
-      dev.log('CasitaParser: malformed VisualIdentityTrait for $uri: $e');
-    }
-  }
-
-  static String _rgbaToHex(int r, int g, int b) {
-    return '#${r.toRadixString(16).padLeft(2, '0')}${g.toRadixString(16).padLeft(2, '0')}${b.toRadixString(16).padLeft(2, '0')}';
-  }
 
   void _storeTrait(String uri, Trait trait) {
     _traits.putIfAbsent(uri, () => {})[trait.runtimeType.toString()] = trait;
@@ -379,11 +185,27 @@ class CasitaParser {
   List<SpotifyEntity> _extractItemsFromList(List<casita.Item> items) {
     final result = <SpotifyEntity>[];
     for (final item in items) {
-      final uri = item.highlightedSubItems.isNotEmpty
-          ? item.highlightedSubItems.first
-          : item.identifier;
+      String uri = '';
+      if (item.highlightedSubItems.isNotEmpty) {
+        final episode = item.highlightedSubItems.firstWhere(
+          (u) => u.contains(':episode:'),
+          orElse: () => '',
+        );
+        if (episode.isNotEmpty) uri = episode;
+      }
+      if (uri.isEmpty) {
+        uri = item.identifier.isNotEmpty
+            ? item.identifier
+            : (item.highlightedSubItems.isNotEmpty ? item.highlightedSubItems.first : '');
+      }
       if (uri.isNotEmpty && uri.contains('spotify:')) {
         result.add(SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {}));
+        if (item.identifier.isNotEmpty && item.identifier.contains(':show:') && uri != item.identifier) {
+          _storeTrait(uri, PreviewCardTrait(
+            title: '',
+            creatorUri: item.identifier,
+          ));
+        }
       }
     }
     return result;
@@ -391,11 +213,28 @@ class CasitaParser {
 
   /// Extract items from a single Item field (Preview, ImmersivePreview, etc.)
   List<SpotifyEntity> _extractItemsFromItem(casita.Item item) {
-    final uri = item.highlightedSubItems.isNotEmpty
-        ? item.highlightedSubItems.first
-        : item.identifier;
+    String uri = '';
+    if (item.highlightedSubItems.isNotEmpty) {
+      final episode = item.highlightedSubItems.firstWhere(
+        (u) => u.contains(':episode:'),
+        orElse: () => '',
+      );
+      if (episode.isNotEmpty) uri = episode;
+    }
+    if (uri.isEmpty) {
+      uri = item.identifier.isNotEmpty
+          ? item.identifier
+          : (item.highlightedSubItems.isNotEmpty ? item.highlightedSubItems.first : '');
+    }
     if (uri.isNotEmpty && uri.contains('spotify:')) {
-      return [SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {})];
+      final entity = SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {});
+      if (item.identifier.isNotEmpty && item.identifier.contains(':show:') && uri != item.identifier) {
+        _storeTrait(uri, PreviewCardTrait(
+          title: '',
+          creatorUri: item.identifier,
+        ));
+      }
+      return [entity];
     }
     return [];
   }
@@ -478,11 +317,13 @@ class CasitaResult {
   final HomeViewData homeData;
   final List<String> ondemandUris;
   final Map<String, Map<String, Trait>> traits;
+  final Map<CellKey, Trait> eagerCells;
 
   const CasitaResult({
     required this.homeData,
     required this.ondemandUris,
     this.traits = const {},
+    this.eagerCells = const {},
   });
 }
 

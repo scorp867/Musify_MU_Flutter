@@ -17,6 +17,7 @@ class RecentsItem {
   final bool isGroupHeader;
   final String groupName;
   final int timestamp;
+  final List<String> entityUris;
 
   const RecentsItem({
     required this.uri,
@@ -26,6 +27,7 @@ class RecentsItem {
     this.isGroupHeader = false,
     this.groupName = '',
     this.timestamp = 0,
+    this.entityUris = const [],
   });
 }
 
@@ -47,6 +49,7 @@ List<RecentsItem> parseRecentsItems(Uint8List data) {
       RecentType recentType = RecentType.played;
       ContentCategory contentCategory = ContentCategory.unspecified;
       int timestamp = 0;
+      List<String> entityUris = const [];
 
       if (listItem.hasAttributes() && listItem.attributes.hasTimestamp()) {
         timestamp = listItem.attributes.timestamp.toInt();
@@ -74,6 +77,7 @@ List<RecentsItem> parseRecentsItems(Uint8List data) {
               final meta = recents.GroupMetadata.fromBuffer(decoded);
               songsCount = meta.itemsCount;
               groupName = meta.groupName;
+              entityUris = meta.entityUris.toList();
             } catch (e) {
               dev.log('Recents parse group metadata failed: $e');
             }
@@ -88,6 +92,7 @@ List<RecentsItem> parseRecentsItems(Uint8List data) {
         isGroupHeader: isGroupHeader,
         groupName: groupName,
         timestamp: timestamp,
+        entityUris: entityUris,
       ));
     }
   } catch (e) {

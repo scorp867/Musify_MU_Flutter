@@ -148,7 +148,11 @@ class _PreviewCardState extends State<PreviewCard> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      trait.creatorName.isNotEmpty ? trait.creatorName : 'Spotify',
+                      trait.creatorName.isNotEmpty
+                          ? trait.creatorName
+                          : (widget.item.cardSubtitle.isNotEmpty
+                              ? widget.item.cardSubtitle
+                              : 'Spotify'),
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.7),
                         fontSize: 13,
@@ -203,10 +207,11 @@ class _PreviewCardState extends State<PreviewCard> {
                     Text(
                       trait.previewLabel.isNotEmpty
                           ? trait.previewLabel
-                          : (widget.item.type == ContentType.episode ||
-                                  widget.item.type == ContentType.podcast
+                          : (widget.item.type == ContentType.episode
                               ? 'Preview episode'
-                              : 'Preview playlist'),
+                              : widget.item.type == ContentType.podcast
+                                  ? 'Preview show'
+                                  : 'Preview playlist'),
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.9),
                         fontSize: 12,
