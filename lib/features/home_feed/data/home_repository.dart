@@ -3,34 +3,32 @@ import 'dart:developer' as dev;
 import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:musify_mu/core/protocol/generated/spotify/ondemand_selector.pb.dart'
-    as ods;
+import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 import 'package:musify_mu/features/home_feed/data/casita_parser.dart';
+import 'package:musify_mu/features/home_feed/data/eagerload/eagerload_payload_builder.dart';
 import 'package:musify_mu/features/home_feed/data/extended_metadata_fetcher.dart';
 import 'package:musify_mu/features/home_feed/data/home_feed_cache.dart';
 import 'package:musify_mu/features/home_feed/data/recents_parser.dart';
-import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
-import 'package:musify_mu/core/cache/app_cache_manager.dart';
-import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
-import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Repository for home feed data. Implements SWR (Stale-While-Revalidate).
 ///
-/// Spotify's exact home feed pipeline:
-///   1. GET /casita/v1/home/default?eagerload=...  -> ResolvedHome protobuf
+/// Follows Spotify Android's exact pull-driven Kodiak SDUI pipeline:
+///   1. GET /casita/v1/home/default?eagerload=... -> ResolvedHome protobuf
+///      (where ?eagerload is dynamically constructed by EagerloadPayloadBuilder)
 ///   2. Parse ResolvedHome:
 ///      - field 1: HomeStructure (section layout)
-///      - field 2: EagerlyLoadedTraits (pre-loaded traits for eagerload-covered items)
-///      - field 999: OndemandSet (URIs that still need trait resolution)
-///   3. GET /ondemand-selector/v1/select-ondemand-set  -> filtered URI list
-///   4. POST /extended-metadata/v0/extended-metadata  -> SimpleCardTrait for those URIs
-///   5. Merge traits into entities -> render
+///      - field 2: EagerlyLoadedTraits (ingested into DataPool)
+///      - field 999: OndemandSet
+///   3. Emit HomeViewData immediately to the presentation layer
+///   4. Presentation layer (viewports & shelves) lazily pulls on-demand traits
+///      via DataPool as cards enter the viewport, with a 2-card prefetch window.
 class HomeRepositoryImpl implements HomeRepository {
-  static const _casitaEagerload =
-      'eyJtYXBwaW5nIjp7IjEyIjp7IjEiOlsxNjddfSwiMTMiOnsiMSI6WzE3MV19LCIxNSI6eyIxIjpbOTddLCIyIjpbOTddfSwiMTYiOnsiMSI6WzEyMiwxMjMsMTI0XX0sIjE3Ijp7IjEiOlsxNzgsMTY3LDE3OV19LCIxOCI6eyIxIjpbMTE4XSwiMiI6WzE4MSwyNDksMTE4LDE3OF19LCIyIjp7IjEiOlsxMTldLCIyIjpbMTE5XX0sIjIzIjp7IjEiOls5N119LCIyNCI6eyIxIjpbMTcxXSwiMiI6WzExNl19LCIyNSI6eyIxIjpbMTE4XSwiMiI6WzExOCwxNzgsMTE2XX0sIjI3Ijp7IjEiOlsxMTgsMTE2XSwiMiI6WzE3OF19LCIyOCI6eyIxIjpbMjI5XX0sIjMzIjp7IjEiOlsxMThdfSwiMzUiOnsiMSI6WzI0OF19LCIzNiI6eyIxIjpbMTE4XX0sIjM3Ijp7IjEiOlsxMThdLCIyIjpbMTE4LDE3OCwxMTZdfSwiMzkiOnsiMSI6WzExOF0sIjIiOlsxODEsMjQ5LDExOCwxNzhdfSwiNCI6eyIyIjpbMTE4LDExNl19LCI0MSI6eyIxIjpbMTc5LDE3OF19LCI2Ijp7IjEiOlsxMThdLCIyIjpbMTE2LDE3OF19LCI3Ijp7IjEiOlsxMTldfX19';
-
   static const _playlistHeaders = {
     'spotify-playlist-sync-reason': 'CAwQAQ==',
     'x-accept-list-items':
@@ -43,20 +41,40 @@ class HomeRepositoryImpl implements HomeRepository {
   final SpotifyTransport _client;
   final RuntimeContext _ctx;
   final HomeFeedCache _cache;
+  final DataPool _dataPool;
 
   HomeRepositoryImpl({
     required SpotifyTransport client,
     required RuntimeContext ctx,
     required AppCacheManager cacheManager,
+    required DataPool dataPool,
+    ExtendedMetadataFetcher? metadataFetcher,
   })  : _client = client,
         _ctx = ctx,
-        _cache = HomeFeedCache(cacheManager: cacheManager);
+        _cache = HomeFeedCache(cacheManager: cacheManager),
+        _dataPool = dataPool;
+
+  @override
+  DataPool get dataPool => _dataPool;
 
   /// Fetches home feed with SWR pattern.
   @override
   Stream<HomeViewData> getHomeFeed({HomeFacet facet = HomeFacet.all}) async* {
+    await _dataPool.ensureDiskLoaded();
+
     final cached = await _cache.load(facet: facet);
     if (cached != null) {
+      final cachedBatch = <String, Map<String, Trait>>{};
+      for (final section in cached.sections) {
+        for (final item in section.items) {
+          if (item.traits.isNotEmpty) {
+            cachedBatch[item.uri] = item.traits;
+          }
+        }
+      }
+      if (cachedBatch.isNotEmpty) {
+        _dataPool.ingestBatch(cachedBatch);
+      }
       yield cached;
     }
 
@@ -71,7 +89,6 @@ class HomeRepositoryImpl implements HomeRepository {
   Future<HomeViewData?> fetchFresh({HomeFacet facet = HomeFacet.all}) async {
     try {
       // Step 1: Fetch Casita home + recents in parallel
-      // Only fetch recents for the "All" facet
       final futures = <Future>[_fetchCasitaHome(facet)];
       if (facet == HomeFacet.all) {
         futures.add(_fetchRecentsItems());
@@ -95,22 +112,16 @@ class HomeRepositoryImpl implements HomeRepository {
         '${sections.map((s) => s.sectionType).toList()}',
       );
 
-      // Step 3: Inject recents into the recents section
+      // Ingest Casita preloaded traits into Kodiak DataPool
+      _dataPool.ingestBatch(casitaResult.traits);
+
+      // Step 3: Inject recents into the recents section and ingest into DataPool
       if (recentItems.isNotEmpty) {
         _injectRecents(sections, recentItems, casitaResult.traits);
       }
 
-      // Step 4: Resolve traits for items not covered by eagerload
-      final allEntities = <SpotifyEntity>[];
-      for (final section in sections) {
-        allEntities.addAll(section.items);
-      }
-
-      await _resolveOndemandTraits(
-        allEntities,
-        casitaResult.ondemandUris,
-      );
-
+      // Step 4: Construct view data immediately - on-demand traits are lazily queried
+      // by Kodiak element viewports on scroll + 2-card prefetch window via DataPool
       final result = HomeViewData(
         greeting: casitaResult.homeData.greeting,
         sections: sections,
@@ -126,85 +137,16 @@ class HomeRepositoryImpl implements HomeRepository {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // Step 4: On-demand trait resolution (Spotify's exact flow)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /// Resolves SimpleCardTrait for items not covered by the eagerload config.
-  ///
-  /// Spotify's pipeline:
-  ///   1. The Casita response includes ondemandSet (field 999) with URIs
-  ///   2. GET /ondemand-selector/v1/select-ondemand-set filters them
-  ///   3. POST /extended-metadata/v0/extended-metadata resolves SimpleCardTrait
-  Future<void> _resolveOndemandTraits(
-    List<SpotifyEntity> allEntities,
-    List<String> ondemandUris,
-  ) async {
-    // Collect URIs that still need SimpleCardTrait
-    final urisToResolve = allEntities
-        .where((item) =>
-            item.getTrait<SimpleCardTrait>() == null &&
-            !item.uri.startsWith('spotify:collection:'))
-        .map((item) => item.uri)
-        .toSet();
-
-    // Merge with ondemand set from the Casita response
-    if (ondemandUris.isNotEmpty) {
-      urisToResolve.addAll(ondemandUris);
-    }
-
-    // Also merge URIs from the on-demand selector API
-    try {
-      final selectorUris = await _fetchOndemandSelector();
-      if (selectorUris.isNotEmpty) {
-        urisToResolve.addAll(selectorUris);
-        dev.log('OnDemandSelector: ${selectorUris.length} additional URIs');
-      }
-    } catch (e) {
-      dev.log('OnDemandSelector failed (non-critical): $e');
-    }
-
-    if (urisToResolve.isEmpty) return;
-
-    // Step 4b: Fetch SimpleCardTrait via Extended Metadata API
-    final uriList = urisToResolve.toList();
-    dev.log('HomeRepository: Resolving SimpleCardTrait for ${uriList.length} URIs...');
-    final fetcher = ExtendedMetadataFetcher(client: _client, ctx: _ctx);
-    final traitMap = await fetcher.fetchTraits(uriList);
-
-    // Merge resolved traits into entities
-    for (final entity in allEntities) {
-      if (entity.getTrait<SimpleCardTrait>() != null) continue;
-      final trait = traitMap[entity.uri];
-      if (trait != null) {
-        entity.traits['SimpleCardTrait'] = trait;
-      }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
   // Network calls
   // ═══════════════════════════════════════════════════════════════════
 
   Future<Uint8List?> _fetchCasitaHome(HomeFacet facet) {
+    final eagerload = EagerloadPayloadBuilder.build();
     final path = '/casita/v1/home/${facet.pathSegment}'
-        '?eagerload=$_casitaEagerload'
+        '?eagerload=$eagerload'
         '&timezone=${_ctx.timezone}'
         '&mobile-only-dsa-enabled=false';
     return _client.get(path);
-  }
-
-  /// GET /ondemand-selector/v1/select-ondemand-set
-  /// Returns the filtered set of URIs that need trait resolution.
-  Future<List<String>> _fetchOndemandSelector() async {
-    final data = await _client.get(
-      '/ondemand-selector/v1/select-ondemand-set',
-    );
-    if (data == null || data.isEmpty) return [];
-
-    final response = await Isolate.run(
-      () => ods.OndemandResponse.fromBuffer(data),
-    );
-    return response.uris.toList();
   }
 
   Future<List<RecentsItem>> _fetchRecentsItems() async {
@@ -235,8 +177,10 @@ class HomeRepositoryImpl implements HomeRepository {
 
     for (final item in recentItems) {
       if (item.uri.isEmpty || !seen.add(item.uri)) continue;
-      final baseTraits = traitsMap[item.uri] ?? traitsMap[item.uri.toLowerCase()];
-      final traits = baseTraits != null ? Map.of(baseTraits) : <String, Trait>{};
+      final baseTraits =
+          traitsMap[item.uri] ?? traitsMap[item.uri.toLowerCase()];
+      final traits =
+          baseTraits != null ? Map.of(baseTraits) : <String, Trait>{};
       final type = ContentType.fromUri(item.uri);
 
       final simpleTrait = traits['SimpleCardTrait'] as SimpleCardTrait?;
@@ -258,13 +202,11 @@ class HomeRepositoryImpl implements HomeRepository {
         };
       }
 
-      if (title.isNotEmpty || imageUrl != null) {
-        traits['SimpleCardTrait'] = SimpleCardTrait(
-          title: title,
-          subtitle: subtitle,
-          imageUrl: imageUrl,
-        );
-      }
+      traits['SimpleCardTrait'] = SimpleCardTrait(
+        title: title,
+        subtitle: subtitle,
+        imageUrl: imageUrl,
+      );
 
       traits['RecentsMetadataTrait'] = RecentsMetadataTrait(
         songsCount: item.songsCount,
@@ -273,6 +215,8 @@ class HomeRepositoryImpl implements HomeRepository {
         groupName: item.groupName,
         timestamp: item.timestamp,
       );
+
+      _dataPool.ingestTraits(item.uri, traits);
 
       hydratedItems.add(SpotifyEntity(
         uri: item.uri,

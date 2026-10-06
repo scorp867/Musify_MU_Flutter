@@ -57,10 +57,11 @@ class SectionMapper {
 
       case casita.Section_FeatureType.recentsShelf:
         final title = extractTitle(section.recentsShelf.heading, sectionId);
+        final items = extractSource(section.recentsShelf.itemSource);
         return RecentsShelfFeatureType(
           id: sectionId,
           title: title.isNotEmpty ? title : 'Recents',
-          items: const [],
+          items: items,
         );
 
       case casita.Section_FeatureType.watchFeed:

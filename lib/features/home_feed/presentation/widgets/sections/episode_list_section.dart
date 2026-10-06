@@ -1,5 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/app/di/injection.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Renders episodes in a vertical list matching Spotify's "Episodes you might like".
@@ -10,7 +13,7 @@ import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 ///   - "Preview episode" action bar at the bottom
 ///
 /// This matches contentEvaluationList sections that contain episode URIs.
-class EpisodeListSection extends StatelessWidget {
+class EpisodeListSection extends StatefulWidget {
   final String title;
   final List<SpotifyEntity> items;
 
@@ -21,17 +24,50 @@ class EpisodeListSection extends StatelessWidget {
   });
 
   @override
+  State<EpisodeListSection> createState() => _EpisodeListSectionState();
+}
+
+class _EpisodeListSectionState extends State<EpisodeListSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSectionTraits();
+  }
+
+  @override
+  void didUpdateWidget(covariant EpisodeListSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items) {
+      _loadSectionTraits();
+    }
+  }
+
+  void _loadSectionTraits() {
+    if (widget.items.isEmpty) return;
+    final pool = getIt<DataPool>();
+    final uris = widget.items.map((e) => e.uri).toList();
+    pool.loadBatch(uris: uris, statement: PreviewCardDataElement.statement);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
+    super.build(context);
+    if (widget.items.isEmpty) return const SizedBox.shrink();
+
+    final pool = getIt<DataPool>();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (title.isNotEmpty)
+        if (widget.title.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
             child: Text(
-              title,
+              widget.title,
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
@@ -40,7 +76,21 @@ class EpisodeListSection extends StatelessWidget {
               ),
             ),
           ),
-        ...items.take(5).map((item) => _EpisodeCard(entity: item)),
+        ...widget.items.take(5).map((item) {
+          return StreamBuilder<Map<String, Trait>>(
+            stream: pool.watchEntity(item.uri),
+            initialData: pool.getTraits(item.uri),
+            builder: (context, snapshot) {
+              final currentTraits = snapshot.data ?? item.traits;
+              final entity = SpotifyEntity(
+                uri: item.uri,
+                type: item.type,
+                traits: currentTraits,
+              );
+              return _EpisodeCard(entity: entity);
+            },
+          );
+        }),
       ],
     );
   }

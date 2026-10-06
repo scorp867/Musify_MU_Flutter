@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/protocol/generated/spotify/casita/resolved.pb.dart' as casita;
+import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/identity_trait.pb.dart' as it;
 import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/visual_identity_trait.pb.dart' as vit;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/preview_card_trait.pb.dart' as pct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/shortcuts_card_trait.pb.dart' as sct;
@@ -223,20 +224,30 @@ class CasitaParser {
         creatorUri: trait.hasContentParent() ? trait.contentParent.uri : '',
         creatorImageUrl: trait.hasContentParent() ? trait.contentParent.imageUrl : '',
       ));
+
+      // Also ensure SimpleCardTrait has title/image for standard card consumers
+      final existingSimple = _traits[uri]?['SimpleCardTrait'] as SimpleCardTrait?;
+      if (existingSimple == null) {
+        _storeTrait(uri, SimpleCardTrait(
+          title: trait.title,
+          subtitle: trait.description.isNotEmpty ? trait.description : (trait.hasContentParent() ? trait.contentParent.name : ''),
+          imageUrl: _cleanImageUrl(trait.entityImageUrl),
+        ));
+      }
     } catch (e) {
       dev.log('CasitaParser: malformed PreviewCardTrait for $uri (skipped): $e');
     }
   }
 
   void _decodeIdentityTrait(String uri, List<int> payload) {
-    // IdentityTrait has title at field 2 -- but since we don't have a generated
-    // proto for it yet, we'll use the SimpleCardTrait parser as a fallback
-    // for now, just storing basic identity info.
-    // TODO: Add identity_trait.proto when needed beyond homescreen
     try {
-      final trait = sct2.SimpleCardTrait.fromBuffer(payload);
-      if (trait.title.isNotEmpty) {
-        _storeTrait(uri, IdentityTrait(title: trait.title));
+      final trait = it.IdentityTrait.fromBuffer(payload);
+      if (trait.name.isNotEmpty) {
+        _storeTrait(uri, IdentityTrait(
+          name: trait.name,
+          type: trait.type,
+          description: trait.description,
+        ));
       }
     } catch (e) {
       dev.log('Silently skip malformed identity traits: $e');
@@ -368,7 +379,9 @@ class CasitaParser {
   List<SpotifyEntity> _extractItemsFromList(List<casita.Item> items) {
     final result = <SpotifyEntity>[];
     for (final item in items) {
-      final uri = item.identifier;
+      final uri = item.highlightedSubItems.isNotEmpty
+          ? item.highlightedSubItems.first
+          : item.identifier;
       if (uri.isNotEmpty && uri.contains('spotify:')) {
         result.add(SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {}));
       }
@@ -378,7 +391,9 @@ class CasitaParser {
 
   /// Extract items from a single Item field (Preview, ImmersivePreview, etc.)
   List<SpotifyEntity> _extractItemsFromItem(casita.Item item) {
-    final uri = item.identifier;
+    final uri = item.highlightedSubItems.isNotEmpty
+        ? item.highlightedSubItems.first
+        : item.identifier;
     if (uri.isNotEmpty && uri.contains('spotify:')) {
       return [SpotifyEntity(uri: uri, type: ContentType.fromUri(uri), traits: {})];
     }

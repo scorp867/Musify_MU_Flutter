@@ -36,6 +36,15 @@ abstract class Trait {
       'PreviewPlaybackTrait' => PreviewPlaybackTrait.fromJson(json),
       'VideoCardTrait' => VideoCardTrait.fromJson(json),
       'VisualIdentityTrait' => VisualIdentityTrait.fromJson(json),
+      'ShowAccessTrait' => ShowAccessTrait.fromJson(json),
+      'AudiobookSpecificsTrait' => AudiobookSpecificsTrait.fromJson(json),
+      'AudiobookPriceTrait' => AudiobookPriceTrait.fromJson(json),
+      'PromoV1Trait' => PromoV1Trait.fromJson(json),
+      'PromoV3Trait' => PromoV3Trait.fromJson(json),
+      'ConcertTrait' => ConcertTrait.fromJson(json),
+      'ConcertLocationTrait' => ConcertLocationTrait.fromJson(json),
+      'ConcertMarketingTrait' => ConcertMarketingTrait.fromJson(json),
+      'ConsumptionExperienceTrait' => ConsumptionExperienceTrait.fromJson(json),
       _ => null,
     };
   }
@@ -82,14 +91,33 @@ class SimpleCardTrait extends Trait {
 }
 
 class IdentityTrait extends Trait {
-  final String title;
-  const IdentityTrait({required this.title});
+  final String name;
+  final String type;
+  final String description;
+
+  /// Compatibility getter for legacy callers expecting `title`.
+  String get title => name;
+
+  const IdentityTrait({
+    required this.name,
+    this.type = '',
+    this.description = '',
+  });
+
+  /// Convenience constructor for title-only callers.
+  factory IdentityTrait.fromTitle(String title) => IdentityTrait(name: title);
 
   @override
-  Map<String, dynamic> toJson() => {'title': title};
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'type': type,
+    'description': description,
+  };
 
   factory IdentityTrait.fromJson(Map<String, dynamic> json) => IdentityTrait(
-    title: json['title'] ?? '',
+    name: json['name'] ?? json['title'] ?? '',
+    type: json['type'] ?? '',
+    description: json['description'] ?? '',
   );
 }
 
@@ -437,3 +465,237 @@ class VisualIdentityTrait extends Trait {
     textSubduedColorHex: json['textSubduedColorHex'],
   );
 }
+
+/// Show / Podcast access entitlement metadata (ExtensionKind 31).
+class ShowAccessTrait extends Trait {
+  final bool hasAccess;
+  final bool isLocked;
+  final String accessType;
+
+  const ShowAccessTrait({
+    this.hasAccess = true,
+    this.isLocked = false,
+    this.accessType = '',
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'hasAccess': hasAccess,
+    'isLocked': isLocked,
+    'accessType': accessType,
+  };
+
+  factory ShowAccessTrait.fromJson(Map<String, dynamic> json) => ShowAccessTrait(
+    hasAccess: json['hasAccess'] ?? true,
+    isLocked: json['isLocked'] ?? false,
+    accessType: json['accessType'] ?? '',
+  );
+}
+
+/// Audiobook specific details (ExtensionKind 52).
+class AudiobookSpecificsTrait extends Trait {
+  final String narrator;
+  final String author;
+  final int durationSeconds;
+  final bool isUnabridged;
+
+  const AudiobookSpecificsTrait({
+    this.narrator = '',
+    this.author = '',
+    this.durationSeconds = 0,
+    this.isUnabridged = true,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'narrator': narrator,
+    'author': author,
+    'durationSeconds': durationSeconds,
+    'isUnabridged': isUnabridged,
+  };
+
+  factory AudiobookSpecificsTrait.fromJson(Map<String, dynamic> json) =>
+      AudiobookSpecificsTrait(
+        narrator: json['narrator'] ?? '',
+        author: json['author'] ?? '',
+        durationSeconds: json['durationSeconds'] ?? 0,
+        isUnabridged: json['isUnabridged'] ?? true,
+      );
+}
+
+/// Audiobook pricing and purchase metadata (ExtensionKind 64).
+class AudiobookPriceTrait extends Trait {
+  final String formattedPrice;
+  final String currency;
+  final bool isPurchasable;
+
+  const AudiobookPriceTrait({
+    this.formattedPrice = '',
+    this.currency = '',
+    this.isPurchasable = false,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'formattedPrice': formattedPrice,
+    'currency': currency,
+    'isPurchasable': isPurchasable,
+  };
+
+  factory AudiobookPriceTrait.fromJson(Map<String, dynamic> json) =>
+      AudiobookPriceTrait(
+        formattedPrice: json['formattedPrice'] ?? '',
+        currency: json['currency'] ?? '',
+        isPurchasable: json['isPurchasable'] ?? false,
+      );
+}
+
+/// Promotion V1 banner trait (ExtensionKind 167).
+class PromoV1Trait extends Trait {
+  final String title;
+  final String subtitle;
+  final String? imageUrl;
+  final String actionText;
+  final String actionUri;
+
+  const PromoV1Trait({
+    required this.title,
+    this.subtitle = '',
+    this.imageUrl,
+    this.actionText = '',
+    this.actionUri = '',
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'subtitle': subtitle,
+    'imageUrl': imageUrl,
+    'actionText': actionText,
+    'actionUri': actionUri,
+  };
+
+  factory PromoV1Trait.fromJson(Map<String, dynamic> json) => PromoV1Trait(
+    title: json['title'] ?? '',
+    subtitle: json['subtitle'] ?? '',
+    imageUrl: json['imageUrl'],
+    actionText: json['actionText'] ?? '',
+    actionUri: json['actionUri'] ?? '',
+  );
+}
+
+/// Promotion V3 card trait (ExtensionKind 171).
+class PromoV3Trait extends Trait {
+  final String title;
+  final String? imageUrl;
+  final String actionUri;
+
+  const PromoV3Trait({
+    required this.title,
+    this.imageUrl,
+    this.actionUri = '',
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'imageUrl': imageUrl,
+    'actionUri': actionUri,
+  };
+
+  factory PromoV3Trait.fromJson(Map<String, dynamic> json) => PromoV3Trait(
+    title: json['title'] ?? '',
+    imageUrl: json['imageUrl'],
+    actionUri: json['actionUri'] ?? '',
+  );
+}
+
+/// Live Concert / Tour event trait (ExtensionKind 122).
+class ConcertTrait extends Trait {
+  final String title;
+  final String artistName;
+  final int eventDateTimestamp;
+
+  const ConcertTrait({
+    required this.title,
+    this.artistName = '',
+    this.eventDateTimestamp = 0,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'title': title,
+    'artistName': artistName,
+    'eventDateTimestamp': eventDateTimestamp,
+  };
+
+  factory ConcertTrait.fromJson(Map<String, dynamic> json) => ConcertTrait(
+    title: json['title'] ?? '',
+    artistName: json['artistName'] ?? '',
+    eventDateTimestamp: json['eventDateTimestamp'] ?? 0,
+  );
+}
+
+/// Concert location metadata (ExtensionKind 123).
+class ConcertLocationTrait extends Trait {
+  final String venue;
+  final String city;
+
+  const ConcertLocationTrait({this.venue = '', this.city = ''});
+
+  @override
+  Map<String, dynamic> toJson() => {'venue': venue, 'city': city};
+
+  factory ConcertLocationTrait.fromJson(Map<String, dynamic> json) =>
+      ConcertLocationTrait(
+        venue: json['venue'] ?? '',
+        city: json['city'] ?? '',
+      );
+}
+
+/// Concert marketing details (ExtensionKind 124).
+class ConcertMarketingTrait extends Trait {
+  final String ticketingPartner;
+  final String ticketingUrl;
+
+  const ConcertMarketingTrait({
+    this.ticketingPartner = '',
+    this.ticketingUrl = '',
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'ticketingPartner': ticketingPartner,
+    'ticketingUrl': ticketingUrl,
+  };
+
+  factory ConcertMarketingTrait.fromJson(Map<String, dynamic> json) =>
+      ConcertMarketingTrait(
+        ticketingPartner: json['ticketingPartner'] ?? '',
+        ticketingUrl: json['ticketingUrl'] ?? '',
+      );
+}
+
+/// Consumption experience details (ExtensionKind 239).
+class ConsumptionExperienceTrait extends Trait {
+  final String format;
+  final bool isInteractive;
+
+  const ConsumptionExperienceTrait({
+    this.format = '',
+    this.isInteractive = false,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    'format': format,
+    'isInteractive': isInteractive,
+  };
+
+  factory ConsumptionExperienceTrait.fromJson(Map<String, dynamic> json) =>
+      ConsumptionExperienceTrait(
+        format: json['format'] ?? '',
+        isInteractive: json['isInteractive'] ?? false,
+      );
+}
+

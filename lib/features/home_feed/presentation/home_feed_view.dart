@@ -113,9 +113,31 @@ class _FeedContent extends StatelessWidget {
   }
 
   Widget _buildSection(HomeSection section) {
-    return const SectionRegistry().buildSection(section);
+    return _KeepAliveSection(
+      key: ValueKey('section_${section.sectionUri}_${section.sectionType}'),
+      child: const SectionRegistry().buildSection(section),
+    );
   }
+}
 
+class _KeepAliveSection extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveSection({super.key, required this.child});
+
+  @override
+  State<_KeepAliveSection> createState() => _KeepAliveSectionState();
+}
+
+class _KeepAliveSectionState extends State<_KeepAliveSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
 }
 
 // ─── Error fallback ──────────────────────────────────────────────────

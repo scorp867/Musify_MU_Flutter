@@ -1,10 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/app/di/injection.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/features/home_feed/data/elements/image_link_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Recents carousel — compact cards with title + action metadata.
 /// Matches Spotify's "Recents" / "Jump back in" section.
-class RecentsCarouselSection extends StatelessWidget {
+class RecentsCarouselSection extends StatefulWidget {
   final String title;
   final List<SpotifyEntity> items;
 
@@ -15,8 +18,41 @@ class RecentsCarouselSection extends StatelessWidget {
   });
 
   @override
+  State<RecentsCarouselSection> createState() => _RecentsCarouselSectionState();
+}
+
+class _RecentsCarouselSectionState extends State<RecentsCarouselSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSectionTraits();
+  }
+
+  @override
+  void didUpdateWidget(covariant RecentsCarouselSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items != widget.items) {
+      _loadSectionTraits();
+    }
+  }
+
+  void _loadSectionTraits() {
+    if (widget.items.isEmpty) return;
+    final pool = getIt<DataPool>();
+    final uris = widget.items.map((e) => e.uri).toList();
+    pool.loadBatch(uris: uris, statement: ImageLinkCardDataElement.statement);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
+    super.build(context);
+    if (widget.items.isEmpty) return const SizedBox.shrink();
+
+    final pool = getIt<DataPool>();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -28,7 +64,7 @@ class RecentsCarouselSection extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                title,
+                widget.title,
                 style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
@@ -53,10 +89,24 @@ class RecentsCarouselSection extends StatelessWidget {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: items.length,
+            itemCount: widget.items.length,
             separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (context, index) =>
-                _RecentsCard(item: items[index]),
+            itemBuilder: (context, index) {
+              final item = widget.items[index];
+              return StreamBuilder<Map<String, Trait>>(
+                stream: pool.watchEntity(item.uri),
+                initialData: pool.getTraits(item.uri),
+                builder: (context, snapshot) {
+                  final currentTraits = snapshot.data ?? item.traits;
+                  final entity = SpotifyEntity(
+                    uri: item.uri,
+                    type: item.type,
+                    traits: currentTraits,
+                  );
+                  return _RecentsCard(item: entity);
+                },
+              );
+            },
           ),
         ),
       ],
