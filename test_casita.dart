@@ -23,6 +23,7 @@ void main() async {
   final parser = CasitaParser(bytes);
   final result = await parser.parse();
   
+  print('Parsed chips: ${result.homeData.chips.map((c) => "${c.id}:${c.label}").toList()}');
   for (final section in result.homeData.sections) {
     if (section.sectionType != 'imageLink') {
       print('Section [${section.sectionType}]: "${section.title}" (${section.items.length} items)');

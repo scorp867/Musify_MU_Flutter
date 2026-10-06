@@ -6,29 +6,64 @@ import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 class FacetChipRow extends StatelessWidget {
   final HomeFacet selectedFacet;
   final ValueChanged<HomeFacet> onSelected;
+  final List<HomeChip>? chips;
 
   const FacetChipRow({
     super.key,
     required this.selectedFacet,
     required this.onSelected,
+    this.chips,
   });
 
   @override
   Widget build(BuildContext context) {
+    final hasDynamicChips = chips != null && chips!.isNotEmpty;
+    final count = hasDynamicChips ? chips!.length : HomeFacet.values.length;
+
     return Container(
       height: 32,
       margin: const EdgeInsets.only(top: 4, bottom: 4),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: HomeFacet.values.length,
+        itemCount: count,
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final facet = HomeFacet.values[index];
-          final isSelected = facet == selectedFacet;
+          final String label;
+          final bool isSelected;
+          final VoidCallback onTap;
+
+          if (hasDynamicChips) {
+            final chip = chips![index];
+            label = chip.label;
+            final lowerId = chip.id.toLowerCase();
+            final lowerLabel = chip.label.toLowerCase();
+
+            final isMusic = lowerId.contains('music') || lowerLabel.contains('music');
+            final isPodcast = lowerId.contains('podcast') || lowerLabel.contains('podcast');
+
+            isSelected = (selectedFacet == HomeFacet.music && isMusic) ||
+                (selectedFacet == HomeFacet.podcasts && isPodcast) ||
+                (selectedFacet == HomeFacet.all && !isMusic && !isPodcast);
+
+            onTap = () {
+              if (isMusic) {
+                onSelected(HomeFacet.music);
+              } else if (isPodcast) {
+                onSelected(HomeFacet.podcasts);
+              } else {
+                onSelected(HomeFacet.all);
+              }
+            };
+          } else {
+            final facet = HomeFacet.values[index];
+            label = facet.label;
+            isSelected = facet == selectedFacet;
+            onTap = () => onSelected(facet);
+          }
 
           return GestureDetector(
-            onTap: () => onSelected(facet),
+            onTap: onTap,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeOut,
@@ -41,7 +76,7 @@ class FacetChipRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                facet.label,
+                label,
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

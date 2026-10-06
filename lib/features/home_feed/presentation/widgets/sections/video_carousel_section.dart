@@ -49,7 +49,7 @@ class VideoCarouselSection extends StatelessWidget {
             itemBuilder: (context, index) {
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: _VideoPreviewCard(entity: items[index]),
+                child: VideoPreviewCard(entity: items[index]),
               );
             },
           ),
@@ -60,10 +60,10 @@ class VideoCarouselSection extends StatelessWidget {
 }
 
 /// A single video card matching Spotify's official layout.
-class _VideoPreviewCard extends StatelessWidget {
+class VideoPreviewCard extends StatelessWidget {
   final SpotifyEntity entity;
 
-  const _VideoPreviewCard({required this.entity});
+  const VideoPreviewCard({super.key, required this.entity});
 
   @override
   Widget build(BuildContext context) {

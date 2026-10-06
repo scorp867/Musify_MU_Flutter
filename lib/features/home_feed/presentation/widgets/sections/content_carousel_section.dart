@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/artist_circle_card.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/square_card.dart';
-import 'package:musify_mu/features/home_feed/presentation/widgets/cards/preview_card.dart';
 
 /// Standard content carousel — large cards for albums, playlists, etc.
 /// Matches Spotify's main feed sections (~170px cards).
@@ -46,12 +45,7 @@ class ContentCarouselSection extends StatelessWidget {
             separatorBuilder: (_, _) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
               final item = items[index];
-              
-              final previewTrait = item.getTrait<PreviewCardTrait>();
-              if (previewTrait != null) {
-                return SizedBox(width: 310, child: PreviewCard(item: item, trait: previewTrait));
-              }
-              
+
               if (item.type == ContentType.artist) {
                 return ArtistCircleCard(item: item);
               }

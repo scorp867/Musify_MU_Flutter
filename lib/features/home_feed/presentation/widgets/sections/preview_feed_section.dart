@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/preview_card.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';
 
 /// Preview feed section -- vertical stack of full-width preview cards.
-/// Maps to Casita sections that contain PreviewCardTrait items.
+/// Maps to Casita sections that contain Preview or ImmersivePreview.
 /// Spotify shows these as full-width cards with 12px vertical spacing.
 class PreviewFeedSection extends StatelessWidget {
   final String title;
@@ -43,11 +44,26 @@ class PreviewFeedSection extends StatelessWidget {
                 if (i > 0) const SizedBox(height: 12),
                 Builder(builder: (context) {
                   final item = items[i];
-                  final previewTrait = item.getTrait<PreviewCardTrait>();
-                  if (previewTrait != null) {
-                    return PreviewCard(item: item, trait: previewTrait);
+
+                  // 1. If entity has a video trait, render a video preview card
+                  final videoTrait = item.getTrait<VideoCardTrait>();
+                  if (videoTrait != null) {
+                    return VideoPreviewCard(entity: item);
                   }
-                  return const SizedBox.shrink();
+
+                  // 2. Otherwise render preview card with PreviewCardTrait (or synthesized fallback)
+                  final fallbackTitle = item.previewTitle.isNotEmpty
+                      ? item.previewTitle
+                      : (item.cardTitle.isNotEmpty ? item.cardTitle : title);
+                  final previewTrait = item.getTrait<PreviewCardTrait>() ??
+                      PreviewCardTrait(
+                        title: fallbackTitle,
+                        description: item.getTrait<SimpleCardTrait>()?.subtitle ?? '',
+                        imageUrl: item.cardImageUrl ?? item.previewImageUrl ?? '',
+                        backgroundColor: item.backgroundColorHex,
+                      );
+
+                  return PreviewCard(item: item, trait: previewTrait);
                 }),
               ],
             ],

@@ -7,6 +7,7 @@ import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/vis
 import 'package:musify_mu/core/protocol/generated/spotify/traits/preview_card_trait.pb.dart' as pct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/shortcuts_card_trait.pb.dart' as sct;
 import 'package:musify_mu/core/protocol/generated/spotify/traits/simple_card_trait.pb.dart' as sct2;
+import 'package:musify_mu/features/home_feed/data/section_mapper.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 
@@ -51,18 +52,31 @@ class CasitaParser {
       final ondemandUris = home.ondemandSet.uris.toList();
       dev.log('CasitaParser: ${ondemandUris.length} URIs in ondemandSet');
 
+      const mapper = SectionMapper();
       final sections = <HomeSection>[];
       for (final section in home.structure.sections) {
         try {
-          final parsed = _parseSection(section);
-          if (parsed != null &&
-              (parsed.items.isNotEmpty ||
-                  parsed.sectionType == 'recentsShelf' ||
-                  parsed.sectionType == 'recents')) {
-            sections.add(parsed);
+          final mapped = mapper.mapSection(
+            section,
+            extractSource: _extractItemsFromSource,
+            extractList: _extractItemsFromList,
+            extractSingle: _extractItemsFromItem,
+            extractTitle: _extractTitleWithFallback,
+            storeTrait: _storeTrait,
+            cleanImageUrl: _cleanImageUrl,
+          );
+          if (mapped != null) {
+            final parsed = mapped.toHomeSection();
+            if (parsed.items.isNotEmpty ||
+                parsed.sectionType == 'recentsShelf' ||
+                parsed.sectionType == 'recents' ||
+                parsed.sectionType == 'interactiveEntrypoint' ||
+                parsed.sectionType == 'inlineCard') {
+              sections.add(parsed);
+            }
           }
         } catch (e) {
-          dev.log('CasitaParser: Failed parsing section: $e');
+          dev.log('CasitaParser: Failed mapping section: $e');
         }
       }
 
@@ -89,9 +103,27 @@ class CasitaParser {
         );
       }).toList();
 
-      dev.log('CasitaParser: ${hydratedSections.length} sections, $hydrated items hydrated');
+      final chips = <HomeChip>[];
+      for (final sec in hydratedSections) {
+        if (sec.sectionType == 'anchors') {
+          for (final item in sec.items) {
+            final simple = item.getTrait<SimpleCardTrait>();
+            final label = simple?.title.isNotEmpty == true
+                ? simple!.title
+                : (item.uri.split(':').isNotEmpty ? item.uri.split(':').last : item.uri);
+            chips.add(HomeChip(id: item.uri, label: label));
+          }
+        }
+      }
+
+      final filteredSections = hydratedSections.where((s) => s.sectionType != 'anchors').toList();
+
+      dev.log('CasitaParser: ${filteredSections.length} sections, $hydrated items hydrated, ${chips.length} chips');
       return CasitaResult(
-        homeData: HomeViewData(sections: hydratedSections),
+        homeData: HomeViewData(
+          sections: filteredSections,
+          chips: chips.isNotEmpty ? chips : HomeViewData.defaultChips,
+        ),
         ondemandUris: ondemandUris,
         traits: Map.of(_traits),
       );
@@ -304,229 +336,10 @@ class CasitaParser {
     _traits.putIfAbsent(uri, () => {})[trait.runtimeType.toString()] = trait;
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Section parsing using generated Section proto
-  // ═══════════════════════════════════════════════════════════════════
-
-  HomeSection? _parseSection(casita.Section section) {
-    final sectionId = section.hasSectionInfo() ? section.sectionInfo.sectionId : '';
-    final featureType = section.whichFeatureType();
-
-    dev.log('Section: featureType=${featureType.name} sectionId=$sectionId');
-
-    // The featureType.name IS the rendering instruction from Spotify's Casita.
-    // Pass it through directly — no manual mapping.
-    final ft = featureType.name;
-
-    switch (featureType) {
-      case casita.Section_FeatureType.shortcuts:
-        final items = _extractItemsFromSource(section.shortcuts.itemSource);
-        return HomeSection(
-          title: '',
-          items: items,
-          layout: SectionLayout.quickGrid,
-          sectionType: ft,
-        );
-
-      case casita.Section_FeatureType.imageLink:
-        final title = _extractTitle(section.imageLink.heading);
-        final items = _extractItemsFromSource(section.imageLink.itemSource);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.preview:
-        final title = _extractTitle(section.preview.heading);
-        final items = _extractItemsFromItem(section.preview.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.immersivePreview:
-        final title = _extractTitle(section.immersivePreview.heading);
-        final items = _extractItemsFromItem(section.immersivePreview.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.recentsShelf:
-        final title = _extractTitle(section.recentsShelf.heading);
-        return HomeSection(
-          title: title.isNotEmpty ? title : 'Recents',
-          items: const [],
-          layout: SectionLayout.carousel,
-          sectionType: ft,
-        );
-
-      case casita.Section_FeatureType.previewCarousel:
-        final title = _extractTitle(section.previewCarousel.heading);
-        final items = _extractItemsFromList(section.previewCarousel.items);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.showcase:
-        final title = _extractTitle(section.showcase.heading);
-        final items = _extractItemsFromItem(section.showcase.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.associatedPreview:
-        final title = _extractTitle(section.associatedPreview.heading);
-        final items = _extractItemsFromItem(section.associatedPreview.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.audioSpotlight:
-        final title = _extractTitle(section.audioSpotlight.heading);
-        final items = _extractItemsFromItem(section.audioSpotlight.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.verticalSingleEntry:
-        final title = _extractTitle(section.verticalSingleEntry.heading);
-        final items = _extractItemsFromItem(section.verticalSingleEntry.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.narrative:
-        return null;
-
-      case casita.Section_FeatureType.topStoryCarousel:
-        final items = <SpotifyEntity>[];
-        for (final story in section.topStoryCarousel.stories) {
-          items.addAll(_extractItemsFromList(story.items));
-        }
-        return _buildSection('', items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.videoCarousel:
-        final title = _extractTitle(section.videoCarousel.heading);
-        final items = _extractItemsFromList(section.videoCarousel.items);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.audioPromo:
-        final title = _extractTitle(section.audioPromo.heading);
-        final items = _extractItemsFromItem(section.audioPromo.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.inlineCard:
-        return null;
-
-      case casita.Section_FeatureType.watchFeed:
-        final title = _extractTitle(section.watchFeed.heading);
-        final items = <SpotifyEntity>[];
-        for (final wfItem in section.watchFeed.items) {
-          final uri = wfItem.hasItem() ? wfItem.item.identifier : '';
-          if (uri.isEmpty) continue;
-
-          if (wfItem.hasEntrypoint()) {
-            final ep = wfItem.entrypoint;
-            final thumbUrl = _cleanImageUrl(ep.thumbnailImage.url);
-            final coverUrl = _cleanImageUrl(ep.coverImage.url);
-
-            int durationSec = 0;
-            if (ep.hasVideoFile() && ep.videoFile.endTime > ep.videoFile.startTime) {
-              durationSec = ((ep.videoFile.endTime - ep.videoFile.startTime) ~/ 1000).toInt();
-            }
-            final durationStr = durationSec > 0
-                ? '${(durationSec ~/ 60).toString().padLeft(2, '0')}:${(durationSec % 60).toString().padLeft(2, '0')}'
-                : (ep.overline.isNotEmpty ? ep.overline : '');
-
-            _storeTrait(uri, VideoCardTrait(
-              title: ep.title,
-              subtitle: ep.subtitle,
-              videoThumbnailUrl: thumbUrl,
-              showArtworkUrl: coverUrl,
-              durationString: durationStr,
-              overline: ep.overline,
-            ));
-
-            _storeTrait(uri, SimpleCardTrait(
-              title: ep.title,
-              subtitle: ep.subtitle,
-              imageUrl: thumbUrl ?? coverUrl,
-            ));
-          }
-
-          items.add(SpotifyEntity(
-            uri: uri,
-            type: ContentType.fromUri(uri),
-            traits: {},
-          ));
-        }
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.liveEvent:
-        final title = _extractTitle(section.liveEvent.heading);
-        final items = _extractItemsFromSource(section.liveEvent.itemSource);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.contentEvaluationList:
-        final title = _extractTitle(section.contentEvaluationList.heading);
-        final items = _extractItemsFromList(section.contentEvaluationList.items);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.reflection:
-        final title = _extractTitle(section.reflection.heading);
-        final items = _extractItemsFromItem(section.reflection.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.previewPromotionCarousel:
-        final title = _extractTitle(section.previewPromotionCarousel.heading);
-        final items = <SpotifyEntity>[];
-        for (final wrapped in section.previewPromotionCarousel.items) {
-          if (wrapped.hasVideoPromo() && wrapped.videoPromo.hasItem()) {
-            items.addAll(_extractItemsFromItem(wrapped.videoPromo.item));
-          }
-        }
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.interactiveEntrypoint:
-        return null;
-
-      case casita.Section_FeatureType.actionCardCarousel:
-        final title = _extractTitle(section.actionCardCarousel.heading);
-        final items = _extractItemsFromList(section.actionCardCarousel.items);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.campaignLinkCarousel:
-        final title = _extractTitle(section.campaignLinkCarousel.heading);
-        final items = _extractItemsFromSource(section.campaignLinkCarousel.itemSource);
-        return _buildSection(title, items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      case casita.Section_FeatureType.promotionV1:
-        final title = _extractTitle(section.promotionV1.heading);
-        final items = _extractItemsFromItem(section.promotionV1.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.promotionV3:
-        final items = _extractItemsFromItem(section.promotionV3.item);
-        return _buildSection('', items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.videoPromo:
-        final title = _extractTitle(section.videoPromo.heading);
-        final items = _extractItemsFromItem(section.videoPromo.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.playLinkPromo:
-        final title = _extractTitle(section.playLinkPromo.heading);
-        final items = _extractItemsFromItem(section.playLinkPromo.item);
-        return _buildSection(title, items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.bannerWithAnimations:
-        final items = _extractItemsFromItem(section.bannerWithAnimations.item);
-        return _buildSection('', items, sectionId, SectionLayout.feed, sectionType: ft);
-
-      case casita.Section_FeatureType.anchors:
-        final items = _extractItemsFromSource(section.anchors.itemSource);
-        return _buildSection('', items, sectionId, SectionLayout.carousel, sectionType: ft);
-
-      // ── Commercial brand ads & non-content (skip cleanly) ──────────
-      case casita.Section_FeatureType.videoBrandAd:
-      case casita.Section_FeatureType.imageBrandAd:
-      case casita.Section_FeatureType.banner:
-      case casita.Section_FeatureType.fullBleedBanner:
-      case casita.Section_FeatureType.promptableSection:
-      case casita.Section_FeatureType.concertCampaign:
-      case casita.Section_FeatureType.promptedWorldsShelf:
-      case casita.Section_FeatureType.userPromptedWorldEntrypoint:
-      case casita.Section_FeatureType.callToAction:
-        return null;
-
-      case casita.Section_FeatureType.notSet:
-        // Option B: Preserved in unknownFields, gracefully skip without crashing
-        final unknownTags = section.unknownFields.asMap().keys.toList();
-        dev.log('CasitaParser: Unrecognized section tag(s) $unknownTags (sectionId=$sectionId), skipped gracefully.');
-        return null;
-    }
+  String _extractTitleWithFallback(casita.Heading heading, [String sectionId = '']) {
+    final title = _extractTitle(heading);
+    if (title.isNotEmpty) return title;
+    return _inferTitle(sectionId);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -607,37 +420,6 @@ class CasitaParser {
   // ═══════════════════════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════════════════════
-
-  HomeSection? _buildSection(
-    String title,
-    List<SpotifyEntity> items,
-    String sectionId,
-    SectionLayout layout, {
-    String? sectionType,
-  }) {
-    if (title.isEmpty) title = _inferTitle(sectionId);
-    if (items.isEmpty) return null;
-
-    return HomeSection(
-      title: title,
-      items: items,
-      layout: layout,
-      sectionType: sectionType ?? _sectionType(sectionId),
-    );
-  }
-
-  String _sectionType(String sectionId) {
-    final pipeIdx = sectionId.indexOf('|');
-    if (pipeIdx < 0) return 'music';
-    final suffix = sectionId.substring(pipeIdx + 1).toLowerCase();
-    if (suffix.startsWith('shortcuts')) return 'shortcuts';
-    if (suffix.startsWith('podcast')) return 'podcast';
-    if (suffix.startsWith('musicfeed')) return 'musicfeed';
-    if (suffix.contains('nft-home') || suffix.contains('recently-played')) {
-      return 'recents';
-    }
-    return 'music';
-  }
 
   String _inferTitle(String id) {
     final pipeIdx = id.indexOf('|');

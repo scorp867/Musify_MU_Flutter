@@ -20,10 +20,16 @@ class HomeViewData extends Equatable {
   final List<HomeSection> sections;
   final List<HomeChip> chips;
 
+  static const List<HomeChip> defaultChips = [
+    HomeChip(id: 'all', label: 'All'),
+    HomeChip(id: 'music', label: 'Music'),
+    HomeChip(id: 'podcasts', label: 'Podcasts & Shows'),
+  ];
+
   const HomeViewData({
     this.greeting = '',
     this.sections = const [],
-    this.chips = const [],
+    this.chips = defaultChips,
   });
 
   @override

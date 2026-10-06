@@ -102,7 +102,9 @@ class HomeHeaderTitleRow extends StatelessWidget {
 
 /// The filter chips widget -- separate so it can be pinned independently.
 class HomeFilterChips extends StatelessWidget {
-  const HomeFilterChips({super.key});
+  final List<HomeChip>? chips;
+
+  const HomeFilterChips({super.key, this.chips});
 
   @override
   Widget build(BuildContext context) {
@@ -119,6 +121,7 @@ class HomeFilterChips extends StatelessWidget {
 
         return FacetChipRow(
           selectedFacet: activeFacet,
+          chips: chips,
           onSelected: (facet) {
             context.read<HomeFeedBloc>().add(HomeFeedFacetChanged(facet));
           },
