@@ -5,7 +5,12 @@ import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'player_theme.dart';
 
 class PlayerLyricsSection extends StatelessWidget {
-  const PlayerLyricsSection({super.key});
+  const PlayerLyricsSection({
+    super.key,
+    this.onTapHeader,
+  });
+
+  final VoidCallback? onTapHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -15,9 +20,21 @@ class PlayerLyricsSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PlayerSectionHeader(
+          PlayerSectionHeader(
             icon: Icons.lyrics_outlined,
             title: 'Lyrics',
+            onTap: onTapHeader,
+            trailing: onTapHeader != null
+                ? IconButton(
+                    icon: const Icon(
+                      Icons.open_in_full_rounded,
+                      color: Colors.white70,
+                      size: 18,
+                    ),
+                    onPressed: onTapHeader,
+                    tooltip: 'Expand lyrics',
+                  )
+                : null,
           ),
           const SizedBox(height: 18),
           const Text(
@@ -90,14 +107,18 @@ class PlayerSectionHeader extends StatelessWidget {
     super.key,
     required this.icon,
     required this.title,
+    this.trailing,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
+  final Widget? trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    Widget content = Row(
       children: [
         Container(
           width: 38,
@@ -109,16 +130,28 @@ class PlayerSectionHeader extends StatelessWidget {
           child: Icon(icon, color: PlayerColors.accent, size: 20),
         ),
         const SizedBox(width: 12),
-        Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
+        ?trailing,
       ],
     );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: content,
+      );
+    }
+    return content;
   }
 }
 

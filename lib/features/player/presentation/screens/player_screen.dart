@@ -1,7 +1,10 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 
+import '../widgets/edge_to_edge_scrim.dart';
+import '../widgets/peek_scroll_view.dart';
 import '../widgets/player_artwork.dart';
 import '../widgets/player_controls.dart';
 import '../widgets/player_header.dart';
@@ -9,47 +12,63 @@ import '../widgets/player_metadata.dart';
 import '../widgets/player_sections.dart';
 import '../widgets/player_sheets.dart';
 import '../widgets/player_theme.dart';
+import '../widgets/pull_to_dismiss_scaffold.dart';
 import 'queue_sheet_screen.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
     super.key,
-    this.scrollController,
     required this.playbackController,
   });
 
-  final ScrollController? scrollController;
   final PlaybackController playbackController;
 
-  static void show(
+  static bool _isOpen = false;
+
+  /// Launches the Now Playing view as a full-screen edge-to-edge window with
+  /// native Spotify transition curves and single-top route guarding.
+  static Future<void> show(
     BuildContext context,
     PlaybackController playbackController,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.72),
-      enableDrag: false,
-      useSafeArea: false,
-      builder: (_) {
-        return DraggableScrollableSheet(
-          initialChildSize: 1,
-          minChildSize: 0.50,
-          maxChildSize: 1,
-          expand: false,
-          snap: true,
-          snapSizes: const [0.50, 1.0],
-          snapAnimationDuration: const Duration(milliseconds: 250),
-          builder: (_, controller) {
+  ) async {
+    if (_isOpen) return;
+    _isOpen = true;
+
+    try {
+      await Navigator.of(context, rootNavigator: true).push(
+        PageRouteBuilder<void>(
+          opaque: false,
+          barrierDismissible: false,
+          barrierColor: Colors.black.withValues(alpha: 0.70),
+          transitionDuration: const Duration(milliseconds: 320),
+          reverseTransitionDuration: const Duration(milliseconds: 280),
+          pageBuilder: (context, animation, secondaryAnimation) {
             return PlayerScreen(
-              scrollController: controller,
               playbackController: playbackController,
             );
           },
-        );
-      },
-    );
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            const curve = Cubic(0.3, 0.0, 0.0, 1.0);
+            final slideAnimation = Tween<Offset>(
+              begin: const Offset(0.0, 1.0),
+              end: Offset.zero,
+            ).animate(
+              CurvedAnimation(
+                parent: animation,
+                curve: curve,
+                reverseCurve: curve,
+              ),
+            );
+            return SlideTransition(
+              position: slideAnimation,
+              child: child,
+            );
+          },
+        ),
+      );
+    } finally {
+      _isOpen = false;
+    }
   }
 
   @override
@@ -59,6 +78,8 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   PlaybackController get _playbackController => widget.playbackController;
 
+  final GlobalKey<PeekScrollViewState> _peekScrollKey =
+      GlobalKey<PeekScrollViewState>();
   final GlobalKey _lyricsKey = GlobalKey();
 
   Duration? _dragPosition;
@@ -68,102 +89,129 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<MediaItem?>(
-      stream: _playbackController.mediaItem,
-      builder: (context, snapshot) {
-        final item = snapshot.data;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: PullToDismissScaffold(
+        builder: (context, dismissController) {
+          return EdgeToEdgeScrim(
+            child: StreamBuilder<MediaItem?>(
+              stream: _playbackController.mediaItem,
+              builder: (context, snapshot) {
+                final item = snapshot.data;
 
-        if (item == null) {
-          return PlayerEmptyState(
-            onClose: () => Navigator.pop(context),
-            onMore: () => _showMoreOptions(context),
+                if (item == null) {
+                  return PlayerEmptyState(
+                    onClose: dismissController.dismiss,
+                    onMore: () => _showMoreOptions(context),
+                  );
+                }
+
+                return _buildPlayer(context, item, dismissController);
+              },
+            ),
           );
-        }
-
-        return _buildPlayer(context, item);
-      },
+        },
+      ),
     );
   }
 
-  Widget _buildPlayer(BuildContext context, MediaItem item) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          PlayerBackdrop(item: item),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xDD0A0A0A),
-                  Color(0xF20A0A0A),
-                  Color(0xFF0A0A0A),
-                ],
-                stops: [0, 0.42, 1],
-              ),
-            ),
-          ),
-          SafeArea(
-            child: CustomScrollView(
-              controller: widget.scrollController,
-              physics: const BouncingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: PlayerHeader(
-                    onClose: () => Navigator.pop(context),
-                    onMore: () => _showMoreOptions(context),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(24, 14, 24, 42),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      PlayerAlbumArtwork(item: item),
-                      const SizedBox(height: 28),
-                      PlayerMetadata(
-                        item: item,
-                        isFavorite: _isFavorite,
-                        onFavoriteChanged: _toggleFavorite,
-                      ),
-                      const SizedBox(height: 26),
-                      PlayerSeekBar(
-                        item: item,
-                        playbackController: _playbackController,
-                        dragPosition: _dragPosition,
-                        onDragPositionChanged: _setDragPosition,
-                      ),
-                      const SizedBox(height: 20),
-                      PlayerPlaybackControls(
-                        item: item,
-                        playbackController: _playbackController,
-                      ),
-                      const SizedBox(height: 20),
-                      PlayerSecondaryControls(
-                        shuffleEnabled: _shuffleEnabled,
-                        repeatEnabled: _repeatEnabled,
-                        onShuffle: _toggleShuffle,
-                        onRepeat: _toggleRepeat,
-                        onQueue: () => _showQueue(context),
-                        onLyrics: _scrollToLyrics,
-                      ),
-                      const SizedBox(height: 34),
-                      PlayerLyricsSection(key: _lyricsKey),
-                      const SizedBox(height: 18),
-                      PlayerTrackDetailsSection(item: item),
-                    ]),
-                  ),
-                ),
+  Widget _buildPlayer(
+    BuildContext context,
+    MediaItem item,
+    PullToDismissController dismissController,
+  ) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        PlayerBackdrop(item: item),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xDD0A0A0A),
+                Color(0xF20A0A0A),
+                Color(0xFF0A0A0A),
               ],
+              stops: [0, 0.42, 1],
             ),
           ),
-        ],
-      ),
+        ),
+        PeekScrollView(
+          key: _peekScrollKey,
+          dismissController: dismissController,
+          peekHeight: 64.0,
+          header: PlayerHeader(
+            onClose: dismissController.dismiss,
+            onMore: () => _showMoreOptions(context),
+            contextTitle: 'PLAYING FROM ALBUM',
+            contextSubtitle: item.album,
+          ),
+          mainContent: Column(
+            children: [
+              const Spacer(flex: 1),
+              Flexible(
+                flex: 16,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 380,
+                    maxHeight: 380,
+                  ),
+                  child: PlayerAlbumArtwork(item: item),
+                ),
+              ),
+              const Spacer(flex: 1),
+              PlayerMetadata(
+                item: item,
+                isFavorite: _isFavorite,
+                onFavoriteChanged: _toggleFavorite,
+              ),
+              const SizedBox(height: 10),
+              PlayerSeekBar(
+                item: item,
+                playbackController: _playbackController,
+                dragPosition: _dragPosition,
+                onDragPositionChanged: _setDragPosition,
+              ),
+              const SizedBox(height: 8),
+              PlayerPlaybackControls(
+                item: item,
+                playbackController: _playbackController,
+                shuffleEnabled: _shuffleEnabled,
+                repeatEnabled: _repeatEnabled,
+                onShuffle: _toggleShuffle,
+                onRepeat: _toggleRepeat,
+              ),
+              const SizedBox(height: 6),
+              PlayerUtilityRow(
+                onQueue: () => _showQueue(context),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+          peekingCard: PlayerLyricsSection(
+            key: _lyricsKey,
+            onTapHeader: _onExpandLyrics,
+          ),
+          expandedCards: [
+            PlayerTrackDetailsSection(item: item),
+          ],
+        ),
+      ],
     );
+  }
+
+  void _onExpandLyrics() {
+    _peekScrollKey.currentState?.scrollToExpanded();
   }
 
   void _toggleFavorite() {
@@ -197,21 +245,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _playbackController.setRepeatMode(
       _repeatEnabled ? AudioServiceRepeatMode.one : AudioServiceRepeatMode.none,
-    );
-  }
-
-  void _scrollToLyrics() {
-    final lyricsContext = _lyricsKey.currentContext;
-
-    if (lyricsContext == null) {
-      return;
-    }
-
-    Scrollable.ensureVisible(
-      lyricsContext,
-      duration: const Duration(milliseconds: 450),
-      curve: Curves.easeOutCubic,
-      alignment: 0.12,
     );
   }
 

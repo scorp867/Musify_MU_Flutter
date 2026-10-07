@@ -3,51 +3,79 @@ import 'package:flutter/material.dart';
 import 'player_theme.dart';
 
 class PlayerHeader extends StatelessWidget {
-  const PlayerHeader({super.key, required this.onClose, required this.onMore});
+  const PlayerHeader({
+    super.key,
+    required this.onClose,
+    required this.onMore,
+    this.contextTitle,
+    this.contextSubtitle,
+  });
 
   final VoidCallback onClose;
   final VoidCallback onMore;
+  final String? contextTitle;
+  final String? contextSubtitle;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      child: Column(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
         children: [
-          Container(
-            width: 38,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(20),
+          IconButton(
+            icon: const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Colors.white,
+              size: 32,
             ),
+            tooltip: 'Close player',
+            padding: const EdgeInsets.all(8),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: onClose,
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              PlayerCircleButton(
-                icon: Icons.keyboard_arrow_down_rounded,
-                tooltip: 'Close player',
-                onPressed: onClose,
-              ),
-              const Expanded(
-                child: Text(
-                  'Now Playing',
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  (contextTitle ?? 'NOW PLAYING').toUpperCase(),
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
                   ),
                 ),
-              ),
-              PlayerCircleButton(
-                icon: Icons.more_horiz_rounded,
-                tooltip: 'More options',
-                onPressed: onMore,
-              ),
-            ],
+                if (contextSubtitle != null && contextSubtitle!.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    contextSubtitle!,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(
+              Icons.more_vert_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+            tooltip: 'More options',
+            padding: const EdgeInsets.all(8),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            onPressed: onMore,
           ),
         ],
       ),
@@ -98,12 +126,9 @@ class PlayerEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-      child: Container(
-        height: 460,
-        color: PlayerColors.background,
-        child: SafeArea(
+    return Container(
+      color: PlayerColors.background,
+      child: SafeArea(
           child: Column(
             children: [
               PlayerHeader(onClose: onClose, onMore: onMore),
@@ -144,7 +169,6 @@ class PlayerEmptyState extends StatelessWidget {
                 ),
               ),
             ],
-          ),
         ),
       ),
     );

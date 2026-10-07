@@ -1,7 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
-import 'player_header.dart';
 import 'player_theme.dart';
 
 class PlayerMetadata extends StatelessWidget {
@@ -69,13 +68,16 @@ class PlayerMetadata extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 16),
-        PlayerCircleButton(
-          icon: isFavorite
-              ? Icons.favorite_rounded
-              : Icons.favorite_border_rounded,
-          iconColor: isFavorite ? Colors.redAccent : Colors.white,
+        IconButton(
+          icon: Icon(
+            isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+            color: isFavorite ? const Color(0xFF1ED760) : Colors.white70,
+            size: 26,
+          ),
           tooltip: isFavorite ? 'Remove from favorites' : 'Add to favorites',
           onPressed: onFavoriteChanged,
+          padding: const EdgeInsets.all(12),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
         ),
       ],
     );
