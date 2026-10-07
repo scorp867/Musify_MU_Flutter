@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
@@ -80,7 +81,7 @@ class DrawerMenu extends StatelessWidget {
       return CircleAvatar(
         radius: 40,
         backgroundColor: const Color(0xFF1E293B),
-        backgroundImage: NetworkImage(avatarUrl),
+        backgroundImage: CachedNetworkImageProvider(avatarUrl),
       );
     }
 
