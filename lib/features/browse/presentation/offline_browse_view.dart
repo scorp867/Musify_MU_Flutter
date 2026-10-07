@@ -279,23 +279,21 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: QueryArtworkWidget(
-                      id: track.songId ?? int.tryParse(track.id) ?? 0,
-                      type: ArtworkType.AUDIO,
-                      artworkHeight: 48,
-                      artworkWidth: 48,
-                      keepOldArtwork: true,
-                      nullArtworkWidget: Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E293B),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.music_note, color: Color(0xFF1DB954)),
-                      ),
+                  QueryArtworkWidget(
+                    id: track.songId ?? int.tryParse(track.id) ?? 0,
+                    type: ArtworkType.AUDIO,
+                    artworkHeight: 48,
+                    artworkWidth: 48,
+                    artworkBorder: BorderRadius.zero,
+                    artworkClipBehavior: Clip.none,
+                    artworkQuality: FilterQuality.low,
+                    quality: 50,
+                    keepOldArtwork: true,
+                    nullArtworkWidget: Container(
+                      width: 48,
+                      height: 48,
+                      color: const Color(0xFF1E293B),
+                      child: const Icon(Icons.music_note, color: Color(0xFF1DB954)),
                     ),
                   ),
                   const SizedBox(width: 14),

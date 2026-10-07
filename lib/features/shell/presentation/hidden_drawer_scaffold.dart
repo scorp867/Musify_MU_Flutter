@@ -30,9 +30,7 @@ class HiddenDrawerScaffold extends StatefulWidget {
 class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _slideAnimation;
-  late Animation<double> _radiusAnimation;
+  late Animation<double> _curvedAnimation;
 
   bool _isDrawerOpen = false;
 
@@ -41,17 +39,14 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 280),
     );
 
-    final curve = CurvedAnimation(
+    _curvedAnimation = CurvedAnimation(
       parent: _animationController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
     );
-
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.85).animate(curve);
-    _slideAnimation = Tween<double>(begin: 0.0, end: 250.0).animate(curve);
-    _radiusAnimation = Tween<double>(begin: 0.0, end: 24.0).animate(curve);
   }
 
   @override
@@ -71,40 +66,83 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    // Push the screen 83% (in the 80% - 85% range requested)
+    final drawerWidth = screenWidth * 0.83;
+
     return Scaffold(
       backgroundColor: const Color(0xFF1E293B),
-      body: Stack(
-        children: [
-          const DrawerMenu(),
-          AnimatedBuilder(
-            animation: _animationController,
-            builder: (context, child) {
-              return Transform.translate(
-                offset: Offset(_slideAnimation.value, 0),
-                child: Transform.scale(
-                  scale: _scaleAnimation.value,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(
-                      _radiusAnimation.value,
-                    ),
-                    child: child,
+      body: AnimatedBuilder(
+        animation: _curvedAnimation,
+        builder: (context, child) {
+          final progress = _curvedAnimation.value;
+          final drawerOffset = -drawerWidth * (1.0 - progress);
+          final mainOffset = drawerWidth * progress;
+          final isOpen = progress > 0;
+
+          return Stack(
+            children: [
+              // 1. Drawer Menu sliding in from left, pushing the screen
+              Transform.translate(
+                offset: Offset(drawerOffset, 0),
+                child: SizedBox(
+                  width: drawerWidth,
+                  height: double.infinity,
+                  child: const DrawerMenu(),
+                ),
+              ),
+
+              // 2. Foreground MainScreen pushed to the right with edge shadow
+              Transform.translate(
+                offset: Offset(mainOffset, 0),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    boxShadow: isOpen
+                        ? [
+                            BoxShadow(
+                              color: Colors.black.withValues(
+                                alpha: 0.5 * progress,
+                              ),
+                              blurRadius: 28,
+                              offset: const Offset(-8, 0),
+                            ),
+                          ]
+                        : const [],
+                  ),
+                  child: Stack(
+                    children: [
+                      child!,
+                      // Scrim overlay: dims the remaining sliver of the main screen
+                      IgnorePointer(
+                        ignoring: !_isDrawerOpen,
+                        child: GestureDetector(
+                          onTap: _toggleDrawer,
+                          behavior: HitTestBehavior.opaque,
+                          child: ColoredBox(
+                            color: Colors.black.withValues(
+                              alpha: 0.70 * progress,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              );
-            },
-            child: RepaintBoundary(
-              child: MainScreen(
-                onMenuPressed: _toggleDrawer,
-                isDrawerOpen: _isDrawerOpen,
-                playbackController: widget.playbackController,
-                modePersistence: widget.modePersistence,
-                createHomeFeedBloc: widget.createHomeFeedBloc,
-                createBrowseBloc: widget.createBrowseBloc,
-                createLibraryBloc: widget.createLibraryBloc,
               ),
-            ),
+            ],
+          );
+        },
+        child: RepaintBoundary(
+          child: MainScreen(
+            onMenuPressed: _toggleDrawer,
+            isDrawerOpen: _isDrawerOpen,
+            playbackController: widget.playbackController,
+            modePersistence: widget.modePersistence,
+            createHomeFeedBloc: widget.createHomeFeedBloc,
+            createBrowseBloc: widget.createBrowseBloc,
+            createLibraryBloc: widget.createLibraryBloc,
           ),
-        ],
+        ),
       ),
     );
   }

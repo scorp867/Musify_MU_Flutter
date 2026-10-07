@@ -11,7 +11,7 @@ class DrawerMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Container(
-        width: 250,
+        width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
         child: BlocBuilder<AuthBloc, AuthState>(
           buildWhen: (prev, curr) => prev.runtimeType != curr.runtimeType,

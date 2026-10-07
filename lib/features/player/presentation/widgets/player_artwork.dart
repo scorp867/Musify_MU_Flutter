@@ -84,12 +84,14 @@ class PlayerArtworkImage extends StatelessWidget {
     this.artworkWidth,
     this.artworkHeight,
     this.placeholderIconSize,
+    this.size,
   });
 
   final MediaItem item;
   final double? artworkWidth;
   final double? artworkHeight;
   final double? placeholderIconSize;
+  final int? size;
 
   @override
   Widget build(BuildContext context) {
@@ -113,12 +115,19 @@ class PlayerArtworkImage extends StatelessWidget {
         item.extras?[MediaItemMapper.artworkVersionKey] ??
         item.extras?[MediaItemMapper.dateModifiedKey];
 
+    final bool isLarge = artworkWidth == null || artworkWidth! > 100;
+    final int resolvedSize = size ?? (isLarge ? 1000 : 200);
+
     return QueryArtworkWidget(
-      key: ValueKey('${item.id}_$artworkVersion'),
+      key: ValueKey('${item.id}_${artworkVersion}_$resolvedSize'),
       id: songId,
       type: ArtworkType.AUDIO,
       artworkWidth: artworkWidth ?? double.infinity,
       artworkHeight: artworkHeight ?? double.infinity,
+      size: resolvedSize,
+      artworkBorder: BorderRadius.zero,
+      artworkQuality: isLarge ? FilterQuality.high : FilterQuality.low,
+      quality: isLarge ? 100 : 50,
       keepOldArtwork: true,
       nullArtworkWidget: PlayerArtworkPlaceholder(
         iconSize: placeholderIconSize ?? 82,

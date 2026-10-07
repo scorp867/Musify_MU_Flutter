@@ -215,25 +215,23 @@ class _TrackTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: QueryArtworkWidget(
-                id: track.songId ?? int.tryParse(track.id) ?? 0,
-                type: ArtworkType.AUDIO,
-                artworkHeight: 50,
-                artworkWidth: 50,
-                keepOldArtwork: true,
-                nullArtworkWidget: Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.music_note,
-                    color: Color(0xFF1DB954),
-                  ),
+            QueryArtworkWidget(
+              id: track.songId ?? int.tryParse(track.id) ?? 0,
+              type: ArtworkType.AUDIO,
+              artworkHeight: 50,
+              artworkWidth: 50,
+              artworkBorder: BorderRadius.zero,
+              artworkClipBehavior: Clip.none,
+              artworkQuality: FilterQuality.low,
+              quality: 50,
+              keepOldArtwork: true,
+              nullArtworkWidget: Container(
+                width: 50,
+                height: 50,
+                color: const Color(0xFF1E293B),
+                child: const Icon(
+                  Icons.music_note,
+                  color: Color(0xFF1DB954),
                 ),
               ),
             ),
