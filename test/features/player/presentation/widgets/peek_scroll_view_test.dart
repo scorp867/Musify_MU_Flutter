@@ -14,13 +14,17 @@ class _FakeDismissController implements PullToDismissController {
   @override
   bool get isDismissing => _dismissed;
 
+  double? lastVelocity;
+
   @override
   void onPullDelta(double delta) {
     _dragOffset += delta;
   }
 
   @override
-  void onPullEnd(double velocity) {}
+  void onPullEnd(double velocity) {
+    lastVelocity = velocity;
+  }
 
   @override
   void dismiss() {
@@ -341,6 +345,255 @@ void main() {
       // Release
       await gesture.up();
       await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'scrolling slightly from offset 0 then dragging down in same gesture locks to offset 0 with overscroll without collapsing sheet',
+        (tester) async {
+      final dismissController = _FakeDismissController();
+      final key = GlobalKey<PeekScrollViewState>();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PeekScrollView(
+              key: key,
+              dismissController: dismissController,
+              header: const Text('Header'),
+              mainContent: const SizedBox(
+                height: 400,
+                child: Text('MainContent'),
+              ),
+              peekingCard: const SizedBox(
+                height: 100,
+                child: Text('PeekingCard'),
+              ),
+              expandedCards: const [
+                SizedBox(height: 600, child: Text('Card1')),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final scrollController = key.currentState!.scrollController;
+      expect(scrollController.position.pixels, 0.0);
+      expect(dismissController.dragOffsetY, 0.0);
+
+      final indicatorState =
+          tester.state<SpotifyStretchOverscrollIndicatorState>(
+        find.byType(SpotifyStretchOverscrollIndicator),
+      );
+      expect(indicatorState.controller.overscroll, 0.0);
+
+      // Start drag at center of MainContent
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.text('MainContent')));
+
+      // 1. Scroll slightly up into cards by 50px (without lifting finger)
+      await gesture.moveBy(const Offset(0, -50));
+      await tester.pump();
+
+      expect(scrollController.position.pixels, 50.0);
+      expect(dismissController.dragOffsetY, 0.0);
+
+      // 2. Drag DOWN in the same gesture by 90px (50px to return to top, 40px past top)
+      await gesture.moveBy(const Offset(0, 90));
+      await tester.pump();
+
+      // Must lock at offset 0:
+      expect(scrollController.position.pixels, 0.0);
+      // Must show top overscroll stretch (< 0.0):
+      expect(indicatorState.controller.overscroll, lessThan(0.0));
+      // Must NOT collapse the sheet!
+      expect(dismissController.dragOffsetY, 0.0);
+
+      // 3. Drag DOWN even further by another 50px in the same gesture:
+      await gesture.moveBy(const Offset(0, 50));
+      await tester.pump();
+
+      expect(scrollController.position.pixels, 0.0);
+      expect(indicatorState.controller.overscroll, lessThan(0.0));
+      expect(dismissController.dragOffsetY, 0.0);
+
+      // 4. Release finger
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // Overscroll rebounds cleanly to 0.0:
+      expect(indicatorState.controller.overscroll, 0.0);
+      // Sheet was never collapsed:
+      expect(dismissController.dragOffsetY, 0.0);
+    });
+
+    testWidgets(
+        'dragging down when resting at offset 0 drives pull to dismiss route without overscroll',
+        (tester) async {
+      final dismissController = _FakeDismissController();
+      final key = GlobalKey<PeekScrollViewState>();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PeekScrollView(
+              key: key,
+              dismissController: dismissController,
+              header: const Text('Header'),
+              mainContent: const SizedBox(
+                height: 400,
+                child: Text('MainContent'),
+              ),
+              peekingCard: const SizedBox(
+                height: 100,
+                child: Text('PeekingCard'),
+              ),
+              expandedCards: const [
+                SizedBox(height: 600, child: Text('Card1')),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final scrollController = key.currentState!.scrollController;
+      expect(scrollController.position.pixels, 0.0);
+      expect(dismissController.dragOffsetY, 0.0);
+
+      final indicatorState =
+          tester.state<SpotifyStretchOverscrollIndicatorState>(
+        find.byType(SpotifyStretchOverscrollIndicator),
+      );
+      expect(indicatorState.controller.overscroll, 0.0);
+
+      // Drag directly down from offset 0
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.text('MainContent')));
+      await gesture.moveBy(const Offset(0, 100));
+      await tester.pump();
+
+      // Drives dismiss controller without overscroll:
+      expect(dismissController.dragOffsetY, 100.0);
+      expect(indicatorState.controller.overscroll, 0.0);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('records velocity on drag down then up near 0', (tester) async {
+      final dismissController = _FakeDismissController();
+      final key = GlobalKey<PeekScrollViewState>();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PeekScrollView(
+              key: key,
+              dismissController: dismissController,
+              header: const Text('Header'),
+              mainContent: const SizedBox(
+                height: 400,
+                child: Text('MainContent'),
+              ),
+              peekingCard: const SizedBox(
+                height: 100,
+                child: Text('PeekingCard'),
+              ),
+              expandedCards: const [
+                SizedBox(height: 600, child: Text('Card1')),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(tester.getCenter(find.text('MainContent')));
+      await gesture.moveBy(const Offset(0, 200));
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -180));
+      await tester.pump();
+      expect(dismissController.dragOffsetY, 20.0);
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
+        'multi-pointer overscroll handoff does not reset stretch when a pointer lifts while another remains',
+        (tester) async {
+      final dismissController = _FakeDismissController();
+      final key = GlobalKey<PeekScrollViewState>();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PeekScrollView(
+              key: key,
+              dismissController: dismissController,
+              header: const Text('Header'),
+              mainContent: const SizedBox(
+                height: 400,
+                child: Text('MainContent'),
+              ),
+              peekingCard: const SizedBox(
+                height: 100,
+                child: Text('PeekingCard'),
+              ),
+              expandedCards: const [
+                SizedBox(height: 600, child: Text('Card1')),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final scrollController = key.currentState!.scrollController;
+      final maxOffset = scrollController.position.maxScrollExtent;
+      scrollController.jumpTo(maxOffset);
+      await tester.pumpAndSettle();
+
+      final indicatorState =
+          tester.state<SpotifyStretchOverscrollIndicatorState>(
+        find.byType(SpotifyStretchOverscrollIndicator),
+      );
+      expect(indicatorState.controller.overscroll, 0.0);
+
+      // Pointer 1 starts dragging UP into bottom overscroll
+      final pointer1 =
+          await tester.startGesture(tester.getCenter(find.text('Card1')));
+      await pointer1.moveBy(const Offset(0, -60));
+      await tester.pump();
+
+      final stretch1 = indicatorState.controller.overscroll;
+      expect(stretch1, greaterThan(0.0));
+
+      // Pointer 2 touches down and drags further into bottom overscroll
+      final pointer2 =
+          await tester.startGesture(tester.getCenter(find.text('Card1')) + const Offset(50, 0));
+      await pointer2.moveBy(const Offset(0, -40));
+      await tester.pump();
+
+      final stretch2 = indicatorState.controller.overscroll;
+      expect(stretch2, greaterThan(stretch1));
+
+      // Lifting pointer 2 while pointer 1 is still touching down
+      await pointer2.up();
+      await tester.pump();
+
+      // Stretch must NOT reset to 0; it must remain at where pointer 2 left it!
+      final stretchAfterPointer2Up = indicatorState.controller.overscroll;
+      expect(stretchAfterPointer2Up, greaterThan(0.0));
+      expect(stretchAfterPointer2Up, closeTo(stretch2, 0.01));
+
+      // Pointer 1 drags further
+      await pointer1.moveBy(const Offset(0, -20));
+      await tester.pump();
+      expect(indicatorState.controller.overscroll, greaterThan(stretchAfterPointer2Up));
+
+      // Finally pointer 1 lifts
+      await pointer1.up();
+      await tester.pumpAndSettle();
+
+      // Now it settles to 0.0
+      expect(indicatorState.controller.overscroll, 0.0);
     });
   });
 

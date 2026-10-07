@@ -190,24 +190,29 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
   final PullToDismissController dismissController;
   final SpotifyStretchController stretchController;
 
+  double get _minScroll => hasContentDimensions ? minScrollExtent : 0.0;
+  double get _maxScroll => hasContentDimensions ? maxScrollExtent : 0.0;
+
   /// Accumulated stretch pixel offsets for top and bottom overscroll.
   double _bottomOverscrollPx = 0.0;
   double _topOverscrollPx = 0.0;
 
   /// Timestamp recording when the scroll position arrived at 0.0 from an active
-  /// scroll or fling. Used to ensure rapid continuous flinging stretches at the top
-  /// instead of prematurely collapsing the sheet.
+  /// scroll or fling.
   DateTime? _topArrivalTimestamp;
 
-  /// True when the active touch interaction started while the scroll view
-  /// was already resting at offset 0.0 (top) for at least the settling duration.
-  bool _gestureStartedAtTop = false;
+  /// True ONLY when the gesture started while resting at offset 0 (top)
+  /// and the user has not scrolled the inner content.
+  bool _canDragDismissRoute = false;
 
   /// True while this drag gesture is actively driving the pull-to-dismiss route.
   bool _isPullingRoute = false;
 
   @override
   double setPixels(double newPixels) {
+    if (newPixels > 1.0) {
+      _canDragDismissRoute = false;
+    }
     if (hasPixels && pixels > 1.0 && newPixels <= 0.5) {
       _topArrivalTimestamp = DateTime.now();
     } else if (newPixels > 1.0) {
@@ -218,6 +223,9 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
 
   @override
   void correctPixels(double value) {
+    if (value > 1.0) {
+      _canDragDismissRoute = false;
+    }
     if (hasPixels && pixels > 1.0 && value <= 0.5) {
       _topArrivalTimestamp = DateTime.now();
     } else if (value > 1.0) {
@@ -242,7 +250,7 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
       _topOverscrollPx = 0.0;
     }
 
-    final isAtZero = hasPixels ? (pixels <= (minScrollExtent + 0.5)) : true;
+    final isAtZero = hasPixels ? (pixels <= 0.5) : true;
 
     // Must be at 0 and have rested for at least 400ms (or at rest since route open)
     final isRestedAtTop = isAtZero &&
@@ -250,11 +258,10 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
             DateTime.now().difference(_topArrivalTimestamp!) >=
                 const Duration(milliseconds: 400));
 
-    _gestureStartedAtTop = isRestedAtTop;
+    _canDragDismissRoute = isRestedAtTop;
 
     if (isAtZero && !isRestedAtTop) {
-      // User is continuously swiping without pausing: refresh timestamp so
-      // ongoing rapid swipes keep absorbing as top stretch instead of collapsing.
+      // Ongoing rapid swipes keep absorbing as top stretch instead of collapsing.
       _topArrivalTimestamp = DateTime.now();
     }
 
@@ -282,8 +289,9 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
           dismissController.onPullDelta(delta);
         } else {
           dismissController.onPullDelta(-currentDragY);
-          final leftover = delta + currentDragY;
-          applyUserOffset(leftover);
+          _isPullingRoute = false;
+          _canDragDismissRoute = true;
+          _topArrivalTimestamp = DateTime.now();
         }
       }
       return;
@@ -353,14 +361,18 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
 
     // 4A. User is dragging finger DOWN (delta > 0.0):
     if (delta > 0.0) {
-      if (!hasPixels || pixels <= (minScrollExtent + 0.5)) {
-        // Already at top:
-        if (_gestureStartedAtTop) {
+      final bool isAtTop =
+          !hasPixels || !hasContentDimensions || (pixels <= (_minScroll + 0.5));
+
+      if (isAtTop) {
+        // Already at offset 0 (top):
+        if (_canDragDismissRoute) {
+          // Started at rest at top without scrolling: pull to dismiss!
           _isPullingRoute = true;
           dismissController.onPullDelta(delta);
           return;
         } else {
-          // Rapid swiping or inner fling reached top: stretch top!
+          // User was scrolling before: show OVER-SCROLL!
           _topOverscrollPx += delta;
           final double normalized = -(_topOverscrollPx / viewport);
           stretchController.pull(clampDouble(normalized, -1.0, 0.0));
@@ -368,15 +380,17 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
         }
       }
 
-      final double availableToTop = pixels - minScrollExtent;
+      final double availableToTop =
+          hasPixels && hasContentDimensions ? (pixels - _minScroll) : 0.0;
       if (delta > availableToTop && availableToTop >= 0.0) {
         // Scroll list to 0 first:
         super.applyUserOffset(availableToTop);
         final double overflow = delta - availableToTop;
-        if (_gestureStartedAtTop) {
+        if (_canDragDismissRoute) {
           _isPullingRoute = true;
           dismissController.onPullDelta(overflow);
         } else {
+          // User was scrolling before: show OVER-SCROLL!
           _topOverscrollPx = overflow;
           final double normalized = -(_topOverscrollPx / viewport);
           stretchController.pull(clampDouble(normalized, -1.0, 0.0));
@@ -391,8 +405,12 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
 
     // 4B. User is dragging finger UP (delta < 0.0):
     _isPullingRoute = false;
+    // User is scrolling into content! Invalidate dismiss drag:
+    _canDragDismissRoute = false;
 
-    if (hasPixels && pixels >= (maxScrollExtent - 0.5)) {
+    final bool isAtBottom =
+        hasPixels && hasContentDimensions && (pixels >= (_maxScroll - 0.5));
+    if (isAtBottom) {
       // Already at bottom: all delta stretches the bottom!
       _bottomOverscrollPx += -delta;
       final double normalized = _bottomOverscrollPx / viewport;
@@ -400,8 +418,9 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
       return;
     }
 
-    final double availableToBottom = maxScrollExtent - pixels;
-    if (hasPixels && -delta > availableToBottom && availableToBottom >= 0.0) {
+    final double availableToBottom =
+        hasPixels && hasContentDimensions ? (_maxScroll - pixels) : 0.0;
+    if (hasContentDimensions && -delta > availableToBottom && availableToBottom >= 0.0) {
       // Scroll list to bottom first:
       super.applyUserOffset(-availableToBottom);
       final double overflow = -delta - availableToBottom;
@@ -425,6 +444,8 @@ class _SpotifyPeekScrollPosition extends ScrollPositionWithSingleContext {
       // User released during pull-to-dismiss: end pull gesture.
       dismissController.onPullEnd(-velocity);
       _isPullingRoute = false;
+      _canDragDismissRoute =
+          dismissController.dragOffsetY <= 0.0 && (!hasPixels || pixels <= 0.5);
       super.goBallistic(0.0);
       return;
     }

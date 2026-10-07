@@ -426,6 +426,7 @@ class SpotifyStretchOverscrollIndicatorState
       widget.controller ?? _internalController;
 
   double _totalOverscroll = 0.0;
+  final Set<int> _activePointers = <int>{};
 
   @override
   void initState() {
@@ -443,8 +444,22 @@ class SpotifyStretchOverscrollIndicatorState
     super.dispose();
   }
 
-  void _onPointerUp() {
-    if (controller.overscroll != 0.0) {
+  void _handlePointerDown(PointerDownEvent event) {
+    _activePointers.add(event.pointer);
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    _activePointers.remove(event.pointer);
+    // ONLY when all pointers have left the surface do we trigger release rebound:
+    if (_activePointers.isEmpty && controller.overscroll != 0.0) {
+      _totalOverscroll = 0.0;
+      controller.scrollEnd(0.0);
+    }
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    _activePointers.remove(event.pointer);
+    if (_activePointers.isEmpty && controller.overscroll != 0.0) {
       _totalOverscroll = 0.0;
       controller.scrollEnd(0.0);
     }
@@ -468,7 +483,7 @@ class SpotifyStretchOverscrollIndicatorState
     }
 
     if (notification is ScrollStartNotification) {
-      if (notification.dragDetails != null) {
+      if (notification.dragDetails != null && controller.overscroll == 0.0) {
         _totalOverscroll = 0.0;
       }
     } else if (notification is OverscrollNotification) {
@@ -500,6 +515,11 @@ class SpotifyStretchOverscrollIndicatorState
         }
       }
     } else if (notification is ScrollEndNotification) {
+      if (_activePointers.isNotEmpty) {
+        // Multi-touch handoff: other pointers are still down, do not end rebound!
+        return false;
+      }
+
       double velocity = switch (widget.axis) {
         Axis.vertical =>
           notification.dragDetails?.velocity.pixelsPerSecond.dy ?? 0.0,
@@ -522,8 +542,9 @@ class SpotifyStretchOverscrollIndicatorState
   @override
   Widget build(BuildContext context) {
     return Listener(
-      onPointerUp: (_) => _onPointerUp(),
-      onPointerCancel: (_) => _onPointerUp(),
+      onPointerDown: _handlePointerDown,
+      onPointerUp: _handlePointerUp,
+      onPointerCancel: _handlePointerCancel,
       child: NotificationListener<ScrollNotification>(
         onNotification: _handleScrollNotification,
         child: AnimatedBuilder(
