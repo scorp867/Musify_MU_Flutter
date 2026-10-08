@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
@@ -207,10 +208,10 @@ class _BrowseCard extends StatelessWidget {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        item.imageUrl,
+                      child: CachedNetworkImage(
+                        imageUrl: item.imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stack) =>
+                        errorWidget: (context, url, error) =>
                             const SizedBox.shrink(),
                       ),
                     ),
@@ -245,7 +246,7 @@ class _BrowseHeader extends StatelessWidget {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(user!.avatarUrl!),
+            backgroundImage: CachedNetworkImageProvider(user!.avatarUrl!),
           );
         } else if (user?.displayName != null) {
           avatar = CircleAvatar(

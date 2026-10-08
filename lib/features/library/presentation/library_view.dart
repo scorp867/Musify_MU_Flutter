@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
@@ -172,7 +173,7 @@ class _LibraryHeader extends StatelessWidget {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(user!.avatarUrl!),
+            backgroundImage: CachedNetworkImageProvider(user!.avatarUrl!),
           );
         } else if (user?.displayName != null) {
           avatar = CircleAvatar(
@@ -438,10 +439,10 @@ class _LibraryItemTile extends StatelessWidget {
       return ClipRRect(
         borderRadius:
             BorderRadius.circular(isArtist ? 28 : 4),
-        child: Image.network(
-          item.imageUrl!,
+        child: CachedNetworkImage(
+          imageUrl: item.imageUrl!,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _placeholderIcon(),
+          errorWidget: (context, url, error) => _placeholderIcon(),
         ),
       );
     }
@@ -625,10 +626,10 @@ class _MosaicGrid extends StatelessWidget {
   }
 
   Widget _tile(String url) {
-    return Image.network(
-      url,
+    return CachedNetworkImage(
+      imageUrl: url,
       fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => Container(color: const Color(0xFF282828)),
+      errorWidget: (context, url, error) => Container(color: const Color(0xFF282828)),
     );
   }
 }
