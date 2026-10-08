@@ -15,6 +15,7 @@ import 'package:musify_mu/features/library/presentation/library_view.dart';
 import 'package:musify_mu/features/library/presentation/offline_library_view.dart';
 import 'package:musify_mu/features/player/presentation/widgets/mini_player.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/bottom_navigation.dart';
+import 'package:musify_mu/features/shell/presentation/widgets/network_status_bottom_bar.dart';
 
 class MainScreen extends StatefulWidget {
   final VoidCallback onMenuPressed;
@@ -184,12 +185,26 @@ class _MainScreenState extends State<MainScreen> {
             ),
           ],
         ),
-        bottomNavigationBar: AppBottomNavigation(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() {
-            _currentIndex = index;
-            _visitedTabs.add(index);
-          }),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            MediaQuery.removePadding(
+              context: context,
+              removeBottom: true,
+              child: MediaQuery.removeViewPadding(
+                context: context,
+                removeBottom: true,
+                child: AppBottomNavigation(
+                  currentIndex: _currentIndex,
+                  onTap: (index) => setState(() {
+                    _currentIndex = index;
+                    _visitedTabs.add(index);
+                  }),
+                ),
+              ),
+            ),
+            const NetworkStatusBottomBar(),
+          ],
         ),
       ),
     );

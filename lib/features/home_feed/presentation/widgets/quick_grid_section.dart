@@ -1,5 +1,5 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// 2-column compact grid — used for shortcuts (recently played quick access).
@@ -77,7 +77,7 @@ class _QuickGridTile extends StatelessWidget {
               width: 56,
               height: 56,
               child: imageUrl != null
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       memCacheWidth: 112,

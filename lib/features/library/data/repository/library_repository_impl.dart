@@ -2,6 +2,7 @@ import 'dart:developer' as dev;
 import 'dart:isolate';
 
 import 'package:musify_mu/core/media/extended_metadata_service.dart';
+import 'package:musify_mu/core/utils/concurrency_limiter.dart';
 import 'package:musify_mu/features/library/data/cache/library_cache.dart';
 import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
 import 'package:musify_mu/features/library/data/mappers/library_mapper.dart';
@@ -226,10 +227,14 @@ class LibraryRepositoryImpl implements LibraryRepository {
       toSync = playlistIds.where((id) => !cached.contains(id)).toList();
     }
     if (toSync.isEmpty) return;
-    await Future.wait(toSync.map((id) => _syncSinglePlaylist(
-      id,
-      rootlistCover: rootlistCovers[id],
-    )));
+    await ConcurrencyLimiter.runPooled(
+      toSync,
+      (id) => _syncSinglePlaylist(
+        id,
+        rootlistCover: rootlistCovers[id],
+      ),
+      maxConcurrent: 4,
+    );
   }
 
   Future<void> _syncSinglePlaylist(

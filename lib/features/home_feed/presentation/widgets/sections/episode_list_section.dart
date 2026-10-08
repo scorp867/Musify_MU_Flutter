@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
@@ -137,7 +137,7 @@ class _EpisodeCard extends StatelessWidget {
                       width: 56,
                       height: 56,
                       child: imageUrl != null
-                          ? CachedNetworkImage(
+                          ? AppNetworkImage(
                               imageUrl: imageUrl,
                               fit: BoxFit.cover,
                               memCacheWidth: 112,

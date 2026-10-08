@@ -1,24 +1,35 @@
 import 'dart:async';
-import 'dart:developer';
-import 'dart:io';
+import 'dart:developer' as dev;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'package:musify_mu/core/network/auth/token_refresh_mutex.dart';
+import 'package:musify_mu/core/network/client/network_client.dart';
+import 'package:musify_mu/core/network/priority/network_priority.dart';
+import 'package:musify_mu/core/network/result/network_result.dart';
 import 'package:musify_mu/core/network/spotify/auth/auth_session_provider.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
-/// Shared retry, logging, and error handling for Spotify transports.
+/// Shared retry, multi-host, mutex token refresh, and error handling for Spotify transports.
 ///
 /// Subclasses provide platform-specific headers via [buildHeaders].
-/// The 401-refresh-retry cycle, timeouts, and structured logging
-/// are handled here so implementations stay focused on identity.
 abstract class BaseSpotifyTransport implements SpotifyTransport {
-  static const _baseUrl = 'https://spclient.wg.spotify.com';
+  static const defaultBaseUrl = 'https://spclient.wg.spotify.com';
 
   @protected
   final AuthSessionProvider auth;
 
-  BaseSpotifyTransport({required this.auth});
+  @protected
+  final NetworkClient client;
+
+  @protected
+  final TokenRefreshMutex refreshMutex;
+
+  BaseSpotifyTransport({
+    required this.auth,
+    required this.client,
+    TokenRefreshMutex? refreshMutex,
+  }) : refreshMutex = refreshMutex ?? TokenRefreshMutex();
 
   /// Subclasses build platform-specific headers (WebPlayer vs Android).
   @protected
@@ -28,13 +39,18 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
   Future<Uint8List?> get(
     String path, {
     Map<String, String>? extraHeaders,
+    CancelToken? cancelToken,
+    NetworkPriority priority = NetworkPriority.interactive,
+    String? baseHost,
   }) async {
-    return _executeWithRetry(() async {
-      final headers = await buildHeaders(extraHeaders);
-      final url = '$_baseUrl$path';
-      return http.get(Uri.parse(url), headers: headers)
-          .timeout(const Duration(seconds: 15));
-    }, 'GET', path);
+    final result = await getResult(
+      path,
+      extraHeaders: extraHeaders,
+      cancelToken: cancelToken,
+      priority: priority,
+      baseHost: baseHost,
+    );
+    return result.dataOrNull;
   }
 
   @override
@@ -43,93 +59,111 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     Uint8List body, {
     Map<String, String>? extraHeaders,
     String contentType = 'application/x-protobuf',
+    CancelToken? cancelToken,
+    NetworkPriority priority = NetworkPriority.interactive,
+    String? baseHost,
   }) async {
-    return _executeWithRetry(() async {
-      final headers = await buildHeaders(extraHeaders);
-      headers['Content-Type'] = contentType;
-      headers.putIfAbsent('accept', () => 'application/x-protobuf');
-      final url = '$_baseUrl$path';
-      return http.post(Uri.parse(url), headers: headers, body: body)
-          .timeout(const Duration(seconds: 15));
-    }, 'POST', path, bodySize: body.length);
+    final result = await postResult(
+      path,
+      body,
+      extraHeaders: extraHeaders,
+      contentType: contentType,
+      cancelToken: cancelToken,
+      priority: priority,
+      baseHost: baseHost,
+    );
+    return result.dataOrNull;
   }
 
-  // ─── Request execution with retry + logging ───────────────────────────
-
-  Future<Uint8List?> _executeWithRetry(
-    Future<http.Response> Function() request,
-    String method,
+  @override
+  Future<NetworkResult<Uint8List>> getResult(
     String path, {
-    int? bodySize,
+    Map<String, String>? extraHeaders,
+    CancelToken? cancelToken,
+    NetworkPriority priority = NetworkPriority.interactive,
+    String? baseHost,
   }) async {
-    final sw = Stopwatch()..start();
-    _logStart(method, path, bodySize: bodySize);
+    final host = baseHost ?? defaultBaseUrl;
+    final uri = Uri.parse('$host$path');
 
-    try {
-      var response = await request();
+    return _executeWithRefresh(
+      (headers) => client.get(
+        uri,
+        headers: headers,
+        cancelToken: cancelToken,
+        priority: priority,
+      ),
+      extraHeaders,
+      'GET',
+      path,
+    );
+  }
 
-      if (response.statusCode == 401) {
-        _logResult(method, path, 401, sw.elapsedMilliseconds, 0,
-            note: 'refreshing token');
-        final newToken = await auth.refreshAccessToken();
-        if (newToken == null) {
-          _logResult(method, path, 401, sw.elapsedMilliseconds, 0,
-              note: 'refresh failed');
-          return null;
-        }
-        sw.reset();
-        response = await request();
+  @override
+  Future<NetworkResult<Uint8List>> postResult(
+    String path,
+    Uint8List body, {
+    Map<String, String>? extraHeaders,
+    String contentType = 'application/x-protobuf',
+    CancelToken? cancelToken,
+    NetworkPriority priority = NetworkPriority.interactive,
+    String? baseHost,
+  }) async {
+    final host = baseHost ?? defaultBaseUrl;
+    final uri = Uri.parse('$host$path');
+
+    return _executeWithRefresh(
+      (headers) => client.post(
+        uri,
+        body,
+        headers: headers,
+        contentType: contentType,
+        cancelToken: cancelToken,
+        priority: priority,
+      ),
+      extraHeaders,
+      'POST',
+      path,
+    );
+  }
+
+  // ─── Mutex Token Refresh Cycle ──────────────────────────────────────────
+
+  Future<NetworkResult<Uint8List>> _executeWithRefresh(
+    Future<NetworkResult<Uint8List>> Function(Map<String, String> headers)
+        execute,
+    Map<String, String>? extraHeaders,
+    String method,
+    String path,
+  ) async {
+    var headers = await buildHeaders(extraHeaders);
+    var result = await execute(headers);
+
+    // If 401 Unauthorized, run token refresh under the mutex lock
+    if (result is NetworkFailure<Uint8List> &&
+        result.error.reason == NetworkFailureReason.unauthorized) {
+      dev.log(
+        'BaseSpotifyTransport ($method $path): Received 401, locking refresh...',
+        name: 'Transport',
+      );
+
+      final newToken = await refreshMutex.lock(() => auth.refreshAccessToken());
+      if (newToken != null && newToken.isNotEmpty) {
+        dev.log(
+          'BaseSpotifyTransport: Token refreshed, retrying $method $path',
+          name: 'Transport',
+        );
+        // Rebuild headers with the freshly stored access token
+        headers = await buildHeaders(extraHeaders);
+        result = await execute(headers);
+      } else {
+        dev.log(
+          'BaseSpotifyTransport: Token refresh failed for $method $path',
+          name: 'Transport',
+        );
       }
-
-      return _handleResponse(response, method, path, sw.elapsedMilliseconds);
-    } on TimeoutException {
-      _logResult(method, path, 0, sw.elapsedMilliseconds, 0, note: 'TIMEOUT');
-      return null;
-    } catch (e) {
-      _logResult(method, path, 0, sw.elapsedMilliseconds, 0,
-          note: e.runtimeType.toString());
-      log('SpotifyTransport error ($method $path): $e');
-      return null;
-    }
-  }
-
-  Uint8List? _handleResponse(
-      http.Response response, String method, String path, int elapsedMs) {
-    if (response.statusCode == 200) {
-      var bytes = Uint8List.fromList(response.bodyBytes);
-      if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
-        try {
-          bytes = Uint8List.fromList(gzip.decode(bytes));
-        } catch (e) {
-          log('Failed to decompress gzip body ($method $path): $e');
-        }
-      }
-      _logResult(method, path, 200, elapsedMs, bytes.length);
-      return bytes;
     }
 
-    _logResult(method, path, response.statusCode, elapsedMs,
-        response.bodyBytes.length);
-    return null;
-  }
-
-  // ─── Terminal logging (visible in `flutter run` output) ───────────────
-  //
-  // Filter with:  flutter run 2>&1 | Select-String "[NET]"
-  // ─────────────────────────────────────────────────────────────────────
-
-  void _logStart(String method, String path, {int? bodySize}) {
-    final body = bodySize != null ? ' ($bodySize B)' : '';
-    debugPrint('[NET] --> $method $path$body');
-  }
-
-  void _logResult(String method, String path, int statusCode, int elapsedMs,
-      int responseBytes,
-      {String? note}) {
-    final status = statusCode > 0 ? '$statusCode' : '---';
-    final suffix = note != null ? ' ($note)' : '';
-    final ok = statusCode == 200 ? 'ok' : 'ERR';
-    debugPrint(
-        '[NET] <-- $method $path [$ok $status] ${elapsedMs}ms ${responseBytes}B$suffix');
+    return result;
   }
 }

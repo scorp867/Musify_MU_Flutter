@@ -35,7 +35,7 @@ const IdentityTrait$json = {
       '3': 5,
       '4': 3,
       '5': 11,
-      '6': '.spotify.contentagnostic.v2.Contributor',
+      '6': '.spotify.contentagnostic.v2.ContributorReference',
       '10': 'contributors'
     },
   ],
@@ -46,53 +46,34 @@ final $typed_data.Uint8List identityTraitDescriptor = $convert.base64Decode(
     'Cg1JZGVudGl0eVRyYWl0EhIKBHR5cGUYASABKAlSBHR5cGUSEgoEbmFtZRgCIAEoCVIEbmFtZR'
     'IgCgtkZXNjcmlwdGlvbhgDIAEoCVILZGVzY3JpcHRpb24SZQoYY29udGVudF9oaWVyYXJjaHlf'
     'cGFyZW50GAQgASgLMisuc3BvdGlmeS5jb250ZW50YWdub3N0aWMudjIuRW50aXR5UmVmZXJlbm'
-    'NlUhZjb250ZW50SGllcmFyY2h5UGFyZW50EksKDGNvbnRyaWJ1dG9ycxgFIAMoCzInLnNwb3Rp'
-    'ZnkuY29udGVudGFnbm9zdGljLnYyLkNvbnRyaWJ1dG9yUgxjb250cmlidXRvcnM=');
+    'NlUhZjb250ZW50SGllcmFyY2h5UGFyZW50ElQKDGNvbnRyaWJ1dG9ycxgFIAMoCzIwLnNwb3Rp'
+    'ZnkuY29udGVudGFnbm9zdGljLnYyLkNvbnRyaWJ1dG9yUmVmZXJlbmNlUgxjb250cmlidXRvcn'
+    'M=');
 
 @$core.Deprecated('Use entityReferenceDescriptor instead')
 const EntityReference$json = {
   '1': 'EntityReference',
   '2': [
-    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'uri', '3': 2, '4': 1, '5': 9, '10': 'uri'},
   ],
 };
 
 /// Descriptor for `EntityReference`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List entityReferenceDescriptor =
-    $convert.base64Decode('Cg9FbnRpdHlSZWZlcmVuY2USEAoDdXJpGAEgASgJUgN1cmk=');
-
-@$core.Deprecated('Use contributorDescriptor instead')
-const Contributor$json = {
-  '1': 'Contributor',
-  '2': [
-    {
-      '1': 'reference',
-      '3': 1,
-      '4': 1,
-      '5': 11,
-      '6': '.spotify.contentagnostic.v2.ContributorReference',
-      '10': 'reference'
-    },
-    {'1': 'role', '3': 2, '4': 1, '5': 9, '10': 'role'},
-  ],
-};
-
-/// Descriptor for `Contributor`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List contributorDescriptor = $convert.base64Decode(
-    'CgtDb250cmlidXRvchJOCglyZWZlcmVuY2UYASABKAsyMC5zcG90aWZ5LmNvbnRlbnRhZ25vc3'
-    'RpYy52Mi5Db250cmlidXRvclJlZmVyZW5jZVIJcmVmZXJlbmNlEhIKBHJvbGUYAiABKAlSBHJv'
-    'bGU=');
+final $typed_data.Uint8List entityReferenceDescriptor = $convert.base64Decode(
+    'Cg9FbnRpdHlSZWZlcmVuY2USEgoEbmFtZRgBIAEoCVIEbmFtZRIQCgN1cmkYAiABKAlSA3VyaQ'
+    '==');
 
 @$core.Deprecated('Use contributorReferenceDescriptor instead')
 const ContributorReference$json = {
   '1': 'ContributorReference',
   '2': [
-    {'1': 'uri', '3': 1, '4': 1, '5': 9, '10': 'uri'},
-    {'1': 'name', '3': 2, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'name', '3': 1, '4': 1, '5': 9, '10': 'name'},
+    {'1': 'uri', '3': 2, '4': 1, '5': 9, '10': 'uri'},
   ],
 };
 
 /// Descriptor for `ContributorReference`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List contributorReferenceDescriptor = $convert.base64Decode(
-    'ChRDb250cmlidXRvclJlZmVyZW5jZRIQCgN1cmkYASABKAlSA3VyaRISCgRuYW1lGAIgASgJUg'
-    'RuYW1l');
+    'ChRDb250cmlidXRvclJlZmVyZW5jZRISCgRuYW1lGAEgASgJUgRuYW1lEhAKA3VyaRgCIAEoCV'
+    'IDdXJp');

@@ -16,6 +16,9 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - scratch/**
+    - test.dart
+    - test_casita.dart
 include: package:flutter_lints/flutter.yaml
 
 linter:

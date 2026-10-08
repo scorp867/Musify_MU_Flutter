@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'dart:typed_data';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
@@ -22,31 +23,66 @@ class BatchedExtensionResponseParser {
     ExtendedMetadataPluginRegistry registry,
   ) {
     final results = <String, Map<Type, Trait>>{};
+    dev.log(
+      '[MetadataParser] response has ${response.extendedMetadata.length} arrays',
+      name: 'Metadata',
+    );
 
     for (final array in response.extendedMetadata) {
       final kindValue = array.extensionKind.value;
       final plugin = registry.pluginForKind(kindValue);
-      if (plugin == null) continue;
+      dev.log(
+        '[MetadataParser] Array kind: $kindValue (${array.extensionKind}), plugin: ${plugin?.runtimeType}, items: ${array.extensionData.length}',
+        name: 'Metadata',
+      );
+      if (plugin == null) {
+        dev.log(
+          '[MetadataParser] No plugin registered for kind: $kindValue',
+          name: 'Metadata',
+        );
+        continue;
+      }
 
       for (final extData in array.extensionData) {
         final uri = extData.entityUri;
-        if (uri.isEmpty || !extData.hasExtensionData()) continue;
+        if (uri.isEmpty || !extData.hasExtensionData()) {
+          dev.log(
+            '[MetadataParser] $uri hasExtensionData=false',
+            name: 'Metadata',
+          );
+          continue;
+        }
 
         final statusCode =
             (extData.hasHeader() && extData.header.hasStatusCode())
                 ? extData.header.statusCode
                 : 200;
         // Spotify checks statusCode == 200 (rya1.java:1030)
-        if (statusCode != 200) continue;
+        if (statusCode != 200) {
+          dev.log(
+            '[MetadataParser] $uri statusCode=$statusCode (not 200)',
+            name: 'Metadata',
+          );
+          continue;
+        }
 
         final payload = extData.extensionData.value;
-        if (payload.isEmpty) continue;
+        if (payload.isEmpty) {
+          dev.log(
+            '[MetadataParser] $uri payload is empty',
+            name: 'Metadata',
+          );
+          continue;
+        }
 
         try {
           final trait = plugin.parse(Uint8List.fromList(payload));
           results.putIfAbsent(uri, () => {})[plugin.traitType] = trait;
-        } catch (_) {
-          // Ignore individual trait parsing error (non-fatal)
+        } catch (e, st) {
+          dev.log(
+            '[MetadataParser] Error parsing ${plugin.traitType} for $uri: $e\n$st',
+            name: 'Metadata',
+          );
         }
       }
     }

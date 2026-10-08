@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -66,7 +66,7 @@ class VideoPromoSection extends StatelessWidget {
                       fit: StackFit.expand,
                       children: [
                         if (videoThumbnail != null && videoThumbnail.isNotEmpty)
-                          CachedNetworkImage(
+                          AppNetworkImage(
                             imageUrl: videoThumbnail,
                             fit: BoxFit.cover,
                             memCacheWidth: 720,

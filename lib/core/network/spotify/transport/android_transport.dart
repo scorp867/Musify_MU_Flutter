@@ -8,8 +8,12 @@ import 'package:musify_mu/core/network/spotify/transport/base_spotify_transport.
 class AndroidTransport extends BaseSpotifyTransport {
   final RuntimeContext _ctx;
 
-  AndroidTransport({required super.auth, required RuntimeContext ctx})
-      : _ctx = ctx;
+  AndroidTransport({
+    required super.auth,
+    required super.client,
+    required RuntimeContext ctx,
+    super.refreshMutex,
+  }) : _ctx = ctx;
 
   @override
   Future<Map<String, String>> buildHeaders(Map<String, String>? extra) async {

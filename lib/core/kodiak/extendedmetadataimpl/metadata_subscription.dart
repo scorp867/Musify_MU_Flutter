@@ -4,6 +4,7 @@ import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_dat
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/core/kodiak/table/data_source_result.dart';
 import 'package:musify_mu/core/kodiak/table/data_source_subscription.dart';
+import 'package:musify_mu/core/network/result/network_result.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 
 /// Subscription managing element trait queries and dispatching batch network requests.
@@ -26,14 +27,18 @@ class MetadataSubscription implements DataSourceSubscription {
 
   bool _isDisposed = false;
 
+  final void Function(Set<CellKey> failedKeys)? _onNetworkFailure;
+
   MetadataSubscription({
     ExtendedMetadataClient? client,
     required ExtendedMetadataDataSourceImpl dataSource,
     required void Function(List<CellKey> updatedKeys) onUpdate,
+    void Function(Set<CellKey> failedKeys)? onNetworkFailure,
     Map<CellKey, Trait>? initialCacheSnapshot,
   })  : _client = client,
         _dataSource = dataSource,
-        _onUpdate = onUpdate {
+        _onUpdate = onUpdate,
+        _onNetworkFailure = onNetworkFailure {
     if (initialCacheSnapshot != null) {
       _localCache.addAll(initialCacheSnapshot);
     }
@@ -77,9 +82,19 @@ class MetadataSubscription implements DataSourceSubscription {
     _inFlight.addAll(keysToFetch);
 
     try {
-      final fetchedCells = await client.fetchCells(keysToFetch);
+      final result = await client.fetchCellsResult(keysToFetch);
       if (_isDisposed) return;
 
+      if (result is NetworkFailure<Map<CellKey, Trait>>) {
+        // If this is a transport glitch (timeout, offline, serverError, rateLimited),
+        // DO NOT poison the cache with markUnavailable.
+        // Leaving keys un-poisoned allows them to recover when network restores.
+        _onNetworkFailure?.call(keysToFetch);
+        return;
+      }
+
+      final fetchedCells =
+          (result as NetworkSuccess<Map<CellKey, Trait>>).data;
       final updatedKeys = <CellKey>[];
 
       // Record fetched traits
@@ -88,7 +103,7 @@ class MetadataSubscription implements DataSourceSubscription {
         updatedKeys.add(entry.key);
       }
 
-      // Record unavailable traits for keys that returned empty
+      // Record unavailable traits ONLY for keys confirmed empty by successful backend response
       for (final key in keysToFetch) {
         if (!fetchedCells.containsKey(key)) {
           _dataSource.markUnavailable(key);
@@ -101,6 +116,7 @@ class MetadataSubscription implements DataSourceSubscription {
       }
     } catch (_) {
       // Non-critical network failure
+      _onNetworkFailure?.call(keysToFetch);
     } finally {
       _inFlight.removeAll(keysToFetch);
     }

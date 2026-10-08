@@ -42,12 +42,14 @@ class RuntimeContext {
   String country;
   String catalogue;
   String timezone;
+  TimezoneInfo? timezoneInfo;
   String acceptLanguage;
 
   RuntimeContext({
     this.country = 'US',
     this.catalogue = 'free',
     this.timezone = 'UTC',
+    this.timezoneInfo,
     this.acceptLanguage = 'en-US',
   });
 
@@ -55,7 +57,9 @@ class RuntimeContext {
   /// before any network requests are made.
   Future<void> init() async {
     try {
-      timezone = await FlutterTimezone.getLocalTimezone();
+      final tz = await FlutterTimezone.getLocalTimezone();
+      timezoneInfo = tz;
+      timezone = tz.identifier;
     } catch (_) {
       // Keep default 'UTC' if detection fails.
     }

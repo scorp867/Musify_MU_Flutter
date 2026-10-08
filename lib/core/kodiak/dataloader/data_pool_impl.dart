@@ -2,10 +2,14 @@ import 'dart:async';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/dataloader/kodiak_disk_cache.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
 import 'package:musify_mu/core/kodiak/statement/data_statement.dart';
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/core/kodiak/table/data_source_subscription.dart';
 import 'package:musify_mu/core/kodiak/table/table_key.dart';
+import 'package:musify_mu/core/network/status/network_monitor_service.dart';
+import 'package:musify_mu/core/network/status/network_status.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 
 /// Concrete implementation of Kodiak DataPool.
@@ -13,6 +17,8 @@ import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 class DataPoolImpl implements DataPool {
   final ExtendedMetadataDataSourceImpl _dataSource;
   final KodiakDiskCache? _diskCache;
+  final NetworkMonitorService? _networkMonitor;
+  final ExtendedMetadataPluginRegistry? _pluginRegistry;
 
   /// In-memory trait store: URI -> { TraitTypeName -> Trait }
   /// Direct equivalent to Spotify Android `s3n.i` (`iur0`).
@@ -32,16 +38,38 @@ class DataPoolImpl implements DataPool {
   /// Direct equivalent to Spotify Android `s3n.j` (`LinkedHashSet`).
   final Set<CellKey> _pendingBatch = {};
 
+  /// Failed cell keys awaiting network restoration to retry.
+  final Set<CellKey> _failedRetryKeys = {};
+
+  StreamSubscription<NetworkStatus>? _networkSubscription;
   Timer? _debounceTimer;
+  Timer? _retryDebounceTimer;
   bool _diskLoaded = false;
   bool _isDisposed = false;
+
+  ExtendedMetadataPluginRegistry get _effectiveRegistry =>
+      _pluginRegistry ??
+      _dataSource.client?.registry ??
+      _fallbackRegistry;
+
+  static final _fallbackRegistry = ExtendedMetadataPluginRegistry(
+    createDefaultExtendedMetadataPlugins(),
+  );
 
   DataPoolImpl({
     required ExtendedMetadataDataSourceImpl dataSource,
     KodiakDiskCache? diskCache,
+    NetworkMonitorService? networkMonitor,
+    ExtendedMetadataPluginRegistry? registry,
   })  : _dataSource = dataSource,
-        _diskCache = diskCache {
-    _subscription = _dataSource.subscribe(_onDataSourceUpdated);
+        _diskCache = diskCache,
+        _networkMonitor = networkMonitor,
+        _pluginRegistry = registry {
+    _subscription = _dataSource.subscribe(
+      _onDataSourceUpdated,
+      onNetworkFailure: _onNetworkFailure,
+    );
+    _initNetworkListener();
   }
 
   @override
@@ -147,6 +175,15 @@ class DataPoolImpl implements DataPool {
       final uri = entry.key.entityUri;
       final trait = entry.value;
       _store.putIfAbsent(uri, () => {})[trait.runtimeType.toString()] = trait;
+      final plugin = _effectiveRegistry.pluginForType(
+        entry.key.table.traitType,
+      );
+      if (plugin != null) {
+        _resolvedKinds
+            .putIfAbsent(uri, () => {})
+            .add(plugin.extensionKindValue);
+      }
+      _failedRetryKeys.remove(entry.key);
       _notify(uri);
     }
     _schedulePersist();
@@ -196,18 +233,6 @@ class DataPoolImpl implements DataPool {
       final batch = Set<CellKey>.of(_pendingBatch);
       _pendingBatch.clear();
 
-      // Record requested kinds as resolved
-      for (final cellKey in batch) {
-        final plugin = _dataSource.client?.registry.pluginForType(
-          cellKey.table.traitType,
-        );
-        if (plugin != null) {
-          _resolvedKinds
-              .putIfAbsent(cellKey.entityUri, () => {})
-              .add(plugin.extensionKindValue);
-        }
-      }
-
       _subscription.request(batch);
       _schedulePersist();
     });
@@ -224,6 +249,15 @@ class DataPoolImpl implements DataPool {
       final trait = _dataSource.getTrait(cellKey);
       if (trait != null) {
         _store.putIfAbsent(uri, () => {})[trait.runtimeType.toString()] = trait;
+        final plugin = _effectiveRegistry.pluginForType(
+          cellKey.table.traitType,
+        );
+        if (plugin != null) {
+          _resolvedKinds
+              .putIfAbsent(uri, () => {})
+              .add(plugin.extensionKindValue);
+        }
+        _failedRetryKeys.remove(cellKey);
         touchedUris.add(uri);
       }
     }
@@ -233,6 +267,33 @@ class DataPoolImpl implements DataPool {
     }
 
     _schedulePersist();
+  }
+
+  void _onNetworkFailure(Set<CellKey> failedKeys) {
+    if (_isDisposed) return;
+    _failedRetryKeys.addAll(failedKeys);
+  }
+
+  void _initNetworkListener() {
+    final monitor = _networkMonitor;
+    if (monitor == null) return;
+
+    _networkSubscription = monitor.statusStream.listen((status) {
+      if (_isDisposed) return;
+      if (status == NetworkStatus.restored || status == NetworkStatus.online) {
+        _scheduleRetry();
+      }
+    });
+  }
+
+  void _scheduleRetry() {
+    _retryDebounceTimer?.cancel();
+    _retryDebounceTimer = Timer(const Duration(milliseconds: 250), () {
+      if (_isDisposed || _failedRetryKeys.isEmpty) return;
+      final retryBatch = Set<CellKey>.of(_failedRetryKeys);
+      _failedRetryKeys.clear();
+      _subscription.request(retryBatch);
+    });
   }
 
   void _schedulePersist() {
@@ -251,6 +312,8 @@ class DataPoolImpl implements DataPool {
   void dispose() {
     _isDisposed = true;
     _debounceTimer?.cancel();
+    _retryDebounceTimer?.cancel();
+    _networkSubscription?.cancel();
     _subscription.dispose();
     _diskCache?.dispose();
     for (final c in _controllers.values) {
@@ -260,5 +323,6 @@ class DataPoolImpl implements DataPool {
     _store.clear();
     _resolvedKinds.clear();
     _pendingBatch.clear();
+    _failedRetryKeys.clear();
   }
 }

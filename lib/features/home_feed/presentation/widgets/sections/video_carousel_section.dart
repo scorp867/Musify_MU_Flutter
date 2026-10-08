@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
@@ -155,7 +155,7 @@ class VideoPreviewCard extends StatelessWidget {
               AspectRatio(
                 aspectRatio: 16 / 9,
                 child: videoThumbnail != null && videoThumbnail.isNotEmpty
-                    ? CachedNetworkImage(
+                    ? AppNetworkImage(
                         imageUrl: videoThumbnail,
                         fit: BoxFit.cover,
                         memCacheWidth: 560,
@@ -242,7 +242,7 @@ class VideoPreviewCard extends StatelessWidget {
                   padding: const EdgeInsets.only(right: 10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
-                    child: CachedNetworkImage(
+                    child: AppNetworkImage(
                       imageUrl: showArtwork,
                       width: 44,
                       height: 44,

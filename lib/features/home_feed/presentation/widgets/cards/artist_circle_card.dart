@@ -1,5 +1,5 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Reusable circle card for artists.
@@ -31,23 +31,31 @@ class ArtistCircleCard extends StatelessWidget {
             child: Container(
               width: size - 10,
               height: size - 10,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF282828),
-                image: imageUrl != null
-                    ? DecorationImage(
-                        image: CachedNetworkImageProvider(
-                          imageUrl,
-                          maxWidth: pixelSize,
-                          maxHeight: pixelSize,
-                        ),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
+                color: Color(0xFF282828),
               ),
-              child: imageUrl == null
-                  ? Icon(Icons.person, color: Colors.grey.shade700, size: 40)
-                  : null,
+              child: ClipOval(
+                child: imageUrl != null
+                    ? AppNetworkImage(
+                        imageUrl: imageUrl,
+                        width: size - 10,
+                        height: size - 10,
+                        fit: BoxFit.cover,
+                        memCacheWidth: pixelSize,
+                        memCacheHeight: pixelSize,
+                        errorWidget: (_, _, _) => Icon(
+                          Icons.person,
+                          color: Colors.grey.shade700,
+                          size: 40,
+                        ),
+                      )
+                    : Icon(
+                        Icons.person,
+                        color: Colors.grey.shade700,
+                        size: 40,
+                      ),
+              ),
             ),
           ),
           const SizedBox(height: 8),

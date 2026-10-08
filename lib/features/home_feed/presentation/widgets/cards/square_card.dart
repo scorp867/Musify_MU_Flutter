@@ -1,5 +1,5 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Reusable square card for albums, playlists, podcasts.
@@ -34,7 +34,7 @@ class SquareCard extends StatelessWidget {
               height: size,
               color: const Color(0xFF282828),
               child: imageUrl != null
-                  ? CachedNetworkImage(
+                  ? AppNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       memCacheWidth: (size * 2).toInt(),

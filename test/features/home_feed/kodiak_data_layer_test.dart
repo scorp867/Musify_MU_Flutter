@@ -1,11 +1,18 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool_impl.dart';
+import 'package:musify_mu/core/kodiak/extendedmetadataimpl/batched_extension_response_parser.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/kodiak_cell_mapper.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
+import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/identity_trait.pb.dart' as it_pb;
+import 'package:musify_mu/core/protocol/generated/spotify/entity_extension_data.pb.dart';
+import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
+import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
+import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart' as pb_any;
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/core/kodiak/table/data_source_result.dart';
 import 'package:musify_mu/core/kodiak/table/table_key.dart';
@@ -173,6 +180,72 @@ void main() {
       final key = CellKey(const TableKey<SimpleCardTrait>(), 'spotify:album:xyz');
       expect(cells.containsKey(key), isTrue);
       expect((cells[key] as SimpleCardTrait).title, equals('Test Album'));
+    });
+
+    test('IdentityTrait parses payload with contributors and parent without error', () {
+      final registry = ExtendedMetadataPluginRegistry(createDefaultExtendedMetadataPlugins());
+      final identityPlugin = registry.pluginForKind(178);
+      expect(identityPlugin, isNotNull);
+
+      final proto = it_pb.IdentityTrait(
+        type: 'track',
+        name: 'Bohemian Rhapsody',
+        description: '',
+        contentHierarchyParent: it_pb.EntityReference(
+          name: 'A Night at the Opera',
+          uri: 'spotify:album:2cCuohwVvzbD398tCaBiW2',
+        ),
+        contributors: [
+          it_pb.ContributorReference(
+            name: 'Queen',
+            uri: 'spotify:artist:1dfeR4HaWDbWqFsssgavss',
+          ),
+        ],
+      );
+
+      final payloadBytes = proto.writeToBuffer();
+      final parsedTrait = identityPlugin!.parse(Uint8List.fromList(payloadBytes)) as IdentityTrait;
+
+      expect(parsedTrait.name, equals('Bohemian Rhapsody'));
+      expect(parsedTrait.type, equals('track'));
+      expect(parsedTrait.parentName, equals('A Night at the Opera'));
+      expect(parsedTrait.parentUri, equals('spotify:album:2cCuohwVvzbD398tCaBiW2'));
+      expect(parsedTrait.contributors, equals(['Queen']));
+
+      // Test via BatchedExtensionResponseParser
+      final batchResponse = BatchedExtensionResponse(
+        extendedMetadata: [
+          EntityExtensionDataArray(
+            extensionKind: ExtensionKind.IDENTITY_TRAIT,
+            extensionData: [
+              EntityExtensionData(
+                entityUri: 'spotify:track:07mgrIfzVe5YIgl7bioa9q',
+                header: EntityExtensionDataHeader(statusCode: 200),
+                extensionData: pb_any.Any(value: payloadBytes),
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final parsedMap = BatchedExtensionResponseParser.parseProtobuf(batchResponse, registry);
+      expect(parsedMap.containsKey('spotify:track:07mgrIfzVe5YIgl7bioa9q'), isTrue);
+      final entityTraits = parsedMap['spotify:track:07mgrIfzVe5YIgl7bioa9q']!;
+      expect(entityTraits.containsKey(IdentityTrait), isTrue);
+      final idTrait = entityTraits[IdentityTrait] as IdentityTrait;
+      expect(idTrait.name, equals('Bohemian Rhapsody'));
+      expect(idTrait.contributors, contains('Queen'));
+
+      // Check SpotifyEntity cardSubtitle fallback to contributors
+      final entity = SpotifyEntity(
+        uri: 'spotify:track:07mgrIfzVe5YIgl7bioa9q',
+        type: ContentType.track,
+        traits: {
+          'IdentityTrait': idTrait,
+        },
+      );
+      expect(entity.cardTitle, equals('Bohemian Rhapsody'));
+      expect(entity.cardSubtitle, equals('Queen'));
     });
   });
 

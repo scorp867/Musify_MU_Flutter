@@ -22,7 +22,7 @@ class IdentityTrait extends $pb.GeneratedMessage {
     $core.String? name,
     $core.String? description,
     EntityReference? contentHierarchyParent,
-    $core.Iterable<Contributor>? contributors,
+    $core.Iterable<ContributorReference>? contributors,
   }) {
     final result = IdentityTrait._();
     if (type != null) result.type = type;
@@ -53,8 +53,8 @@ class IdentityTrait extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'description')
     ..aOM<EntityReference>(4, _omitFieldNames ? '' : 'contentHierarchyParent',
         subBuilder: EntityReference.$_createMessage)
-    ..pPM<Contributor>(5, _omitFieldNames ? '' : 'contributors',
-        subBuilder: Contributor.$_createMessage)
+    ..pPM<ContributorReference>(5, _omitFieldNames ? '' : 'contributors',
+        subBuilder: ContributorReference.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -118,14 +118,16 @@ class IdentityTrait extends $pb.GeneratedMessage {
   EntityReference ensureContentHierarchyParent() => $_ensure(3);
 
   @$pb.TagNumber(5)
-  $pb.PbList<Contributor> get contributors => $_getList(4);
+  $pb.PbList<ContributorReference> get contributors => $_getList(4);
 }
 
 class EntityReference extends $pb.GeneratedMessage {
   factory EntityReference({
+    $core.String? name,
     $core.String? uri,
   }) {
     final result = EntityReference._();
+    if (name != null) result.name = name;
     if (uri != null) result.uri = uri;
     return result;
   }
@@ -144,7 +146,8 @@ class EntityReference extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
       createEmptyInstance: EntityReference.$_createMessage)
-    ..aOS(1, _omitFieldNames ? '' : 'uri')
+    ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..aOS(2, _omitFieldNames ? '' : 'uri')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -170,96 +173,32 @@ class EntityReference extends $pb.GeneratedMessage {
   static EntityReference? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.String get uri => $_getSZ(0);
+  $core.String get name => $_getSZ(0);
   @$pb.TagNumber(1)
-  set uri($core.String value) => $_setString(0, value);
+  set name($core.String value) => $_setString(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasUri() => $_has(0);
+  $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearUri() => $_clearField(1);
-}
-
-class Contributor extends $pb.GeneratedMessage {
-  factory Contributor({
-    ContributorReference? reference,
-    $core.String? role,
-  }) {
-    final result = Contributor._();
-    if (reference != null) result.reference = reference;
-    if (role != null) result.role = role;
-    return result;
-  }
-
-  Contributor._();
-
-  factory Contributor.fromBuffer($core.List<$core.int> data,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      Contributor()..mergeFromBuffer(data, registry);
-  factory Contributor.fromJson($core.String json,
-          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      Contributor()..mergeFromJson(json, registry);
-
-  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'Contributor',
-      package: const $pb.PackageName(
-          _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
-      createEmptyInstance: Contributor.$_createMessage)
-    ..aOM<ContributorReference>(1, _omitFieldNames ? '' : 'reference',
-        subBuilder: ContributorReference.$_createMessage)
-    ..aOS(2, _omitFieldNames ? '' : 'role')
-    ..hasRequiredFields = false;
-
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  Contributor clone() => deepCopy();
-  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  Contributor copyWith(void Function(Contributor) updates) =>
-      super.copyWith((message) => updates(message as Contributor))
-          as Contributor;
-
-  @$core.override
-  $pb.BuilderInfo get info_ => _i;
-
-  @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use Contributor() / Contributor.new instead')
-  static Contributor create() => Contributor._();
-  static $pb.GeneratedMessage $_createMessage() => Contributor._();
-  @$core.override
-  Contributor createEmptyInstance() => Contributor._();
-  @$core.pragma('dart2js:noInline')
-  static Contributor getDefault() =>
-      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<Contributor>(
-          Contributor.$_createMessage);
-  static Contributor? _defaultInstance;
-
-  @$pb.TagNumber(1)
-  ContributorReference get reference => $_getN(0);
-  @$pb.TagNumber(1)
-  set reference(ContributorReference value) => $_setField(1, value);
-  @$pb.TagNumber(1)
-  $core.bool hasReference() => $_has(0);
-  @$pb.TagNumber(1)
-  void clearReference() => $_clearField(1);
-  @$pb.TagNumber(1)
-  ContributorReference ensureReference() => $_ensure(0);
+  void clearName() => $_clearField(1);
 
   @$pb.TagNumber(2)
-  $core.String get role => $_getSZ(1);
+  $core.String get uri => $_getSZ(1);
   @$pb.TagNumber(2)
-  set role($core.String value) => $_setString(1, value);
+  set uri($core.String value) => $_setString(1, value);
   @$pb.TagNumber(2)
-  $core.bool hasRole() => $_has(1);
+  $core.bool hasUri() => $_has(1);
   @$pb.TagNumber(2)
-  void clearRole() => $_clearField(2);
+  void clearUri() => $_clearField(2);
 }
 
 class ContributorReference extends $pb.GeneratedMessage {
   factory ContributorReference({
-    $core.String? uri,
     $core.String? name,
+    $core.String? uri,
   }) {
     final result = ContributorReference._();
-    if (uri != null) result.uri = uri;
     if (name != null) result.name = name;
+    if (uri != null) result.uri = uri;
     return result;
   }
 
@@ -277,8 +216,8 @@ class ContributorReference extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.contentagnostic.v2'),
       createEmptyInstance: ContributorReference.$_createMessage)
-    ..aOS(1, _omitFieldNames ? '' : 'uri')
-    ..aOS(2, _omitFieldNames ? '' : 'name')
+    ..aOS(1, _omitFieldNames ? '' : 'name')
+    ..aOS(2, _omitFieldNames ? '' : 'uri')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -305,22 +244,22 @@ class ContributorReference extends $pb.GeneratedMessage {
   static ContributorReference? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.String get uri => $_getSZ(0);
+  $core.String get name => $_getSZ(0);
   @$pb.TagNumber(1)
-  set uri($core.String value) => $_setString(0, value);
+  set name($core.String value) => $_setString(0, value);
   @$pb.TagNumber(1)
-  $core.bool hasUri() => $_has(0);
+  $core.bool hasName() => $_has(0);
   @$pb.TagNumber(1)
-  void clearUri() => $_clearField(1);
+  void clearName() => $_clearField(1);
 
   @$pb.TagNumber(2)
-  $core.String get name => $_getSZ(1);
+  $core.String get uri => $_getSZ(1);
   @$pb.TagNumber(2)
-  set name($core.String value) => $_setString(1, value);
+  set uri($core.String value) => $_setString(1, value);
   @$pb.TagNumber(2)
-  $core.bool hasName() => $_has(1);
+  $core.bool hasUri() => $_has(1);
   @$pb.TagNumber(2)
-  void clearName() => $_clearField(2);
+  void clearUri() => $_clearField(2);
 }
 
 const $core.bool _omitFieldNames =

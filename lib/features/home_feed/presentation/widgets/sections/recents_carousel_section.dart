@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
@@ -197,7 +197,7 @@ class _RecentsCard extends StatelessWidget {
         ),
         clipBehavior: Clip.antiAlias,
         child: imageUrl != null && imageUrl.isNotEmpty
-            ? CachedNetworkImage(
+            ? AppNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
                 memCacheWidth: 200,
@@ -313,7 +313,7 @@ class _RecentsCard extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           if (imageUrl != null && imageUrl.isNotEmpty)
-            CachedNetworkImage(
+            AppNetworkImage(
               imageUrl: imageUrl,
               fit: BoxFit.cover,
               memCacheWidth: 200,
@@ -383,7 +383,7 @@ class _RecentsCard extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: item.cardImageUrl != null && item.cardImageUrl!.isNotEmpty
-          ? CachedNetworkImage(
+          ? AppNetworkImage(
               imageUrl: item.cardImageUrl!,
               fit: BoxFit.cover,
               memCacheWidth: 100,

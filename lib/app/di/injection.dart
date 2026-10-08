@@ -12,8 +12,12 @@ import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/network/auth/token_refresh_mutex.dart';
+import 'package:musify_mu/core/network/client/dio_network_client.dart';
+import 'package:musify_mu/core/network/client/network_client.dart';
+import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
+import 'package:musify_mu/core/network/status/network_monitor_service.dart';
 import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
-
 import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
 import 'package:musify_mu/features/playlist_detail/application/playlist_detail_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
@@ -138,17 +142,35 @@ Future<void> setupInjection() async {
     ),
   );
 
+  // --- Core Network Client, Monitor & Mutex ---
+  getIt.registerLazySingleton<NetworkMonitorService>(
+    () => NetworkMonitorServiceImpl(),
+    dispose: (s) => s.dispose(),
+  );
+  getIt.registerLazySingleton<NetworkClient>(
+    () => DioNetworkClient(monitorService: getIt<NetworkMonitorService>()),
+  );
+  getIt.registerLazySingleton<TokenRefreshMutex>(() => TokenRefreshMutex());
+  getIt.registerLazySingleton<NetworkStatusBloc>(
+    () => NetworkStatusBloc(monitorService: getIt<NetworkMonitorService>()),
+    dispose: (bloc) => bloc.close(),
+  );
+
   // --- Spotify Transports ---
   getIt.registerLazySingleton<WebPlayerTransport>(
     () => WebPlayerTransport(
       auth: getIt<AuthSessionProvider>(),
+      client: getIt<NetworkClient>(),
       ctx: getIt<RuntimeContext>(),
+      refreshMutex: getIt<TokenRefreshMutex>(),
     ),
   );
   getIt.registerLazySingleton<AndroidTransport>(
     () => AndroidTransport(
       auth: getIt<AuthSessionProvider>(),
+      client: getIt<NetworkClient>(),
       ctx: getIt<RuntimeContext>(),
+      refreshMutex: getIt<TokenRefreshMutex>(),
     ),
   );
 
@@ -177,6 +199,7 @@ Future<void> setupInjection() async {
     () => DataPoolImpl(
       dataSource: getIt<ExtendedMetadataDataSourceImpl>(),
       diskCache: getIt<KodiakDiskCache>(),
+      networkMonitor: getIt<NetworkMonitorService>(),
     ),
   );
 
@@ -233,6 +256,7 @@ Future<void> setupInjection() async {
   );
   getIt.registerLazySingleton<SpotifyProfileFetcher>(
     () => SpotifyProfileFetcher(
+      transport: getIt<WebPlayerTransport>(),
       ctx: getIt<RuntimeContext>(),
       tokenStore: getIt<SpotifyTokenStore>(),
     ),

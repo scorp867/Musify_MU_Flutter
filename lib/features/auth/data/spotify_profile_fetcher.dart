@@ -1,41 +1,40 @@
 import 'dart:convert';
-import 'dart:developer';
+import 'dart:developer' as dev;
+import 'dart:typed_data';
 
-import 'package:http/http.dart' as http;
 import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/priority/network_priority.dart';
+import 'package:musify_mu/core/network/result/network_result.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
+import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 
 /// Fetches the current user's Spotify profile using Pathfinder (GQL).
 ///
-/// Uses the same approach as the Kotlin codebase:
-/// POST to `api-partner.spotify.com/pathfinder/v2/query` with the
-/// `profileAttributes` operation.
-///
-/// After a successful fetch, updates [RuntimeContext] with the user's
-/// country and product tier so all downstream services use live values.
+/// Uses the managed [SpotifyTransport] with dynamic host routing to
+/// `https://api-partner.spotify.com`, automatically benefiting from
+/// keep-alive connection reuse, mutex 401 token refresh, and diagnostic logging.
 class SpotifyProfileFetcher {
+  final SpotifyTransport _transport;
   final SpotifyTokenStore _tokenStore;
   final RuntimeContext _ctx;
 
   static const _profileHashV1 =
       '53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced';
+  static const _apiPartnerHost = 'https://api-partner.spotify.com';
 
   SpotifyProfileFetcher({
+    required SpotifyTransport transport,
     required RuntimeContext ctx,
     required SpotifyTokenStore tokenStore,
-  })  : _ctx = ctx,
+  })  : _transport = transport,
+        _ctx = ctx,
         _tokenStore = tokenStore;
 
   /// Fetches and caches the current user's profile.
   /// Returns a [SpotifyUser] on success, null on failure.
   Future<SpotifyUser?> fetchProfile() async {
     try {
-      final token = await _tokenStore.getAccessToken();
-      if (token == null) return null;
-
-      final profile = DeviceProfile.webPlayer;
-
       final body = jsonEncode({
         'variables': <String, dynamic>{},
         'operationName': 'profileAttributes',
@@ -47,22 +46,29 @@ class SpotifyProfileFetcher {
         },
       });
 
-      final response = await http.post(
-        Uri.parse('https://api-partner.spotify.com/pathfinder/v2/query'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json;charset=UTF-8',
-          'User-Agent': profile.userAgent,
-          'app-platform': profile.appPlatform,
-          'Origin': 'https://open.spotify.com',
-          'Referer': 'https://open.spotify.com/',
-        },
-        body: body,
-      ).timeout(const Duration(seconds: 15));
+      final bodyBytes = Uint8List.fromList(utf8.encode(body));
 
-      if (response.statusCode != 200) return null;
+      final result = await _transport.postResult(
+        '/pathfinder/v2/query',
+        bodyBytes,
+        baseHost: _apiPartnerHost,
+        contentType: 'application/json;charset=UTF-8',
+        priority: NetworkPriority.interactive,
+      );
 
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      if (result is NetworkFailure<Uint8List>) {
+        dev.log(
+          'ProfileFetcher network failure: ${result.error}',
+          name: 'Auth',
+        );
+        return null;
+      }
+
+      final responseBytes = (result as NetworkSuccess<Uint8List>).data;
+      if (responseBytes.isEmpty) return null;
+
+      final jsonStr = utf8.decode(responseBytes);
+      final json = jsonDecode(jsonStr) as Map<String, dynamic>;
 
       // Navigate: data > me > profile
       final data = json['data'] as Map<String, dynamic>?;
@@ -74,8 +80,7 @@ class SpotifyProfileFetcher {
       final username = profileData['username'] as String? ??
           profileData['id'] as String? ??
           'spotify_user';
-      final displayName =
-          profileData['name'] as String? ?? username;
+      final displayName = profileData['name'] as String? ?? username;
       final avatarUrl = _extractAvatarUrl(profileData);
       final country = profileData['country'] as String?;
       final product = profileData['product'] as String?;
@@ -99,8 +104,13 @@ class SpotifyProfileFetcher {
         country: country,
         product: product,
       );
-    } catch (e) {
-      log('ProfileFetcher error: $e');
+    } catch (e, st) {
+      dev.log(
+        'ProfileFetcher error: $e',
+        name: 'Auth',
+        error: e,
+        stackTrace: st,
+      );
       return null;
     }
   }
@@ -113,7 +123,7 @@ class SpotifyProfileFetcher {
         return (sources.first as Map<String, dynamic>)['url'] as String?;
       }
     } catch (e) {
-      log('ProfileFetcher error: $e');
+      dev.log('ProfileFetcher avatar parse error: $e', name: 'Auth');
     }
     return null;
   }

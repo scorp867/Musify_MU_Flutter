@@ -6,6 +6,9 @@ class IdentityTrait extends Trait {
   final String name;
   final String type;
   final String description;
+  final List<String> contributors;
+  final String? parentUri;
+  final String? parentName;
 
   /// Compatibility getter for legacy callers expecting `title`.
   String get title => name;
@@ -14,6 +17,9 @@ class IdentityTrait extends Trait {
     required this.name,
     this.type = '',
     this.description = '',
+    this.contributors = const [],
+    this.parentUri,
+    this.parentName,
   });
 
   /// Convenience constructor for title-only callers.
@@ -24,11 +30,20 @@ class IdentityTrait extends Trait {
     'name': name,
     'type': type,
     'description': description,
+    'contributors': contributors,
+    if (parentUri != null) 'parentUri': parentUri,
+    if (parentName != null) 'parentName': parentName,
   };
 
   factory IdentityTrait.fromJson(Map<String, dynamic> json) => IdentityTrait(
     name: json['name'] ?? json['title'] ?? '',
     type: json['type'] ?? '',
     description: json['description'] ?? '',
+    contributors: (json['contributors'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [],
+    parentUri: json['parentUri'] as String?,
+    parentName: json['parentName'] as String?,
   );
 }

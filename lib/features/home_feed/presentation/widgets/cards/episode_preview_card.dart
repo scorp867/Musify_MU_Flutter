@@ -1,8 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Renders an audio episode preview card matching Spotify Android's 1:1 layout:
@@ -178,7 +178,7 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                       width: 88,
                       height: 88,
                       child: artworkUrl != null && artworkUrl.isNotEmpty
-                          ? CachedNetworkImage(
+                          ? AppNetworkImage(
                               imageUrl: artworkUrl,
                               fit: BoxFit.cover,
                               memCacheWidth: 176,

@@ -1,8 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
 /// Renders a full-width PreviewCardTrait exactly matching Spotify's layout:
@@ -116,7 +116,7 @@ class _PreviewCardState extends State<PreviewCard> {
               if (trait.imageUrl != null) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: CachedNetworkImage(
+                  child: AppNetworkImage(
                     imageUrl: trait.imageUrl!,
                     width: 88,
                     height: 88,

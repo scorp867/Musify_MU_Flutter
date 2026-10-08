@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -82,7 +82,7 @@ class PromotionBannerSection extends StatelessWidget {
                   child: AspectRatio(
                     aspectRatio: 1,
                     child: imageUrl != null && imageUrl.isNotEmpty
-                        ? CachedNetworkImage(
+                        ? AppNetworkImage(
                             imageUrl: imageUrl,
                             fit: BoxFit.cover,
                             memCacheWidth: 240,

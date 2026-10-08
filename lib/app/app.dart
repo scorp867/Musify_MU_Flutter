@@ -9,6 +9,7 @@ import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
+import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
 
@@ -52,6 +53,9 @@ class MusifyApp extends StatelessWidget {
           BlocProvider<LocalMusicBloc>(
             create: (_) => createBloc(),
           ),
+        BlocProvider<NetworkStatusBloc>.value(
+          value: getIt<NetworkStatusBloc>(),
+        ),
       ],
       child: app,
     );

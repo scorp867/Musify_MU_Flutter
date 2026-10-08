@@ -14,19 +14,15 @@ message IdentityTrait {
   string name = 2;
   string description = 3;
   EntityReference content_hierarchy_parent = 4;
-  repeated Contributor contributors = 5;
+  repeated ContributorReference contributors = 5;
 }
 
 message EntityReference {
-  string uri = 1;
-}
-
-message Contributor {
-  ContributorReference reference = 1;
-  string role = 2;
+  string name = 1;
+  string uri = 2;
 }
 
 message ContributorReference {
-  string uri = 1;
-  string name = 2;
+  string name = 1;
+  string uri = 2;
 }

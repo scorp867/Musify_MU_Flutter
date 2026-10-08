@@ -1,4 +1,4 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -58,7 +58,7 @@ class ImmersivePreviewSection extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   if (imageUrl != null)
-                    CachedNetworkImage(
+                    AppNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
                       memCacheWidth: 800,

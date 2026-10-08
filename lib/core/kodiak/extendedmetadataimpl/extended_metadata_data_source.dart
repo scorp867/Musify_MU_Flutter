@@ -46,12 +46,14 @@ class ExtendedMetadataDataSourceImpl implements DataSource {
 
   @override
   DataSourceSubscription subscribe(
-    void Function(List<CellKey> updatedKeys) onUpdate,
-  ) {
+    void Function(List<CellKey> updatedKeys) onUpdate, {
+    void Function(Set<CellKey> failedKeys)? onNetworkFailure,
+  }) {
     final sub = MetadataSubscription(
       client: _client,
       dataSource: this,
       onUpdate: onUpdate,
+      onNetworkFailure: onNetworkFailure,
       initialCacheSnapshot: Map.unmodifiable(_cellStore),
     );
     _subscriptions.add(sub);

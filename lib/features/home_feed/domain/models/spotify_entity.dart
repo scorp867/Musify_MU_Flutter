@@ -77,6 +77,7 @@ class SpotifyEntity {
     if (video != null && video.subtitle.isNotEmpty) return video.subtitle;
     final identity = getTrait<IdentityTrait>();
     if (identity != null && identity.description.isNotEmpty) return identity.description;
+    if (identity != null && identity.contributors.isNotEmpty) return identity.contributors.join(', ');
     return '';
   }
 

@@ -26,6 +26,16 @@ class IdentityTraitPlugin implements ExtendedMetadataPlugin<IdentityTrait> {
       name: trait.name,
       type: trait.type,
       description: trait.description,
+      contributors: trait.contributors
+          .map((c) => c.name)
+          .where((n) => n.isNotEmpty)
+          .toList(),
+      parentUri: trait.hasContentHierarchyParent()
+          ? trait.contentHierarchyParent.uri
+          : null,
+      parentName: trait.hasContentHierarchyParent()
+          ? trait.contentHierarchyParent.name
+          : null,
     );
   }
 }
