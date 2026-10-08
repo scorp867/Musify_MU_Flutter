@@ -18,15 +18,24 @@ class ModeTransition {
     VoidCallback? onHideOriginal,
     VoidCallback? onShowOriginal,
   }) {
-    final context = iconKey.currentContext;
-    if (context == null) return;
-    final RenderBox renderBox = context.findRenderObject() as RenderBox;
-    final startPosition = renderBox.localToGlobal(Offset.zero);
-    final iconSize = renderBox.size;
-    final startCenter = Offset(
-      startPosition.dx + iconSize.width / 2,
-      startPosition.dy + iconSize.height / 2,
-    );
+    final iconContext = iconKey.currentContext;
+    Offset startCenter;
+    Size iconSize = const Size(40, 40);
+
+    if (iconContext != null && iconContext.findRenderObject() is RenderBox) {
+      final RenderBox renderBox = iconContext.findRenderObject() as RenderBox;
+      final startPosition = renderBox.localToGlobal(Offset.zero);
+      iconSize = renderBox.size;
+      startCenter = Offset(
+        startPosition.dx + iconSize.width / 2,
+        startPosition.dy + iconSize.height / 2,
+      );
+    } else {
+      final mediaQuery = MediaQuery.of(context);
+      final topPadding = mediaQuery.padding.top;
+      final screenWidth = mediaQuery.size.width;
+      startCenter = Offset(screenWidth - 16 - 20, topPadding + 28);
+    }
 
     // Hide the original icon immediately — the overlay takes over.
     onHideOriginal?.call();

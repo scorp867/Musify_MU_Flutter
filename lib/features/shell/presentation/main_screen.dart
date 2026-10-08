@@ -97,6 +97,9 @@ class _MainScreenState extends State<MainScreen> {
         if (!mounted) return;
         setState(() {
           _isOnlineMode = !_isOnlineMode;
+          _visitedTabs
+            ..clear()
+            ..add(_currentIndex);
         });
         await _saveMode(_isOnlineMode);
         await Future.delayed(const Duration(milliseconds: 100));
@@ -124,6 +127,7 @@ class _MainScreenState extends State<MainScreen> {
         } else if (_currentIndex != 0) {
           setState(() {
             _currentIndex = 0;
+            _visitedTabs.add(0);
           });
         }
       },
@@ -133,15 +137,18 @@ class _MainScreenState extends State<MainScreen> {
             IndexedStack(
               index: _currentIndex,
               children: [
-                HomeTab(
-                  isOnlineMode: _isOnlineMode,
-                  onMenuPressed: widget.onMenuPressed,
-                  onToggleMode: _toggleMode,
-                  iconKey: _iconKey,
-                  iconVisible: _iconVisible,
-                  playbackController: widget.playbackController,
-                  createHomeFeedBloc: widget.createHomeFeedBloc,
-                ),
+                if (_visitedTabs.contains(0))
+                  HomeTab(
+                    isOnlineMode: _isOnlineMode,
+                    onMenuPressed: widget.onMenuPressed,
+                    onToggleMode: _toggleMode,
+                    iconKey: _iconKey,
+                    iconVisible: _iconVisible,
+                    playbackController: widget.playbackController,
+                    createHomeFeedBloc: widget.createHomeFeedBloc,
+                  )
+                else
+                  const SizedBox.shrink(),
                 if (_visitedTabs.contains(1))
                   _BrowseTab(
                     isOnlineMode: _isOnlineMode,
