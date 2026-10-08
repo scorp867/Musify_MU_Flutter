@@ -52,6 +52,8 @@ class VerticalCardSection extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 720,
+                      memCacheHeight: 720,
                     )
                   : Container(
                       color: const Color(0xFF2A2A2A),

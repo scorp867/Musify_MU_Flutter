@@ -200,6 +200,8 @@ class _RecentsCard extends StatelessWidget {
             ? CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
+                memCacheWidth: 200,
+                memCacheHeight: 200,
                 errorWidget: (_, _, _) => _placeholder(),
               )
             : _placeholder(),
@@ -314,6 +316,8 @@ class _RecentsCard extends StatelessWidget {
             CachedNetworkImage(
               imageUrl: imageUrl,
               fit: BoxFit.cover,
+              memCacheWidth: 200,
+              memCacheHeight: 200,
               errorWidget: (_, _, _) => _placeholder(),
             )
           else
@@ -382,6 +386,8 @@ class _RecentsCard extends StatelessWidget {
           ? CachedNetworkImage(
               imageUrl: item.cardImageUrl!,
               fit: BoxFit.cover,
+              memCacheWidth: 100,
+              memCacheHeight: 100,
               errorWidget: (_, _, _) => const Icon(
                 Icons.queue_music,
                 color: Colors.white70,

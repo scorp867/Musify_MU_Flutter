@@ -27,7 +27,7 @@ class LibraryDecorator {
         _playlistCache = playlistCache,
         _metadataService = metadataService;
 
-  /// Decorates playlists from the PlaylistDetailCache. Zero network.
+  /// Decorates playlists with cached metadata, track counts, and covers.
   Future<List<LibraryItem>> decoratePlaylists(
     List<LibraryItem> playlists,
   ) async {
@@ -36,17 +36,75 @@ class LibraryDecorator {
     final result = List<LibraryItem>.from(playlists);
 
     for (var i = 0; i < result.length; i++) {
-      final parts = result[i].uri.split(':');
+      final item = result[i];
+      final parts = item.uri.split(':');
       if (parts.length < 3 || parts[1] != 'playlist') continue;
 
-      final entry = await _playlistCache.get(parts[2]);
-      if (entry == null) continue;
+      final playlistId = parts[2];
+      final entry = await _playlistCache.get(playlistId);
 
-      result[i] = result[i].copyWith(
-        imageUrl: entry.coverUrl,
-        trackCount: entry.trackUris.isNotEmpty ? entry.trackUris.length : null,
-        mosaicImageUrls: entry.mosaicImageUrls,
-      );
+      // 1. Custom cover: If item already has a custom cover from the rootlist
+      // or if cache recorded it as a custom cover, use it unconditionally.
+      final rootlistCover = item.imageUrl;
+      final cachedIsCustom = entry?.isCustomCover ?? false;
+      final hasCustomCover = (rootlistCover != null && rootlistCover.isNotEmpty) ||
+          (cachedIsCustom && entry?.coverUrl != null && entry!.coverUrl!.isNotEmpty);
+
+      if (hasCustomCover) {
+        final customUrl = (rootlistCover != null && rootlistCover.isNotEmpty)
+            ? rootlistCover
+            : entry!.coverUrl!;
+        result[i] = item.copyWith(
+          imageUrl: customUrl,
+          mosaicImageUrls: const [],
+          trackCount: entry?.trackUris.isNotEmpty == true
+              ? entry!.trackUris.length
+              : item.trackCount,
+        );
+
+        if (entry != null && (!entry.isCustomCover || entry.coverUrl != customUrl)) {
+          await _playlistCache.put(
+            playlistId: playlistId,
+            revision: entry.revision,
+            trackUris: entry.trackUris,
+            coverUrl: customUrl,
+            isCustomCover: true,
+            mosaicImageUrls: const [],
+          );
+        }
+        continue;
+      }
+
+      // 2. No custom cover: Use cached mosaic/cover or resolve once if missing.
+      if (entry != null && entry.trackUris.isNotEmpty) {
+        var mosaicUrls = entry.mosaicImageUrls;
+        var coverUrl = entry.coverUrl;
+
+        if (mosaicUrls.isEmpty && (coverUrl == null || coverUrl.isEmpty)) {
+          final trackArts = await getMosaicUrls(entry.trackUris);
+          if (trackArts.length >= 4) {
+            mosaicUrls = trackArts.take(4).toList();
+            coverUrl = mosaicUrls.first;
+          } else if (trackArts.isNotEmpty) {
+            mosaicUrls = const [];
+            coverUrl = trackArts.first;
+          }
+          await _playlistCache.put(
+            playlistId: playlistId,
+            revision: entry.revision,
+            trackUris: entry.trackUris,
+            coverUrl: coverUrl,
+            isCustomCover: false,
+            mosaicImageUrls: mosaicUrls,
+          );
+        }
+
+        result[i] = item.copyWith(
+          imageUrl: coverUrl,
+          mosaicImageUrls: mosaicUrls,
+          trackCount: entry.trackUris.length,
+        );
+      }
     }
 
     return result;
@@ -111,19 +169,58 @@ class LibraryDecorator {
     return decorated;
   }
 
-  /// Extracts the first 4 unique album art URLs from cached track metadata.
-  List<String> getMosaicUrls(List<String> trackUris) {
+  /// Extracts the first 4 unique album art URLs, fetching metadata on-demand
+  /// if tracks are not already present in memory/disk cache.
+  Future<List<String>> getMosaicUrls(List<String> trackUris) async {
+    if (trackUris.isEmpty) return const [];
+
+    await _metadataService.ensureLoaded();
+
     final seen = <String>{};
     final urls = <String>[];
 
+    // Pass 1: Try in-memory / disk cache
     for (final uri in trackUris) {
+      if (!uri.startsWith('spotify:track:')) continue;
       final cached = _metadataService.getCached(uri);
       if (cached == null) continue;
 
       final imageUrl = cached.imageUrl;
       if (imageUrl.isNotEmpty && seen.add(imageUrl)) {
         urls.add(imageUrl);
-        if (urls.length >= 4) break;
+        if (urls.length >= 4) return urls;
+      }
+    }
+
+    // Pass 2: If fewer than 4 unique artworks were found in cache,
+    // fetch metadata for candidate tracks (up to 12) from network.
+    if (urls.length < 4) {
+      final candidates = <String>[];
+      final candidateSeen = <String>{};
+      for (final uri in trackUris) {
+        if (uri.startsWith('spotify:track:') && candidateSeen.add(uri)) {
+          candidates.add(uri);
+          if (candidates.length >= 12) break;
+        }
+      }
+
+      if (candidates.isNotEmpty) {
+        try {
+          final fetched = await _metadataService.fetchTracks(candidates);
+          for (final uri in candidates) {
+            final meta = fetched[uri] ?? _metadataService.getCached(uri);
+            if (meta == null) continue;
+
+            final imageUrl = meta.imageUrl;
+            if (imageUrl.isNotEmpty && seen.add(imageUrl)) {
+              urls.add(imageUrl);
+              if (urls.length >= 4) return urls;
+            }
+          }
+        } catch (e) {
+          dev.log('Failed to fetch candidate tracks for mosaic: $e',
+              name: 'Library');
+        }
       }
     }
 

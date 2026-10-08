@@ -66,6 +66,8 @@ class StoryBubbleCarousel extends StatelessWidget {
                             ? CachedNetworkImage(
                                 imageUrl: imageUrl,
                                 fit: BoxFit.cover,
+                                memCacheWidth: 136,
+                                memCacheHeight: 136,
                               )
                             : Container(
                                 color: const Color(0xFF333333),

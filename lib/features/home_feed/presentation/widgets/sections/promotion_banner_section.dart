@@ -85,6 +85,8 @@ class PromotionBannerSection extends StatelessWidget {
                         ? CachedNetworkImage(
                             imageUrl: imageUrl,
                             fit: BoxFit.cover,
+                            memCacheWidth: 240,
+                            memCacheHeight: 240,
                             errorWidget: (_, _, _) => Container(
                               color: const Color(0xFF1E1E1E),
                               child: Icon(Icons.album_rounded,

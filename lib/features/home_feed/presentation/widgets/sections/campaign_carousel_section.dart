@@ -77,6 +77,8 @@ class _CampaignCardTile extends StatelessWidget {
                     ? CachedNetworkImage(
                         imageUrl: imageUrl,
                         fit: BoxFit.cover,
+                        memCacheWidth: 500,
+                        memCacheHeight: 280,
                         errorWidget: (_, _, _) => Center(
                           child: Icon(Icons.campaign_rounded,
                               color: Colors.grey.shade600, size: 32),

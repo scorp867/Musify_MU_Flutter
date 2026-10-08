@@ -99,54 +99,56 @@ class PeekScrollViewState extends State<PeekScrollView>
     return SpotifyStretchOverscrollIndicator(
       controller: _stretchController,
       axisDirection: AxisDirection.down,
-      child: CustomScrollView(
-        controller: _scrollController,
-        physics: const ClampingScrollPhysics(),
-        slivers: [
-          // Tier 1: Viewport-locked Main Player
-          SliverToBoxAdapter(
-            child: SizedBox(
-              height: mainPlayerHeight,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20, topPadding, 20, 0),
-                child: Column(
-                  children: [
-                    GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onVerticalDragUpdate: (details) {
-                        final delta = details.primaryDelta ?? 0;
-                        if (delta > 0 ||
-                            widget.dismissController.dragOffsetY > 0) {
-                          widget.dismissController.onPullDelta(delta);
-                        }
-                      },
-                      onVerticalDragEnd: (details) {
-                        final velocity = details.primaryVelocity ?? 0;
-                        widget.dismissController.onPullEnd(velocity);
-                      },
-                      child: widget.header,
-                    ),
-                    Expanded(child: widget.mainContent),
-                  ],
+      child: RepaintBoundary(
+        child: CustomScrollView(
+          controller: _scrollController,
+          physics: const ClampingScrollPhysics(),
+          slivers: [
+            // Tier 1: Viewport-locked Main Player
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: mainPlayerHeight,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(20, topPadding, 20, 0),
+                  child: Column(
+                    children: [
+                      GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onVerticalDragUpdate: (details) {
+                          final delta = details.primaryDelta ?? 0;
+                          if (delta > 0 ||
+                              widget.dismissController.dragOffsetY > 0) {
+                            widget.dismissController.onPullDelta(delta);
+                          }
+                        },
+                        onVerticalDragEnd: (details) {
+                          final velocity = details.primaryVelocity ?? 0;
+                          widget.dismissController.onPullEnd(velocity);
+                        },
+                        child: widget.header,
+                      ),
+                      Expanded(child: widget.mainContent),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          // Tier 2: Scroll Cards Container (Peeking + Expanded)
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverList(
-              delegate: SliverChildListDelegate([
-                widget.peekingCard,
-                for (final card in widget.expandedCards) ...[
-                  const SizedBox(height: 16),
-                  card,
-                ],
-                SizedBox(height: bottomPadding + widget.bottomPaddingExtra),
-              ]),
+            // Tier 2: Scroll Cards Container (Peeking + Expanded)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  widget.peekingCard,
+                  for (final card in widget.expandedCards) ...[
+                    const SizedBox(height: 16),
+                    card,
+                  ],
+                  SizedBox(height: bottomPadding + widget.bottomPaddingExtra),
+                ]),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

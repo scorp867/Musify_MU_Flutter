@@ -121,6 +121,8 @@ class _PreviewCardState extends State<PreviewCard> {
                     width: 88,
                     height: 88,
                     fit: BoxFit.cover,
+                    memCacheWidth: 176,
+                    memCacheHeight: 176,
                     errorWidget: (_, _, _) => Container(
                       width: 88,
                       height: 88,

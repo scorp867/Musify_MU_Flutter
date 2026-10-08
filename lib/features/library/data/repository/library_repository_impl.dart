@@ -82,7 +82,22 @@ class LibraryRepositoryImpl implements LibraryRepository {
           })
           .where((id) => id.isNotEmpty)
           .toList();
-      await _syncPlaylistDetails(playlistIds, forceSync: forceSync);
+
+      final rootlistCovers = <String, String>{};
+      for (final item in playlistItems) {
+        if (item.imageUrl != null && item.imageUrl!.isNotEmpty) {
+          final parts = item.uri.split(':');
+          if (parts.length >= 3 && parts[1] == 'playlist') {
+            rootlistCovers[parts[2]] = item.imageUrl!;
+          }
+        }
+      }
+
+      await _syncPlaylistDetails(
+        playlistIds,
+        rootlistCovers: rootlistCovers,
+        forceSync: forceSync,
+      );
 
       return await _assembleViewData(
         playlistItems, artistItems, showItems, pinnedUris, likedSongs,
@@ -197,6 +212,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
 
   Future<void> _syncPlaylistDetails(
     List<String> playlistIds, {
+    Map<String, String> rootlistCovers = const {},
     bool forceSync = false,
   }) async {
     if (playlistIds.isEmpty) return;
@@ -210,29 +226,35 @@ class LibraryRepositoryImpl implements LibraryRepository {
       toSync = playlistIds.where((id) => !cached.contains(id)).toList();
     }
     if (toSync.isEmpty) return;
-    await Future.wait(toSync.map(_syncSinglePlaylist));
+    await Future.wait(toSync.map((id) => _syncSinglePlaylist(
+      id,
+      rootlistCover: rootlistCovers[id],
+    )));
   }
 
-  Future<void> _syncSinglePlaylist(String playlistId) async {
+  Future<void> _syncSinglePlaylist(
+    String playlistId, {
+    String? rootlistCover,
+  }) async {
     try {
       final cachedRevision = await _playlistCache.getRevision(playlistId);
 
       if (cachedRevision == null) {
-        await _fullFetchPlaylist(playlistId);
+        await _fullFetchPlaylist(playlistId, rootlistCover: rootlistCover);
         return;
       }
 
       final diffBytes =
           await _playlistSource.fetchDiff(playlistId, cachedRevision);
       if (diffBytes == null || diffBytes.isEmpty) {
-        await _fullFetchPlaylist(playlistId);
+        await _fullFetchPlaylist(playlistId, rootlistCover: rootlistCover);
         return;
       }
 
       final diff = PlaylistMapper.parseDiffResponse(diffBytes);
 
       if (diff.changesRequireResync) {
-        await _fullFetchPlaylist(playlistId);
+        await _fullFetchPlaylist(playlistId, rootlistCover: rootlistCover);
         return;
       }
 
@@ -241,7 +263,7 @@ class LibraryRepositoryImpl implements LibraryRepository {
 
       final cached = await _playlistCache.get(playlistId);
       if (cached == null) {
-        await _fullFetchPlaylist(playlistId);
+        await _fullFetchPlaylist(playlistId, rootlistCover: rootlistCover);
         return;
       }
 
@@ -254,11 +276,27 @@ class LibraryRepositoryImpl implements LibraryRepository {
         await _metadataService.fetchTracks(newUris);
       }
 
+      // Check if custom cover applies
+      final bool wasCustom = cached.isCustomCover ||
+          (rootlistCover != null && rootlistCover.isNotEmpty);
+      final String? cachedCover =
+          cached.isCustomCover ? cached.coverUrl : rootlistCover;
+
+      final bool isCustomNow = diff.coverChange is CoverSet ||
+          (diff.coverChange == null && wasCustom);
+
+      final List<String> mosaicUrls;
+      if (isCustomNow) {
+        mosaicUrls = const [];
+      } else {
+        mosaicUrls = await _decorator.getMosaicUrls(newTrackUris);
+      }
+
       final cover = CoverResolver.resolve(
-        wasCustomCover: cached.isCustomCover,
-        cachedCoverUrl: cached.coverUrl,
+        wasCustomCover: wasCustom,
+        cachedCoverUrl: cachedCover,
         coverChange: diff.coverChange,
-        mosaicUrlsBuilder: () => _decorator.getMosaicUrls(newTrackUris),
+        mosaicUrls: mosaicUrls,
       );
 
       await _playlistCache.put(
@@ -275,7 +313,10 @@ class LibraryRepositoryImpl implements LibraryRepository {
     }
   }
 
-  Future<void> _fullFetchPlaylist(String playlistId) async {
+  Future<void> _fullFetchPlaylist(
+    String playlistId, {
+    String? rootlistCover,
+  }) async {
     final bytes = await _playlistSource.fetchFull(playlistId);
     if (bytes == null || bytes.isEmpty) return;
 
@@ -284,13 +325,22 @@ class LibraryRepositoryImpl implements LibraryRepository {
     );
     if (snapshot == null) return;
 
-    if (snapshot.trackUris.isNotEmpty) {
-      await _metadataService.fetchTracks(snapshot.trackUris);
+    final cached = await _playlistCache.get(playlistId);
+    final customCover = snapshot.coverUrl ??
+        rootlistCover ??
+        (cached?.isCustomCover == true ? cached?.coverUrl : null);
+    final hasCustomCover = customCover != null && customCover.isNotEmpty;
+
+    final List<String> mosaicUrls;
+    if (hasCustomCover) {
+      mosaicUrls = const [];
+    } else {
+      mosaicUrls = await _decorator.getMosaicUrls(snapshot.trackUris);
     }
 
     final cover = CoverResolver.resolveFromFull(
-      customCoverUrl: snapshot.coverUrl,
-      mosaicUrlsBuilder: () => _decorator.getMosaicUrls(snapshot.trackUris),
+      customCoverUrl: customCover,
+      mosaicUrls: mosaicUrls,
     );
 
     await _playlistCache.put(

@@ -158,6 +158,8 @@ class VideoPreviewCard extends StatelessWidget {
                     ? CachedNetworkImage(
                         imageUrl: videoThumbnail,
                         fit: BoxFit.cover,
+                        memCacheWidth: 560,
+                        memCacheHeight: 315,
                         errorWidget: (_, _, _) => Container(
                           color: const Color(0xFF242424),
                           child: const Icon(Icons.videocam,
@@ -245,6 +247,8 @@ class VideoPreviewCard extends StatelessWidget {
                       width: 44,
                       height: 44,
                       fit: BoxFit.cover,
+                      memCacheWidth: 88,
+                      memCacheHeight: 88,
                       errorWidget: (_, _, _) => Container(
                         width: 44,
                         height: 44,

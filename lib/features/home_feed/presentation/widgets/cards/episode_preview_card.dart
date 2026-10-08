@@ -181,6 +181,8 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                           ? CachedNetworkImage(
                               imageUrl: artworkUrl,
                               fit: BoxFit.cover,
+                              memCacheWidth: 176,
+                              memCacheHeight: 176,
                               errorWidget: (_, _, _) => Container(
                                 color: const Color(0xFF333333),
                                 child: const Icon(

@@ -140,6 +140,8 @@ class _EpisodeCard extends StatelessWidget {
                           ? CachedNetworkImage(
                               imageUrl: imageUrl,
                               fit: BoxFit.cover,
+                              memCacheWidth: 112,
+                              memCacheHeight: 112,
                               errorWidget: (_, _, _) => Container(
                                 color: const Color(0xFF282828),
                                 child: const Icon(Icons.podcasts,

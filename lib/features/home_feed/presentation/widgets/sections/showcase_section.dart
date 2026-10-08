@@ -57,6 +57,8 @@ class ShowcaseSection extends StatelessWidget {
                     CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 720,
+                      memCacheHeight: 440,
                       errorWidget: (_, _, _) => const SizedBox.shrink(),
                     ),
                   // Bottom gradient for text readability

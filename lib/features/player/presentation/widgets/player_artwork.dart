@@ -22,14 +22,16 @@ class PlayerBackdrop extends StatelessWidget {
 
     return Positioned.fill(
       child: IgnorePointer(
-        child: Opacity(
-          opacity: 0.30,
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-            child: PlayerArtworkImage(
-              item: item,
-              artworkWidth: double.infinity,
-              artworkHeight: double.infinity,
+        child: RepaintBoundary(
+          child: Opacity(
+            opacity: 0.30,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+              child: PlayerArtworkImage(
+                item: item,
+                artworkWidth: double.infinity,
+                artworkHeight: double.infinity,
+              ),
             ),
           ),
         ),

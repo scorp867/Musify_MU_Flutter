@@ -64,6 +64,8 @@ class ReflectionSection extends StatelessWidget {
                       CachedNetworkImage(
                         imageUrl: imageUrl,
                         fit: BoxFit.cover,
+                        memCacheWidth: 720,
+                        memCacheHeight: 960,
                       ),
                     // Bottom gradient for text readability
                     Positioned.fill(

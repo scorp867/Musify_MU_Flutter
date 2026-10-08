@@ -37,6 +37,8 @@ class SquareCard extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: (size * 2).toInt(),
+                      memCacheHeight: (size * 2).toInt(),
                       errorWidget: (_, _, _) => _placeholder(),
                     )
                   : _placeholder(),

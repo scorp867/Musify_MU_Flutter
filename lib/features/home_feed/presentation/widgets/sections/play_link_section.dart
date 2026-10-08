@@ -44,6 +44,8 @@ class PlayLinkSection extends StatelessWidget {
                   child: CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
+                    memCacheWidth: 104,
+                    memCacheHeight: 104,
                     errorWidget: (_, _, _) => Container(
                       color: const Color(0xFF2C2C2C),
                       child: Icon(Icons.play_circle_fill_rounded,

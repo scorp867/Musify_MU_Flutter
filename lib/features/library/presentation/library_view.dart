@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
@@ -438,10 +439,12 @@ class _LibraryItemTile extends StatelessWidget {
       return ClipRRect(
         borderRadius:
             BorderRadius.circular(isArtist ? 28 : 4),
-        child: Image.network(
-          item.imageUrl!,
+        child: CachedNetworkImage(
+          imageUrl: item.imageUrl!,
           fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _placeholderIcon(),
+          memCacheWidth: 140,
+          memCacheHeight: 140,
+          errorWidget: (_, _, _) => _placeholderIcon(),
         ),
       );
     }
@@ -625,10 +628,12 @@ class _MosaicGrid extends StatelessWidget {
   }
 
   Widget _tile(String url) {
-    return Image.network(
-      url,
+    return CachedNetworkImage(
+      imageUrl: url,
       fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => Container(color: const Color(0xFF282828)),
+      memCacheWidth: 80,
+      memCacheHeight: 80,
+      errorWidget: (_, _, _) => Container(color: const Color(0xFF282828)),
     );
   }
 }

@@ -61,6 +61,8 @@ class ImmersivePreviewSection extends StatelessWidget {
                     CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 800,
+                      memCacheHeight: 450,
                     )
                   else
                     Container(color: bgColor),

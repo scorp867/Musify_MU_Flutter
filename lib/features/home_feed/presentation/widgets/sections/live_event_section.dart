@@ -59,6 +59,8 @@ class LiveEventSection extends StatelessWidget {
                           CachedNetworkImage(
                             imageUrl: imageUrl,
                             fit: BoxFit.cover,
+                            memCacheWidth: 720,
+                            memCacheHeight: 360,
                           )
                         else
                           Container(

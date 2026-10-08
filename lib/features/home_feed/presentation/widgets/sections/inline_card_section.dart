@@ -41,6 +41,8 @@ class InlineCardSection extends StatelessWidget {
                   child: CachedNetworkImage(
                     imageUrl: imageUrl,
                     fit: BoxFit.cover,
+                    memCacheWidth: 144,
+                    memCacheHeight: 144,
                   ),
                 )
               else

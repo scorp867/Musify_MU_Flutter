@@ -66,6 +66,8 @@ class AudioSpotlightSection extends StatelessWidget {
                       child: CachedNetworkImage(
                         imageUrl: imageUrl,
                         fit: BoxFit.cover,
+                        memCacheWidth: 256,
+                        memCacheHeight: 256,
                       ),
                     )
                   else

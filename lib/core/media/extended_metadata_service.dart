@@ -104,6 +104,9 @@ class ExtendedMetadataService {
     }
   }
 
+  /// Ensures disk cache has been loaded into memory.
+  Future<void> ensureLoaded() => _ensureDiskLoaded();
+
   /// Returns cached metadata for a URI, or null if not cached.
   TrackMeta? getCached(String uri) => _memCache.get(uri);
 

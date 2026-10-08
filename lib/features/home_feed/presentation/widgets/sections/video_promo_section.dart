@@ -69,6 +69,8 @@ class VideoPromoSection extends StatelessWidget {
                           CachedNetworkImage(
                             imageUrl: videoThumbnail,
                             fit: BoxFit.cover,
+                            memCacheWidth: 720,
+                            memCacheHeight: 405,
                             errorWidget: (_, _, _) => Container(
                               color: const Color(0xFF282828),
                               child: const Icon(Icons.video_library, color: Colors.white24, size: 48),

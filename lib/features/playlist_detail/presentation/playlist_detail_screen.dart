@@ -220,6 +220,8 @@ class _SingleArtwork extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url!,
       fit: BoxFit.cover,
+      memCacheWidth: 440,
+      memCacheHeight: 440,
       placeholder: (_, _) => _artworkPlaceholder(),
       errorWidget: (_, _, _) => _artworkPlaceholder(),
     );
@@ -262,6 +264,8 @@ class _MosaicArtwork extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
+      memCacheWidth: 220,
+      memCacheHeight: 220,
       placeholder: (_, _) => Container(color: const Color(0xFF282828)),
       errorWidget: (_, _, _) => Container(color: const Color(0xFF282828)),
     );

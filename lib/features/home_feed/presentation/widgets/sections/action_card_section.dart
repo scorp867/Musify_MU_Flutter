@@ -114,6 +114,8 @@ class _ActionCardTile extends StatelessWidget {
                 child: CachedNetworkImage(
                   imageUrl: imageUrl,
                   fit: BoxFit.cover,
+                  memCacheWidth: 128,
+                  memCacheHeight: 128,
                   errorWidget: (_, _, _) => Container(
                     color: const Color(0xFF282828),
                     child: Icon(Icons.music_note_rounded,

@@ -38,7 +38,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
   late final AnimationController _animController;
   Animation<double>? _dragAnimation;
 
-  double _dragOffsetY = 0.0;
+  final ValueNotifier<double> _dragOffsetNotifier = ValueNotifier<double>(0.0);
   bool _isDismissing = false;
 
   final Set<int> _sheetPointers = <int>{};
@@ -53,7 +53,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
   bool _isSnappingBack = false;
 
   @override
-  double get dragOffsetY => _dragOffsetY;
+  double get dragOffsetY => _dragOffsetNotifier.value;
 
   @override
   bool get isDismissing => _isDismissing;
@@ -67,9 +67,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     )
       ..addListener(() {
         if (_dragAnimation != null) {
-          setState(() {
-            _dragOffsetY = _dragAnimation!.value;
-          });
+          _dragOffsetNotifier.value = _dragAnimation!.value;
         }
       })
       ..addStatusListener((status) {
@@ -83,6 +81,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
   @override
   void dispose() {
     _animController.dispose();
+    _dragOffsetNotifier.dispose();
     _sheetPointers.clear();
     _scrimPointers.clear();
     _scrimPointerStartPositions.clear();
@@ -116,9 +115,8 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     } else if (delta < -0.5) {
       _lastMoveDirectionDown = false;
     }
-    setState(() {
-      _dragOffsetY = (_dragOffsetY + delta).clamp(0.0, double.infinity);
-    });
+    _dragOffsetNotifier.value =
+        (_dragOffsetNotifier.value + delta).clamp(0.0, double.infinity);
   }
 
   @override
@@ -199,7 +197,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     if (_isDismissing) return;
 
     // Tap on scrim area outside the player sheet dismisses the route.
-    if (!didDrag && _dragOffsetY > 0) {
+    if (!didDrag && dragOffsetY > 0) {
       _animateAndDismiss();
       return;
     }
@@ -266,11 +264,11 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     if (!_isDismissing &&
         _sheetPointers.isEmpty &&
         _scrimPointers.isEmpty &&
-        _dragOffsetY > 0) {
+        dragOffsetY > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted &&
             !_isDismissing &&
-            _dragOffsetY > 0 &&
+            dragOffsetY > 0 &&
             !_animController.isAnimating) {
           _resolveGestureEnd(0.0);
         }
@@ -294,11 +292,11 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     if (!_isDismissing &&
         _sheetPointers.isEmpty &&
         _scrimPointers.isEmpty &&
-        _dragOffsetY > 0) {
+        dragOffsetY > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted &&
             !_isDismissing &&
-            _dragOffsetY > 0 &&
+            dragOffsetY > 0 &&
             !_animController.isAnimating) {
           _resolveGestureEnd(0.0);
         }
@@ -314,7 +312,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     _pendingVelocity = 0.0;
     _activeDraggingPointer = null;
 
-    if (_dragOffsetY > 0) {
+    if (dragOffsetY > 0) {
       final bool shouldCollapse;
       if (effectiveVelocity > 200.0) {
         shouldCollapse = true;
@@ -337,7 +335,7 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
     _isDismissing = true;
     _isSnappingBack = false;
 
-    final startY = _dragOffsetY;
+    final startY = dragOffsetY;
     final screenHeight = MediaQuery.sizeOf(context).height;
     final remainingDistance = (screenHeight - startY).clamp(0.0, screenHeight);
 
@@ -370,14 +368,12 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
   }
 
   void _animateSnapBack([double velocity = 0]) {
-    final startY = _dragOffsetY;
+    final startY = dragOffsetY;
     if (startY <= 0.5) {
       _animController.stop();
       _dragAnimation = null;
       _isSnappingBack = false;
-      setState(() {
-        _dragOffsetY = 0.0;
-      });
+      _dragOffsetNotifier.value = 0.0;
       return;
     }
 
@@ -417,8 +413,21 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.sizeOf(context).height;
-    final barrierDarkness = widget.barrierBaseAlpha *
-        (1.0 - (_dragOffsetY / screenHeight).clamp(0.0, 1.0));
+
+    // Cache the entire child sheet subtree outside the ValueListenableBuilder.
+    // By wrapping it in RepaintBoundary, Flutter allocates a dedicated GPU
+    // texture layer for the player sheet. During dragging and snap-back,
+    // only the layer's 2D translation matrix changes in the compositor;
+    // the sheet widget tree is NEVER rebuilt or re-laid out (0 rebuilds at 120Hz).
+    final cachedSheet = RepaintBoundary(
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _onSheetPointerDown,
+        onPointerUp: _onSheetPointerUp,
+        onPointerCancel: _onSheetPointerCancel,
+        child: widget.builder(context, this),
+      ),
+    );
 
     return PopScope(
       canPop: !_isDismissing,
@@ -429,38 +438,41 @@ class _PullToDismissScaffoldState extends State<PullToDismissScaffold>
       },
       child: IgnorePointer(
         ignoring: _isDismissing,
-        child: Scaffold(
-          backgroundColor: Colors.black.withValues(alpha: barrierDarkness),
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              Transform.translate(
-                offset: Offset(0, _dragOffsetY),
-                child: Listener(
-                  behavior: HitTestBehavior.translucent,
-                  onPointerDown: _onSheetPointerDown,
-                  onPointerUp: _onSheetPointerUp,
-                  onPointerCancel: _onSheetPointerCancel,
-                  child: widget.builder(context, this),
-                ),
-              ),
-              if (_dragOffsetY > 0)
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: _dragOffsetY,
-                  child: Listener(
-                    behavior: HitTestBehavior.opaque,
-                    onPointerDown: _onScrimPointerDown,
-                    onPointerMove: _onScrimPointerMove,
-                    onPointerUp: _onScrimPointerUp,
-                    onPointerCancel: _onScrimPointerCancel,
-                    child: const SizedBox.expand(),
+        child: ValueListenableBuilder<double>(
+          valueListenable: _dragOffsetNotifier,
+          child: cachedSheet,
+          builder: (context, offsetY, child) {
+            final barrierDarkness = widget.barrierBaseAlpha *
+                (1.0 - (offsetY / screenHeight).clamp(0.0, 1.0));
+
+            return Scaffold(
+              backgroundColor: Colors.black.withValues(alpha: barrierDarkness),
+              body: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Transform.translate(
+                    offset: Offset(0, offsetY),
+                    child: child,
                   ),
-                ),
-            ],
-          ),
+                  if (offsetY > 0)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: offsetY,
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: _onScrimPointerDown,
+                        onPointerMove: _onScrimPointerMove,
+                        onPointerUp: _onScrimPointerUp,
+                        onPointerCancel: _onScrimPointerCancel,
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );

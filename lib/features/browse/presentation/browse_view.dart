@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
@@ -207,10 +208,12 @@ class _BrowseCard extends StatelessWidget {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: Image.network(
-                        item.imageUrl,
+                      child: CachedNetworkImage(
+                        imageUrl: item.imageUrl,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stack) =>
+                        memCacheWidth: 128,
+                        memCacheHeight: 128,
+                        errorWidget: (context, error, stack) =>
                             const SizedBox.shrink(),
                       ),
                     ),

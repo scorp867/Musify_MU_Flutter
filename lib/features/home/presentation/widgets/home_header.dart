@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
@@ -71,7 +72,11 @@ class HomeHeaderTitleRow extends StatelessWidget {
       return CircleAvatar(
         radius: 20,
         backgroundColor: const Color(0xFF1E293B),
-        backgroundImage: NetworkImage(spotifyAvatarUrl!),
+        backgroundImage: CachedNetworkImageProvider(
+          spotifyAvatarUrl!,
+          maxWidth: 80,
+          maxHeight: 80,
+        ),
       );
     }
 

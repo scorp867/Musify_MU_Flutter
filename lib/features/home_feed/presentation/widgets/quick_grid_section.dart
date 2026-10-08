@@ -80,6 +80,8 @@ class _QuickGridTile extends StatelessWidget {
                   ? CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 112,
+                      memCacheHeight: 112,
                       errorWidget: (_, _, _) => _placeholder(),
                     )
                   : _placeholder(),
