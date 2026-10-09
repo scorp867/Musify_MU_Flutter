@@ -1,0 +1,3 @@
+## 2024-05-15 - Uncached User Avatars Cause Redundant Downloads
+**Learning:** Flutter's native `NetworkImage` doesn't cache to disk by default. When rendering avatars in lists or frequently accessed views (like Browse or Library tabs), this causes repetitive network requests on every widget rebuild or screen load, eating up bandwidth and slowing down rendering.
+**Action:** Always use `CachedNetworkImageProvider` from the `cached_network_image` package for user avatars or any network images not handled by a custom caching layer to ensure disk and memory caching.
