@@ -62,13 +62,11 @@ class BrowseTraitCache {
       dev.log('BrowseTraitCache: load error: $e', name: 'Browse');
     }
 
-    _memoryCache!.removeWhere((_, v) => _policy.isExpired(v.cachedAt));
-
     return _memoryCache!;
   }
 
   /// Given a list of URIs, returns:
-  ///   - `cached`: already-resolved cards from cache (fresh ones only)
+  ///   - `cached`: already-resolved cards from cache
   ///   - `missing`: URIs that need to be fetched from extended-metadata
   Future<({Map<String, BrowseCardData> cached, List<String> missing})>
       partition(List<String> uris) async {
@@ -79,7 +77,7 @@ class BrowseTraitCache {
 
     for (final uri in uris) {
       final entry = cache[uri];
-      if (entry != null && !_policy.isExpired(entry.cachedAt)) {
+      if (entry != null) {
         cached[uri] = entry.data;
       } else {
         missing.add(uri);

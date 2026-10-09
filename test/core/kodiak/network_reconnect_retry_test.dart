@@ -38,6 +38,9 @@ class FakeNetworkMonitor implements NetworkMonitorService {
   void recordTimeout() {}
 
   @override
+  void recordConnectionError() {}
+
+  @override
   void dispose() {
     _controller.close();
   }

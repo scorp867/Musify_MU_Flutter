@@ -10,11 +10,13 @@ import 'package:musify_mu/features/home_feed/presentation/home_feed_view.dart';
 
 class OnlineHomeScreen extends StatefulWidget {
   final Widget? headerTitleRow;
+  final bool isActive;
   final HomeFeedBloc Function() createHomeFeedBloc;
 
   const OnlineHomeScreen({
     super.key,
     this.headerTitleRow,
+    this.isActive = true,
     required this.createHomeFeedBloc,
   });
 
@@ -119,6 +121,7 @@ class _OnlineHomeScreenState extends State<OnlineHomeScreen> {
         color: const Color(0xFF121212),
         child: HomeFeedView(
           headerTitleRow: widget.headerTitleRow,
+          isActive: widget.isActive,
         ),
       ),
     );

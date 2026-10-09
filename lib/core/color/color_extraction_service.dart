@@ -1,6 +1,8 @@
 import 'dart:developer' as dev;
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:palette_generator/palette_generator.dart';
@@ -42,6 +44,9 @@ class ColorExtractionService {
     return null;
   }
 
+  /// Returns synchronously cached color if present.
+  ui.Color? getCached(String imageUrl) => _cache.get(imageUrl);
+
   /// Extracts color from a single image URL.
   Future<ui.Color?> extractFromUrl(String imageUrl) async {
     final cached = _cache.get(imageUrl);
@@ -79,16 +84,38 @@ class ColorExtractionService {
     }
   }
 
-  /// Extracts color from a 4-tile mosaic by compositing them into a single 2x2 bitmap.
+  /// Extracts color from a playlist mosaic.
+  /// Matches Spotify's decompiled playlist header pipeline:
+  /// Spotify anchors playlist header theming on the primary track (Track 0 / Top-Left tile),
+  /// causing the playlist header color to dynamically adapt when tracks are reordered.
+  /// Falls back to remaining tiles and composite 2x2 grid if the primary track yields no color.
   Future<ui.Color?> extractFromMosaic(List<String> mosaicUrls) async {
-    if (mosaicUrls.length < 4) return null;
+    if (mosaicUrls.isEmpty) return null;
     final mosaicKey = 'mosaic:${mosaicUrls.take(4).join('|')}';
 
     final cached = _cache.get(mosaicKey);
     if (cached != null) return cached;
 
+    // 1. Primary track extraction (Spotify Track 0 / Tile 0 header theming)
+    final primaryColor = await extractFromUrl(mosaicUrls.first);
+    if (primaryColor != null) {
+      await _cache.put(mosaicKey, primaryColor);
+      return primaryColor;
+    }
+
+    // 2. Fallback to subsequent tracks if primary yields no candidate
+    for (int i = 1; i < math.min(mosaicUrls.length, 4); i++) {
+      final tileColor = await extractFromUrl(mosaicUrls[i]);
+      if (tileColor != null) {
+        await _cache.put(mosaicKey, tileColor);
+        return tileColor;
+      }
+    }
+
+    if (mosaicUrls.length < 4) return null;
+
     try {
-      // 1. Concurrently fetch the 4 tile images (uses local disk cache if already shown)
+      // 3. Ultimate fallback: composite 2x2 grid quantization
       final files = await Future.wait(
         mosaicUrls.take(4).map((url) => _cacheManager.getSingleFile(url)),
       );
@@ -132,7 +159,7 @@ class ColorExtractionService {
           maximumColorCount: 32,
         );
 
-        final color = _pickBestColor(palette);
+        final color = _pickBestColor(palette, isMosaic: true);
         if (color != null) {
           await _cache.put(mosaicKey, color);
         }
@@ -146,49 +173,176 @@ class ColorExtractionService {
     }
   }
 
-  /// Picks the most vibrant, visually representative color from the palette,
-  /// matching Spotify's scoring behavior.
+  /// Picks the optimal branding color from the palette, matching Spotify's exact
+  /// decompiled extraction pipeline (p.m351.y, p.laa1.o, p.xj41.p, and p.epp0.d).
   ///
-  /// Weights saturation highest (0.45), targets medium luminance (0.40) to
-  /// avoid murky blacks or washed-out whites, and considers population (0.15).
-  ui.Color? _pickBestColor(PaletteGenerator palette) {
-    if (palette.paletteColors.isEmpty) {
-      return palette.dominantColor?.color;
-    }
+  /// Steps:
+  /// 1. Candidate scoring with yellow/olive tent filter penalty (p.laa1.o / p.laa1.g).
+  /// 2. If no candidate qualifies, fall back to Muted (zf21.h) -> Vibrant (zf21.e) (p.m351.y).
+  /// 3. Darken via binary search on Lightness to guarantee WCAG AA 4.5:1 contrast against White (p.xj41.p).
+  /// 4. Apply 12% relative luminance floor, blending with 20% white if too dark (p.epp0.d).
+  ui.Color? _pickBestColor(PaletteGenerator palette, {bool isMosaic = false}) {
+    ui.Color? rawColor;
 
-    final totalPop = palette.paletteColors.fold<int>(
-      0,
-      (sum, c) => sum + c.population,
-    );
-    final safeTotalPop = totalPop > 0 ? totalPop : 1;
+    if (palette.paletteColors.isNotEmpty) {
+      final totalPop = palette.paletteColors.fold<int>(
+        0,
+        (sum, c) => sum + c.population,
+      );
+      final safeTotalPop = totalPop > 0 ? totalPop : 1;
 
-    PaletteColor? bestSwatch;
-    double bestScore = -1.0;
+      // Filter candidates: S >= 0.2, V >= 0.2, PopRatio >= 0.0016 (p.laa1.java)
+      final candidates = <PaletteColor>[];
+      for (final pc in palette.paletteColors) {
+        final hsv = HSVColor.fromColor(pc.color);
+        final popRatio = pc.population / safeTotalPop;
+        if (hsv.saturation >= 0.2 && hsv.value >= 0.2 && popRatio >= 0.0016) {
+          candidates.add(pc);
+        }
+      }
 
-    for (final pc in palette.paletteColors) {
-      final hsl = HSLColor.fromColor(pc.color);
+      if (candidates.isNotEmpty) {
+        // Check if there is at least one non-yellow candidate (hue < 30 or hue > 80)
+        final hasNonYellow = candidates.any((pc) {
+          final h = HSVColor.fromColor(pc.color).hue;
+          return h < 30.0 || h > 80.0;
+        });
 
-      // Skip near-black and near-white
-      if (hsl.lightness < 0.12 || hsl.lightness > 0.88) continue;
+        PaletteColor? bestCandidate;
+        double bestScore = -double.infinity;
 
-      // Prefer high saturation, optimal lightness around 0.42, with population weight
-      final sScore = hsl.saturation * 0.45;
-      final lScore = (1.0 - (hsl.lightness - 0.42).abs()) * 0.40;
-      final pScore = (pc.population / safeTotalPop) * 0.15;
-      final score = sScore + lScore + pScore;
+        for (final pc in candidates) {
+          final hsv = HSVColor.fromColor(pc.color);
+          final popRatio = pc.population / safeTotalPop;
 
-      if (score > bestScore) {
-        bestScore = score;
-        bestSwatch = pc;
+          // Tent filter penalty centered at pure yellow (Hue = 55°)
+          double yellowPenalty = 0.0;
+          if (hasNonYellow && hsv.hue >= 30.0 && hsv.hue <= 80.0) {
+            final distFromCenter = (25.0 - (hsv.hue - 30.0)).abs();
+            final tent = ((25.0 - distFromCenter) / 25.0).clamp(0.0, 1.0);
+            yellowPenalty = -(tent * 2.0);
+          }
+
+          final score = (hsv.saturation * hsv.value) + popRatio + yellowPenalty;
+          if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = pc;
+          }
+        }
+
+        rawColor = bestCandidate?.color;
       }
     }
 
-    return bestSwatch?.color ??
+    // Fallback: Spotify's standard hierarchy (p.m351.y) -> Muted first, then Vibrant
+    rawColor ??= palette.mutedColor?.color ??
         palette.vibrantColor?.color ??
-        palette.dominantColor?.color ??
-        palette.darkVibrantColor?.color;
+        palette.darkMutedColor?.color ??
+        palette.darkVibrantColor?.color ??
+        palette.dominantColor?.color;
+
+    if (rawColor == null) return null;
+
+    // Step 3: Apply Spotify's WCAG AA 4.5:1 White Contrast Binary Search (p.xj41.p)
+    final darkened = _ensureWhiteContrast(rawColor);
+
+    // Step 4: Apply Spotify's Relative Luminance Floor (p.epp0.d)
+    final floored = _applyLuminanceFloor(darkened);
+
+    // Step 5: Apply Spotify's Matte Finish Ceiling (V <= 0.70)
+    return _applyMatteFinish(floored);
+  }
+
+  /// Ensures extracted color does not exceed Spotify's matte luminance ceiling (V <= 0.70).
+  /// Eliminates glowing neon sheen, producing Spotify's signature velvety matte appearance.
+  ui.Color _applyMatteFinish(ui.Color color) {
+    final hsv = HSVColor.fromColor(color);
+    if (hsv.value > 0.70) {
+      return hsv.withValue(0.70).toColor();
+    }
+    return color;
+  }
+
+  /// Binary search on HSV Value channel down to 0.0 until contrast against
+  /// pure white (0xFFFFFFFF) is >= 4.5:1 (WCAG AA compliant).
+  ///
+  /// Matches decompiled logic in p.vkb1.d and p.vde.e.
+  ui.Color _ensureWhiteContrast(ui.Color color) {
+    const white = ui.Color(0xFFFFFFFF);
+    if (_calculateContrast(white, color) >= 4.5) {
+      return color;
+    }
+
+    final hsv = HSVColor.fromColor(color);
+    double upperV = hsv.value;
+    double lowerV = 0.0;
+
+    while (upperV - lowerV > 0.01) {
+      final midV = (upperV + lowerV) * 0.5;
+      final testColor = hsv.withValue(midV).toColor();
+      if (_calculateContrast(white, testColor) < 4.5) {
+        upperV = midV; // Too bright, reduce value
+      } else {
+        lowerV = midV; // Dark enough, keep as high as possible for vibrancy
+      }
+    }
+
+    return hsv.withValue(lowerV).toColor();
+  }
+
+
+  /// If relative luminance < 0.12 (too dark / pitch black), blends with 20% white.
+  /// Matches decompiled logic in p.epp0.d and p.epp0.l.
+  ui.Color _applyLuminanceFloor(ui.Color color) {
+    final lum = _relativeLuminance(color);
+    if (lum >= 0.12) {
+      return color;
+    }
+    final argb = color.toARGB32();
+    final rInt = (argb >> 16) & 0xFF;
+    final gInt = (argb >> 8) & 0xFF;
+    final bInt = argb & 0xFF;
+
+    final r = (((255 - rInt) * 0.2) + rInt).round();
+    final g = (((255 - gInt) * 0.2) + gInt).round();
+    final b = (((255 - bInt) * 0.2) + bInt).round();
+    return ui.Color.fromARGB(255, r, g, b);
+  }
+
+  /// Calculates WCAG contrast ratio between two colors (p.vde.e).
+  double _calculateContrast(ui.Color foreground, ui.Color background) {
+    final l1 = _relativeLuminance(foreground);
+    final l2 = _relativeLuminance(background);
+    final maxL = math.max(l1, l2);
+    final minL = math.min(l1, l2);
+    return (maxL + 0.05) / (minL + 0.05);
+  }
+
+  /// Calculates WCAG relative luminance Y using sRGB gamma decompression (p.epp0.l).
+  double _relativeLuminance(ui.Color c) {
+    double decompress(int channel) {
+      final f = channel / 255.0;
+      if (f <= 0.04045) {
+        return f / 12.92;
+      }
+      return math.pow((f + 0.055) / 1.055, 2.4).toDouble();
+    }
+
+    final argb = c.toARGB32();
+    final rInt = (argb >> 16) & 0xFF;
+    final gInt = (argb >> 8) & 0xFF;
+    final bInt = argb & 0xFF;
+
+    return (decompress(rInt) * 0.2126) +
+        (decompress(gInt) * 0.7152) +
+        (decompress(bInt) * 0.0722);
   }
 
   /// Initializes the cache. Call once at startup.
   Future<void> init() => _cache.load();
+
+  @visibleForTesting
+  ui.Color? testPickBestColor(PaletteGenerator palette, {bool isMosaic = false}) =>
+      _pickBestColor(palette, isMosaic: isMosaic);
 }
+

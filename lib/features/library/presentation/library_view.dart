@@ -1,8 +1,9 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:get_it/get_it.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
@@ -12,68 +13,45 @@ import 'package:musify_mu/features/playlist_detail/application/playlist_detail_b
 import 'package:musify_mu/features/playlist_detail/presentation/playlist_detail_screen.dart';
 
 /// The Library tab view.
-class LibraryView extends StatelessWidget {
+class LibraryView extends StatefulWidget {
   final VoidCallback? onMenuPressed;
   final VoidCallback? onToggleMode;
+  final bool isActive;
 
-  const LibraryView({super.key, this.onMenuPressed, this.onToggleMode});
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<LibraryBloc, LibraryState>(
-      builder: (context, state) {
-        return switch (state) {
-          LibraryLoading() => const _LibraryShimmer(),
-          LibraryLoaded(:final data, :final isRefreshing) =>
-            _LibraryContent(
-              data: data,
-              isRefreshing: isRefreshing,
-              onMenuPressed: onMenuPressed,
-              onToggleMode: onToggleMode,
-            ),
-          LibraryError(:final message, :final staleData) =>
-            staleData != null
-                ? _LibraryContent(
-                    data: staleData,
-                    isRefreshing: false,
-                    onMenuPressed: onMenuPressed,
-                    onToggleMode: onToggleMode,
-                  )
-                : _ErrorView(message: message),
-        };
-      },
-    );
-  }
-}
-
-// ─── Filter chip state ───────────────────────────────────────────────
-
-enum LibraryFilter { all, playlists, podcasts, artists }
-
-// ─── Content ─────────────────────────────────────────────────────────
-
-class _LibraryContent extends StatefulWidget {
-  final LibraryViewData data;
-  final bool isRefreshing;
-  final VoidCallback? onMenuPressed;
-  final VoidCallback? onToggleMode;
-
-  const _LibraryContent({
-    required this.data,
-    required this.isRefreshing,
+  const LibraryView({
+    super.key,
     this.onMenuPressed,
     this.onToggleMode,
+    this.isActive = true,
   });
 
   @override
-  State<_LibraryContent> createState() => _LibraryContentState();
+  State<LibraryView> createState() => _LibraryViewState();
 }
 
-class _LibraryContentState extends State<_LibraryContent> {
+enum LibraryFilter { all, playlists, podcasts, artists }
+
+class _LibraryViewState extends State<LibraryView> {
   LibraryFilter _activeFilter = LibraryFilter.all;
 
-  List<LibraryItem> get _filteredItems {
-    final sorted = widget.data.sortedByRecents();
+  @override
+  void didUpdateWidget(LibraryView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive && !widget.isActive) {
+      AppSnackBar.clear(context);
+      context.read<LibraryBloc>().add(const LibraryCancelRequested());
+    } else if (!oldWidget.isActive && widget.isActive) {
+      final bloc = context.read<LibraryBloc>();
+      if (bloc.state is LibraryLoading) {
+        bloc.add(const LibraryLoadRequested());
+      } else {
+        bloc.add(const LibraryActivated());
+      }
+    }
+  }
+
+  List<LibraryItem> _filterItems(LibraryViewData data) {
+    final sorted = data.sortedByRecents();
     return switch (_activeFilter) {
       LibraryFilter.all => sorted,
       LibraryFilter.playlists =>
@@ -87,68 +65,121 @@ class _LibraryContentState extends State<_LibraryContent> {
 
   @override
   Widget build(BuildContext context) {
-    final items = _filteredItems;
-
-    return RefreshIndicator(
-      color: const Color(0xFF1DB954),
-      backgroundColor: const Color(0xFF282828),
-      onRefresh: () async {
-        context.read<LibraryBloc>().add(const LibraryRefreshRequested());
-        await context.read<LibraryBloc>().stream.firstWhere(
-              (s) => (s is LibraryLoaded && !s.isRefreshing) || s is LibraryError,
-            );
+    return BlocListener<LibraryBloc, LibraryState>(
+      listenWhen: (prev, curr) {
+        if (curr is! LibraryError) return false;
+        if (prev is LibraryError) {
+          return prev.message != curr.message;
+        }
+        return true;
       },
-      child: CustomScrollView(
-        slivers: [
-          // Header (floating)
-          SliverAppBar(
-            floating: true,
-            snap: true,
-            pinned: false,
-            backgroundColor: const Color(0xFF121212),
-            surfaceTintColor: Colors.transparent,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            toolbarHeight: 72,
-            titleSpacing: 0,
-            automaticallyImplyLeading: false,
-            title: _LibraryHeader(
-              onMenuPressed: widget.onMenuPressed,
-              onToggleMode: widget.onToggleMode,
-            ),
-          ),
+      listener: (context, state) {
+        if (state is LibraryError) {
+          AppSnackBar.show(context, message: state.message);
+        }
+      },
+      child: BlocBuilder<LibraryBloc, LibraryState>(
+        builder: (context, state) {
+        final itemCount = switch (state) {
+          LibraryLoaded(:final data) => _filterItems(data).length,
+          LibraryError(:final staleData) =>
+            staleData != null ? _filterItems(staleData).length : 0,
+          _ => 0,
+        };
 
-          // Filter chips (pinned)
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: StickyHeaderDelegate(
-              height: 48,
-              child: _FilterChipRow(
-                active: _activeFilter,
-                onChanged: (filter) =>
-                    setState(() => _activeFilter = filter),
+        return RefreshIndicator(
+          color: const Color(0xFF1DB954),
+          backgroundColor: const Color(0xFF282828),
+          onRefresh: () async {
+            final bloc = context.read<LibraryBloc>();
+            bloc.add(const LibraryRefreshRequested());
+            try {
+              await bloc.stream
+                  .firstWhere(
+                    (s) =>
+                        (s is LibraryLoaded && !s.isRefreshing) ||
+                        s is LibraryError,
+                  )
+                  .timeout(const Duration(seconds: 8));
+            } catch (_) {}
+          },
+          child: CustomScrollView(
+            slivers: [
+              // Header (floating)
+              SliverAppBar(
+                floating: true,
+                snap: true,
+                pinned: false,
+                backgroundColor: const Color(0xFF121212),
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                toolbarHeight: 72,
+                titleSpacing: 0,
+                automaticallyImplyLeading: false,
+                title: _LibraryHeader(
+                  onMenuPressed: widget.onMenuPressed,
+                  onToggleMode: widget.onToggleMode,
+                ),
               ),
-            ),
-          ),
 
-          // Sort bar
-          SliverToBoxAdapter(
-            child: _SortBar(itemCount: items.length),
-          ),
+              // Filter chips (pinned)
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: StickyHeaderDelegate(
+                  height: 48,
+                  child: _FilterChipRow(
+                    active: _activeFilter,
+                    onChanged: (filter) =>
+                        setState(() => _activeFilter = filter),
+                  ),
+                ),
+              ),
 
-          // Library items
-          SliverList.builder(
-            itemCount: items.length + 1,
-            itemBuilder: (context, index) {
-              if (index >= items.length) {
-                return const SizedBox(height: 120);
-              }
-              return _LibraryItemTile(item: items[index]);
-            },
+              // Sort bar
+              SliverToBoxAdapter(
+                child: _SortBar(itemCount: itemCount),
+              ),
+
+              // Body content
+              ..._buildBodySlivers(context, state),
+            ],
           ),
+        );
+      },
+    ),
+  );
+}
+
+  List<Widget> _buildBodySlivers(BuildContext context, LibraryState state) {
+    return switch (state) {
+      LibraryLoading() => const [
+          _LibraryListShimmer(),
         ],
+      LibraryLoaded(:final data) => _buildListSlivers(_filterItems(data)),
+      LibraryError(:final message, :final staleData) => staleData != null
+          ? _buildListSlivers(_filterItems(staleData))
+          : [
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _ErrorView(message: message),
+              ),
+            ],
+    };
+  }
+
+  List<Widget> _buildListSlivers(List<LibraryItem> items) {
+    return [
+      SliverList.builder(
+        itemCount: items.length + 1,
+        itemBuilder: (context, index) {
+          if (index >= items.length) {
+            return const SizedBox(height: 120);
+          }
+          return _LibraryItemTile(item: items[index]);
+        },
       ),
-    );
+    ];
   }
 }
 
@@ -389,11 +420,13 @@ class _LibraryItemTile extends StatelessWidget {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) {
-              final bloc = GetIt.instance<PlaylistDetailBloc>()
-                ..add(PlaylistDetailLoadRequested(item));
               return MultiBlocProvider(
                 providers: [
-                  BlocProvider<PlaylistDetailBloc>.value(value: bloc),
+                  BlocProvider<PlaylistDetailBloc>(
+                    create: (ctx) => PlaylistDetailBloc(
+                      colorService: ctx.read<ColorExtractionService>(),
+                    )..add(PlaylistDetailLoadRequested(item)),
+                  ),
                   BlocProvider<LibraryBloc>.value(
                     value: context.read<LibraryBloc>(),
                   ),
@@ -439,7 +472,7 @@ class _LibraryItemTile extends StatelessWidget {
       return ClipRRect(
         borderRadius:
             BorderRadius.circular(isArtist ? 28 : 4),
-        child: CachedNetworkImage(
+        child: AppNetworkImage(
           imageUrl: item.imageUrl!,
           fit: BoxFit.cover,
           memCacheWidth: 140,
@@ -486,58 +519,55 @@ class _LibraryItemTile extends StatelessWidget {
 
 // ─── Shimmer ─────────────────────────────────────────────────────────
 
-class _LibraryShimmer extends StatelessWidget {
-  const _LibraryShimmer();
+class _LibraryListShimmer extends StatelessWidget {
+  const _LibraryListShimmer();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: const Color(0xFF121212),
-      child: ListView.builder(
-        itemCount: 10,
-        itemBuilder: (context, index) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF282828),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
+    return SliverList.builder(
+      itemCount: 10,
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF282828),
+                  borderRadius: BorderRadius.circular(4),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        height: 14,
-                        width: 140,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF282828),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 14,
+                      width: 140,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF282828),
+                        borderRadius: BorderRadius.circular(4),
                       ),
-                      const SizedBox(height: 6),
-                      Container(
-                        height: 12,
-                        width: 90,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1E1E1E),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 12,
+                      width: 90,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(4),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -628,7 +658,7 @@ class _MosaicGrid extends StatelessWidget {
   }
 
   Widget _tile(String url) {
-    return CachedNetworkImage(
+    return AppNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
       memCacheWidth: 80,

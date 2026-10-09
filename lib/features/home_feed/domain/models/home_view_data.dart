@@ -49,6 +49,9 @@ class HomeSection extends Equatable {
   final SectionLayout layout;
   final String? sectionUri;
   final String sectionType;
+  final String? colorCode;
+  final String? imageUrl;
+  final Map<String, dynamic> metadata;
 
   const HomeSection({
     required this.title,
@@ -57,6 +60,9 @@ class HomeSection extends Equatable {
     this.layout = SectionLayout.carousel,
     this.sectionUri,
     this.sectionType = '',
+    this.colorCode,
+    this.imageUrl,
+    this.metadata = const {},
   });
 
   @override
@@ -67,6 +73,9 @@ class HomeSection extends Equatable {
         layout,
         sectionUri,
         sectionType,
+        colorCode,
+        imageUrl,
+        metadata,
       ];
 }
 

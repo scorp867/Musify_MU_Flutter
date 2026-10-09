@@ -38,6 +38,9 @@ class HomeFeedCache {
                   'layout': s.layout.name,
                   'sectionType': s.sectionType,
                   'sectionUri': s.sectionUri,
+                  'colorCode': s.colorCode,
+                  'imageUrl': s.imageUrl,
+                  'metadata': s.metadata,
                   'items': s.items.map((i) => i.toJson()).toList(),
                 })
             .toList(),
@@ -76,6 +79,9 @@ class HomeFeedCache {
                 ),
                 sectionType: s['sectionType'] ?? '',
                 sectionUri: s['sectionUri'],
+                colorCode: s['colorCode'] as String?,
+                imageUrl: s['imageUrl'] as String?,
+                metadata: (s['metadata'] as Map<String, dynamic>?) ?? const {},
                 items: (s['items'] as List)
                     .map((i) =>
                         SpotifyEntity.fromJson(i as Map<String, dynamic>))

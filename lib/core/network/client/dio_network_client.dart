@@ -51,6 +51,9 @@ class DioNetworkClient implements NetworkClient {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     Duration? timeout,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   }) async {
     try {
       final options = Options(
@@ -59,7 +62,11 @@ class DioNetworkClient implements NetworkClient {
         responseType: ResponseType.bytes,
         receiveTimeout: timeout,
         sendTimeout: timeout,
-        extra: {'priority': priority.value},
+        extra: {
+          'priority': priority.value,
+          'tag': ?tag,
+          if (ttl != null) 'ttl': ttl.inMilliseconds,
+        },
       );
 
       final response = await _dio.getUri<List<int>>(
@@ -91,6 +98,9 @@ class DioNetworkClient implements NetworkClient {
     NetworkPriority priority = NetworkPriority.interactive,
     String contentType = 'application/x-protobuf',
     Duration? timeout,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   }) async {
     try {
       final reqHeaders = Map<String, String>.from(headers ?? const {});
@@ -103,7 +113,11 @@ class DioNetworkClient implements NetworkClient {
         contentType: contentType,
         receiveTimeout: timeout,
         sendTimeout: timeout,
-        extra: {'priority': priority.value},
+        extra: {
+          'priority': priority.value,
+          'tag': ?tag,
+          if (ttl != null) 'ttl': ttl.inMilliseconds,
+        },
       );
 
       final response = await _dio.postUri<List<int>>(
@@ -132,6 +146,7 @@ class DioNetworkClient implements NetworkClient {
     Uri uri, {
     Map<String, String>? headers,
     Duration? timeout,
+    bool bufferIfOffline = false,
   }) async {
     try {
       final options = Options(

@@ -8,6 +8,7 @@ import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plu
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/kodiak_cell_mapper.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
+import 'package:musify_mu/core/network/priority/network_priority.dart';
 import 'package:musify_mu/core/network/result/network_result.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
@@ -80,6 +81,8 @@ class ExtendedMetadataClient {
     final result = await _transport.postResult(
       '/extended-metadata/v0/extended-metadata',
       Uint8List.fromList(payload),
+      priority: NetworkPriority.background,
+      ttl: const Duration(seconds: 45),
     );
 
     if (result is NetworkFailure<Uint8List>) {

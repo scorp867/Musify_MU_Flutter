@@ -10,6 +10,7 @@ import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/vis
 import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
 import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/priority/network_priority.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Resolved browse item data from IdentityTrait + VisualIdentityTrait.
@@ -54,6 +55,9 @@ class BrowseMetadataFetcher {
       final response = await _client.post(
         '/extended-metadata/v0/extended-metadata',
         Uint8List.fromList(payload),
+        priority: NetworkPriority.background,
+        tag: 'browse_metadata_traits',
+        ttl: const Duration(seconds: 45),
       );
       if (response == null) return {};
 

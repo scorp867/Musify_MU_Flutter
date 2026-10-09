@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
 import 'package:musify_mu/features/library/domain/repositories/library_repository.dart';
 
@@ -10,9 +11,11 @@ class LoadLibrary {
   const LoadLibrary(this._repository);
 
   /// SWR stream: yields cached data first, then fresh.
-  Stream<LibraryViewData> call() => _repository.getLibrary();
+  Stream<LibraryViewData> call({CancelToken? cancelToken}) =>
+      _repository.getLibrary(cancelToken: cancelToken);
 
   /// Network-only refresh, skipping cache.
   /// Forces re-sync of playlist details so mosaics and counts update.
-  Future<LibraryViewData?> refresh() => _repository.fetchFresh(forceSync: true);
+  Future<LibraryViewData?> refresh({CancelToken? cancelToken}) =>
+      _repository.fetchFresh(forceSync: true, cancelToken: cancelToken);
 }

@@ -115,14 +115,24 @@ class HomeFilterChips extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<HomeFeedBloc, HomeFeedState>(
       buildWhen: (prev, curr) {
-        final prevFacet = prev is HomeFeedLoaded ? prev.activeFacet : null;
-        final currFacet = curr is HomeFeedLoaded ? curr.activeFacet : null;
+        final prevFacet = switch (prev) {
+          HomeFeedLoaded(:final activeFacet) => activeFacet,
+          HomeFeedLoading(:final activeFacet) => activeFacet,
+          _ => null,
+        };
+        final currFacet = switch (curr) {
+          HomeFeedLoaded(:final activeFacet) => activeFacet,
+          HomeFeedLoading(:final activeFacet) => activeFacet,
+          _ => null,
+        };
         return prevFacet != currFacet;
       },
       builder: (context, state) {
-        final activeFacet = state is HomeFeedLoaded
-            ? state.activeFacet
-            : HomeFacet.all;
+        final activeFacet = switch (state) {
+          HomeFeedLoaded(:final activeFacet) => activeFacet,
+          HomeFeedLoading(:final activeFacet) => activeFacet,
+          _ => HomeFacet.all,
+        };
 
         return FacetChipRow(
           selectedFacet: activeFacet,

@@ -16,6 +16,9 @@ abstract interface class NetworkClient {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     Duration? timeout,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   });
 
   /// Dispatches an HTTP POST request.
@@ -27,6 +30,9 @@ abstract interface class NetworkClient {
     NetworkPriority priority = NetworkPriority.interactive,
     String contentType = 'application/x-protobuf',
     Duration? timeout,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   });
 
   /// Dispatches an HTTP HEAD request.
@@ -34,6 +40,7 @@ abstract interface class NetworkClient {
     Uri uri, {
     Map<String, String>? headers,
     Duration? timeout,
+    bool bufferIfOffline = false,
   });
 
   /// Closes persistent connections and releases native resources.

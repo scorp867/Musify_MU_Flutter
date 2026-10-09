@@ -21,6 +21,8 @@ import 'package:musify_mu/features/home_feed/presentation/widgets/sections/story
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/vertical_card_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_promo_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/full_bleed_banner_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/caught_up_banner_section.dart';
 
 /// Direct equivalent to Spotify Android's `p.s400` / `KodiakElementRegistry`.
 /// Maps strongly typed Section FeatureTypes / sectionType discriminators directly to UI Widgets.
@@ -122,6 +124,14 @@ class SectionRegistry {
       // ── Standard ImageLink Carousel (Tag 3: p.h620 -> a620) ────────
       case 'imageLink':
         return ContentCarouselSection(title: section.title, items: section.items);
+
+      // ── Full Bleed Hero Banner (Tag 26: p.FullBleedBanner) ─────────
+      case 'fullBleedBanner':
+        return FullBleedBannerSection(section: section);
+
+      // ── Caught Up Celebration Banner (Tag 19: p.zno0 / p.en4) ──────
+      case 'banner':
+        return CaughtUpBannerSection(section: section);
 
       // ── Non-visual or unknown: zero fallback to carousel ───────────
       default:

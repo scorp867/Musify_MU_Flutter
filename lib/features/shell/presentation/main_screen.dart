@@ -141,6 +141,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (_visitedTabs.contains(0))
                   HomeTab(
                     isOnlineMode: _isOnlineMode,
+                    isActive: _currentIndex == 0,
                     onMenuPressed: widget.onMenuPressed,
                     onToggleMode: _toggleMode,
                     iconKey: _iconKey,
@@ -153,6 +154,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (_visitedTabs.contains(1))
                   _BrowseTab(
                     isOnlineMode: _isOnlineMode,
+                    isActive: _currentIndex == 1,
                     onMenuPressed: widget.onMenuPressed,
                     onToggleMode: _toggleMode,
                     playbackController: widget.playbackController,
@@ -163,6 +165,7 @@ class _MainScreenState extends State<MainScreen> {
                 if (_visitedTabs.contains(2))
                   _LibraryTab(
                     isOnlineMode: _isOnlineMode,
+                    isActive: _currentIndex == 2,
                     onMenuPressed: widget.onMenuPressed,
                     onToggleMode: _toggleMode,
                     playbackController: widget.playbackController,
@@ -214,6 +217,7 @@ class _MainScreenState extends State<MainScreen> {
 /// Browse tab -- online shows Spotify categories, offline shows local file search.
 class _BrowseTab extends StatelessWidget {
   final bool isOnlineMode;
+  final bool isActive;
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
   final PlaybackController? playbackController;
@@ -221,6 +225,7 @@ class _BrowseTab extends StatelessWidget {
 
   const _BrowseTab({
     required this.isOnlineMode,
+    this.isActive = true,
     required this.onMenuPressed,
     required this.onToggleMode,
     required this.createBrowseBloc,
@@ -285,13 +290,14 @@ class _BrowseTab extends StatelessWidget {
           ),
         ),
       ),
-      child: Scaffold(
-        backgroundColor: const Color(0xFF121212),
-        body: SafeArea(
+      child: Container(
+        color: const Color(0xFF121212),
+        child: SafeArea(
           bottom: false,
           child: BrowseView(
             onMenuPressed: onMenuPressed,
             onToggleMode: onToggleMode,
+            isActive: isActive,
           ),
         ),
       ),
@@ -302,6 +308,7 @@ class _BrowseTab extends StatelessWidget {
 /// Library tab -- online shows Spotify playlists, offline shows local music library.
 class _LibraryTab extends StatelessWidget {
   final bool isOnlineMode;
+  final bool isActive;
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
   final PlaybackController? playbackController;
@@ -309,6 +316,7 @@ class _LibraryTab extends StatelessWidget {
 
   const _LibraryTab({
     required this.isOnlineMode,
+    this.isActive = true,
     required this.onMenuPressed,
     required this.onToggleMode,
     required this.createLibraryBloc,
@@ -374,13 +382,14 @@ class _LibraryTab extends StatelessWidget {
           ),
         ),
       ),
-      child: Scaffold(
-        backgroundColor: const Color(0xFF121212),
-        body: SafeArea(
+      child: Container(
+        color: const Color(0xFF121212),
+        child: SafeArea(
           bottom: false,
           child: LibraryView(
             onMenuPressed: onMenuPressed,
             onToggleMode: onToggleMode,
+            isActive: isActive,
           ),
         ),
       ),

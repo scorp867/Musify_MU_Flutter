@@ -1,7 +1,8 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
@@ -9,105 +10,138 @@ import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
 
 /// The browse/search tab view -- renders category grid from Browsita data.
-class BrowseView extends StatelessWidget {
+class BrowseView extends StatefulWidget {
   final VoidCallback? onMenuPressed;
   final VoidCallback? onToggleMode;
+  final bool isActive;
 
-  const BrowseView({super.key, this.onMenuPressed, this.onToggleMode});
-
-  @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<BrowseBloc, BrowseState>(
-      builder: (context, state) {
-        return switch (state) {
-          BrowseLoading() => const _BrowseShimmer(),
-          BrowseLoaded(:final data, :final isRefreshing) =>
-            _BrowseContent(
-              data: data,
-              isRefreshing: isRefreshing,
-              onMenuPressed: onMenuPressed,
-              onToggleMode: onToggleMode,
-            ),
-          BrowseError(:final message, :final staleData) => staleData != null
-              ? _BrowseContent(
-                  data: staleData,
-                  isRefreshing: false,
-                  onMenuPressed: onMenuPressed,
-                  onToggleMode: onToggleMode,
-                )
-              : _ErrorView(message: message),
-        };
-      },
-    );
-  }
-}
-
-// ─── Browse content ──────────────────────────────────────────────────
-
-class _BrowseContent extends StatelessWidget {
-  final BrowseViewData data;
-  final bool isRefreshing;
-  final VoidCallback? onMenuPressed;
-  final VoidCallback? onToggleMode;
-
-  const _BrowseContent({
-    required this.data,
-    required this.isRefreshing,
+  const BrowseView({
+    super.key,
     this.onMenuPressed,
     this.onToggleMode,
+    this.isActive = true,
   });
 
   @override
+  State<BrowseView> createState() => _BrowseViewState();
+}
+
+class _BrowseViewState extends State<BrowseView> {
+  @override
+  void didUpdateWidget(BrowseView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive && !widget.isActive) {
+      AppSnackBar.clear(context);
+      context.read<BrowseBloc>().add(const BrowseCancelRequested());
+    } else if (!oldWidget.isActive && widget.isActive) {
+      final bloc = context.read<BrowseBloc>();
+      if (bloc.state is BrowseLoading) {
+        bloc.add(const BrowseLoadRequested());
+      } else {
+        bloc.add(const BrowseActivated());
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      color: const Color(0xFF1DB954),
-      backgroundColor: const Color(0xFF282828),
-      onRefresh: () async {
-        context.read<BrowseBloc>().add(const BrowseRefreshRequested());
-        await context.read<BrowseBloc>().stream.firstWhere(
-              (s) => (s is BrowseLoaded && !s.isRefreshing) || s is BrowseError,
-            );
+    return BlocListener<BrowseBloc, BrowseState>(
+      listenWhen: (prev, curr) {
+        if (curr is! BrowseError) return false;
+        if (prev is BrowseError) {
+          return prev.message != curr.message;
+        }
+        return true;
       },
-      child: CustomScrollView(
-        slivers: [
-          // Header (floating -- reappears on any downward scroll)
-          SliverAppBar(
-            floating: true,
-            snap: true,
-            pinned: false,
-            backgroundColor: const Color(0xFF121212),
-            surfaceTintColor: Colors.transparent,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            toolbarHeight: 72,
-            titleSpacing: 0,
-            automaticallyImplyLeading: false,
-            title: _BrowseHeader(
-              onMenuPressed: onMenuPressed,
-              onToggleMode: onToggleMode,
-            ),
-          ),
+      listener: (context, state) {
+        if (state is BrowseError) {
+          AppSnackBar.show(context, message: state.message);
+        }
+      },
+      child: BlocBuilder<BrowseBloc, BrowseState>(
+        builder: (context, state) {
+          return RefreshIndicator(
+            color: const Color(0xFF1DB954),
+            backgroundColor: const Color(0xFF282828),
+            onRefresh: () async {
+              final bloc = context.read<BrowseBloc>();
+              bloc.add(const BrowseRefreshRequested());
+              try {
+                await bloc.stream
+                    .firstWhere(
+                      (s) =>
+                          (s is BrowseLoaded && !s.isRefreshing) ||
+                          s is BrowseError,
+                    )
+                    .timeout(const Duration(seconds: 8));
+              } catch (_) {}
+            },
+            child: CustomScrollView(
+              slivers: [
+                // Header (floating -- reappears on any downward scroll)
+                SliverAppBar(
+                  floating: true,
+                  snap: true,
+                  pinned: false,
+                  backgroundColor: const Color(0xFF121212),
+                  surfaceTintColor: Colors.transparent,
+                  elevation: 0,
+                  scrolledUnderElevation: 0,
+                  toolbarHeight: 72,
+                  titleSpacing: 0,
+                  automaticallyImplyLeading: false,
+                  title: _BrowseHeader(
+                    onMenuPressed: widget.onMenuPressed,
+                    onToggleMode: widget.onToggleMode,
+                  ),
+                ),
 
-          // Search bar (pinned -- stays visible when scrolling)
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: StickyHeaderDelegate(
-              height: 64,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: _SearchBar(),
-              ),
-            ),
-          ),
+                // Search bar (pinned -- stays visible when scrolling)
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: StickyHeaderDelegate(
+                    height: 64,
+                    child: const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: _SearchBar(),
+                    ),
+                  ),
+                ),
 
-          // Sections
-          for (final section in data.sections)
-            if (section.sectionType == 'content_category' &&
-                section.items.isNotEmpty)
-              ..._buildContentCategory(section),
-        ],
+                // Body content
+                ..._buildBodySlivers(context, state),
+              ],
+            ),
+          );
+        },
       ),
     );
+  }
+
+  List<Widget> _buildBodySlivers(BuildContext context, BrowseState state) {
+    return switch (state) {
+      BrowseLoading() => const [
+          _BrowseGridShimmer(),
+        ],
+      BrowseLoaded(:final data) => _buildSections(data.sections),
+      BrowseError(:final message, :final staleData) => staleData != null
+          ? _buildSections(staleData.sections)
+          : [
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _ErrorView(message: message),
+              ),
+            ],
+    };
+  }
+
+  List<Widget> _buildSections(List<BrowseSection> sections) {
+    return [
+      for (final section in sections)
+        if (section.sectionType == 'content_category' &&
+            section.items.isNotEmpty)
+          ..._buildContentCategory(section),
+    ];
   }
 
   List<Widget> _buildContentCategory(BrowseSection section) {
@@ -208,7 +242,7 @@ class _BrowseCard extends StatelessWidget {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
-                      child: CachedNetworkImage(
+                      child: AppNetworkImage(
                         imageUrl: item.imageUrl,
                         fit: BoxFit.cover,
                         memCacheWidth: 128,
@@ -303,6 +337,8 @@ class _BrowseHeader extends StatelessWidget {
 // ─── Search bar ──────────────────────────────────────────────────────
 
 class _SearchBar extends StatelessWidget {
+  const _SearchBar();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -332,14 +368,14 @@ class _SearchBar extends StatelessWidget {
 
 // ─── Shimmer loading ─────────────────────────────────────────────────
 
-class _BrowseShimmer extends StatefulWidget {
-  const _BrowseShimmer();
+class _BrowseGridShimmer extends StatefulWidget {
+  const _BrowseGridShimmer();
 
   @override
-  State<_BrowseShimmer> createState() => _BrowseShimmerState();
+  State<_BrowseGridShimmer> createState() => _BrowseGridShimmerState();
 }
 
-class _BrowseShimmerState extends State<_BrowseShimmer>
+class _BrowseGridShimmerState extends State<_BrowseGridShimmer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
@@ -368,45 +404,26 @@ class _BrowseShimmerState extends State<_BrowseShimmer>
           end: const Color(0xFF2A2A2A),
         ).evaluate(_controller)!;
 
-        return CustomScrollView(
-          slivers: [
-            // Search bar placeholder
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Container(
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: shimmerColor,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+        return SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          sliver: SliverGrid(
+            gridDelegate:
+                const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.7,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => Container(
+                decoration: BoxDecoration(
+                  color: shimmerColor,
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
+              childCount: 8,
             ),
-
-            // Grid placeholders
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              sliver: SliverGrid(
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 1.7,
-                ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) => Container(
-                    decoration: BoxDecoration(
-                      color: shimmerColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  childCount: 8,
-                ),
-              ),
-            ),
-          ],
+          ),
         );
       },
     );

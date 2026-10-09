@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/app/di/injection.dart';
-import 'package:musify_mu/core/color/color_cache.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
@@ -57,16 +56,19 @@ class _PreviewCardState extends State<PreviewCard> {
     final url = widget.trait.imageUrl ?? widget.item.cardImageUrl;
     if (url == null || url.isEmpty) return;
 
-    if (getIt.isRegistered<ColorCache>()) {
-      final cached = getIt<ColorCache>().get(url);
+    ColorExtractionService? service;
+    try {
+      service = context.read<ColorExtractionService>();
+    } catch (_) {}
+
+    if (service != null) {
+      final cached = service.getCached(url);
       if (cached != null) {
         _extractedColor = _sanitizeColor(cached);
         return;
       }
-    }
 
-    if (getIt.isRegistered<ColorExtractionService>()) {
-      getIt<ColorExtractionService>().extractFromUrl(url).then((color) {
+      service.extractFromUrl(url).then((color) {
         if (mounted && color != null) {
           setState(() {
             _extractedColor = _sanitizeColor(color);
@@ -92,7 +94,8 @@ class _PreviewCardState extends State<PreviewCard> {
   Widget build(BuildContext context) {
     final trait = widget.trait;
     final bgColor = _parseBackgroundColor();
-    final darkerColor = Color.lerp(bgColor, Colors.black, 0.55) ?? Colors.black;
+    final topColor = Color.lerp(bgColor, const Color(0xFF141414), 0.25) ?? bgColor;
+    final darkerColor = Color.lerp(bgColor, Colors.black, 0.70) ?? Colors.black;
 
     return Container(
       width: double.infinity,
@@ -100,7 +103,7 @@ class _PreviewCardState extends State<PreviewCard> {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [bgColor, darkerColor],
+          colors: [topColor, darkerColor],
         ),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
@@ -267,11 +270,13 @@ class _PreviewCardState extends State<PreviewCard> {
 
     if (colorHex != null && colorHex.isNotEmpty) {
       try {
-        final hex = colorHex.replaceAll('#', '');
+        final hex = colorHex.replaceAll('#', '').trim();
         if (hex.length == 6) {
           return _sanitizeColor(Color(int.parse('FF$hex', radix: 16)));
         } else if (hex.length == 8) {
-          return _sanitizeColor(Color(int.parse(hex, radix: 16)));
+          // Spotify sends RRGGBBAA, Flutter Color expects AARRGGBB
+          final argbHex = '${hex.substring(6, 8)}${hex.substring(0, 6)}';
+          return _sanitizeColor(Color(int.parse(argbHex, radix: 16)));
         }
       } catch (_) {}
     }

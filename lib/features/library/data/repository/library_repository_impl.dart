@@ -1,6 +1,8 @@
 import 'dart:developer' as dev;
 import 'dart:isolate';
 
+import 'package:dio/dio.dart';
+
 import 'package:musify_mu/core/media/extended_metadata_service.dart';
 import 'package:musify_mu/core/utils/concurrency_limiter.dart';
 import 'package:musify_mu/features/library/data/cache/library_cache.dart';
@@ -49,32 +51,46 @@ class LibraryRepositoryImpl implements LibraryRepository {
         );
 
   @override
-  Stream<LibraryViewData> getLibrary() async* {
+  Stream<LibraryViewData> getLibrary({CancelToken? cancelToken}) async* {
     await _libraryCache.loadDecorations();
 
     final cached = await _buildFromCachedBytes();
     if (cached != null) yield cached;
 
-    final fresh = await fetchFresh();
-    if (fresh != null) yield fresh;
+    if (cancelToken?.isCancelled == true) return;
+
+    final fresh = await fetchFresh(cancelToken: cancelToken);
+    if (fresh != null) {
+      yield fresh;
+    }
   }
 
   @override
-  Future<LibraryViewData?> fetchFresh({bool forceSync = false}) async {
+  Future<LibraryViewData?> fetchFresh({
+    bool forceSync = false,
+    CancelToken? cancelToken,
+  }) async {
     try {
+      if (cancelToken?.isCancelled == true) return null;
+
       final results = await Future.wait([
-        _fetchAndCacheRootlist(),
-        _fetchAndCacheCollection('artist'),
-        _fetchAndCacheCollection('show'),
-        _fetchAndCacheCollection('ylpin'),
-        _fetchAndCacheCollection('collection'),
+        _fetchAndCacheRootlist(cancelToken: cancelToken),
+        _fetchAndCacheCollection('artist', cancelToken: cancelToken),
+        _fetchAndCacheCollection('show', cancelToken: cancelToken),
+        _fetchAndCacheCollection('ylpin', cancelToken: cancelToken),
+        _fetchAndCacheCollection('collection', cancelToken: cancelToken),
       ]);
 
       final playlistItems = results[0];
-      final artistItems = results[1];
-      final showItems = results[2];
-      final pinnedUris = results[3];
-      final likedSongs = results[4];
+      if (playlistItems == null) {
+        dev.log('LibraryRepo: Network fetch failed for rootlist, preserving cached library', name: 'Library');
+        return null;
+      }
+
+      final artistItems = results[1] ?? const <LibraryItem>[];
+      final showItems = results[2] ?? const <LibraryItem>[];
+      final pinnedUris = results[3] ?? const <LibraryItem>[];
+      final likedSongs = results[4] ?? const <LibraryItem>[];
 
       final playlistIds = playlistItems
           .map((item) {
@@ -178,9 +194,10 @@ class LibraryRepositoryImpl implements LibraryRepository {
 
   // ─── Network: Rootlist & Collections ────────────────────────────────
 
-  Future<List<LibraryItem>> _fetchAndCacheRootlist() async {
-    final bytes = await _librarySource.fetchRootlist();
-    if (bytes == null || bytes.isEmpty) return [];
+  Future<List<LibraryItem>?> _fetchAndCacheRootlist({CancelToken? cancelToken}) async {
+    final bytes = await _librarySource.fetchRootlist(cancelToken: cancelToken);
+    if (bytes == null) return null;
+    if (bytes.isEmpty) return const [];
 
     _libraryCache.putStructureBytes('rootlist', bytes);
 
@@ -193,9 +210,10 @@ class LibraryRepositoryImpl implements LibraryRepository {
     }
   }
 
-  Future<List<LibraryItem>> _fetchAndCacheCollection(String setName) async {
-    final bytes = await _librarySource.fetchCollection(setName);
-    if (bytes == null || bytes.isEmpty) return [];
+  Future<List<LibraryItem>?> _fetchAndCacheCollection(String setName, {CancelToken? cancelToken}) async {
+    final bytes = await _librarySource.fetchCollection(setName, cancelToken: cancelToken);
+    if (bytes == null) return null;
+    if (bytes.isEmpty) return const [];
 
     _libraryCache.putStructureBytes('col_$setName', bytes);
 

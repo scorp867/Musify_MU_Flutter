@@ -42,6 +42,8 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
   }) async {
     final result = await getResult(
       path,
@@ -49,6 +51,8 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
       cancelToken: cancelToken,
       priority: priority,
       baseHost: baseHost,
+      tag: tag,
+      ttl: ttl,
     );
     return result.dataOrNull;
   }
@@ -62,6 +66,9 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   }) async {
     final result = await postResult(
       path,
@@ -71,6 +78,9 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
       cancelToken: cancelToken,
       priority: priority,
       baseHost: baseHost,
+      tag: tag,
+      ttl: ttl,
+      bufferIfOffline: bufferIfOffline,
     );
     return result.dataOrNull;
   }
@@ -82,6 +92,8 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
   }) async {
     final host = baseHost ?? defaultBaseUrl;
     final uri = Uri.parse('$host$path');
@@ -92,6 +104,8 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
         headers: headers,
         cancelToken: cancelToken,
         priority: priority,
+        tag: tag,
+        ttl: ttl,
       ),
       extraHeaders,
       'GET',
@@ -108,6 +122,9 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   }) async {
     final host = baseHost ?? defaultBaseUrl;
     final uri = Uri.parse('$host$path');
@@ -120,6 +137,9 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
         contentType: contentType,
         cancelToken: cancelToken,
         priority: priority,
+        tag: tag,
+        ttl: ttl,
+        bufferIfOffline: bufferIfOffline,
       ),
       extraHeaders,
       'POST',

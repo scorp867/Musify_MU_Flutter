@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
+import 'package:musify_mu/core/network/status/network_monitor_service.dart';
+import 'package:musify_mu/core/network/status/network_status.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart';
@@ -19,6 +22,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final SpotifyTokenRefresher _refresher;
   final SpotifyProfileFetcher _profileFetcher;
   final AppCacheManager _cacheManager;
+  final NetworkMonitorService? _networkMonitor;
+  StreamSubscription<NetworkStatus>? _networkSubscription;
   Timer? _refreshTimer;
 
   AuthBloc({
@@ -26,21 +31,46 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     required SpotifyTokenRefresher refresher,
     required SpotifyProfileFetcher profileFetcher,
     required AppCacheManager cacheManager,
+    NetworkMonitorService? networkMonitor,
+    SpotifyUser? initialUser,
   })  : _tokenStore = tokenStore,
         _refresher = refresher,
         _profileFetcher = profileFetcher,
         _cacheManager = cacheManager,
-        super(const Unauthenticated()) {
+        _networkMonitor = networkMonitor,
+        super(initialUser != null
+            ? Authenticated(user: initialUser)
+            : const Unauthenticated()) {
     on<AuthSessionRestored>(_onSessionRestored);
     on<AuthLoginRequested>(_onLoginRequested);
     on<AuthTokensCaptured>(_onTokensCaptured);
     on<AuthLogoutRequested>(_onLogoutRequested);
+
+    _networkSubscription = _networkMonitor?.statusStream.listen((status) {
+      if (status == NetworkStatus.online || status == NetworkStatus.restored) {
+        _onNetworkRestored();
+      }
+    });
   }
 
   @override
   Future<void> close() {
     _refreshTimer?.cancel();
+    _networkSubscription?.cancel();
     return super.close();
+  }
+
+  Future<void> _onNetworkRestored() async {
+    if (state is! Authenticated) return;
+    final hasValidToken = await _tokenStore.hasValidAccessToken();
+    if (!hasValidToken) {
+      dev.log('Auth: Network restored, refreshing expired token', name: 'Auth');
+      final newToken = await _refresher.refresh();
+      if (newToken != null) {
+        _scheduleTokenRefresh();
+        _refreshProfileInBackground();
+      }
+    }
   }
 
   Future<void> _onSessionRestored(
@@ -56,25 +86,27 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       return;
     }
 
-    // Has session cookie — try to get a valid token.
+    // Has session cookie — always ensure we emit Authenticated from cache
+    // so the user never sees a login screen or loading spinner.
+    await _emitFromCache(emit);
+
     final hasValidToken = await _tokenStore.hasValidAccessToken();
     if (hasValidToken) {
-      await _emitFromCache(emit);
       _scheduleTokenRefresh();
       _refreshProfileInBackground();
       return;
     }
 
-    // Token expired — try auto-refresh.
-    emit(const Authenticating());
+    // Token expired — refresh silently in background without blocking UI
+    // or flashing the login welcome screen.
     final newToken = await _refresher.refresh();
     if (newToken != null) {
-      await _emitFromCache(emit);
       _scheduleTokenRefresh();
       _refreshProfileInBackground();
     } else {
-      // Refresh failed — sp_dc may be invalid. User must re-login.
-      emit(const Unauthenticated());
+      dev.log('Auth: Token refresh returned null (offline or network error)', name: 'Auth');
+      // If offline, user stays Authenticated using cached profile.
+      // When network comes back, _onNetworkRestored will refresh the token.
     }
   }
 

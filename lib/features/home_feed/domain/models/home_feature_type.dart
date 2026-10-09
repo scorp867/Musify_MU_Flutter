@@ -10,6 +10,9 @@ abstract class HomeFeatureType extends Equatable {
   final String subtitle;
   final List<SpotifyEntity> items;
   final String sectionType;
+  final String? colorCode;
+  final String? imageUrl;
+  final Map<String, dynamic> metadata;
 
   const HomeFeatureType({
     required this.id,
@@ -17,6 +20,9 @@ abstract class HomeFeatureType extends Equatable {
     this.subtitle = '',
     this.items = const [],
     required this.sectionType,
+    this.colorCode,
+    this.imageUrl,
+    this.metadata = const {},
   });
 
   /// Converts to HomeSection for backward compatibility with view layer.
@@ -28,6 +34,9 @@ abstract class HomeFeatureType extends Equatable {
       layout: layout ?? defaultLayout,
       sectionUri: id,
       sectionType: sectionType,
+      colorCode: colorCode,
+      imageUrl: imageUrl,
+      metadata: metadata,
     );
   }
 
@@ -49,6 +58,8 @@ abstract class HomeFeatureType extends Equatable {
       case 'interactiveEntrypoint':
       case 'inlineCard':
       case 'reflection':
+      case 'fullBleedBanner':
+      case 'banner':
         return SectionLayout.feed;
       default:
         return SectionLayout.carousel;
@@ -56,7 +67,16 @@ abstract class HomeFeatureType extends Equatable {
   }
 
   @override
-  List<Object?> get props => [id, title, subtitle, items, sectionType];
+  List<Object?> get props => [
+        id,
+        title,
+        subtitle,
+        items,
+        sectionType,
+        colorCode,
+        imageUrl,
+        metadata,
+      ];
 }
 
 /// Case 2: Shortcuts (p.arn0 / p.yex0)
@@ -314,4 +334,50 @@ class ReflectionFeatureType extends HomeFeatureType {
     required super.title,
     super.items = const [],
   }) : super(sectionType: 'reflection');
+}
+
+/// Case 26: FullBleedBanner (p.FullBleedBanner)
+/// Edge-to-edge promotional hero banner (e.g. New Music Friday).
+class FullBleedBannerFeatureType extends HomeFeatureType {
+  final String accessibility;
+
+  const FullBleedBannerFeatureType({
+    required super.id,
+    required super.colorCode,
+    required super.imageUrl,
+    required super.subtitle,
+    required this.accessibility,
+  }) : super(
+          title: accessibility,
+          items: const [],
+          sectionType: 'fullBleedBanner',
+        );
+
+  @override
+  List<Object?> get props => [
+        ...super.props,
+        accessibility,
+      ];
+}
+
+/// Case 19: Banner (p.zno0 / p.en4 / Caught up celebration banner)
+class BannerFeatureType extends HomeFeatureType {
+  final int bannerType;
+
+  const BannerFeatureType({
+    required super.id,
+    required this.bannerType,
+    required super.colorCode,
+    super.title = "You’re all caught up",
+    super.subtitle = "Come back next Friday",
+  }) : super(
+          items: const [],
+          sectionType: 'banner',
+        );
+
+  @override
+  List<Object?> get props => [
+        ...super.props,
+        bannerType,
+      ];
 }

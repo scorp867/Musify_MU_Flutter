@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/app/di/injection.dart';
-import 'package:musify_mu/core/color/color_cache.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
@@ -48,16 +47,19 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
     final url = widget.item.cardImageUrl ?? widget.item.previewImageUrl;
     if (url == null || url.isEmpty) return;
 
-    if (getIt.isRegistered<ColorCache>()) {
-      final cached = getIt<ColorCache>().get(url);
+    ColorExtractionService? service;
+    try {
+      service = context.read<ColorExtractionService>();
+    } catch (_) {}
+
+    if (service != null) {
+      final cached = service.getCached(url);
       if (cached != null) {
         _extractedColor = _sanitizeColor(cached);
         return;
       }
-    }
 
-    if (getIt.isRegistered<ColorExtractionService>()) {
-      getIt<ColorExtractionService>().extractFromUrl(url).then((color) {
+      service.extractFromUrl(url).then((color) {
         if (mounted && color != null) {
           setState(() {
             _extractedColor = _sanitizeColor(color);
@@ -82,9 +84,16 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
     if (widget.item.backgroundColorHex != null &&
         widget.item.backgroundColorHex!.isNotEmpty) {
       try {
-        final hex = widget.item.backgroundColorHex!.replaceFirst('#', '');
-        final val = int.parse(hex.length == 6 ? 'FF$hex' : hex, radix: 16);
-        final base = Color(val);
+        final hex = widget.item.backgroundColorHex!.replaceAll('#', '').trim();
+        final String argbHex;
+        if (hex.length == 6) {
+          argbHex = 'FF$hex';
+        } else if (hex.length == 8) {
+          argbHex = '${hex.substring(6, 8)}${hex.substring(0, 6)}';
+        } else {
+          argbHex = hex;
+        }
+        final base = Color(int.parse(argbHex, radix: 16));
         return Color.lerp(base, const Color(0xFF1E1E1E), 0.7) ?? const Color(0xFF282828);
       } catch (_) {}
     }

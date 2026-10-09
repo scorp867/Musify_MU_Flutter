@@ -119,9 +119,9 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
               _toggleDrawer();
             }
           },
-          child: Scaffold(
-            backgroundColor: const Color(0xFF1E293B),
-            body: Stack(
+          child: Material(
+            color: const Color(0xFF1E293B),
+            child: Stack(
               children: [
                 // 1. Drawer Menu sliding in from left, pushing the screen
                 Transform.translate(

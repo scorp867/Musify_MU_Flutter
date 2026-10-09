@@ -15,11 +15,13 @@ import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/network/auth/token_refresh_mutex.dart';
 import 'package:musify_mu/core/network/client/dio_network_client.dart';
 import 'package:musify_mu/core/network/client/network_client.dart';
+import 'package:musify_mu/core/network/client/queued_network_client.dart';
 import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/core/network/status/network_monitor_service.dart';
 import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
 import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
 import 'package:musify_mu/features/playlist_detail/application/playlist_detail_bloc.dart';
+import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
@@ -147,8 +149,15 @@ Future<void> setupInjection() async {
     () => NetworkMonitorServiceImpl(),
     dispose: (s) => s.dispose(),
   );
-  getIt.registerLazySingleton<NetworkClient>(
+  getIt.registerLazySingleton<DioNetworkClient>(
     () => DioNetworkClient(monitorService: getIt<NetworkMonitorService>()),
+  );
+  getIt.registerLazySingleton<NetworkClient>(
+    () => QueuedNetworkClient(
+      delegate: getIt<DioNetworkClient>(),
+      monitorService: getIt<NetworkMonitorService>(),
+    ),
+    dispose: (client) => client.close(),
   );
   getIt.registerLazySingleton<TokenRefreshMutex>(() => TokenRefreshMutex());
   getIt.registerLazySingleton<NetworkStatusBloc>(
@@ -261,12 +270,24 @@ Future<void> setupInjection() async {
       tokenStore: getIt<SpotifyTokenStore>(),
     ),
   );
+  final SpotifyUser? initialUser = cachedProfile != null
+      ? SpotifyUser(
+          id: cachedProfile.username,
+          displayName: cachedProfile.displayName,
+          avatarUrl: cachedProfile.avatarUrl,
+          country: cachedProfile.country,
+          product: cachedProfile.product,
+        )
+      : null;
+
   getIt.registerFactory<AuthBloc>(
     () => AuthBloc(
       tokenStore: getIt<SpotifyTokenStore>(),
       refresher: getIt<SpotifyTokenRefresher>(),
       profileFetcher: getIt<SpotifyProfileFetcher>(),
       cacheManager: getIt<AppCacheManager>(),
+      networkMonitor: getIt<NetworkMonitorService>(),
+      initialUser: initialUser,
     ),
   );
 
@@ -283,14 +304,21 @@ Future<void> setupInjection() async {
 
   // --- Feature BLoC Factories ---
   getIt.registerFactory<HomeFeedBloc>(
-    () => HomeFeedBloc(loadHomeFeed: getIt<LoadHomeFeed>()),
+    () => HomeFeedBloc(
+      loadHomeFeed: getIt<LoadHomeFeed>(),
+      networkMonitor: getIt<NetworkMonitorService>(),
+    ),
   );
   getIt.registerFactory<BrowseBloc>(
-    () => BrowseBloc(loadBrowse: getIt<LoadBrowse>()),
+    () => BrowseBloc(
+      loadBrowse: getIt<LoadBrowse>(),
+      networkMonitor: getIt<NetworkMonitorService>(),
+    ),
   );
   getIt.registerFactoryParam<LibraryBloc, String, void>(
     (userId, _) => LibraryBloc(
       loadLibrary: LoadLibrary(getIt<LibraryRepository>(param1: userId)),
+      networkMonitor: getIt<NetworkMonitorService>(),
     ),
   );
   getIt.registerFactory<PlaylistDetailBloc>(

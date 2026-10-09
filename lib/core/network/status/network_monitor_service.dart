@@ -8,6 +8,7 @@ abstract class NetworkMonitorService {
 
   void recordLatency(Duration latency);
   void recordTimeout();
+  void recordConnectionError() {}
   void recordSuccess();
   void dispose();
 }
@@ -93,8 +94,19 @@ class NetworkMonitorServiceImpl implements NetworkMonitorService {
   }
 
   @override
+  void recordConnectionError() {
+    _consecutiveTimeouts++;
+    if (_currentStatus != NetworkStatus.offline) {
+      _updateStatus(NetworkStatus.offline);
+    }
+  }
+
+  @override
   void recordSuccess() {
     _consecutiveTimeouts = 0;
+    if (_currentStatus == NetworkStatus.restored) {
+      _updateStatus(NetworkStatus.online);
+    }
   }
 
   void _updateStatus(NetworkStatus newStatus) {

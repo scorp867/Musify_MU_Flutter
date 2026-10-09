@@ -11,6 +11,8 @@ import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
 
 class MusifyApp extends StatelessWidget {
@@ -43,21 +45,31 @@ class MusifyApp extends StatelessWidget {
 
     final createBloc = createLocalMusicBloc;
 
-    // Wrap with all app-level BLoC providers.
-    return MultiBlocProvider(
+    // Wrap with app-level RepositoryProviders and BLoC providers.
+    return MultiRepositoryProvider(
       providers: [
-        BlocProvider<AuthBloc>(
-          create: (_) => createAuthBloc(),
+        RepositoryProvider<DataPool>.value(
+          value: getIt<DataPool>(),
         ),
-        if (createBloc != null)
-          BlocProvider<LocalMusicBloc>(
-            create: (_) => createBloc(),
-          ),
-        BlocProvider<NetworkStatusBloc>.value(
-          value: getIt<NetworkStatusBloc>(),
+        RepositoryProvider<ColorExtractionService>.value(
+          value: getIt<ColorExtractionService>(),
         ),
       ],
-      child: app,
+      child: MultiBlocProvider(
+        providers: [
+          BlocProvider<AuthBloc>(
+            create: (_) => createAuthBloc(),
+          ),
+          if (createBloc != null)
+            BlocProvider<LocalMusicBloc>(
+              create: (_) => createBloc(),
+            ),
+          BlocProvider<NetworkStatusBloc>.value(
+            value: getIt<NetworkStatusBloc>(),
+          ),
+        ],
+        child: app,
+      ),
     );
   }
 }

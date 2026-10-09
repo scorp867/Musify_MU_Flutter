@@ -1,11 +1,13 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/collection/collection_paging.pb.dart'
     as col_pb;
 import 'package:musify_mu/core/protocol/generated/spotify/extended_metadata.pb.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
+import 'package:musify_mu/core/network/priority/network_priority.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 
 /// Network layer for library structure endpoints (rootlist, collections,
@@ -27,7 +29,7 @@ class LibraryRemoteSource {
         _userId = userId;
 
   /// GET rootlist -> raw protobuf bytes.
-  Future<Uint8List?> fetchRootlist() {
+  Future<Uint8List?> fetchRootlist({CancelToken? cancelToken}) {
     final path =
         '/playlist/v2/user/$_userId/rootlist'
         '?decorate=revision%2Cattributes%2Clength%2Cowner%2Ccapabilities'
@@ -36,6 +38,9 @@ class LibraryRemoteSource {
 
     return _androidTransport.get(
       path,
+      tag: 'library_rootlist_$_userId',
+      ttl: const Duration(seconds: 45),
+      cancelToken: cancelToken,
       extraHeaders: {
         'spotify-playlist-sync-reason': 'CAU=',
         'spotify-dsa-mode-enabled': 'false',
@@ -45,7 +50,7 @@ class LibraryRemoteSource {
   }
 
   /// POST collection paging -> raw protobuf bytes.
-  Future<Uint8List?> fetchCollection(String setName) {
+  Future<Uint8List?> fetchCollection(String setName, {CancelToken? cancelToken}) {
     final request = col_pb.PageRequest()
       ..username = _userId
       ..setName = setName
@@ -54,6 +59,9 @@ class LibraryRemoteSource {
     return _webTransport.post(
       '/collection/v2/paging',
       Uint8List.fromList(request.writeToBuffer()),
+      tag: 'library_collection_$setName',
+      ttl: const Duration(seconds: 45),
+      cancelToken: cancelToken,
       contentType: 'application/vnd.collection-v2.spotify.proto',
       extraHeaders: {
         'accept': 'application/vnd.collection-v2.spotify.proto',
@@ -85,6 +93,9 @@ class LibraryRemoteSource {
     return _webTransport.post(
       '/extended-metadata/v0/extended-metadata',
       Uint8List.fromList(request.writeToBuffer()),
+      priority: NetworkPriority.background,
+      tag: 'library_artist_decorations',
+      ttl: const Duration(seconds: 45),
     );
   }
 }

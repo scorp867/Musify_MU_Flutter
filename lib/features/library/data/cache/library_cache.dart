@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
-import 'package:musify_mu/core/cache/cache_policy.dart';
 
 /// High-performance two-layer cache for Library data.
 ///
@@ -16,9 +15,6 @@ import 'package:musify_mu/core/cache/cache_policy.dart';
 ///   - In-memory Map for fast lookups, persisted to disk periodically
 ///   - 24h TTL per entry
 class LibraryCache {
-  static const _structurePolicy = CachePolicy.frequent;
-  static const _decorationPolicy = CachePolicy.standard;
-
   final AppCacheManager _cacheManager;
 
   // In-memory decoration cache: uri -> {name, imageUrl, cachedAt}
@@ -60,9 +56,7 @@ class LibraryCache {
       final meta = File('${dir.path}${sep}struct_$key.ts');
       if (!await file.exists() || !await meta.exists()) return null;
 
-      final ts = int.parse(await meta.readAsString());
-      if (_structurePolicy.isExpired(ts)) return null;
-
+      // Return cached bytes without dropping them due to TTL.
       return await file.readAsBytes();
     } catch (e) {
       dev.log('Get structure bytes failed: $e');
@@ -72,16 +66,12 @@ class LibraryCache {
 
   // ─── Decoration cache (per-URI metadata) ───────────────────────────
 
-  /// Returns cached decoration for a URI, or null if missing/expired.
+  /// Returns cached decoration for a URI, or null if missing.
   DecorationData? getDecoration(String uri) {
     _checkGeneration();
     final entry = _decorations[uri];
     if (entry == null) return null;
 
-    if (_decorationPolicy.isExpired(entry.cachedAt)) {
-      _decorations.remove(uri);
-      return null;
-    }
     return DecorationData(name: entry.name, imageUrl: entry.imageUrl);
   }
 
@@ -126,7 +116,6 @@ class LibraryCache {
       for (final e in map.entries) {
         final v = e.value as Map<String, dynamic>;
         final cachedAt = v['t'] as int? ?? 0;
-        if (_decorationPolicy.isExpired(cachedAt)) continue;
 
         _decorations[e.key] = _DecorationEntry(
           name: v['n'] as String? ?? '',

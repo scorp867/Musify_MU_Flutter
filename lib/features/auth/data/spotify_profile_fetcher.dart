@@ -54,6 +54,8 @@ class SpotifyProfileFetcher {
         baseHost: _apiPartnerHost,
         contentType: 'application/json;charset=UTF-8',
         priority: NetworkPriority.interactive,
+        tag: 'spotify_user_profile',
+        ttl: const Duration(seconds: 30),
       );
 
       if (result is NetworkFailure<Uint8List>) {

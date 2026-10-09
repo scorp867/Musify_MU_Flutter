@@ -215,11 +215,58 @@ class SectionMapper {
         final items = extractSingle(section.reflection.item);
         return ReflectionFeatureType(id: sectionId, title: title, items: items);
 
+      case casita.Section_FeatureType.fullBleedBanner:
+        final fb = section.fullBleedBanner;
+        final img = cleanImageUrl(fb.imageUrl) ?? fb.imageUrl;
+        final title = fb.accessibility.isNotEmpty ? fb.accessibility : 'New Music Friday';
+
+        storeTrait(
+          sectionId,
+          SimpleCardTrait(
+            title: title,
+            subtitle: fb.description,
+            imageUrl: img,
+            accessibility: fb.accessibility,
+          ),
+        );
+
+        return FullBleedBannerFeatureType(
+          id: sectionId,
+          colorCode: fb.colorCode,
+          imageUrl: img,
+          subtitle: fb.description,
+          accessibility: fb.accessibility,
+        );
+
+      case casita.Section_FeatureType.banner:
+        final b = section.banner;
+        final isCaughtUp = sectionId.contains('caught-up') || b.type == 1 || b.type == 2;
+        final title = isCaughtUp ? "You’re all caught up" : '';
+        final subtitle = b.type == 2 || sectionId.contains('friday')
+            ? "Come back next Friday"
+            : (isCaughtUp ? "Check back later for new releases" : '');
+
+        if (isCaughtUp) {
+          storeTrait(
+            sectionId,
+            SimpleCardTrait(
+              title: title,
+              subtitle: subtitle,
+            ),
+          );
+        }
+
+        return BannerFeatureType(
+          id: sectionId,
+          bannerType: b.type,
+          colorCode: b.colorCode,
+          title: title,
+          subtitle: subtitle,
+        );
+
       // Commercial ads and non-visual content cleanly ignored
       case casita.Section_FeatureType.videoBrandAd:
       case casita.Section_FeatureType.imageBrandAd:
-      case casita.Section_FeatureType.banner:
-      case casita.Section_FeatureType.fullBleedBanner:
       case casita.Section_FeatureType.promptableSection:
       case casita.Section_FeatureType.concertCampaign:
       case casita.Section_FeatureType.promptedWorldsShelf:

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:musify_mu/app/di/injection.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/home_feed/data/elements/podcast_preview_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
@@ -45,11 +45,19 @@ class _PodcastPreviewSectionState extends State<PodcastPreviewSection>
     }
   }
 
+  DataPool? _resolvePool() {
+    try {
+      return context.read<DataPool>();
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _loadSectionTraits() {
     if (widget.items.isEmpty) return;
-    final pool = getIt<DataPool>();
+    final pool = _resolvePool();
     final uris = widget.items.map((e) => e.uri).toList();
-    pool.loadBatch(uris: uris, statement: PodcastPreviewDataElement.statement);
+    pool?.loadBatch(uris: uris, statement: PodcastPreviewDataElement.statement);
   }
 
   @override
@@ -57,7 +65,8 @@ class _PodcastPreviewSectionState extends State<PodcastPreviewSection>
     super.build(context);
     if (widget.items.isEmpty) return const SizedBox.shrink();
 
-    final pool = getIt<DataPool>();
+    final pool = _resolvePool();
+    if (pool == null) return const SizedBox.shrink();
     final isVideoSection = widget.title.toLowerCase().contains('video');
 
     return Column(

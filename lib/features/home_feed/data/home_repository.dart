@@ -3,9 +3,12 @@ import 'dart:developer' as dev;
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
+
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/network/priority/network_priority.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 import 'package:musify_mu/features/home_feed/data/casita_parser.dart';
 import 'package:musify_mu/features/home_feed/data/eagerload/eagerload_payload_builder.dart';
@@ -57,7 +60,10 @@ class HomeRepositoryImpl implements HomeRepository {
 
   /// Fetches home feed with SWR pattern.
   @override
-  Stream<HomeViewData> getHomeFeed({HomeFacet facet = HomeFacet.all}) async* {
+  Stream<HomeViewData> getHomeFeed({
+    HomeFacet facet = HomeFacet.all,
+    CancelToken? cancelToken,
+  }) async* {
     await _dataPool.ensureDiskLoaded();
 
     final cached = await _cache.load(facet: facet);
@@ -76,7 +82,9 @@ class HomeRepositoryImpl implements HomeRepository {
       yield cached;
     }
 
-    final fresh = await fetchFresh(facet: facet);
+    if (cancelToken?.isCancelled == true) return;
+
+    final fresh = await fetchFresh(facet: facet, cancelToken: cancelToken);
     if (fresh != null) {
       yield fresh;
     }
@@ -84,18 +92,24 @@ class HomeRepositoryImpl implements HomeRepository {
 
   /// Fetches fresh home feed data using Spotify's exact pipeline.
   @override
-  Future<HomeViewData?> fetchFresh({HomeFacet facet = HomeFacet.all}) async {
+  Future<HomeViewData?> fetchFresh({
+    HomeFacet facet = HomeFacet.all,
+    CancelToken? cancelToken,
+  }) async {
     try {
+      if (cancelToken?.isCancelled == true) return null;
+
       // Step 1: Fetch Casita home + recents in parallel
       final results = await Future.wait([
-        _fetchCasitaHome(facet),
-        _fetchRecentsItems(facet),
+        _fetchCasitaHome(facet, cancelToken: cancelToken),
+        _fetchRecentsItems(facet, cancelToken: cancelToken),
       ]);
 
       final casitaBytes = results[0] as Uint8List?;
       final recentItems = results[1] as List<RecentsItem>;
 
       if (casitaBytes == null || casitaBytes.isEmpty) return null;
+      if (cancelToken?.isCancelled == true) return null;
 
       // Step 2: Parse the Casita response
       final parser = CasitaParser(casitaBytes);
@@ -139,20 +153,30 @@ class HomeRepositoryImpl implements HomeRepository {
   // Network calls
   // ═══════════════════════════════════════════════════════════════════
 
-  Future<Uint8List?> _fetchCasitaHome(HomeFacet facet) {
+  Future<Uint8List?> _fetchCasitaHome(HomeFacet facet, {CancelToken? cancelToken}) {
     final eagerload = EagerloadPayloadBuilder.build();
     final path = '/casita/v1/home/${facet.pathSegment}'
         '?eagerload=$eagerload'
         '&timezone=${_ctx.timezone}'
         '&mobile-only-dsa-enabled=false';
-    return _client.get(path);
+    return _client.get(
+      path,
+      tag: 'home_casita_${facet.name}',
+      ttl: const Duration(seconds: 30),
+      priority: NetworkPriority.interactive,
+      cancelToken: cancelToken,
+    );
   }
 
-  Future<List<RecentsItem>> _fetchRecentsItems(HomeFacet facet) async {
+  Future<List<RecentsItem>> _fetchRecentsItems(HomeFacet facet, {CancelToken? cancelToken}) async {
     try {
       final data = await _client.get(
         facet.recentsPath,
         extraHeaders: _playlistHeaders,
+        tag: 'home_recents_${facet.name}',
+        ttl: const Duration(seconds: 30),
+        priority: NetworkPriority.interactive,
+        cancelToken: cancelToken,
       );
       if (data == null || data.isEmpty) return [];
       return await Isolate.run(() => parseRecentsItems(data));

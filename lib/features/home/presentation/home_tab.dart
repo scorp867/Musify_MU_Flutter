@@ -10,6 +10,7 @@ import 'package:musify_mu/features/local_music/presentation/screens/local_music_
 
 class HomeTab extends StatelessWidget {
   final bool isOnlineMode;
+  final bool isActive;
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
   final GlobalKey iconKey;
@@ -20,6 +21,7 @@ class HomeTab extends StatelessWidget {
   const HomeTab({
     super.key,
     required this.isOnlineMode,
+    this.isActive = true,
     required this.onMenuPressed,
     required this.onToggleMode,
     required this.iconKey,
@@ -59,6 +61,7 @@ class HomeTab extends StatelessWidget {
               return OnlineHomeScreen(
                 headerTitleRow: titleRow,
                 createHomeFeedBloc: createHomeFeedBloc,
+                isActive: isActive,
               );
             }
 

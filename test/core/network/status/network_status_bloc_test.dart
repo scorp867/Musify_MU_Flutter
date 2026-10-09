@@ -26,6 +26,9 @@ class MockNetworkMonitorService implements NetworkMonitorService {
   void recordTimeout() {}
 
   @override
+  void recordConnectionError() {}
+
+  @override
   void recordSuccess() {}
 
   @override

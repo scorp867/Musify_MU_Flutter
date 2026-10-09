@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:musify_mu/core/network/status/network_monitor_service.dart';
 
@@ -33,6 +35,9 @@ class NetworkTelemetryInterceptor extends Interceptor {
         err.type == DioExceptionType.receiveTimeout ||
         err.type == DioExceptionType.sendTimeout) {
       _monitorService.recordTimeout();
+    } else if (err.type == DioExceptionType.connectionError ||
+        err.error is SocketException) {
+      _monitorService.recordConnectionError();
     }
     handler.next(err);
   }

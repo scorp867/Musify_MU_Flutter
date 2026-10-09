@@ -20,12 +20,17 @@ import 'package:musify_mu/features/home_feed/data/eagerload/eagerload_payload_bu
 import 'package:musify_mu/features/home_feed/data/elements/image_link_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/data/elements/podcast_preview_data_element.dart';
 import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
+import 'package:musify_mu/features/home_feed/data/elements/full_bleed_banner_data_element.dart';
+import 'package:musify_mu/features/home_feed/data/elements/caught_up_banner_data_element.dart';
+import 'package:musify_mu/features/home_feed/data/casita_parser.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
-import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 import 'package:musify_mu/features/home_feed/presentation/section_registry.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/podcast_preview_section.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/preview_feed_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/full_bleed_banner_section.dart';
+import 'package:musify_mu/features/home_feed/presentation/widgets/sections/caught_up_banner_section.dart';
+import 'dart:io';
 
 void main() {
   group('Kodiak DataStatement & DataRequirement', () {
@@ -68,6 +73,97 @@ void main() {
         const HomeSection(title: 'Based on your recent listening', sectionType: 'immersivePreview'),
       );
       expect(immersiveSection, isA<PreviewFeedSection>());
+    });
+
+    test('FullBleedBannerDataElement & CaughtUpBannerDataElement declare required SimpleCardTrait', () {
+      final fbStmt = FullBleedBannerDataElement.statement;
+      expect(fbStmt.requiredRequirements.length, equals(1));
+      expect(fbStmt.requiredRequirements.first.extensionKindValue, equals(97));
+      expect(fbStmt.requiredRequirements.first.traitType, equals(SimpleCardTrait));
+
+      final cuStmt = CaughtUpBannerDataElement.statement;
+      expect(cuStmt.requiredRequirements.length, equals(1));
+      expect(cuStmt.requiredRequirements.first.extensionKindValue, equals(97));
+      expect(cuStmt.requiredRequirements.first.traitType, equals(SimpleCardTrait));
+    });
+
+    test('SectionRegistry routes fullBleedBanner and banner to dedicated widgets', () {
+      const registry = SectionRegistry();
+      final fbSection = registry.buildSection(
+        const HomeSection(
+          title: 'New Music Friday',
+          subtitle: 'New music from Drake, Mac Miller, Quavo and more!',
+          sectionType: 'fullBleedBanner',
+          colorCode: '#83E6BD',
+        ),
+      );
+      expect(fbSection, isA<FullBleedBannerSection>());
+
+      final cuSection = registry.buildSection(
+        const HomeSection(
+          title: 'You’re all caught up',
+          subtitle: 'Come back next Friday',
+          sectionType: 'banner',
+          colorCode: '#83E6BD',
+        ),
+      );
+      expect(cuSection, isA<CaughtUpBannerSection>());
+    });
+
+    test('CasitaParser successfully parses fullBleedBanner and banner from casita_music-chip', () async {
+      final file = File('scratch/casita_music-chip');
+      if (file.existsSync()) {
+        final bytes = await file.readAsBytes();
+        final parser = CasitaParser(bytes);
+        final result = await parser.parse();
+        final sections = result.homeData.sections;
+
+        final fb = sections.firstWhere((s) => s.sectionType == 'fullBleedBanner');
+        expect(fb.title, equals('New Music Friday'));
+        expect(fb.subtitle, contains('Drake'));
+        expect(fb.colorCode, equals('#83E6BD'));
+        expect(fb.imageUrl, isNotNull);
+
+        final cu = sections.firstWhere((s) => s.sectionType == 'banner');
+        expect(cu.title, equals('You’re all caught up'));
+        expect(cu.subtitle, equals('Come back next Friday'));
+        expect(cu.colorCode, equals('#83E6BD'));
+
+        final ipSections = sections.where((s) => s.sectionType == 'immersivePreview').toList();
+        expect(ipSections.length, equals(13));
+
+        final expectedTitlesAndColors = [
+          ('1 AM Feels Hindi', '#202840', '202840ff'),
+          ('Sad Hindi Melodies', '#0F8853', '0f8853ff'),
+          ('Sufi & Bollywood', '#DD3720', 'dd3720ff'),
+          ('Vishal-Shekhar Mix', '#483840', '483840ff'),
+          ('Lata Mangeshkar Forever', '#B85F00', 'b85f00ff'),
+          ('Classic Safar Hits', '#6D797D', '6d797dff'),
+          ('Airlift', '#305860', '305860ff'),
+          ('Yuvan Shankar Raja Mix', '#697F37', '697f37ff'),
+          ('GHARAM Radio', '#508162', '508162ff'),
+          ('Lata Mangeshkar: Romantic', '#887272', '887272ff'),
+          ('Jawad Ahmad Radio', '#697F37', '697f37ff'),
+          ('90s Mix', '#802818', '802818ff'),
+          ('Love Mix', '#008585', '008585ff'),
+        ];
+
+        for (int i = 0; i < ipSections.length; i++) {
+          final ips = ipSections[i];
+          expect(ips.items.isNotEmpty, isTrue);
+          final item = ips.items.first;
+          final previewTrait = item.getTrait<PreviewCardTrait>();
+          expect(previewTrait, isNotNull);
+
+          final expected = expectedTitlesAndColors[i];
+          expect(previewTrait!.title, equals(expected.$1));
+          expect(ips.metadata['itemTitle'], equals(expected.$1));
+          expect(ips.colorCode, equals(expected.$2));
+          expect(previewTrait.backgroundColor, equals(expected.$3));
+          expect(ips.imageUrl, isNotNull);
+          expect(ips.imageUrl!.isNotEmpty, isTrue);
+        }
+      }
     });
   });
 

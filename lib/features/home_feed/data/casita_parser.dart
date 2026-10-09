@@ -91,7 +91,9 @@ class CasitaParser {
                 parsed.sectionType == 'recentsShelf' ||
                 parsed.sectionType == 'recents' ||
                 parsed.sectionType == 'interactiveEntrypoint' ||
-                parsed.sectionType == 'inlineCard') {
+                parsed.sectionType == 'inlineCard' ||
+                parsed.sectionType == 'fullBleedBanner' ||
+                parsed.sectionType == 'banner') {
               sections.add(parsed);
             }
           }
@@ -113,6 +115,31 @@ class CasitaParser {
           );
         }).toList();
 
+        String? colorCode = section.colorCode;
+        String? imageUrl = section.imageUrl;
+        final metadata = Map<String, dynamic>.of(section.metadata);
+
+        if (hydratedItems.isNotEmpty) {
+          final firstItem = hydratedItems.first;
+          final previewTrait = firstItem.getTrait<PreviewCardTrait>();
+          if (previewTrait != null) {
+            if (colorCode == null &&
+                previewTrait.backgroundColor != null &&
+                previewTrait.backgroundColor!.isNotEmpty) {
+              final rawBg = previewTrait.backgroundColor!.replaceAll('#', '').trim();
+              if (rawBg.length >= 6) {
+                colorCode = '#${rawBg.substring(0, 6).toUpperCase()}';
+              } else {
+                colorCode = previewTrait.backgroundColor;
+              }
+            }
+            imageUrl ??= previewTrait.imageUrl;
+            if (previewTrait.title.isNotEmpty) {
+              metadata['itemTitle'] = previewTrait.title;
+            }
+          }
+        }
+
         return HomeSection(
           title: section.title,
           subtitle: section.subtitle,
@@ -120,6 +147,9 @@ class CasitaParser {
           layout: section.layout,
           sectionUri: section.sectionUri,
           sectionType: section.sectionType,
+          colorCode: colorCode,
+          imageUrl: imageUrl,
+          metadata: metadata,
         );
       }).toList();
 

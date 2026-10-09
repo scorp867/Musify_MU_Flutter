@@ -17,6 +17,8 @@ abstract class SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
   });
 
   /// POST request, returns raw response bytes or null on failure.
@@ -28,6 +30,9 @@ abstract class SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   });
 
   /// Typed GET request returning full [NetworkResult] with status codes and explicit errors.
@@ -37,6 +42,8 @@ abstract class SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
   });
 
   /// Typed POST request returning full [NetworkResult] with status codes and explicit errors.
@@ -48,5 +55,8 @@ abstract class SpotifyTransport {
     CancelToken? cancelToken,
     NetworkPriority priority = NetworkPriority.interactive,
     String? baseHost,
+    String? tag,
+    Duration? ttl,
+    bool bufferIfOffline = false,
   });
 }

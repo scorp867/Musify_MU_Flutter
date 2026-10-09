@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:get_it/get_it.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/element/kodiak_reactive_card.dart';
 import 'package:musify_mu/features/home_feed/data/elements/image_link_card_data_element.dart';
@@ -7,7 +7,7 @@ import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/artist_circle_card.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/square_card.dart';
 
-/// Standard content carousel — large cards for albums, playlists, etc.
+/// Standard content carousel - large cards for albums, playlists, etc.
 /// Matches Spotify's main feed sections (~170px cards).
 /// Fetches all items in the section as a single batched request via Kodiak DataPool.
 class ContentCarouselSection extends StatefulWidget {
@@ -15,15 +15,12 @@ class ContentCarouselSection extends StatefulWidget {
   final List<SpotifyEntity> items;
   final DataPool? dataPool;
 
-  ContentCarouselSection({
+  const ContentCarouselSection({
     super.key,
     required this.title,
     required this.items,
-    DataPool? dataPool,
-  }) : dataPool = dataPool ??
-            (GetIt.instance.isRegistered<DataPool>()
-                ? GetIt.instance<DataPool>()
-                : null);
+    this.dataPool,
+  });
 
   @override
   State<ContentCarouselSection> createState() => _ContentCarouselSectionState();
@@ -48,8 +45,17 @@ class _ContentCarouselSectionState extends State<ContentCarouselSection>
     }
   }
 
+  DataPool? _resolvePool() {
+    if (widget.dataPool != null) return widget.dataPool;
+    try {
+      return context.read<DataPool>();
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _fetchSectionTraits() {
-    final pool = widget.dataPool;
+    final pool = _resolvePool();
     if (pool == null || widget.items.isEmpty) return;
 
     final uris = widget.items
@@ -69,6 +75,8 @@ class _ContentCarouselSectionState extends State<ContentCarouselSection>
   Widget build(BuildContext context) {
     super.build(context);
     if (widget.items.isEmpty) return const SizedBox.shrink();
+
+    final pool = _resolvePool();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,7 +107,7 @@ class _ContentCarouselSectionState extends State<ContentCarouselSection>
 
               return KodiakReactiveCard(
                 item: item,
-                dataPool: widget.dataPool,
+                dataPool: pool,
                 builder: (context, entity) {
                   if (entity.type == ContentType.artist) {
                     return ArtistCircleCard(item: entity);

@@ -1,4 +1,5 @@
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -19,14 +20,20 @@ class PlaylistDetailScreen extends StatefulWidget {
 
   /// Opens the playlist detail screen via standard navigation.
   static void open(BuildContext context, LibraryItem item) {
+    final libraryBloc = context.read<LibraryBloc>();
+    final authBloc = context.read<AuthBloc>();
+    final colorService = context.read<ColorExtractionService>();
+
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) {
-          final libraryBloc = context.read<LibraryBloc>();
-          final authBloc = context.read<AuthBloc>();
-
           return MultiBlocProvider(
             providers: [
+              BlocProvider<PlaylistDetailBloc>(
+                create: (_) => PlaylistDetailBloc(
+                  colorService: colorService,
+                )..add(PlaylistDetailLoadRequested(item)),
+              ),
               BlocProvider.value(value: libraryBloc),
               BlocProvider.value(value: authBloc),
             ],
@@ -91,14 +98,15 @@ class _DetailView extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusBarHeight = MediaQuery.of(context).padding.top;
     final screenHeight = MediaQuery.of(context).size.height;
-    // Gradient covers top 60% of viewport, fading seamlessly into #121212
-    final gradientHeight = (screenHeight * 0.60).clamp(460.0, 600.0);
+    // Ambient gradient blankets the upper ~68% of the viewport (reaching down
+    // past the action buttons and into the track list, matching Spotify's diffuse matte falloff).
+    final gradientHeight = (screenHeight * 0.68).clamp(560.0, 750.0);
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: Stack(
         children: [
-          // Background: atmospheric eased gradient fading into #121212
+          // Background: atmospheric matte gradient fading seamlessly into #121212
           Positioned(
             top: 0,
             left: 0,
@@ -108,6 +116,28 @@ class _DetailView extends StatelessWidget {
               duration: const Duration(milliseconds: 500),
               curve: Curves.easeOut,
               decoration: BoxDecoration(gradient: state.gradient),
+            ),
+          ),
+
+          // Top status bar scrim to eliminate edge-lit glare (matching Spotify's statusBarPlaceholder)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: statusBarHeight + 16,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.35),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
 
@@ -217,7 +247,7 @@ class _SingleArtwork extends StatelessWidget {
       return _artworkPlaceholder();
     }
 
-    return CachedNetworkImage(
+    return AppNetworkImage(
       imageUrl: url!,
       fit: BoxFit.cover,
       memCacheWidth: 440,
@@ -261,7 +291,7 @@ class _MosaicArtwork extends StatelessWidget {
   }
 
   Widget _tile(String url) {
-    return CachedNetworkImage(
+    return AppNetworkImage(
       imageUrl: url,
       fit: BoxFit.cover,
       memCacheWidth: 220,
