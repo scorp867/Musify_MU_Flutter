@@ -248,7 +248,9 @@ class _BrowseHeader extends StatelessWidget {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(user!.avatarUrl!),
+            // ⚡ Bolt: Replaced NetworkImage with CachedNetworkImageProvider to prevent
+            // redundant network requests and improve rendering performance by using disk cache.
+            backgroundImage: CachedNetworkImageProvider(user!.avatarUrl!),
           );
         } else if (user?.displayName != null) {
           avatar = CircleAvatar(
