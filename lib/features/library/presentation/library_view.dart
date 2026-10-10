@@ -173,7 +173,11 @@ class _LibraryHeader extends StatelessWidget {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(user!.avatarUrl!),
+            backgroundImage: CachedNetworkImageProvider(
+              user!.avatarUrl!,
+              maxWidth: 80,
+              maxHeight: 80,
+            ),
           );
         } else if (user?.displayName != null) {
           avatar = CircleAvatar(
