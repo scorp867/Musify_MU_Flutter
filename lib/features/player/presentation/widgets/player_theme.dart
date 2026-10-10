@@ -1,27 +1,26 @@
 import 'package:flutter/material.dart';
 
-/// Dark-minimal design tokens — near-black backgrounds, amber/gold accent.
+/// Dark-minimal Spotify design tokens — #121212 background, #1ED760 green accent.
 abstract final class PlayerColors {
   // Backgrounds
-  static const background = Color(0xFF0A0A0A);
-  static const surface = Color(0xFF141414);
-  static const surfaceHigh = Color(0xFF1C1C1C);
+  static const background = Color(0xFF121212);
+  static const surface = Color(0xFF181818);
+  static const surfaceHigh = Color(0xFF242424);
 
-  // Accent
-  static const accent = Color(0xFFFFB300);
-  static const accentDim = Color(0xFFCC8F00);
+  // Accent (Authentic Spotify Green)
+  static const accent = Color(0xFF1ED760);
+  static const accentDim = Color(0xFF169C46);
 
   // Text
-  static const textPrimary = Color(0xFFE8E8E8);
-  static const textSecondary = Color(0xFF8A8A8A);
-  static const muted = Color(0xFF5C5C5C);
+  static const textPrimary = Color(0xFFFFFFFF);
+  static const textSecondary = Color(0xFFB3B3B3);
+  static const muted = Color(0xFF727272);
 
   // Misc
-  static const divider = Color(0xFF1E1E1E);
+  static const divider = Color(0xFF282828);
   static const shimmer = Color(0xFF252525);
   static final BoxDecoration panelDecoration = BoxDecoration(
     color: surfaceHigh,
-    borderRadius: BorderRadius.circular(20),
-    border: Border.all(color: divider),
+    borderRadius: BorderRadius.circular(16),
   );
 }

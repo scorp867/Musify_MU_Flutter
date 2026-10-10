@@ -1,8 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
-import 'player_theme.dart';
-
 class PlayerMetadata extends StatelessWidget {
   const PlayerMetadata({
     super.key,
@@ -17,28 +15,27 @@ class PlayerMetadata extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final album = item.album;
-
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 item.title.isEmpty ? 'Unknown Track' : item.title,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 25,
-                  height: 1.15,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.7,
+                  fontSize: 22,
+                  height: 1.2,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Text(
                 item.artist?.isNotEmpty == true
                     ? item.artist!
@@ -46,24 +43,11 @@ class PlayerMetadata extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: PlayerColors.accent,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  color: Color(0xFFB3B3B3),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
-              if (album != null && album.trim().isNotEmpty) ...[
-                const SizedBox(height: 5),
-                Text(
-                  album,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: PlayerColors.muted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
             ],
           ),
         ),

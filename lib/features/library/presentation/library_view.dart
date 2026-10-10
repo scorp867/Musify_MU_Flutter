@@ -5,6 +5,7 @@ import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
+import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
@@ -174,7 +175,7 @@ class _LibraryViewState extends State<LibraryView> {
         itemCount: items.length + 1,
         itemBuilder: (context, index) {
           if (index >= items.length) {
-            return const SizedBox(height: 120);
+            return const ShellBottomSpacer();
           }
           return _LibraryItemTile(item: items[index]);
         },

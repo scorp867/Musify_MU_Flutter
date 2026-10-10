@@ -225,7 +225,11 @@ Future<void> setupInjection() async {
     () => ColorCache(cacheManager: getIt<AppCacheManager>()),
   );
   getIt.registerLazySingleton<ColorExtractionService>(
-    () => ColorExtractionService(cache: getIt<ColorCache>()),
+    () => ColorExtractionService(
+      cache: getIt<ColorCache>(),
+      artworkFetcher: (songId) =>
+          getIt<DeviceMusicDataSource>().queryArtwork(songId),
+    ),
   );
   getIt.registerLazySingleton<HomeRepository>(
     () => HomeRepositoryImpl(

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ui/animations/mode_transition.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/auth_gated_bloc_provider.dart';
@@ -118,96 +122,110 @@ class _MainScreenState extends State<MainScreen> {
       );
     }
 
-    return PopScope(
-      canPop: _currentIndex == 0 && !widget.isDrawerOpen,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemStatusBarContrastEnforced: false,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarContrastEnforced: false,
+      ),
+      child: PopScope(
+        canPop: _currentIndex == 0 && !widget.isDrawerOpen,
+        onPopInvokedWithResult: (didPop, result) {
+          if (didPop) return;
 
-        if (widget.isDrawerOpen) {
-          widget.onMenuPressed();
-        } else if (_currentIndex != 0) {
-          setState(() {
-            _currentIndex = 0;
-            _visitedTabs.add(0);
-          });
-        }
-      },
-      child: Scaffold(
-        body: Stack(
-          children: [
-            IndexedStack(
-              index: _currentIndex,
-              children: [
-                if (_visitedTabs.contains(0))
-                  HomeTab(
-                    isOnlineMode: _isOnlineMode,
-                    isActive: _currentIndex == 0,
-                    onMenuPressed: widget.onMenuPressed,
-                    onToggleMode: _toggleMode,
-                    iconKey: _iconKey,
-                    iconVisible: _iconVisible,
-                    playbackController: widget.playbackController,
-                    createHomeFeedBloc: widget.createHomeFeedBloc,
-                  )
-                else
-                  const SizedBox.shrink(),
-                if (_visitedTabs.contains(1))
-                  _BrowseTab(
-                    isOnlineMode: _isOnlineMode,
-                    isActive: _currentIndex == 1,
-                    onMenuPressed: widget.onMenuPressed,
-                    onToggleMode: _toggleMode,
-                    playbackController: widget.playbackController,
-                    createBrowseBloc: widget.createBrowseBloc,
-                  )
-                else
-                  const SizedBox.shrink(),
-                if (_visitedTabs.contains(2))
-                  _LibraryTab(
-                    isOnlineMode: _isOnlineMode,
-                    isActive: _currentIndex == 2,
-                    onMenuPressed: widget.onMenuPressed,
-                    onToggleMode: _toggleMode,
-                    playbackController: widget.playbackController,
-                    createLibraryBloc: widget.createLibraryBloc,
-                  )
-                else
-                  const SizedBox.shrink(),
-              ],
-            ),
-            if (widget.isDrawerOpen)
-              GestureDetector(
-                onTap: widget.onMenuPressed,
-                child: Container(color: Colors.transparent),
+          if (widget.isDrawerOpen) {
+            widget.onMenuPressed();
+          } else if (_currentIndex != 0) {
+            setState(() {
+              _currentIndex = 0;
+              _visitedTabs.add(0);
+            });
+          }
+        },
+        child: Scaffold(
+          extendBody: true,
+          body: Stack(
+            children: [
+              IndexedStack(
+                index: _currentIndex,
+                children: [
+                  if (_visitedTabs.contains(0))
+                    HomeTab(
+                      isOnlineMode: _isOnlineMode,
+                      isActive: _currentIndex == 0,
+                      onMenuPressed: widget.onMenuPressed,
+                      onToggleMode: _toggleMode,
+                      iconKey: _iconKey,
+                      iconVisible: _iconVisible,
+                      playbackController: widget.playbackController,
+                      createHomeFeedBloc: widget.createHomeFeedBloc,
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  if (_visitedTabs.contains(1))
+                    _BrowseTab(
+                      isOnlineMode: _isOnlineMode,
+                      isActive: _currentIndex == 1,
+                      onMenuPressed: widget.onMenuPressed,
+                      onToggleMode: _toggleMode,
+                      playbackController: widget.playbackController,
+                      createBrowseBloc: widget.createBrowseBloc,
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  if (_visitedTabs.contains(2))
+                    _LibraryTab(
+                      isOnlineMode: _isOnlineMode,
+                      isActive: _currentIndex == 2,
+                      onMenuPressed: widget.onMenuPressed,
+                      onToggleMode: _toggleMode,
+                      playbackController: widget.playbackController,
+                      createLibraryBloc: widget.createLibraryBloc,
+                    )
+                  else
+                    const SizedBox.shrink(),
+                ],
               ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: MiniPlayer(controller: widget.playbackController),
-            ),
-          ],
-        ),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            MediaQuery.removePadding(
-              context: context,
-              removeBottom: true,
-              child: MediaQuery.removeViewPadding(
-                context: context,
-                removeBottom: true,
-                child: AppBottomNavigation(
-                  currentIndex: _currentIndex,
-                  onTap: (index) => setState(() {
-                    _currentIndex = index;
-                    _visitedTabs.add(index);
-                  }),
+              if (widget.isDrawerOpen)
+                GestureDetector(
+                  onTap: widget.onMenuPressed,
+                  child: Container(color: Colors.transparent),
                 ),
-              ),
-            ),
-            const NetworkStatusBottomBar(),
-          ],
+            ],
+          ),
+          bottomNavigationBar: BlocBuilder<NetworkStatusBloc, NetworkStatusState>(
+            builder: (context, networkState) {
+              final isNetworkVisible = networkState.isVisible;
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RepaintBoundary(
+                    child: MiniPlayer(
+                      controller: widget.playbackController,
+                      colorService: context.read<ColorExtractionService>(),
+                    ),
+                  ),
+                  RepaintBoundary(
+                    child: AppBottomNavigation(
+                      currentIndex: _currentIndex,
+                      isNetworkBarVisible: isNetworkVisible,
+                      onTap: (index) => setState(() {
+                        _currentIndex = index;
+                        _visitedTabs.add(index);
+                      }),
+                    ),
+                  ),
+                  const NetworkStatusBottomBar(),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

@@ -17,10 +17,10 @@ class NetworkStatusBottomBar extends StatelessWidget {
     return BlocBuilder<NetworkStatusBloc, NetworkStatusState>(
       builder: (context, state) {
         final isVisible = state.isVisible;
-        final color = _getStatusColor(state.status);
+        final color = isVisible ? _getStatusColor(state.status) : Colors.transparent;
         final message = state.message ?? '';
         final bottomInset = MediaQuery.paddingOf(context).bottom;
-        final targetHeight = isVisible ? (contentHeight + bottomInset) : bottomInset;
+        final targetHeight = isVisible ? (contentHeight + bottomInset) : 0.0;
 
         return AnimatedContainer(
           duration: const Duration(milliseconds: 250),

@@ -1,5 +1,7 @@
 import 'package:flutter/widgets.dart';
 
+import 'package:musify_mu/core/color/artwork_color_scheme.dart';
+
 /// Builds a Spotify-style atmospheric gradient between an extracted color
 /// and the app's dark background color (#121212).
 ///
@@ -10,6 +12,21 @@ class EasedGradient {
   static const _stopCount = 21;
 
   const EasedGradient._();
+
+  /// Builds from an [ArtworkColorScheme], using its primary color.
+  static Gradient fromScheme(
+    ArtworkColorScheme scheme, {
+    Color bottomColor = const Color(0xFF121212),
+    AlignmentGeometry begin = Alignment.topCenter,
+    AlignmentGeometry end = Alignment.bottomCenter,
+  }) {
+    return build(
+      topColor: scheme.primary,
+      bottomColor: bottomColor,
+      begin: begin,
+      end: end,
+    );
+  }
 
   /// Builds a vertical [Gradient] from [topColor] to [bottomColor]
   /// using Spotify's smooth matte interpolation.
@@ -25,9 +42,11 @@ class EasedGradient {
     final colors = <Color>[];
     final stops = <double>[];
 
-    // Ensure the top color respects Spotify's matte luminance ceiling
+    // Primary is already post-processed (matte ceiling applied by SpotifyPostProcessor),
+    // but apply ceiling here too for direct Color callers as safety net
     final hsv = HSVColor.fromColor(topColor);
-    final matteColor = hsv.value > 0.70 ? hsv.withValue(0.70).toColor() : topColor;
+    final matteColor =
+        hsv.value > 0.75 ? hsv.withValue(0.75).toColor() : topColor;
 
     for (int i = 0; i < _stopCount; i++) {
       final t = i / (_stopCount - 1);

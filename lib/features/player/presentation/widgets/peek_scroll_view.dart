@@ -23,6 +23,7 @@ class PeekScrollView extends StatefulWidget {
     this.expandedCards = const [],
     this.peekHeight = 64.0,
     this.bottomPaddingExtra = 36.0,
+    this.tier1Decoration,
   });
 
   final PullToDismissController dismissController;
@@ -32,6 +33,7 @@ class PeekScrollView extends StatefulWidget {
   final List<Widget> expandedCards;
   final double peekHeight;
   final double bottomPaddingExtra;
+  final Decoration? tier1Decoration;
 
   @override
   State<PeekScrollView> createState() => PeekScrollViewState();
@@ -106,8 +108,9 @@ class PeekScrollViewState extends State<PeekScrollView>
           slivers: [
             // Tier 1: Viewport-locked Main Player
             SliverToBoxAdapter(
-              child: SizedBox(
+              child: Container(
                 height: mainPlayerHeight,
+                decoration: widget.tier1Decoration,
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(20, topPadding, 20, 0),
                   child: Column(

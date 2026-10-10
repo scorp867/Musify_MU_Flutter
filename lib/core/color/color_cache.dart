@@ -1,15 +1,15 @@
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/core/cache/cache_policy.dart';
+import 'package:musify_mu/core/color/artwork_color_scheme.dart';
 
-/// Persistent color cache backed by [AppCacheManager].
+/// Persistent color scheme cache backed by [AppCacheManager].
 ///
-/// Stores extracted colors keyed by artwork URL.
-/// On cache hit, returns the color instantly from memory.
+/// Stores extracted [ArtworkColorScheme]s keyed by artwork URL or identifier.
+/// On cache hit, returns the scheme instantly from memory.
 /// Entries are persisted to disk as JSON and survive app restarts.
 ///
 /// Cache invalidation:
@@ -17,11 +17,11 @@ import 'package:musify_mu/core/cache/cache_policy.dart';
 /// - URL-based (if artwork URL changes, old entry is irrelevant)
 class ColorCache {
   static const _policy = CachePolicy.durable;
+  static const _formatVersion = 2;
 
   final AppCacheManager _cacheManager;
 
-  /// In-memory LRU: artworkUrl -> _ColorEntry
-  final Map<String, _ColorEntry> _entries = {};
+  final Map<String, _SchemeEntry> _entries = {};
   bool _loaded = false;
   int _loadedGeneration = -1;
 
@@ -30,8 +30,8 @@ class ColorCache {
 
   Future<Directory> get _cacheDir => _cacheManager.featureDir('colors');
 
-  /// Returns cached color for [artworkUrl], or null if not cached/expired.
-  Color? get(String artworkUrl) {
+  /// Returns cached scheme for [artworkUrl], or null if not cached/expired.
+  ArtworkColorScheme? get(String artworkUrl) {
     _checkGeneration();
     final entry = _entries[artworkUrl];
     if (entry == null) return null;
@@ -39,16 +39,14 @@ class ColorCache {
       _entries.remove(artworkUrl);
       return null;
     }
-    return Color.fromARGB(255, entry.r, entry.g, entry.b);
+    return ArtworkColorScheme.fromArgbList(entry.argbColors);
   }
 
-  /// Stores extracted color for [artworkUrl] and persists to disk.
-  Future<void> put(String artworkUrl, Color color) async {
+  /// Stores extracted scheme for [artworkUrl] and persists to disk.
+  Future<void> put(String artworkUrl, ArtworkColorScheme scheme) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    _entries[artworkUrl] = _ColorEntry(
-      r: (color.r * 255.0).round().clamp(0, 255),
-      g: (color.g * 255.0).round().clamp(0, 255),
-      b: (color.b * 255.0).round().clamp(0, 255),
+    _entries[artworkUrl] = _SchemeEntry(
+      argbColors: scheme.toArgbList(),
       cachedAt: now,
     );
     await _persist();
@@ -71,15 +69,24 @@ class ColorCache {
       final raw = await file.readAsString();
       final map = jsonDecode(raw) as Map<String, dynamic>;
 
+      // Version check: clear stale v1 caches
+      final version = map['_v'] as int? ?? 1;
+      if (version != _formatVersion) {
+        await file.delete();
+        return;
+      }
+
       for (final e in map.entries) {
+        if (e.key.startsWith('_')) continue; // skip metadata keys
         final v = e.value as Map<String, dynamic>;
         final cachedAt = v['t'] as int? ?? 0;
         if (_policy.isExpired(cachedAt)) continue;
 
-        _entries[e.key] = _ColorEntry(
-          r: v['r'] as int,
-          g: v['g'] as int,
-          b: v['b'] as int,
+        final colorsList = (v['c'] as List<dynamic>).cast<int>();
+        if (colorsList.length < 5) continue;
+
+        _entries[e.key] = _SchemeEntry(
+          argbColors: colorsList,
           cachedAt: cachedAt,
         );
       }
@@ -109,12 +116,10 @@ class ColorCache {
         '${dir.path}${Platform.pathSeparator}colors.json',
       );
 
-      final map = <String, dynamic>{};
+      final map = <String, dynamic>{'_v': _formatVersion};
       for (final e in _entries.entries) {
         map[e.key] = {
-          'r': e.value.r,
-          'g': e.value.g,
-          'b': e.value.b,
+          'c': e.value.argbColors,
           't': e.value.cachedAt,
         };
       }
@@ -132,16 +137,12 @@ class ColorCache {
   }
 }
 
-class _ColorEntry {
-  final int r;
-  final int g;
-  final int b;
+class _SchemeEntry {
+  final List<int> argbColors;
   final int cachedAt;
 
-  const _ColorEntry({
-    required this.r,
-    required this.g,
-    required this.b,
+  const _SchemeEntry({
+    required this.argbColors,
     required this.cachedAt,
   });
 }

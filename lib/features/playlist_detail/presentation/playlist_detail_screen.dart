@@ -322,7 +322,7 @@ class _PlaylistMetadata extends StatelessWidget {
   Widget build(BuildContext context) {
     final item = state.item;
     final colorHex =
-        '#${state.extractedColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+        '#${state.colorScheme.primary.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -444,7 +444,7 @@ class _PlaylistMetadata extends StatelessWidget {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: state.extractedColor,
+                        color: state.colorScheme.primary,
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(color: Colors.white24),
                       ),
@@ -463,7 +463,7 @@ class _PlaylistMetadata extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'RGB(${state.extractedColor.r * 255 ~/ 1}, ${state.extractedColor.g * 255 ~/ 1}, ${state.extractedColor.b * 255 ~/ 1})',
+                          'RGB(${state.colorScheme.primary.r * 255 ~/ 1}, ${state.colorScheme.primary.g * 255 ~/ 1}, ${state.colorScheme.primary.b * 255 ~/ 1})',
                           style: const TextStyle(
                             color: Colors.white38,
                             fontSize: 11,

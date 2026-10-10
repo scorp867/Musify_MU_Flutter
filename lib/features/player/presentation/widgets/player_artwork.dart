@@ -56,15 +56,12 @@ class PlayerAlbumArtwork extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.12),
-                width: 1,
-              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.5),
-                  blurRadius: 28,
-                  offset: const Offset(0, 16),
+                  color: Colors.black.withValues(alpha: 0.45),
+                  blurRadius: 30,
+                  offset: const Offset(0, 15),
+                  spreadRadius: -4,
                 ),
               ],
             ),

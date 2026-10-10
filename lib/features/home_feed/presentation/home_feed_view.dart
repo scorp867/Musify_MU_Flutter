@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
+import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/home/presentation/widgets/home_header.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
@@ -136,7 +137,7 @@ class _HomeFeedViewState extends State<HomeFeedView> {
             itemCount: data.sections.length + 1,
             itemBuilder: (context, index) {
               if (index >= data.sections.length) {
-                return const SizedBox(height: 120);
+                return const ShellBottomSpacer();
               }
               return _buildSection(data.sections[index]);
             },
@@ -148,7 +149,7 @@ class _HomeFeedViewState extends State<HomeFeedView> {
                 itemCount: staleData.sections.length + 1,
                 itemBuilder: (context, index) {
                   if (index >= staleData.sections.length) {
-                    return const SizedBox(height: 120);
+                    return const ShellBottomSpacer();
                   }
                   return _buildSection(staleData.sections[index]);
                 },

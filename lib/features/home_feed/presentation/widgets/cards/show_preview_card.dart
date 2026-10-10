@@ -55,14 +55,14 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
     if (service != null) {
       final cached = service.getCached(url);
       if (cached != null) {
-        _extractedColor = _sanitizeColor(cached);
+        _extractedColor = _sanitizeColor(cached.primary);
         return;
       }
 
       service.extractFromUrl(url).then((color) {
-        if (mounted && color != null) {
+        if (mounted) {
           setState(() {
-            _extractedColor = _sanitizeColor(color);
+            _extractedColor = _sanitizeColor(color.primary);
           });
         }
       });

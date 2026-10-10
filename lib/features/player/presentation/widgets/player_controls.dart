@@ -62,10 +62,10 @@ class PlayerSeekBar extends StatelessWidget {
                     thumbColor: Colors.white,
                     overlayColor: PlayerColors.accent.withValues(alpha: 0.16),
                     thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 6,
+                      enabledThumbRadius: 5,
                     ),
                     overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 15,
+                      overlayRadius: 14,
                     ),
                     trackShape: const RoundedRectSliderTrackShape(),
                   ),
@@ -114,9 +114,9 @@ class PlayerSeekBar extends StatelessWidget {
   }
 
   static const _timeStyle = TextStyle(
-    color: PlayerColors.muted,
-    fontSize: 12,
-    fontWeight: FontWeight.w600,
+    color: Color(0xFFB3B3B3),
+    fontSize: 11.5,
+    fontWeight: FontWeight.w400,
   );
 }
 

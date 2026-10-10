@@ -4,6 +4,7 @@ import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/media/media_item_mapper.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
+import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
@@ -39,9 +40,9 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      body: SafeArea(
+    return Container(
+      color: const Color(0xFF121212),
+      child: SafeArea(
         bottom: false,
         child: BlocBuilder<LocalMusicBloc, LocalMusicState>(
           builder: (context, state) {
@@ -205,7 +206,7 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
           ),
         ],
 
-        const SizedBox(height: 100),
+        const ShellBottomSpacer(),
       ]),
     );
   }
@@ -270,7 +271,7 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
       sliver: SliverList.builder(
         itemCount: filtered.length + 1,
         itemBuilder: (context, index) {
-          if (index == filtered.length) return const SizedBox(height: 100);
+          if (index == filtered.length) return const ShellBottomSpacer();
           final track = filtered[index];
           return GestureDetector(
             onTap: () => _playTrack(filtered, index),

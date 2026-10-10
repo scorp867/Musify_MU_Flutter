@@ -1,9 +1,14 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
+import 'package:musify_mu/core/color/artwork_color_scheme.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/color/eased_gradient.dart';
+import 'package:musify_mu/core/media/media_item_mapper.dart';
 
-import '../widgets/edge_to_edge_scrim.dart';
 import '../widgets/peek_scroll_view.dart';
 import '../widgets/player_artwork.dart';
 import '../widgets/player_controls.dart';
@@ -87,6 +92,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _shuffleEnabled = false;
   bool _repeatEnabled = false;
 
+  ArtworkColorScheme _currentScheme = ArtworkColorScheme.neutral;
+  String? _lastTrackId;
+
+  ColorExtractionService? _resolveColorService() {
+    try {
+      return context.read<ColorExtractionService>();
+    } catch (_) {
+      try {
+        return getIt<ColorExtractionService>();
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  void _updateScheme(MediaItem? item) async {
+    if (item == null) return;
+    if (_lastTrackId == item.id) return;
+    _lastTrackId = item.id;
+
+    final service = _resolveColorService();
+    if (service == null) return;
+
+    final artUriString = item.artUri?.toString();
+    final cached = service.getCached(item.id) ??
+        (artUriString != null ? service.getCached(artUriString) : null);
+
+    if (cached != null) {
+      if (mounted && _currentScheme != cached) {
+        setState(() => _currentScheme = cached);
+      }
+      return;
+    }
+
+    ArtworkColorScheme? scheme;
+    final artUri = item.artUri;
+    if (artUri != null && (artUri.scheme == 'http' || artUri.scheme == 'https')) {
+      try {
+        scheme = await service.extract(
+          imageUrl: artUri.toString(),
+          cacheKey: item.id,
+        );
+      } catch (_) {}
+    }
+
+    if (scheme == null) {
+      final songId = MediaItemMapper.songId(item);
+      if (songId != null) {
+        try {
+          scheme = await service.extract(
+            songId: songId,
+            cacheKey: item.id,
+          );
+        } catch (_) {}
+      }
+    }
+
+    if (mounted && scheme != null && _currentScheme != scheme) {
+      final nonNullScheme = scheme;
+      setState(() => _currentScheme = nonNullScheme);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -101,22 +169,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
       child: PullToDismissScaffold(
         builder: (context, dismissController) {
-          return EdgeToEdgeScrim(
-            child: StreamBuilder<MediaItem?>(
-              stream: _playbackController.mediaItem,
-              builder: (context, snapshot) {
-                final item = snapshot.data;
+          return StreamBuilder<MediaItem?>(
+            stream: _playbackController.mediaItem,
+            builder: (context, snapshot) {
+              final item = snapshot.data;
 
-                if (item == null) {
-                  return PlayerEmptyState(
-                    onClose: dismissController.dismiss,
-                    onMore: () => _showMoreOptions(context),
-                  );
-                }
+              if (item == null) {
+                return PlayerEmptyState(
+                  onClose: dismissController.dismiss,
+                  onMore: () => _showMoreOptions(context),
+                );
+              }
 
-                return _buildPlayer(context, item, dismissController);
-              },
-            ),
+              return _buildPlayer(context, item, dismissController);
+            },
           );
         },
       ),
@@ -128,28 +194,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
     MediaItem item,
     PullToDismissController dismissController,
   ) {
+    _updateScheme(item);
+
+    // Spotify's OverlayHidingGradientBackgroundView formula:
+    // Blend 32% of #121212 over the extracted color at the top (PorterDuff DST_OVER)
+    // to eliminate specular glare and prevent any light gradient at the top edge.
+    final topGradientColor = Color.lerp(
+      _currentScheme.primary,
+      const Color(0xFF121212),
+      0.32,
+    )!;
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        PlayerBackdrop(item: item),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xDD0A0A0A),
-                Color(0xF20A0A0A),
-                Color(0xFF0A0A0A),
-              ],
-              stops: [0, 0.42, 1],
-            ),
-          ),
-        ),
+        // 1. Solid opaque base layer (#121212)
+        const ColoredBox(color: Color(0xFF121212)),
+
+        // 2. Player content scroll view with Tier 1 viewport gradient
+        // The gradient is applied strictly to Tier 1 so it scrolls UP with the player
+        // and does NOT persist behind the Tier 2 cards stream.
         PeekScrollView(
           key: _peekScrollKey,
           dismissController: dismissController,
           peekHeight: 64.0,
+          tier1Decoration: BoxDecoration(
+            gradient: EasedGradient.build(
+              topColor: topGradientColor,
+              bottomColor: const Color(0xFF121212),
+            ),
+          ),
           header: PlayerHeader(
             onClose: dismissController.dismiss,
             onMore: () => _showMoreOptions(context),
@@ -201,9 +275,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           peekingCard: PlayerLyricsSection(
             key: _lyricsKey,
             onTapHeader: _onExpandLyrics,
+            backgroundColor: _currentScheme.surface,
           ),
           expandedCards: [
-            PlayerTrackDetailsSection(item: item),
+            PlayerAboutArtistSection(item: item),
+            PlayerCreditsSection(item: item),
           ],
         ),
       ],

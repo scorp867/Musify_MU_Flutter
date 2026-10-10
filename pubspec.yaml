@@ -54,7 +54,7 @@ dependencies:
   fixnum: ^1.1.0
   flutter_timezone: ^5.1.1
   cached_network_image: ^4.0.4
-  palette_generator: ^0.3.3+7
+  material_color_utilities: ^0.13.0
   flutter_cache_manager: ^3.4.5
   dio: ^5.7.0
   native_dio_adapter: ^1.4.0

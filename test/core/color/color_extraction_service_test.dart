@@ -2,19 +2,19 @@ import 'dart:io' as io;
 import 'dart:ui' as ui;
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:palette_generator/palette_generator.dart';
-import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/color/artwork_color_scheme.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
+import 'package:musify_mu/core/color/color_extraction_service.dart';
 
 class FakeColorCache implements ColorCache {
-  final Map<String, ui.Color> memory = {};
+  final Map<String, ArtworkColorScheme> memory = {};
 
   @override
-  ui.Color? get(String artworkUrl) => memory[artworkUrl];
+  ArtworkColorScheme? get(String artworkUrl) => memory[artworkUrl];
 
   @override
-  Future<void> put(String artworkUrl, ui.Color color) async {
-    memory[artworkUrl] = color;
+  Future<void> put(String artworkUrl, ArtworkColorScheme scheme) async {
+    memory[artworkUrl] = scheme;
   }
 
   @override
@@ -49,19 +49,7 @@ void main() {
       expect(service.getCached('nonexistent'), isNull);
     });
 
-    test('Palette with muted and vibrant properly identifies swatches (p.m351.y)', () {
-      const muted = ui.Color(0xFF3E606F);
-      const vibrant = ui.Color(0xFFFF0055);
-
-      final palette = PaletteGenerator.fromColors([
-        PaletteColor(muted, 50),
-        PaletteColor(vibrant, 50),
-      ]);
-
-      expect(palette.paletteColors.length, equals(2));
-    });
-
-    test('Extract color from actual artwork tiles', () async {
+    test('Extract scheme from actual artwork covers and tiles', () async {
       final tests = [
         ('Sherine tile', 'scratch/tile_sherine.png'),
         ('Assala tile', 'scratch/tile_assala.png'),
@@ -74,33 +62,28 @@ void main() {
         final file = io.File(path);
         if (!file.existsSync()) continue;
         final bytes = await file.readAsBytes();
-        final codec = await ui.instantiateImageCodec(
-          bytes,
-          targetWidth: 112,
-          targetHeight: 112,
-        );
-        final frame = await codec.getNextFrame();
-        final image = frame.image;
 
-        final palette = await PaletteGenerator.fromImage(
-          image,
-          maximumColorCount: 16,
-        );
-
-        final picked = service.testPickBestColor(palette);
-        expect(picked, isNotNull);
-        image.dispose();
+        final scheme = await service.extractFromBytes(bytes);
+        expect(scheme, isNotNull);
+        expect(scheme.primary, isNot(equals(const ui.Color(0x00000000))));
+        expect(scheme.secondary, isNot(equals(const ui.Color(0x00000000))));
+        expect(scheme.accent, isNot(equals(const ui.Color(0x00000000))));
+        expect(scheme.onPrimary, isNot(equals(const ui.Color(0x00000000))));
+        expect(scheme.surface, isNot(equals(const ui.Color(0x00000000))));
       }
     });
 
+    test('Synchronous cache put and get scheme', () async {
+      const testScheme = ArtworkColorScheme(
+        primary: ui.Color(0xFF8D4E38),
+        secondary: ui.Color(0xFF670A23),
+        accent: ui.Color(0xFF990D33),
+        onPrimary: ui.Color(0xFFFFFFFF),
+        surface: ui.Color(0xFF1E100C),
+      );
+      await fakeCache.put('test_url', testScheme);
 
-    test('Synchronous cache put and get', () async {
-      const testColor = ui.Color(0xFF2A4468);
-      await fakeCache.put('test_url', testColor);
-
-      expect(service.getCached('test_url'), equals(testColor));
+      expect(service.getCached('test_url'), equals(testScheme));
     });
   });
 }
-
-

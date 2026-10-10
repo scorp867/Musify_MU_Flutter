@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
+import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
@@ -122,6 +123,7 @@ class _BrowseViewState extends State<BrowseView> {
     return switch (state) {
       BrowseLoading() => const [
           _BrowseGridShimmer(),
+          SliverShellBottomSpacer(),
         ],
       BrowseLoaded(:final data) => _buildSections(data.sections),
       BrowseError(:final message, :final staleData) => staleData != null
@@ -141,6 +143,7 @@ class _BrowseViewState extends State<BrowseView> {
         if (section.sectionType == 'content_category' &&
             section.items.isNotEmpty)
           ..._buildContentCategory(section),
+      const SliverShellBottomSpacer(),
     ];
   }
 

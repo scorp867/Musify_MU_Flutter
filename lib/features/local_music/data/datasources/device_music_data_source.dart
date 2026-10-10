@@ -6,6 +6,7 @@ abstract interface class DeviceMusicDataSource {
   Future<bool> hasPermission();
   Future<bool> requestPermission();
   Future<List<SongModel>> querySongs();
+  Future<Uint8List?> queryArtwork(int songId, {int size});
   Stream<void> get changes;
 }
 
@@ -39,6 +40,15 @@ class OnAudioQueryDeviceMusicDataSource implements DeviceMusicDataSource {
       orderType: OrderType.ASC_OR_SMALLER,
       uriType: UriType.EXTERNAL,
       ignoreCase: true,
+    );
+  }
+
+  @override
+  Future<Uint8List?> queryArtwork(int songId, {int size = 80}) {
+    return _audioQuery.queryArtwork(
+      songId,
+      ArtworkType.AUDIO,
+      size: size,
     );
   }
 

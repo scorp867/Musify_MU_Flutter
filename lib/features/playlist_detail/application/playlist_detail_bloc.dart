@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:musify_mu/core/color/artwork_color_scheme.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/color/eased_gradient.dart';
 import 'package:musify_mu/features/library/domain/models/library_item.dart';
@@ -40,18 +41,18 @@ final class PlaylistDetailLoading extends PlaylistDetailState {
 final class PlaylistDetailLoaded extends PlaylistDetailState {
   final LibraryItem item;
   final Gradient gradient;
-  final Color extractedColor;
+  final ArtworkColorScheme colorScheme;
   final bool isExtracting;
 
   const PlaylistDetailLoaded({
     required this.item,
     required this.gradient,
-    required this.extractedColor,
+    required this.colorScheme,
     this.isExtracting = false,
   });
 
   @override
-  List<Object?> get props => [item, extractedColor, isExtracting];
+  List<Object?> get props => [item, colorScheme, isExtracting];
 }
 
 final class PlaylistDetailError extends PlaylistDetailState {
@@ -90,9 +91,9 @@ class PlaylistDetailBloc
       emit(PlaylistDetailLoaded(
         item: item,
         gradient: EasedGradient.build(
-          topColor: const Color(0xFF282828),
+          topColor: ArtworkColorScheme.neutral.primary,
         ),
-        extractedColor: const Color(0xFF282828),
+        colorScheme: ArtworkColorScheme.neutral,
       ));
       return;
     }
@@ -103,23 +104,22 @@ class PlaylistDetailBloc
     emit(PlaylistDetailLoaded(
       item: item,
       gradient: EasedGradient.build(
-        topColor: const Color(0xFF282828),
+        topColor: ArtworkColorScheme.neutral.primary,
       ),
-      extractedColor: const Color(0xFF282828),
+      colorScheme: ArtworkColorScheme.neutral,
       isExtracting: true,
     ));
 
     // Extract color (supports full 2x2 mosaic compositing or single image)
-    final color = await _colorService.extract(
+    final scheme = await _colorService.extract(
       imageUrl: item.imageUrl,
       mosaicUrls: item.mosaicImageUrls,
     );
-    final extractedColor = color ?? const Color(0xFF282828);
 
     emit(PlaylistDetailLoaded(
       item: item,
-      gradient: EasedGradient.build(topColor: extractedColor),
-      extractedColor: extractedColor,
+      gradient: EasedGradient.build(topColor: scheme.primary),
+      colorScheme: scheme,
     ));
   }
 
@@ -137,7 +137,7 @@ class PlaylistDetailBloc
         emit(PlaylistDetailLoaded(
           item: item,
           gradient: current.gradient,
-          extractedColor: current.extractedColor,
+          colorScheme: current.colorScheme,
         ));
       }
       return;
@@ -149,9 +149,9 @@ class PlaylistDetailBloc
       emit(PlaylistDetailLoaded(
         item: item,
         gradient: EasedGradient.build(
-          topColor: const Color(0xFF282828),
+          topColor: ArtworkColorScheme.neutral.primary,
         ),
-        extractedColor: const Color(0xFF282828),
+        colorScheme: ArtworkColorScheme.neutral,
       ));
       return;
     }
@@ -161,21 +161,20 @@ class PlaylistDetailBloc
       emit(PlaylistDetailLoaded(
         item: item,
         gradient: current.gradient,
-        extractedColor: current.extractedColor,
+        colorScheme: current.colorScheme,
         isExtracting: true,
       ));
     }
 
-    final color = await _colorService.extract(
+    final scheme = await _colorService.extract(
       imageUrl: item.imageUrl,
       mosaicUrls: item.mosaicImageUrls,
     );
-    final extractedColor = color ?? const Color(0xFF282828);
 
     emit(PlaylistDetailLoaded(
       item: item,
-      gradient: EasedGradient.build(topColor: extractedColor),
-      extractedColor: extractedColor,
+      gradient: EasedGradient.build(topColor: scheme.primary),
+      colorScheme: scheme,
     ));
   }
 
