@@ -1,6 +1,5 @@
-import 'dart:ui' show lerpDouble;
-
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
@@ -38,8 +37,8 @@ class QueueSheetScreen extends StatelessWidget {
         opaque: false,
         barrierDismissible: false,
         barrierColor: Colors.transparent,
-        transitionDuration: const Duration(milliseconds: 320),
-        reverseTransitionDuration: const Duration(milliseconds: 280),
+        transitionDuration: const Duration(milliseconds: 420),
+        reverseTransitionDuration: const Duration(milliseconds: 380),
         pageBuilder: (modalContext, _, _) {
           return BlocProvider(
             create: (_) => QueueBloc(playbackController: playbackController)
@@ -95,6 +94,20 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
   late final SpotifyStretchController _stretchController;
   late final SpotifyPeekScrollController _scrollController;
 
+  final Set<String> _knownUserQueueUids = <String>{};
+  final Set<String> _animatedInsertUids = <String>{};
+  final Set<String> _slideDownUids = <String>{};
+  final Set<String> _clearingUids = <String>{};
+  List<ContextTrack>? _tapTransitionTracks;
+  String? _tappedTrackUid;
+  int _tapAnimationGeneration = 0;
+  bool _hasInitializedQueueUids = false;
+  bool _isClearingQueue = false;
+
+  // Matches p/y7o.java + p/z6y0.java DefaultItemAnimator:
+  // 120ms (add/remove fade) + 250ms (move translation) = 370ms total (+5ms buffer)
+  static const Duration _itemAnimatorTotalWait = Duration(milliseconds: 375);
+
   @override
   void initState() {
     super.initState();
@@ -112,9 +125,282 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     super.dispose();
   }
 
+  void _syncUserQueueAnimations(QueueState state, {required bool isFromListener}) {
+    final userQueue = state.queue.userQueue;
+    final currentUserUids = userQueue.map((t) => t.uid).toSet();
+
+    if (!_hasInitializedQueueUids) {
+      if (state.hasQueue || state.hasUpcoming) {
+        _knownUserQueueUids
+          ..clear()
+          ..addAll(currentUserUids);
+        _hasInitializedQueueUids = true;
+      }
+      return;
+    }
+
+    final scrollOffset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final newlyInsertedVisible = <String>[];
+    var offScreenInsertedDelta = 0.0;
+
+    for (var i = 0; i < userQueue.length; i++) {
+      final uid = userQueue[i].uid;
+      if (!_knownUserQueueUids.contains(uid)) {
+        // Check if the insertion slot [i] is above the current viewport.
+        // If above the viewport, do NOT animate 0->64px; instead keep its height
+        // at 64px and compensate scrollOffset by +64px so visible items in the
+        // viewport do not shift down by 1 step.
+        if (isFromListener &&
+            _scrollController.hasClients &&
+            i * 64.0 < scrollOffset - 4.0) {
+          offScreenInsertedDelta += 64.0;
+        } else {
+          _animatedInsertUids.add(uid);
+          newlyInsertedVisible.add(uid);
+        }
+      }
+    }
+
+    _knownUserQueueUids
+      ..clear()
+      ..addAll(currentUserUids);
+    _animatedInsertUids.retainAll(currentUserUids);
+
+    if (offScreenInsertedDelta > 0.0 && _scrollController.hasClients) {
+      _scrollController.jumpTo(scrollOffset + offScreenInsertedDelta);
+    }
+
+    if (newlyInsertedVisible.isNotEmpty) {
+      if (isFromListener && mounted) {
+        setState(() {});
+      }
+      Future<void>.delayed(_itemAnimatorTotalWait, () {
+        if (!mounted) return;
+        var changed = false;
+        for (final uid in newlyInsertedVisible) {
+          if (_animatedInsertUids.remove(uid)) {
+            changed = true;
+          }
+        }
+        if (changed) {
+          setState(() {});
+        }
+      });
+    }
+  }
+
+  void _handleClearQueue() {
+    final state = context.read<QueueBloc>().state;
+    if (_isClearingQueue || !state.hasUserQueue) return;
+
+    final userQueue = state.queue.userQueue;
+    final userQueueCount = userQueue.length;
+    if (userQueueCount == 0) return;
+
+    final currentTracks = List<ContextTrack>.from(state.nextTracks);
+    final scrollOffset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final firstVisibleIndex =
+        (scrollOffset / 64.0).floor().clamp(0, currentTracks.length);
+    final offScreenClearedCount = firstVisibleIndex.clamp(0, userQueueCount);
+
+    // If all queued tracks are above the current viewport, clear them immediately
+    // and compensate scrollOffset so the visible viewport items do not move.
+    if (offScreenClearedCount >= userQueueCount) {
+      if (_scrollController.hasClients) {
+        final targetOffset =
+            (scrollOffset - userQueueCount * 64.0).clamp(0.0, double.infinity);
+        _scrollController.jumpTo(targetOffset);
+      }
+      context.read<QueueBloc>().add(const QueueCleared());
+      return;
+    }
+
+    // Otherwise, drop any off-screen queued tracks immediately (compensating
+    // scrollOffset) and smoothly animate all visible queued tracks in unison.
+    final visibleQueuedUids = userQueue
+        .sublist(offScreenClearedCount)
+        .map((t) => t.uid)
+        .toList();
+
+    final gen = ++_tapAnimationGeneration;
+    setState(() {
+      _isClearingQueue = true;
+      _slideDownUids.clear();
+      _clearingUids
+        ..clear()
+        ..addAll(visibleQueuedUids);
+      if (offScreenClearedCount > 0) {
+        _tapTransitionTracks = currentTracks.sublist(offScreenClearedCount);
+      }
+    });
+
+    if (offScreenClearedCount > 0 && _scrollController.hasClients) {
+      final targetOffset = (scrollOffset - offScreenClearedCount * 64.0)
+          .clamp(0.0, double.infinity);
+      _scrollController.jumpTo(targetOffset);
+    }
+
+    // Wait for the 370ms DefaultItemAnimator (120ms fade-out + 250ms move collapse
+    // from p/y7o.java + p/z6y0.java) before committing the clear in QueueBloc.
+    Future<void>.delayed(_itemAnimatorTotalWait, () {
+      if (!mounted || _tapAnimationGeneration != gen) return;
+      context.read<QueueBloc>().add(const QueueCleared());
+      setState(() {
+        _isClearingQueue = false;
+        _clearingUids.clear();
+        _tapTransitionTracks = null;
+      });
+    });
+  }
+
+  void _handleTrackTapped(ContextTrack track) {
+    final state = context.read<QueueBloc>().state;
+    final currentTracks = List<ContextTrack>.from(state.nextTracks);
+    final tapIdx = currentTracks.indexWhere((t) => t.uid == track.uid);
+    if (tapIdx == -1) return;
+
+    final absoluteIndex = state.currentIndex + 1 + tapIdx;
+    final userQueueCount = state.queue.userQueue.length;
+    final scrollOffset =
+        _scrollController.hasClients ? _scrollController.offset : 0.0;
+    final firstVisibleIndex =
+        (scrollOffset / 64.0).floor().clamp(0, currentTracks.length);
+    final subRowOffset =
+        (scrollOffset - firstVisibleIndex * 64.0).clamp(0.0, 64.0);
+
+    final gen = ++_tapAnimationGeneration;
+
+    // 1. Start audio playback & sticky QueueNowPlayingRow transition immediately at t=0ms
+    context.read<QueueBloc>().add(
+          QueueTrackTapped(
+            track: track,
+            absoluteIndex: absoluteIndex,
+          ),
+        );
+
+    // 2. Build the viewport-anchored transition list so both sides animate
+    //    continuously over the 370ms DefaultItemAnimator window:
+    if (tapIdx < userQueueCount || userQueueCount == 0) {
+      // Scenario A: Tapped a queued track (or no queued tracks exist).
+      // Drop off-screen skipped rows above the viewport immediately at t=0ms,
+      // and collapse only the visible skipped rows [startVisibleIdx .. tapIdx]
+      // so all songs below the tapped song smoothly move UPWARDS to the top.
+      final startVisibleIdx = firstVisibleIndex.clamp(0, tapIdx);
+      final visibleSkipped = currentTracks.sublist(startVisibleIdx, tapIdx + 1);
+      final remainingAfterTap = currentTracks.sublist(tapIdx + 1);
+      final transitionTracks = <ContextTrack>[
+        ...visibleSkipped,
+        ...remainingAfterTap,
+      ];
+      final skippedUids = visibleSkipped.map((t) => t.uid).toList();
+
+      setState(() {
+        _tapTransitionTracks = transitionTracks;
+        _tappedTrackUid = track.uid;
+        _slideDownUids.clear();
+        _clearingUids
+          ..clear()
+          ..addAll(skippedUids);
+      });
+
+      if (_scrollController.hasClients && _scrollController.offset > 0.0) {
+        final initialOffset = startVisibleIdx == firstVisibleIndex
+            ? subRowOffset
+            : 0.0;
+        _scrollController.jumpTo(initialOffset);
+        if (initialOffset > 0.5) {
+          _scrollController.animateTo(
+            0.0,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOutSine,
+          );
+        }
+      }
+
+      Future<void>.delayed(_itemAnimatorTotalWait, () {
+        if (!mounted || _tapAnimationGeneration != gen) return;
+        setState(() {
+          _tapTransitionTracks = null;
+          _tappedTrackUid = null;
+          _clearingUids.removeAll(skippedUids);
+        });
+      });
+    } else {
+      // Scenario B: Tapped a context track below preserved queued tracks (userQueueCount > 0).
+      // - Preserved queued tracks that were above the viewport smoothly slide
+      //   DOWNWARDS from under the sticky Now Playing row (0 -> 64px).
+      // - Visible skipped context tracks up to tapIdx fade out and collapse (64 -> 0px).
+      // - Remaining context tracks below tapIdx smoothly move UPWARDS to meet
+      //   the preserved queued tracks as a continuous list.
+      final offScreenQueuedCount = firstVisibleIndex.clamp(0, userQueueCount);
+      final firstVisibleRemovedContextIdx = firstVisibleIndex > userQueueCount
+          ? firstVisibleIndex.clamp(userQueueCount, tapIdx)
+          : userQueueCount;
+
+      final animatedOffScreenQueued = currentTracks
+          .take(offScreenQueuedCount.clamp(0, 10))
+          .toList();
+      final visibleQueued = currentTracks.sublist(
+        offScreenQueuedCount,
+        userQueueCount,
+      );
+      final visibleRemovedContext = currentTracks.sublist(
+        firstVisibleRemovedContextIdx,
+        tapIdx + 1,
+      );
+      final remainingContext = currentTracks.sublist(tapIdx + 1);
+
+      final transitionTracks = <ContextTrack>[
+        ...animatedOffScreenQueued,
+        ...visibleQueued,
+        ...visibleRemovedContext,
+        ...remainingContext,
+      ];
+
+      final slideDownUids = animatedOffScreenQueued.map((t) => t.uid).toList();
+      final skippedUids = visibleRemovedContext.map((t) => t.uid).toList();
+
+      setState(() {
+        _tapTransitionTracks = transitionTracks;
+        _tappedTrackUid = track.uid;
+        _slideDownUids
+          ..clear()
+          ..addAll(slideDownUids);
+        _clearingUids
+          ..clear()
+          ..addAll(skippedUids);
+      });
+
+      if (_scrollController.hasClients && _scrollController.offset > 0.0) {
+        _scrollController.jumpTo(subRowOffset);
+        if (subRowOffset > 0.5) {
+          _scrollController.animateTo(
+            0.0,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOutSine,
+          );
+        }
+      }
+
+      Future<void>.delayed(_itemAnimatorTotalWait, () {
+        if (!mounted || _tapAnimationGeneration != gen) return;
+        setState(() {
+          _tapTransitionTracks = null;
+          _tappedTrackUid = null;
+          _slideDownUids.removeAll(slideDownUids);
+          _clearingUids.removeAll(skippedUids);
+        });
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Extends right up to the system status bar inset with no extra gap
+    // Extends right up to the system status bar inset with no extra gap.
+    // Avoids full-screen Clip.antiAlias offscreen saveLayer by rounding the
+    // top sticky header directly.
     final topInset = MediaQuery.paddingOf(context).top;
 
     return Container(
@@ -123,66 +409,110 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         color: PlayerColors.background,
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: BlocBuilder<QueueBloc, QueueState>(
-        builder: (context, state) {
-          final currentTrack = state.nowPlaying;
-
-          return Stack(
+      child: Stack(
+        children: [
+          Column(
             children: [
-              Column(
-                children: [
-                  // Sticky Top Area: Grapple + Queue Header + Sticky First Song
-                  // Coordinated with PullToDismissController just like PlayerScreen
-                  GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onVerticalDragUpdate: (details) {
-                      final delta = details.primaryDelta ?? 0;
-                      if (delta > 0 ||
-                          widget.dismissController.dragOffsetY > 0) {
-                        widget.dismissController.onPullDelta(delta);
-                      }
-                    },
-                    onVerticalDragEnd: (details) {
-                      final velocity = details.primaryVelocity ?? 0;
-                      widget.dismissController.onPullEnd(velocity);
-                    },
-                    child: Container(
-                      color: PlayerColors.background,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const _Grapple(),
-                          _QueueHeader(state: state),
-                          if (currentTrack != null)
-                            QueueNowPlayingRow(
-                              track: currentTrack,
-                              isPlaying: state.isPlaying,
-                              onTap: widget.dismissController.dismiss,
-                              onPlayPause: () {
-                                context
-                                    .read<QueueBloc>()
-                                    .add(const QueuePlayPauseToggled());
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+              // Sticky Top Area: Grapple + Queue Header + Sticky First Song
+              // Isolated in its own RepaintBoundary + targeted BlocBuilder so
+              // play/pause changes never rebuild the track list below.
+              RepaintBoundary(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onVerticalDragUpdate: (details) {
+                    final delta = details.primaryDelta ?? 0;
+                    if (delta > 0 ||
+                        widget.dismissController.dragOffsetY > 0) {
+                      widget.dismissController.onPullDelta(delta);
+                    }
+                  },
+                  onVerticalDragEnd: (details) {
+                    final velocity = details.primaryVelocity ?? 0;
+                    widget.dismissController.onPullEnd(velocity);
+                  },
+                  child: BlocBuilder<QueueBloc, QueueState>(
+                    buildWhen: (previous, current) =>
+                        previous.nowPlaying != current.nowPlaying ||
+                        previous.isPlaying != current.isPlaying ||
+                        previous.hasUserQueue != current.hasUserQueue,
+                    builder: (context, state) {
+                      final currentTrack = state.nowPlaying;
+                      final showClear =
+                          state.hasUserQueue && !_isClearingQueue;
 
-                  // Scrollable upcoming tracks list (scrolls cleanly under sticky first song)
-                  Expanded(
-                    child: _buildList(context, state),
+                      return Container(
+                        decoration: const BoxDecoration(
+                          color: PlayerColors.background,
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(16)),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const _Grapple(),
+                            _QueueHeader(
+                              nowPlaying: currentTrack,
+                              hasUserQueue: showClear,
+                              onClearTapped: _handleClearQueue,
+                            ),
+                            if (currentTrack != null)
+                              QueueNowPlayingRow(
+                                track: currentTrack,
+                                isPlaying: state.isPlaying,
+                                onTap: widget.dismissController.dismiss,
+                                onPlayPause: () {
+                                  context
+                                      .read<QueueBloc>()
+                                      .add(const QueuePlayPauseToggled());
+                                },
+                              ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                ],
+                ),
               ),
 
-              // Bottom controls overlay (CoordinatorLayout layout_gravity=bottom)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: QueueControlsLayout(
+              // Scrollable upcoming tracks list (scrolls cleanly under sticky first song)
+              // Isolated via RepaintBoundary + buildWhen so Play/Pause, Shuffle,
+              // and Repeat toggles NEVER rebuild or repaint the ReorderableListView.
+              Expanded(
+                child: RepaintBoundary(
+                  child: BlocConsumer<QueueBloc, QueueState>(
+                    listenWhen: (previous, current) =>
+                        previous.queue.revision != current.queue.revision ||
+                        previous.currentIndex != current.currentIndex,
+                    listener: (context, state) {
+                      _syncUserQueueAnimations(state, isFromListener: true);
+                    },
+                    buildWhen: (previous, current) =>
+                        previous.queue.revision != current.queue.revision ||
+                        previous.currentIndex != current.currentIndex,
+                    builder: (context, state) {
+                      if (!_hasInitializedQueueUids) {
+                        _syncUserQueueAnimations(state, isFromListener: false);
+                      }
+                      return _buildList(context, state);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Bottom controls overlay (CoordinatorLayout layout_gravity=bottom)
+          // Isolated via buildWhen so only shuffle/repeat mode changes rebuild it.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: BlocBuilder<QueueBloc, QueueState>(
+              buildWhen: (previous, current) =>
+                   previous.shuffleMode != current.shuffleMode ||
+                   previous.repeatMode != current.repeatMode,
+              builder: (context, state) {
+                return QueueControlsLayout(
                   shuffleMode: state.shuffleMode,
                   repeatMode: state.repeatMode,
                   onShuffleTapped: () {
@@ -194,21 +524,21 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                   onTimerTapped: () {
                     // Timer handled externally
                   },
-                ),
-              ),
-            ],
-          );
-        },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildList(BuildContext context, QueueState state) {
-    if (!state.hasQueue && !state.hasUpcoming) {
+    final nextTracks = _tapTransitionTracks ?? state.nextTracks;
+    if (!state.hasQueue && !state.hasUpcoming && nextTracks.isEmpty) {
       return _buildPlaceholder();
     }
 
-    final nextTracks = state.nextTracks;
     final bottomPad = MediaQuery.paddingOf(context).bottom + 104;
 
     return SpotifyStretchOverscrollIndicator(
@@ -218,7 +548,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         scrollController: _scrollController,
         physics: const ClampingScrollPhysics(),
         buildDefaultDragHandles: false,
-        itemExtent: 64.0,
+        scrollCacheExtent: const ScrollCacheExtent.pixels(3500.0),
         padding: EdgeInsets.only(bottom: bottomPad),
         proxyDecorator: _proxyDecorator,
         itemCount: nextTracks.length,
@@ -227,20 +557,22 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         },
         itemBuilder: (context, index) {
           final track = nextTracks[index];
-          final absoluteIndex = state.currentIndex + 1 + index;
+          final shouldAnimateInsert =
+              _animatedInsertUids.contains(track.uid);
+          final shouldAnimateSlideDown =
+              _slideDownUids.contains(track.uid);
+          final isClearingRow = _clearingUids.contains(track.uid);
+          final isTappedRow = _tappedTrackUid == track.uid;
 
           return QueueTrackRow(
             key: ValueKey('track_${track.uid}'),
             track: track,
             index: index,
-            onTap: () {
-              context.read<QueueBloc>().add(
-                    QueueTrackTapped(
-                      track: track,
-                      absoluteIndex: absoluteIndex,
-                    ),
-                  );
-            },
+            animateInsert: shouldAnimateInsert,
+            animateSlideDown: shouldAnimateSlideDown,
+            isClearing: isClearingRow,
+            isTappedPlaying: isTappedRow,
+            onTap: () => _handleTrackTapped(track),
             onRemove: () {
               context.read<QueueBloc>().add(QueueTrackRemoved(track.uid));
             },
@@ -253,30 +585,29 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     );
   }
 
+  /// 1:1 with Spotify's l1q0.java line 207:
+  /// Transitions dragged row background to R.color.gray_15 (#262626) with an
+  /// isolated RepaintBoundary (zero blur or shadow recalculation during 120Hz drag).
   Widget _proxyDecorator(Widget child, int index, Animation<double> animation) {
-    return AnimatedBuilder(
-      animation: animation,
-      child: child,
-      builder: (context, proxyChild) {
-        final t = Curves.easeOutCubic.transform(animation.value);
-        final scale = lerpDouble(1.0, 1.02, t) ?? 1.0;
-        final elevation = lerpDouble(0.0, 10.0, t) ?? 0.0;
-        final bgColor = Color.lerp(
-          PlayerColors.background,
-          const Color(0xFF262626),
-          t,
-        )!;
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: animation,
+        child: RepaintBoundary(child: child),
+        builder: (context, proxyChild) {
+          const curve = Cubic(0.3, 0.0, 0.0, 1.0);
+          final t = curve.transform(animation.value);
+          final bgColor = Color.lerp(
+            PlayerColors.background,
+            const Color(0xFF262626),
+            t,
+          )!;
 
-        return Transform.scale(
-          scale: scale,
-          child: Material(
+          return ColoredBox(
             color: bgColor,
-            elevation: elevation,
-            shadowColor: Colors.black87,
             child: proxyChild,
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -340,23 +671,34 @@ class _Grapple extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 // Queue Header - matches Spotify's queue_header_container from screenshots
+// and f1q0.java / c0b1.java (300ms DecelerateInterpolator transition)
 //
 // Left column:
 //   "Queue" (20px bold white)
 //   "Playing [context name]" ("Playing " in #B3B3B3 + context name in bold white)
 // Right row:
-//   [Clear] (animated pill, visible when state.hasUserQueue) + [Edit] pill
+//   [Clear] (animated pill, 300ms Decelerate, visible when hasUserQueue) + [Edit] pill
 // ---------------------------------------------------------------------------
 
 class _QueueHeader extends StatelessWidget {
-  const _QueueHeader({required this.state});
+  const _QueueHeader({
+    required this.nowPlaying,
+    required this.hasUserQueue,
+    required this.onClearTapped,
+  });
 
-  final QueueState state;
+  final ContextTrack? nowPlaying;
+  final bool hasUserQueue;
+  final VoidCallback onClearTapped;
+
+  // Matches f1q0.java line 264 & c0b1.java line 86: 300L + DecelerateInterpolator
+  static const Duration _headerAnimDuration = Duration(milliseconds: 300);
+  static final Tween<double> _clearScaleTween =
+      Tween<double>(begin: 0.88, end: 1.0);
 
   @override
   Widget build(BuildContext context) {
-    final currentTrack = state.nowPlaying;
-    final contextTitle = _getPlayingContext(currentTrack);
+    final contextTitle = _getPlayingContext(nowPlaying);
 
     return Padding(
       padding: const EdgeInsets.only(left: 16, right: 16, top: 2, bottom: 8),
@@ -409,30 +751,28 @@ class _QueueHeader extends StatelessWidget {
             ),
           ),
 
-          // Right: Clear (animated) + Edit pill buttons
+          // Right: Clear (animated 300ms Decelerate matching c0b1.java) + Edit pill buttons
           AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
+            duration: _headerAnimDuration,
+            curve: Curves.decelerate,
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
+              duration: _headerAnimDuration,
+              switchInCurve: Curves.decelerate,
+              switchOutCurve: Curves.decelerate,
               transitionBuilder: (child, anim) => FadeTransition(
                 opacity: anim,
                 child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.85, end: 1.0).animate(anim),
+                  scale: _clearScaleTween.animate(anim),
                   child: child,
                 ),
               ),
-              child: state.hasUserQueue
+              child: hasUserQueue
                   ? Padding(
                       key: const ValueKey('clear_btn'),
                       padding: const EdgeInsets.only(right: 8),
                       child: _HeaderPillButton(
                         label: 'Clear',
-                        onTap: () {
-                          context.read<QueueBloc>().add(const QueueCleared());
-                        },
+                        onTap: onClearTapped,
                       ),
                     )
                   : const SizedBox.shrink(key: ValueKey('no_clear_btn')),
@@ -472,6 +812,11 @@ class _HeaderPillButton extends StatefulWidget {
 class _HeaderPillButtonState extends State<_HeaderPillButton> {
   bool _isPressed = false;
 
+  // Matches res/anim/encore_button_animation_interpolator.xml
+  // and @integer/encore_button_animation_time (200ms)
+  static const Cubic _encoreButtonCurve = Cubic(0.3, 0.0, 0.0, 1.0);
+  static const Duration _encoreButtonDuration = Duration(milliseconds: 200);
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -483,14 +828,14 @@ class _HeaderPillButtonState extends State<_HeaderPillButton> {
       onTapCancel: () => setState(() => _isPressed = false),
       behavior: HitTestBehavior.opaque,
       child: AnimatedScale(
-        scale: _isPressed ? 0.94 : 1.0,
-        duration: const Duration(milliseconds: 110),
-        curve: Curves.easeOutCubic,
+        scale: _isPressed ? 0.95 : 1.0,
+        duration: _encoreButtonDuration,
+        curve: _encoreButtonCurve,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF282828),
-            borderRadius: BorderRadius.circular(20),
+          decoration: const BoxDecoration(
+            color: Color(0xFF282828),
+            borderRadius: BorderRadius.all(Radius.circular(20)),
           ),
           child: Text(
             widget.label,

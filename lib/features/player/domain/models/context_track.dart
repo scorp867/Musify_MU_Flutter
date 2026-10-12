@@ -60,8 +60,16 @@ class ContextTrack extends Equatable {
     );
   }
 
-  /// Convert ContextTrack to AudioService MediaItem
+  static final Expando<MediaItem> _mediaItemCache =
+      Expando<MediaItem>('ContextTrackMediaItem');
+
+  /// Convert ContextTrack to AudioService MediaItem (memoized for 120fps list scrolling)
   MediaItem toMediaItem() {
+    try {
+      final cached = _mediaItemCache[this];
+      if (cached != null) return cached;
+    } catch (_) {}
+
     final extras = <String, dynamic>{
       ...metadata,
       'uid': uid,
@@ -87,7 +95,7 @@ class ContextTrack extends Equatable {
       if (parsedVersion != null) extras['artworkVersion'] = parsedVersion;
     }
 
-    return MediaItem(
+    final item = MediaItem(
       id: uri,
       title: title.isNotEmpty ? title : 'Unknown Track',
       artist: artist.isNotEmpty ? artist : 'Unknown Artist',
@@ -96,6 +104,12 @@ class ContextTrack extends Equatable {
       duration: duration,
       extras: extras,
     );
+
+    try {
+      _mediaItemCache[this] = item;
+    } catch (_) {}
+
+    return item;
   }
 
   ContextTrack copyWith({

@@ -42,77 +42,79 @@ class QueueControlsLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomSafe = MediaQuery.paddingOf(context).bottom;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // DropShadowContainer (drop_shadow_top.xml: fades tracks into dock)
-        IgnorePointer(
-          child: Container(
-            height: 28,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  PlayerColors.background.withValues(alpha: 0.0),
-                  PlayerColors.background.withValues(alpha: 0.85),
-                  PlayerColors.background,
-                ],
-                stops: const [0.0, 0.65, 1.0],
+    return RepaintBoundary(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // DropShadowContainer (drop_shadow_top.xml: fades tracks into dock)
+          IgnorePointer(
+            child: Container(
+              height: 28,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    PlayerColors.background.withValues(alpha: 0.0),
+                    PlayerColors.background.withValues(alpha: 0.85),
+                    PlayerColors.background,
+                  ],
+                  stops: const [0.0, 0.65, 1.0],
+                ),
               ),
             ),
           ),
-        ),
 
-        // queue_controls_content_area + SessionModifierContainerView
-        Container(
-          color: PlayerColors.background,
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 4,
-            bottom: bottomSafe + 12,
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: _SessionModifierButton(
-                  label: 'Shuffle',
-                  isActive: _isShuffling,
-                  onTap: onShuffleTapped,
-                  iconBuilder: (color) => SpotifyIcon.shuffle(
-                    color: color,
-                    size: 22,
+          // queue_controls_content_area + SessionModifierContainerView
+          Container(
+            color: PlayerColors.background,
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 4,
+              bottom: bottomSafe + 12,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _SessionModifierButton(
+                    label: 'Shuffle',
+                    isActive: _isShuffling,
+                    onTap: onShuffleTapped,
+                    iconBuilder: (color) => SpotifyIcon.shuffle(
+                      color: color,
+                      size: 22,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _SessionModifierButton(
-                  label: 'Repeat',
-                  isActive: _isRepeating,
-                  onTap: onRepeatTapped,
-                  iconBuilder: (color) => _isRepeatingOne
-                      ? SpotifyIcon.repeatOnce(color: color, size: 22)
-                      : SpotifyIcon.repeat(color: color, size: 22),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _SessionModifierButton(
-                  label: 'Timer',
-                  isActive: isTimerActive,
-                  onTap: onTimerTapped,
-                  iconBuilder: (color) => SpotifyIcon.timer(
-                    color: color,
-                    size: 22,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _SessionModifierButton(
+                    label: 'Repeat',
+                    isActive: _isRepeating,
+                    onTap: onRepeatTapped,
+                    iconBuilder: (color) => _isRepeatingOne
+                        ? SpotifyIcon.repeatOnce(color: color, size: 22)
+                        : SpotifyIcon.repeat(color: color, size: 22),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _SessionModifierButton(
+                    label: 'Timer',
+                    isActive: isTimerActive,
+                    onTap: onTimerTapped,
+                    iconBuilder: (color) => SpotifyIcon.timer(
+                      color: color,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -137,53 +139,60 @@ class _SessionModifierButton extends StatefulWidget {
 class _SessionModifierButtonState extends State<_SessionModifierButton> {
   bool _isPressed = false;
 
+  // Matches res/anim/encore_button_animation_interpolator.xml
+  // and @integer/encore_button_animation_time (200ms)
+  static const Cubic _encoreButtonCurve = Cubic(0.3, 0.0, 0.0, 1.0);
+  static const Duration _encoreButtonDuration = Duration(milliseconds: 200);
+
   @override
   Widget build(BuildContext context) {
     final targetColor = widget.isActive ? PlayerColors.accent : Colors.white;
 
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) {
-        setState(() => _isPressed = false);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _isPressed = false),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _isPressed ? 0.96 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutCubic,
-        child: Container(
-          height: 58,
-          decoration: BoxDecoration(
-            color: const Color(0xFF242424),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: TweenAnimationBuilder<Color?>(
-            tween: ColorTween(end: targetColor),
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            builder: (context, animatedColor, _) {
-              final resolvedColor = animatedColor ?? targetColor;
-              return Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  widget.iconBuilder(resolvedColor),
-                  const SizedBox(height: 4),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      color: resolvedColor.withValues(
-                        alpha: widget.isActive ? 1.0 : 0.85,
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _isPressed = true),
+        onTapUp: (_) {
+          setState(() => _isPressed = false);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _isPressed = false),
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedScale(
+          scale: _isPressed ? 0.95 : 1.0,
+          duration: _encoreButtonDuration,
+          curve: _encoreButtonCurve,
+          child: Container(
+            height: 58,
+            decoration: const BoxDecoration(
+              color: Color(0xFF242424),
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            child: TweenAnimationBuilder<Color?>(
+              tween: ColorTween(end: targetColor),
+              duration: const Duration(milliseconds: 240),
+              curve: _encoreButtonCurve,
+              builder: (context, animatedColor, _) {
+                final resolvedColor = animatedColor ?? targetColor;
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    widget.iconBuilder(resolvedColor),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.label,
+                      style: TextStyle(
+                        color: resolvedColor.withValues(
+                          alpha: widget.isActive ? 1.0 : 0.85,
+                        ),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.1,
                       ),
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.1,
                     ),
-                  ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),

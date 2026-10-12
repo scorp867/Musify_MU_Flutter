@@ -23,120 +23,256 @@ class QueueNowPlayingRow extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onPlayPause;
 
+  static const Cubic _trackSwitchCurve = Cubic(0.3, 0.0, 0.0, 1.0);
+  static const Duration _trackSwitchDuration = Duration(milliseconds: 280);
+
+  static final Tween<double> _artworkScaleTween =
+      Tween<double>(begin: 0.90, end: 1.0);
+  static final Tween<Offset> _slideInTween = Tween<Offset>(
+    begin: const Offset(0.0, 0.35),
+    end: Offset.zero,
+  );
+  static final Tween<Offset> _slideOutTween = Tween<Offset>(
+    begin: const Offset(0.0, -0.35),
+    end: Offset.zero,
+  );
+
+  static Widget _slideStackLayoutBuilder(
+    Widget? currentChild,
+    List<Widget> previousChildren,
+  ) {
+    return Stack(
+      alignment: Alignment.centerLeft,
+      children: <Widget>[
+        ...previousChildren,
+        ?currentChild,
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mediaItem = track.toMediaItem();
+    final trackKey = ValueKey<String>(track.uri);
 
-    return Material(
-      color: PlayerColors.background,
-      child: InkWell(
-        onTap: onTap,
-        splashColor: Colors.white.withValues(alpha: 0.06),
-        highlightColor: Colors.white.withValues(alpha: 0.03),
-        child: SizedBox(
-          height: 64,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                // 48x48 Artwork with 4dp corners
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: PlayerArtworkImage(
-                      item: mediaItem,
-                      artworkWidth: 48,
-                      artworkHeight: 48,
-                      placeholderIconSize: 20,
+    return RepaintBoundary(
+      child: Material(
+        color: PlayerColors.background,
+        child: InkWell(
+          onTap: onTap,
+          splashColor: Colors.white.withValues(alpha: 0.06),
+          highlightColor: Colors.white.withValues(alpha: 0.03),
+          child: SizedBox(
+            height: 64,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  // 48x48 Artwork with 4dp corners + smooth crossfade/scale on track change
+                  RepaintBoundary(
+                    child: AnimatedSwitcher(
+                      duration: _trackSwitchDuration,
+                      switchInCurve: _trackSwitchCurve,
+                      switchOutCurve: _trackSwitchCurve,
+                      transitionBuilder: (child, anim) => FadeTransition(
+                        opacity: anim,
+                        child: ScaleTransition(
+                          scale: _artworkScaleTween.animate(anim),
+                          child: child,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        key: trackKey,
+                        borderRadius: const BorderRadius.all(
+                          Radius.circular(4),
+                        ),
+                        child: SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: PlayerArtworkImage(
+                            item: mediaItem,
+                            artworkWidth: 48,
+                            artworkHeight: 48,
+                            placeholderIconSize: 20,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
 
-                // Equalizer + Title + Subtitle
-                Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                  // Equalizer + Animated Title & Subtitle
+                  Expanded(
+                    child: RepaintBoundary(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _PlayIndicator(isPlaying: isPlaying),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              track.title.isNotEmpty
-                                  ? track.title
-                                  : 'Unknown Track',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: PlayerColors.accent,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: -0.15,
+                          Row(
+                            children: [
+                              _PlayIndicator(isPlaying: isPlaying),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: ClipRect(
+                                  child: AnimatedSwitcher(
+                                    duration: _trackSwitchDuration,
+                                    switchInCurve: _trackSwitchCurve,
+                                    switchOutCurve: _trackSwitchCurve,
+                                    layoutBuilder: _slideStackLayoutBuilder,
+                                    transitionBuilder: (child, anim) {
+                                      final slideTween = child.key == trackKey
+                                          ? _slideInTween
+                                          : _slideOutTween;
+                                      return FadeTransition(
+                                        opacity: anim,
+                                        child: SlideTransition(
+                                          position: slideTween.animate(anim),
+                                          child: child,
+                                        ),
+                                      );
+                                    },
+                                    child: Text(
+                                      track.title.isNotEmpty
+                                          ? track.title
+                                          : 'Unknown Track',
+                                      key: trackKey,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: PlayerColors.accent,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                        letterSpacing: -0.15,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          ClipRect(
+                            child: AnimatedSwitcher(
+                              duration: _trackSwitchDuration,
+                              switchInCurve: _trackSwitchCurve,
+                              switchOutCurve: _trackSwitchCurve,
+                              layoutBuilder: _slideStackLayoutBuilder,
+                              transitionBuilder: (child, anim) {
+                                final slideTween = child.key == trackKey
+                                    ? _slideInTween
+                                    : _slideOutTween;
+                                return FadeTransition(
+                                  opacity: anim,
+                                  child: SlideTransition(
+                                    position: slideTween.animate(anim),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: Text(
+                                track.artist.isNotEmpty
+                                    ? track.artist
+                                    : 'Unknown Artist',
+                                key: trackKey,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: PlayerColors.textSecondary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        track.artist.isNotEmpty
-                            ? track.artist
-                            : 'Unknown Artist',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: PlayerColors.textSecondary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
 
-                // Solid white circle Play/Pause button on right
-                GestureDetector(
-                  onTap: onPlayPause,
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    width: 34,
-                    height: 34,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        transitionBuilder: (child, anim) => ScaleTransition(
-                          scale: Tween<double>(begin: 0.75, end: 1.0)
-                              .animate(anim),
-                          child: FadeTransition(opacity: anim, child: child),
-                        ),
-                        child: isPlaying
-                            ? SpotifyIcon.pause(
-                                key: const ValueKey('pause'),
-                                color: Colors.black,
-                                size: 15,
-                              )
-                            : SpotifyIcon.play(
-                                key: const ValueKey('play'),
-                                color: Colors.black,
-                                size: 15,
-                              ),
-                      ),
+                  // Solid white circle Play/Pause button isolated in its own RepaintBoundary
+                  RepaintBoundary(
+                    child: _EncoreCirclePlayPauseButton(
+                      isPlaying: isPlaying,
+                      onTap: onPlayPause,
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EncoreCirclePlayPauseButton extends StatefulWidget {
+  const _EncoreCirclePlayPauseButton({
+    required this.isPlaying,
+    required this.onTap,
+  });
+
+  final bool isPlaying;
+  final VoidCallback? onTap;
+
+  @override
+  State<_EncoreCirclePlayPauseButton> createState() =>
+      _EncoreCirclePlayPauseButtonState();
+}
+
+class _EncoreCirclePlayPauseButtonState
+    extends State<_EncoreCirclePlayPauseButton> {
+  bool _isPressed = false;
+
+  // Matches Spotify res/anim/encore_button_animation_interpolator.xml
+  // and @integer/encore_button_animation_time (200ms)
+  static const Cubic _encoreButtonCurve = Cubic(0.3, 0.0, 0.0, 1.0);
+  static const Duration _encoreButtonDuration = Duration(milliseconds: 200);
+  static final Tween<double> _iconScaleTween =
+      Tween<double>(begin: 0.78, end: 1.0);
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onTap?.call();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedScale(
+        scale: _isPressed ? 0.93 : 1.0,
+        duration: _encoreButtonDuration,
+        curve: _encoreButtonCurve,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: _encoreButtonDuration,
+              switchInCurve: _encoreButtonCurve,
+              switchOutCurve: _encoreButtonCurve,
+              transitionBuilder: (child, anim) => ScaleTransition(
+                scale: _iconScaleTween.animate(anim),
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: widget.isPlaying
+                  ? SpotifyIcon.pause(
+                      key: const ValueKey('pause'),
+                      color: Colors.black,
+                      size: 15,
+                    )
+                  : SpotifyIcon.play(
+                      key: const ValueKey('play'),
+                      color: Colors.black,
+                      size: 15,
+                    ),
             ),
           ),
         ),
@@ -163,7 +299,7 @@ class _PlayIndicatorState extends State<_PlayIndicator>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 750),
+      duration: const Duration(milliseconds: 850),
     );
     if (widget.isPlaying) {
       _controller.repeat(reverse: true);
@@ -179,8 +315,8 @@ class _PlayIndicatorState extends State<_PlayIndicator>
       } else {
         _controller.animateTo(
           0.15,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
+          duration: const Duration(milliseconds: 250),
+          curve: const Cubic(0.3, 0.0, 0.0, 1.0),
         );
       }
     }
@@ -194,46 +330,46 @@ class _PlayIndicatorState extends State<_PlayIndicator>
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 13,
-      height: 13,
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          return CustomPaint(
-            painter: _EqualizerPainter(
-              progress: _controller.value,
-              isPlaying: widget.isPlaying,
-              color: PlayerColors.accent,
-            ),
-          );
-        },
+    // Isolated in its own RepaintBoundary and driven via CustomPainter(repaint:)
+    // so 120Hz equalizer ticks cause 0 widget rebuilds and never repaint neighbors.
+    return RepaintBoundary(
+      child: SizedBox(
+        width: 13,
+        height: 13,
+        child: CustomPaint(
+          painter: _EqualizerPainter(
+            animation: _controller,
+            isPlaying: widget.isPlaying,
+            color: PlayerColors.accent,
+          ),
+        ),
       ),
     );
   }
 }
 
 class _EqualizerPainter extends CustomPainter {
-  final double progress;
+  final Animation<double> animation;
   final bool isPlaying;
   final Color color;
+  final Paint _barPaint;
 
-  const _EqualizerPainter({
-    required this.progress,
+  _EqualizerPainter({
+    required this.animation,
     required this.isPlaying,
     required this.color,
-  });
+  })  : _barPaint = Paint()
+          ..color = color
+          ..style = PaintingStyle.fill,
+        super(repaint: animation);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
     const barCount = 3;
     final barWidth = size.width / 5.0;
     final gap = barWidth;
     final maxHeight = size.height;
+    final progress = animation.value;
 
     const heightsWhenPaused = [0.65, 0.35, 0.80];
 
@@ -255,15 +391,13 @@ class _EqualizerPainter extends CustomPainter {
           Rect.fromLTWH(x, y, barWidth, barHeight),
           const Radius.circular(1.0),
         ),
-        paint,
+        _barPaint,
       );
     }
   }
 
   @override
   bool shouldRepaint(covariant _EqualizerPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.isPlaying != isPlaying ||
-        oldDelegate.color != color;
+    return oldDelegate.isPlaying != isPlaying || oldDelegate.color != color;
   }
 }

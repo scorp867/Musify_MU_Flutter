@@ -32,6 +32,14 @@ class SpotifyEncoreIcons {
   static const String addToQueuePath3 = 'M3,22H21V20H3V22Z';
   static const String addToQueuePath4 = 'M5,3H8V5H5V8H3V5H0L0,3H3V0L5,0V3Z';
 
+  static const List<String> addToQueuePaths = [
+    addToQueuePath1,
+    addToQueuePath2,
+    addToQueuePath3,
+    addToQueuePath4,
+  ];
+  static const List<String> deletePaths = [deletePath];
+
   static const String shufflePath1 =
       'M18.788,3.702a1,1 0,0 1,1.414 -1.414L23.914,6l-3.712,3.712'
       'a1,1 0,1 1,-1.414 -1.414L20.086,7h-1.518a5,5 0,0 0,-3.826 1.78'
@@ -208,6 +216,33 @@ class SpotifyIcon extends StatelessWidget {
   factory SpotifyIcon.chevronDown({Color color = Colors.white, double size = 24}) =>
       SpotifyIcon(paths: const [SpotifyEncoreIcons.chevronDownPath], color: color, size: size);
 
+  /// Paints cached Encore vector paths centered at [center] directly onto [canvas]
+  /// with zero widget allocations (used by ItemTouchHelper swipe background).
+  static void paintIcon(
+    Canvas canvas,
+    List<String> paths, {
+    required Offset center,
+    double size = 24.0,
+    Color color = Colors.white,
+  }) {
+    final scale = size / 24.0;
+    final topLeft = Offset(center.dx - size * 0.5, center.dy - size * 0.5);
+    canvas.save();
+    canvas.translate(topLeft.dx, topLeft.dy);
+    canvas.scale(scale, scale);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = true;
+
+    for (final pathData in paths) {
+      canvas.drawPath(_SvgPathPainter.parseSvgPath(pathData), paint);
+    }
+
+    canvas.restore();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -238,7 +273,7 @@ class _SvgPathPainter extends CustomPainter {
       ..isAntiAlias = true;
 
     for (final pathData in paths) {
-      final path = _parseSvgPath(pathData);
+      final path = parseSvgPath(pathData);
       canvas.drawPath(path, paint);
     }
 
@@ -252,7 +287,7 @@ class _SvgPathPainter extends CustomPainter {
 
   static final Map<String, Path> _cache = {};
 
-  Path _parseSvgPath(String d) {
+  static Path parseSvgPath(String d) {
     if (_cache.containsKey(d)) return _cache[d]!;
     final path = _SvgPathParser(d).parse();
     _cache[d] = path;
