@@ -36,6 +36,10 @@ abstract final class MediaItemMapper {
     final value = item.extras?[songIdKey];
     if (value is int) return value;
     if (value is num) return value.toInt();
+    if (value is String) {
+      final parsed = int.tryParse(value);
+      if (parsed != null) return parsed;
+    }
     return int.tryParse(item.id);
   }
 

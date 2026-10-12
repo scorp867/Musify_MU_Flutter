@@ -9,6 +9,8 @@ abstract interface class PlaybackController {
 
   Future<void> playQueue(List<MediaItem> tracks, int initialIndex);
   Future<void> reorderQueueItem(int fromIndex, int toIndex);
+  Future<void> removeQueueItemAt(int index);
+  Future<void> insertQueueItem(int index, MediaItem mediaItem);
   Future<void> updateCurrentMediaItem(MediaItem item);
   Future<void> refreshArtwork();
   Future<void> play();

@@ -220,6 +220,18 @@ class AudioNotificationHandler extends BaseAudioHandler
   }
 
   @override
+  Future<void> removeQueueItemAt(int index) async {
+    await _playbackService.removeTrack(index);
+    queue.add(_playbackService.fullTracks);
+  }
+
+  @override
+  Future<void> insertQueueItem(int index, MediaItem mediaItem) async {
+    await _playbackService.insertTrack(index, mediaItem);
+    queue.add(_playbackService.fullTracks);
+  }
+
+  @override
   Future<void> play() => _playbackService.play();
 
   @override

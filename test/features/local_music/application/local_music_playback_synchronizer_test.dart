@@ -86,6 +86,12 @@ class FakePlaybackController implements PlaybackController {
   @override
   Future<void> reorderQueueItem(int fromIndex, int toIndex) async {}
 
+  @override
+  Future<void> removeQueueItemAt(int index) async {}
+
+  @override
+  Future<void> insertQueueItem(int index, MediaItem mediaItem) async {}
+
   final List<MediaItem> updatedItems = [];
 
   @override

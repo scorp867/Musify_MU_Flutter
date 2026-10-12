@@ -1,0 +1,119 @@
+import 'package:audio_service/audio_service.dart';
+import 'package:equatable/equatable.dart';
+
+/// 1:1 with Spotify's com.spotify.player.model.ContextTrack
+///
+/// Contains the track URI, unique instance uid, provider ('queue' | 'context' | 'autoplay'),
+/// queued flag, and metadata map.
+class ContextTrack extends Equatable {
+  final String uri;
+  final String uid; // Session-unique instance identifier
+  final String provider; // 'queue' | 'context' | 'autoplay'
+  final bool isQueued;
+  final Map<String, String> metadata;
+
+  const ContextTrack({
+    required this.uri,
+    required this.uid,
+    this.provider = 'context',
+    this.isQueued = false,
+    this.metadata = const {},
+  });
+
+  String get title => metadata['title'] ?? '';
+  String get artist => metadata['artist_name'] ?? metadata['artist'] ?? '';
+  String get album => metadata['album_title'] ?? metadata['album'] ?? '';
+  String? get imageUrl => metadata['image_url'] ?? metadata['artwork'];
+  Duration? get duration {
+    final msStr = metadata['duration_ms'] ?? metadata['duration'];
+    if (msStr == null) return null;
+    final ms = int.tryParse(msStr);
+    return ms != null ? Duration(milliseconds: ms) : null;
+  }
+
+  /// Create ContextTrack from an AudioService MediaItem
+  factory ContextTrack.fromMediaItem(MediaItem item, {String? uid, bool? isQueued}) {
+    final effectiveUid = uid ?? item.extras?['uid']?.toString() ?? item.id;
+    final effectiveIsQueued = isQueued ?? (item.extras?['is_queued'] == true || item.extras?['is_queued'] == 'true');
+    final provider = item.extras?['provider']?.toString() ?? (effectiveIsQueued ? 'queue' : 'context');
+
+    final meta = <String, String>{
+      'title': item.title,
+      'artist_name': item.artist ?? '',
+      'album_title': item.album ?? '',
+      if (item.artUri != null) 'image_url': item.artUri.toString(),
+      if (item.duration != null) 'duration_ms': item.duration!.inMilliseconds.toString(),
+    };
+
+    if (item.extras != null) {
+      item.extras!.forEach((k, v) {
+        if (v != null) meta[k] = v.toString();
+      });
+    }
+
+    return ContextTrack(
+      uri: item.id,
+      uid: effectiveUid,
+      provider: provider,
+      isQueued: effectiveIsQueued,
+      metadata: meta,
+    );
+  }
+
+  /// Convert ContextTrack to AudioService MediaItem
+  MediaItem toMediaItem() {
+    final extras = <String, dynamic>{
+      ...metadata,
+      'uid': uid,
+      'is_queued': isQueued,
+      'provider': provider,
+    };
+
+    final songIdStr = metadata['songId'];
+    if (songIdStr != null) {
+      final parsedSongId = int.tryParse(songIdStr);
+      if (parsedSongId != null) extras['songId'] = parsedSongId;
+    }
+
+    final dateModifiedStr = metadata['dateModified'];
+    if (dateModifiedStr != null) {
+      final parsedDate = int.tryParse(dateModifiedStr);
+      if (parsedDate != null) extras['dateModified'] = parsedDate;
+    }
+
+    final artworkVersionStr = metadata['artworkVersion'];
+    if (artworkVersionStr != null) {
+      final parsedVersion = int.tryParse(artworkVersionStr);
+      if (parsedVersion != null) extras['artworkVersion'] = parsedVersion;
+    }
+
+    return MediaItem(
+      id: uri,
+      title: title.isNotEmpty ? title : 'Unknown Track',
+      artist: artist.isNotEmpty ? artist : 'Unknown Artist',
+      album: album,
+      artUri: imageUrl != null ? Uri.tryParse(imageUrl!) : null,
+      duration: duration,
+      extras: extras,
+    );
+  }
+
+  ContextTrack copyWith({
+    String? uri,
+    String? uid,
+    String? provider,
+    bool? isQueued,
+    Map<String, String>? metadata,
+  }) {
+    return ContextTrack(
+      uri: uri ?? this.uri,
+      uid: uid ?? this.uid,
+      provider: provider ?? this.provider,
+      isQueued: isQueued ?? this.isQueued,
+      metadata: metadata ?? this.metadata,
+    );
+  }
+
+  @override
+  List<Object?> get props => [uri, uid, provider, isQueued, metadata];
+}

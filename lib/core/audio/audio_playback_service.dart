@@ -63,6 +63,12 @@ class AudioPlaybackService {
   Future<void> reorderTrack(int fromAbsolute, int toAbsolute) =>
       _queueManager.reorderTrack(fromAbsolute, toAbsolute);
 
+  Future<void> removeTrack(int absoluteIndex) =>
+      _queueManager.removeTrack(absoluteIndex);
+
+  Future<void> insertTrack(int absoluteIndex, MediaItem track) =>
+      _queueManager.insertTrack(absoluteIndex, track);
+
   Stream<PlaybackEvent> get playbackEventStream => _player.playbackEventStream;
 }
 

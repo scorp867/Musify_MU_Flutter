@@ -30,15 +30,15 @@ void main() {
 
     // 0xFF4E472D (A=255, R=78, G=71, B=45)
     expect(palette.backgroundBase, equals(0xFF4E472D));
-    expect(palette.backgroundBaseColor.red, equals(78));
-    expect(palette.backgroundBaseColor.green, equals(71));
-    expect(palette.backgroundBaseColor.blue, equals(45));
+    expect((palette.backgroundBaseColor.r * 255.0).round(), equals(78));
+    expect((palette.backgroundBaseColor.g * 255.0).round(), equals(71));
+    expect((palette.backgroundBaseColor.b * 255.0).round(), equals(45));
 
     // 0xFF5A523B (A=255, R=90, G=82, B=59)
     expect(palette.backgroundTintedBase, equals(0xFF5A523B));
-    expect(palette.backgroundTintedBaseColor.red, equals(90));
-    expect(palette.backgroundTintedBaseColor.green, equals(82));
-    expect(palette.backgroundTintedBaseColor.blue, equals(59));
+    expect((palette.backgroundTintedBaseColor.r * 255.0).round(), equals(90));
+    expect((palette.backgroundTintedBaseColor.g * 255.0).round(), equals(82));
+    expect((palette.backgroundTintedBaseColor.b * 255.0).round(), equals(59));
 
     // textBase: 0xFFFFFFFF
     expect(palette.textBase, equals(0xFFFFFFFF));

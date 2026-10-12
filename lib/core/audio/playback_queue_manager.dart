@@ -132,6 +132,35 @@ class PlaybackQueueManager {
     }
   }
 
+  Future<void> removeTrack(int absoluteIndex) async {
+    if (absoluteIndex < 0 || absoluteIndex >= _fullTracks.length) return;
+
+    _fullTracks.removeAt(absoluteIndex);
+
+    final playlist = _playlist;
+    if (playlist != null) {
+      final windowIndex = absoluteIndex - _windowStartIndex;
+      if (windowIndex >= 0 && windowIndex < playlist.length) {
+        await playlist.removeAt(windowIndex);
+      }
+    }
+    _windowEndIndex = (_windowEndIndex - 1).clamp(0, _fullTracks.length);
+  }
+
+  Future<void> insertTrack(int absoluteIndex, MediaItem track) async {
+    final clampedIndex = absoluteIndex.clamp(0, _fullTracks.length);
+    _fullTracks.insert(clampedIndex, track);
+
+    final playlist = _playlist;
+    if (playlist != null) {
+      final windowIndex = clampedIndex - _windowStartIndex;
+      if (windowIndex >= 0 && windowIndex <= playlist.length) {
+        await playlist.insert(windowIndex, _createAudioSource(track));
+      }
+    }
+    _windowEndIndex = (_windowEndIndex + 1).clamp(0, _fullTracks.length);
+  }
+
   /// Called by the currentIndexStream listener.
   /// Expands the sliding window when playback approaches the edges.
   Future<void> onIndexChanged(int? windowIndex) async {
