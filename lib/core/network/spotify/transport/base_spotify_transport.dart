@@ -96,7 +96,8 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     Duration? ttl,
   }) async {
     final host = baseHost ?? defaultBaseUrl;
-    final uri = Uri.parse('$host$path');
+    final effectivePath = path.startsWith('/') ? path : '/$path';
+    final uri = Uri.parse('$host$effectivePath');
 
     return _executeWithRefresh(
       (headers) => client.get(
@@ -127,7 +128,8 @@ abstract class BaseSpotifyTransport implements SpotifyTransport {
     bool bufferIfOffline = false,
   }) async {
     final host = baseHost ?? defaultBaseUrl;
-    final uri = Uri.parse('$host$path');
+    final effectivePath = path.startsWith('/') ? path : '/$path';
+    final uri = Uri.parse('$host$effectivePath');
 
     return _executeWithRefresh(
       (headers) => client.post(

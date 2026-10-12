@@ -32,7 +32,12 @@ class AndroidTransport extends BaseSpotifyTransport {
       'cache-control': 'no-cache, no-store',
     };
 
-    if (extra != null) headers.addAll(extra);
+    if (extra != null) {
+      for (final entry in extra.entries) {
+        headers.removeWhere((k, _) => k.toLowerCase() == entry.key.toLowerCase());
+        headers[entry.key] = entry.value;
+      }
+    }
     headers.removeWhere((_, v) => v.isEmpty);
     return headers;
   }

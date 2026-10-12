@@ -18,6 +18,8 @@ import 'concert_marketing_trait_plugin.dart';
 import 'consumption_experience_trait_plugin.dart';
 import 'track_v4_plugin.dart';
 import 'episode_v4_plugin.dart';
+import 'on_platform_reputation_trait_plugin.dart';
+import 'credits_trait_plugin.dart';
 
 export 'plugin_utils.dart';
 export 'simple_card_trait_plugin.dart';
@@ -38,6 +40,8 @@ export 'concert_marketing_trait_plugin.dart';
 export 'consumption_experience_trait_plugin.dart';
 export 'track_v4_plugin.dart';
 export 'episode_v4_plugin.dart';
+export 'on_platform_reputation_trait_plugin.dart';
+export 'credits_trait_plugin.dart';
 
 /// Instantiates the standard suite of ExtendedMetadata plugins.
 List<ExtendedMetadataPlugin> createDefaultExtendedMetadataPlugins() {
@@ -60,5 +64,7 @@ List<ExtendedMetadataPlugin> createDefaultExtendedMetadataPlugins() {
     ConsumptionExperienceTraitPlugin(),
     TrackV4Plugin(),
     EpisodeV4Plugin(),
+    OnPlatformReputationTraitPlugin(),
+    CreditsTraitPlugin(),
   ];
 }

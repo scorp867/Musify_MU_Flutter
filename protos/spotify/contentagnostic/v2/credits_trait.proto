@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package spotify.contentagnostic.v2;
+
+option java_package = "com.spotify.contentagnostic.v2";
+
+/// Role group categorization for a contributor.
+/// Decompiled from `RoleGroup.java`.
+message RoleGroup {
+  string name = 1;
+}
+
+/// A single contributor (artist, writer, producer, etc.) on a track.
+/// Decompiled from `Contributor.java`.
+///
+/// Field numbers match the decompiled APK exactly:
+///   name=1, role=2, uri=3, reference=4, url=5, role_group=6, ai_attribution=7
+message Contributor {
+  string name = 1;
+  string role = 2;
+  string uri = 3;
+  // field 4: Reference (nested message — omitted, not needed for card UI)
+  string url = 5;
+  RoleGroup role_group = 6;
+  // field 7: AiAttribution (nested message — omitted)
+}
+
+/// Source attribution for credits.
+/// Decompiled from `CreditsSource.java`.
+message CreditsSource {
+  string name = 1;
+}
+
+/// ExtensionKind 186 — CREDITS_V2_TRAIT.
+/// Decompiled from `CreditsTrait.java`.
+///
+/// Contains the full list of track contributors with their roles,
+/// and optional source attributions.
+message CreditsTrait {
+  repeated Contributor contributors = 1;
+  repeated CreditsSource sources = 2;
+}

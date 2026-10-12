@@ -20,3 +20,5 @@ export 'traits/concert_marketing_trait.dart';
 export 'traits/consumption_experience_trait.dart';
 export 'traits/track_meta_trait.dart';
 export 'traits/episode_meta_trait.dart';
+export 'traits/on_platform_reputation_trait.dart';
+export 'traits/credits_trait.dart';

@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package spotify.contentagnostic.v2;
+
+option java_package = "com.spotify.contentagnostic.v2";
+
+/// Verification status for an artist entity.
+/// Decompiled from `Verification.java`.
+message Verification {
+  bool is_registered = 1;
+  bool is_verified = 2;
+  // field 3: AiPersona — omitted (not needed for UI)
+}
+
+/// Chart position data.
+/// Decompiled from `ChartPosition.java`.
+message ChartPosition {
+  string chart_url = 1;
+  string description = 2;
+}
+
+/// Rating data.
+/// Decompiled from `Rating.java`.
+message Rating {
+  double average = 1;
+  int32 count = 2;
+}
+
+/// ExtensionKind 185 — ON_PLATFORM_REPUTATION_TRAIT.
+/// Decompiled from `OnPlatformReputationTrait.java`.
+///
+/// Provides monthly listeners, verification status, total plays, etc.
+/// Used by the "About the artist" card to show real metrics.
+message OnPlatformReputationTrait {
+  int64 total_established_user_relationships = 1;
+  // field 2: reserved
+  int64 total_plays = 3;
+  int64 monthly_listeners = 4;
+  // fields 5-6: reserved
+  ChartPosition chart_position = 7;
+  Rating rating = 8;
+  Verification verification = 9;
+}

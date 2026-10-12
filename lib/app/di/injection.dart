@@ -56,6 +56,13 @@ import 'package:musify_mu/features/local_music/data/services/local_music_sync_se
 import 'package:musify_mu/features/local_music/domain/repositories/local_music_repository.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
+import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
+import 'package:musify_mu/features/player/data/datasources/color_lyrics_client.dart';
+import 'package:musify_mu/features/player/data/datasources/scrollsita_client.dart';
+import 'package:musify_mu/features/player/data/repositories/color_lyrics_repository.dart';
+import 'package:musify_mu/features/player/data/repositories/scrollsita_repository.dart';
+import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
+import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -239,6 +246,21 @@ Future<void> setupInjection() async {
       dataPool: getIt<DataPool>(),
     ),
   );
+  getIt.registerLazySingleton<ScrollSitaClient>(
+    () => ScrollSitaClient(transport: getIt<AndroidTransport>()),
+  );
+  getIt.registerLazySingleton<ScrollSitaRepository>(
+    () => ScrollSitaRepositoryImpl(
+      client: getIt<ScrollSitaClient>(),
+      dataPool: getIt<DataPool>(),
+    ),
+  );
+  getIt.registerLazySingleton<ColorLyricsClient>(
+    () => ColorLyricsClient(transport: getIt<AndroidTransport>()),
+  );
+  getIt.registerLazySingleton<LyricsRepository>(
+    () => ColorLyricsRepositoryImpl(client: getIt<ColorLyricsClient>()),
+  );
   getIt.registerLazySingleton<BrowseRepository>(
     () => BrowseRepositoryImpl(
       client: getIt<WebPlayerTransport>(),
@@ -328,6 +350,12 @@ Future<void> setupInjection() async {
   getIt.registerFactory<PlaylistDetailBloc>(
     () => PlaylistDetailBloc(
       colorService: getIt<ColorExtractionService>(),
+    ),
+  );
+  getIt.registerFactory<NowPlayingScrollBloc>(
+    () => NowPlayingScrollBloc(
+      scrollSitaRepository: getIt<ScrollSitaRepository>(),
+      lyricsRepository: getIt<LyricsRepository>(),
     ),
   );
 }

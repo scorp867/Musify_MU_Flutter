@@ -7,7 +7,13 @@ import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/color/artwork_color_scheme.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/color/eased_gradient.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/media/media_item_mapper.dart';
+import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
+import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
+
+import '../scroll/scroll_card_registry.dart';
+import '../widgets/sections/lyrics_color_parser.dart';
 
 import '../widgets/peek_scroll_view.dart';
 import '../widgets/player_artwork.dart';
@@ -107,10 +113,87 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  ScrollCardRegistry? _registry;
+  late final NowPlayingScrollBloc _scrollBloc;
+  bool _ownsBloc = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initRegistry();
+    try {
+      _scrollBloc = context.read<NowPlayingScrollBloc>();
+    } catch (_) {
+      _scrollBloc = getIt<NowPlayingScrollBloc>();
+      _ownsBloc = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_ownsBloc) {
+      _scrollBloc.close();
+    }
+    super.dispose();
+  }
+
+  DataPool? _resolveDataPool() {
+    try {
+      return context.read<DataPool>();
+    } catch (_) {
+      try {
+        return getIt<DataPool>();
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  void _initRegistry() {
+    final pool = _resolveDataPool();
+    _registry = ScrollCardRegistry(dataPool: pool)
+      ..register<CreatorBioCardDescriptor>((context, desc) {
+        final current = _playbackController.currentMediaItem;
+        if (current == null) return const SizedBox.shrink();
+        return PlayerAboutArtistSection(
+          item: current,
+          dataPool: pool,
+          artistUri: desc.creatorUri,
+        );
+      })
+      ..register<CreditsCardDescriptor>((context, desc) {
+        final current = _playbackController.currentMediaItem;
+        if (current == null) return const SizedBox.shrink();
+        return PlayerCreditsSection(
+          item: current,
+          dataPool: pool,
+          trackUri: desc.entityUri,
+          contributorUris: desc.contributorUris,
+        );
+      })
+      ..register<LiveEventsCardDescriptor>((context, desc) {
+        final current = _playbackController.currentMediaItem;
+        return PlayerEventsSection(
+          artistName: current?.artist ?? 'Artist',
+          artistUri: desc.artistUri,
+          dataPool: pool,
+          onShowAll: () {},
+        );
+      })
+      ..register<MerchCardDescriptor>((context, desc) {
+        return PlayerMerchSection(
+          items: const [],
+          onShowAll: () {},
+        );
+      });
+  }
+
   void _updateScheme(MediaItem? item) async {
     if (item == null) return;
     if (_lastTrackId == item.id) return;
     _lastTrackId = item.id;
+
+    _scrollBloc.add(FetchNowPlayingScroll(item));
 
     final service = _resolveColorService();
     if (service == null) return;
@@ -214,76 +297,123 @@ class _PlayerScreenState extends State<PlayerScreen> {
         // 2. Player content scroll view with Tier 1 viewport gradient
         // The gradient is applied strictly to Tier 1 so it scrolls UP with the player
         // and does NOT persist behind the Tier 2 cards stream.
-        PeekScrollView(
-          key: _peekScrollKey,
-          dismissController: dismissController,
-          peekHeight: 64.0,
-          tier1Decoration: BoxDecoration(
-            gradient: EasedGradient.build(
-              topColor: topGradientColor,
-              bottomColor: const Color(0xFF121212),
-            ),
-          ),
-          header: PlayerHeader(
-            onClose: dismissController.dismiss,
-            onMore: () => _showMoreOptions(context),
-            contextTitle: 'PLAYING FROM ALBUM',
-            contextSubtitle: item.album,
-          ),
-          mainContent: Column(
-            children: [
-              const Spacer(flex: 1),
-              Flexible(
-                flex: 16,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: 380,
-                    maxHeight: 380,
-                  ),
-                  child: PlayerAlbumArtwork(item: item),
+        BlocBuilder<NowPlayingScrollBloc, NowPlayingScrollState>(
+          bloc: _scrollBloc,
+          builder: (context, scrollState) {
+            final colorLyrics = scrollState is NowPlayingScrollLoaded
+                ? scrollState.lyrics
+                : null;
+            final bg = colorLyrics != null && colorLyrics.hasColors()
+                ? parseProtoColor(colorLyrics.colors.background)
+                : _currentScheme.surface;
+            final cards = scrollState is NowPlayingScrollLoaded
+                ? scrollState.cards
+                : (scrollState is NowPlayingScrollFailure
+                    ? scrollState.fallbackCards
+                    : const <ScrollCardDescriptor>[]);
+
+            return PeekScrollView(
+              key: _peekScrollKey,
+              dismissController: dismissController,
+              peekHeight: 64.0,
+              tier1Decoration: BoxDecoration(
+                gradient: EasedGradient.build(
+                  topColor: topGradientColor,
+                  bottomColor: const Color(0xFF121212),
                 ),
               ),
-              const Spacer(flex: 1),
-              PlayerMetadata(
-                item: item,
-                isFavorite: _isFavorite,
-                onFavoriteChanged: _toggleFavorite,
+              header: PlayerHeader(
+                onClose: dismissController.dismiss,
+                onMore: () => _showMoreOptions(context),
+                contextTitle: 'PLAYING FROM ALBUM',
+                contextSubtitle: item.album,
               ),
-              const SizedBox(height: 10),
-              PlayerSeekBar(
-                item: item,
-                playbackController: _playbackController,
-                dragPosition: _dragPosition,
-                onDragPositionChanged: _setDragPosition,
+              mainContent: Column(
+                children: [
+                  const Spacer(flex: 1),
+                  Flexible(
+                    flex: 16,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 380,
+                        maxHeight: 380,
+                      ),
+                      child: PlayerAlbumArtwork(item: item),
+                    ),
+                  ),
+                  const Spacer(flex: 1),
+                  PlayerMetadata(
+                    item: item,
+                    isFavorite: _isFavorite,
+                    onFavoriteChanged: _toggleFavorite,
+                  ),
+                  const SizedBox(height: 10),
+                  PlayerSeekBar(
+                    item: item,
+                    playbackController: _playbackController,
+                    dragPosition: _dragPosition,
+                    onDragPositionChanged: _setDragPosition,
+                  ),
+                  const SizedBox(height: 8),
+                  PlayerPlaybackControls(
+                    item: item,
+                    playbackController: _playbackController,
+                    shuffleEnabled: _shuffleEnabled,
+                    repeatEnabled: _repeatEnabled,
+                    onShuffle: _toggleShuffle,
+                    onRepeat: _toggleRepeat,
+                  ),
+                  const SizedBox(height: 6),
+                  PlayerUtilityRow(
+                    onQueue: () => _showQueue(context),
+                  ),
+                  const SizedBox(height: 8),
+                ],
               ),
-              const SizedBox(height: 8),
-              PlayerPlaybackControls(
-                item: item,
-                playbackController: _playbackController,
-                shuffleEnabled: _shuffleEnabled,
-                repeatEnabled: _repeatEnabled,
-                onShuffle: _toggleShuffle,
-                onRepeat: _toggleRepeat,
+              peekingCard: PlayerLyricsSection(
+                key: _lyricsKey,
+                onTapHeader: _onExpandLyrics,
+                backgroundColor: bg,
+                colorLyrics: colorLyrics,
+                dataPool: _resolveDataPool(),
+                trackUri: (item.extras?['trackUri'] as String?) ?? item.id,
               ),
-              const SizedBox(height: 6),
-              PlayerUtilityRow(
-                onQueue: () => _showQueue(context),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-          peekingCard: PlayerLyricsSection(
-            key: _lyricsKey,
-            onTapHeader: _onExpandLyrics,
-            backgroundColor: _currentScheme.surface,
-          ),
-          expandedCards: [
-            PlayerAboutArtistSection(item: item),
-            PlayerCreditsSection(item: item),
-          ],
+              expandedCards: _buildExpandedCards(item, _resolveDataPool(), cards),
+            );
+          },
         ),
       ],
     );
+  }
+
+  List<Widget> _buildExpandedCards(
+    MediaItem item,
+    DataPool? pool,
+    List<ScrollCardDescriptor> scrollCards,
+  ) {
+    if (scrollCards.isEmpty) {
+      return [
+        PlayerAboutArtistSection(item: item, dataPool: pool),
+        PlayerCreditsSection(item: item, dataPool: pool),
+      ];
+    }
+
+    final widgets = <Widget>[];
+    for (final desc in scrollCards) {
+      if (desc is LyricsCardDescriptor) continue;
+      final cardWidget = _registry?.buildCard(context, desc);
+      if (cardWidget != null) {
+        widgets.add(cardWidget);
+      }
+    }
+
+    if (widgets.isEmpty) {
+      return [
+        PlayerAboutArtistSection(item: item, dataPool: pool),
+        PlayerCreditsSection(item: item, dataPool: pool),
+      ];
+    }
+    return widgets;
   }
 
   void _onExpandLyrics() {

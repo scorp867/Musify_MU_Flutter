@@ -18,6 +18,8 @@ import 'concert_location_trait.dart';
 import 'concert_marketing_trait.dart';
 import 'consumption_experience_trait.dart';
 import 'track_meta_trait.dart';
+import 'on_platform_reputation_trait.dart';
+import 'credits_trait.dart';
 
 enum ContentType {
   album,
@@ -68,6 +70,8 @@ abstract class Trait {
       'ConcertMarketingTrait' => ConcertMarketingTrait.fromJson(json),
       'ConsumptionExperienceTrait' => ConsumptionExperienceTrait.fromJson(json),
       'TrackMetaTrait' => TrackMetaTrait.fromJson(json),
+      'OnPlatformReputationTrait' => OnPlatformReputationTrait.fromJson(json),
+      'CreditsTrait' => CreditsTrait.fromJson(json),
       _ => null,
     };
   }

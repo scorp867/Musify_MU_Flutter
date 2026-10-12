@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
+import 'package:musify_mu/features/player/presentation/screens/debug_now_playing_screen.dart';
 
 class DrawerMenu extends StatelessWidget {
   const DrawerMenu({super.key});
@@ -43,8 +44,17 @@ class DrawerMenu extends StatelessWidget {
                 const SizedBox(height: 48),
                 _DrawerMenuItem(
                     icon: Icons.person, title: 'Profile'),
-                _DrawerMenuItem(
-                    icon: Icons.settings, title: 'Settings'),
+                GestureDetector(
+                  onTap: () {
+                    Navigator.of(context, rootNavigator: true).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const DebugNowPlayingScreen(),
+                      ),
+                    );
+                  },
+                  child: const _DrawerMenuItem(
+                      icon: Icons.bug_report, title: 'Debug: NowPlaying'),
+                ),
                 _DrawerMenuItem(
                     icon: Icons.history,
                     title: 'Listening History'),
