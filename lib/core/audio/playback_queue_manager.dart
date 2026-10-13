@@ -147,6 +147,27 @@ class PlaybackQueueManager {
     _windowEndIndex = (_windowEndIndex - 1).clamp(0, _fullTracks.length);
   }
 
+  Future<void> removeTrackRange(int startAbsolute, int endAbsolute) async {
+    final start = startAbsolute.clamp(0, _fullTracks.length);
+    final end = endAbsolute.clamp(start, _fullTracks.length);
+    final count = end - start;
+    if (count <= 0) return;
+
+    _fullTracks.removeRange(start, end);
+
+    final playlist = _playlist;
+    if (playlist != null) {
+      final startWindow =
+          (start - _windowStartIndex).clamp(0, playlist.length);
+      final endWindow =
+          (end - _windowStartIndex).clamp(startWindow, playlist.length);
+      if (endWindow > startWindow) {
+        await playlist.removeRange(startWindow, endWindow);
+      }
+    }
+    _windowEndIndex = (_windowEndIndex - count).clamp(0, _fullTracks.length);
+  }
+
   Future<void> insertTrack(int absoluteIndex, MediaItem track) async {
     final clampedIndex = absoluteIndex.clamp(0, _fullTracks.length);
     _fullTracks.insert(clampedIndex, track);

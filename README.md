@@ -16,9 +16,9 @@ The application is organized by feature and responsibility:
 - `lib/features/shell/` — drawer, navigation, and app shell
 - `lib/features/player/` — mini player and full player presentation
 - `test/` — automated tests
-- `docs/project-structure.md` — dependency rules and placement guide
+- `vault/docs/project-structure.md` — dependency rules and placement guide
 
-See [docs/project-structure.md](docs/project-structure.md) before adding a new
+See [docs/project-structure.md](vault/docs/project-structure.md) before adding a new
 file so responsibilities stay in the right layer.
 
 ## Development

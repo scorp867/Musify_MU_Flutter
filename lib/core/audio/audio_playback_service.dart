@@ -66,6 +66,9 @@ class AudioPlaybackService {
   Future<void> removeTrack(int absoluteIndex) =>
       _queueManager.removeTrack(absoluteIndex);
 
+  Future<void> removeTrackRange(int startAbsolute, int endAbsolute) =>
+      _queueManager.removeTrackRange(startAbsolute, endAbsolute);
+
   Future<void> insertTrack(int absoluteIndex, MediaItem track) =>
       _queueManager.insertTrack(absoluteIndex, track);
 

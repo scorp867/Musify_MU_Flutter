@@ -49,11 +49,32 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
   MediaItem? _lastMediaItem;
   int? _lastQueueIndex;
   int _pendingMutations = 0;
+  int _latestTapGeneration = 0;
+  DateTime? _animationEndTime;
+  Future<void> _mutationChain = Future<void>.value();
 
   // Track explicit user-queued uids in memory
   final Set<String> _userQueuedUids = {};
   int _revisionCounter = 0;
   int _uidSeed = 0;
+
+  void _enqueueMutation(Future<void> Function() action) {
+    _pendingMutations++;
+    _mutationChain = _mutationChain.then((_) async {
+      final endTime = _animationEndTime;
+      if (endTime != null) {
+        final remaining = endTime.difference(DateTime.now());
+        if (remaining > Duration.zero) {
+          await Future<void>.delayed(remaining);
+        }
+      }
+      if (!isClosed) {
+        await action();
+      }
+    }).catchError((_) {}).whenComplete(() {
+      _pendingMutations--;
+    });
+  }
 
   QueueBloc({required PlaybackController playbackController})
       : _playbackController = playbackController,
@@ -90,7 +111,9 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     });
     _playbackStateSub = _playbackController.playbackState.listen((pbState) {
       if (isClosed) return;
-      _lastQueueIndex = pbState.queueIndex;
+      if (_pendingMutations == 0) {
+        _lastQueueIndex = pbState.queueIndex;
+      }
       add(_PlaybackStatusChanged(
         isPlaying: pbState.playing,
         shuffleMode: pbState.shuffleMode,
@@ -112,13 +135,15 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     _PlaybackStatusChanged event,
     Emitter<QueueState> emit,
   ) {
-    if (state.isPlaying == event.isPlaying &&
+    final effectivePlaying =
+        _pendingMutations > 0 ? state.isPlaying : event.isPlaying;
+    if (state.isPlaying == effectivePlaying &&
         state.shuffleMode == event.shuffleMode &&
         state.repeatMode == event.repeatMode) {
       return;
     }
     emit(state.copyWith(
-      isPlaying: event.isPlaying,
+      isPlaying: effectivePlaying,
       shuffleMode: event.shuffleMode,
       repeatMode: event.repeatMode,
     ));
@@ -146,8 +171,15 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     final tapIdx = nextTracks.indexWhere((t) => t.uid == event.track.uid);
 
     if (tapIdx == -1) {
-      await _playbackController.skipToQueueItem(event.absoluteIndex);
-      await _playbackController.play();
+      final tapGen = ++_latestTapGeneration;
+      _animationEndTime =
+          DateTime.now().add(const Duration(milliseconds: 375));
+      _enqueueMutation(() async {
+        if (_latestTapGeneration == tapGen) {
+          await _playbackController.skipToQueueItem(event.absoluteIndex);
+          await _playbackController.play();
+        }
+      });
       return;
     }
 
@@ -158,6 +190,12 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
 
     _lastMediaItem = nextCurrentTrack.toMediaItem();
     _lastQueueIndex = baseOffset;
+    final tapGen = ++_latestTapGeneration;
+
+    // Reserve the 375ms window exclusively for the 120fps QueueSheet UI
+    // transition (matching Spotify's p/pa3.java ItemAnimator completion guard)
+    // so MediaCodec/AudioTrack teardown & creation never drops animation frames.
+    _animationEndTime = DateTime.now().add(const Duration(milliseconds: 375));
 
     if (tapIdx < userQueueCount) {
       // Case 1: Tapped a track inside userQueue.
@@ -182,16 +220,18 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
         isPlaying: true,
       ));
 
-      _pendingMutations++;
-      try {
-        for (var i = tapIdx - 1; i >= 0; i--) {
-          await _playbackController.removeQueueItemAt(baseOffset + i);
+      _enqueueMutation(() async {
+        if (tapIdx > 0) {
+          await _playbackController.removeQueueRange(
+            baseOffset,
+            baseOffset + tapIdx,
+          );
         }
-        await _playbackController.skipToQueueItem(baseOffset);
-        await _playbackController.play();
-      } finally {
-        _pendingMutations--;
-      }
+        if (_latestTapGeneration == tapGen) {
+          await _playbackController.skipToQueueItem(baseOffset);
+          await _playbackController.play();
+        }
+      });
     } else {
       // Case 2: Tapped a context track below userQueue.
       // Preserve ALL userQueue tracks so they still play next after the tapped
@@ -213,11 +253,13 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
         isPlaying: true,
       ));
 
-      _pendingMutations++;
-      try {
-        // Remove skipped context tracks (indices userQueueCount .. tapIdx - 1)
-        for (var i = tapIdx - 1; i >= userQueueCount; i--) {
-          await _playbackController.removeQueueItemAt(baseOffset + i);
+      _enqueueMutation(() async {
+        // Atomically remove skipped context tracks [userQueueCount .. tapIdx)
+        if (tapIdx > userQueueCount) {
+          await _playbackController.removeQueueRange(
+            baseOffset + userQueueCount,
+            baseOffset + tapIdx,
+          );
         }
         // Move the tapped context track (now at baseOffset + userQueueCount)
         // right before userQueue (at baseOffset) so userQueue plays immediately after it.
@@ -227,11 +269,11 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
             baseOffset,
           );
         }
-        await _playbackController.skipToQueueItem(baseOffset);
-        await _playbackController.play();
-      } finally {
-        _pendingMutations--;
-      }
+        if (_latestTapGeneration == tapGen) {
+          await _playbackController.skipToQueueItem(baseOffset);
+          await _playbackController.play();
+        }
+      });
     }
   }
 
@@ -281,15 +323,12 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     emit(state.copyWith(queue: newPlayerQueue));
 
     final baseOffset = state.currentIndex + 1;
-    _pendingMutations++;
-    try {
+    _enqueueMutation(() async {
       await _playbackController.reorderQueueItem(
         baseOffset + oldIdx,
         baseOffset + targetIdx,
       );
-    } finally {
-      _pendingMutations--;
-    }
+    });
   }
 
   Future<void> _onTrackRemoved(
@@ -318,12 +357,9 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       ));
 
       final absoluteRemoveIndex = state.currentIndex + 1 + removeIdx;
-      _pendingMutations++;
-      try {
+      _enqueueMutation(() async {
         await _playbackController.removeQueueItemAt(absoluteRemoveIndex);
-      } finally {
-        _pendingMutations--;
-      }
+      });
     }
   }
 
@@ -352,15 +388,13 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     ));
 
     final insertIndex = state.currentIndex + 1 + currentQueue.userQueue.length;
-    _pendingMutations++;
-    try {
+    _animationEndTime = DateTime.now().add(const Duration(milliseconds: 375));
+    _enqueueMutation(() async {
       await _playbackController.insertQueueItem(
         insertIndex,
         queuedTrack.toMediaItem(),
       );
-    } finally {
-      _pendingMutations--;
-    }
+    });
   }
 
   Future<void> _onCleared(
@@ -381,14 +415,12 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     ));
 
     final baseOffset = state.currentIndex + 1;
-    _pendingMutations++;
-    try {
-      for (var i = userCount - 1; i >= 0; i--) {
-        await _playbackController.removeQueueItemAt(baseOffset + i);
-      }
-    } finally {
-      _pendingMutations--;
-    }
+    _enqueueMutation(() async {
+      await _playbackController.removeQueueRange(
+        baseOffset,
+        baseOffset + userCount,
+      );
+    });
   }
 
   void _onShuffleToggled(QueueShuffleToggled event, Emitter<QueueState> emit) {

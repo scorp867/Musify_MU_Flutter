@@ -28,41 +28,51 @@ import '../widgets/spotify_scroll_physics.dart';
 class QueueSheetScreen extends StatelessWidget {
   const QueueSheetScreen({super.key});
 
+  /// Indicates whether the Queue Sheet is currently open on top of [PlayerScreen].
+  /// Used by [PlayerScreen] to defer heavy background rebuilds, 720x720 artwork
+  /// texture decodes, and palette extraction while queue animations are running.
+  static final ValueNotifier<bool> isOpenNotifier = ValueNotifier<bool>(false);
+
   static void show(
     BuildContext context,
     PlaybackController playbackController,
   ) {
-    Navigator.of(context, rootNavigator: true).push(
-      PageRouteBuilder<void>(
-        opaque: false,
-        barrierDismissible: false,
-        barrierColor: Colors.transparent,
-        transitionDuration: const Duration(milliseconds: 420),
-        reverseTransitionDuration: const Duration(milliseconds: 380),
-        pageBuilder: (modalContext, _, _) {
-          return BlocProvider(
-            create: (_) => QueueBloc(playbackController: playbackController)
-              ..add(const QueueStarted()),
-            child: const QueueSheetScreen(),
-          );
-        },
-        transitionsBuilder: (context, animation, _, child) {
-          const curve = Cubic(0.3, 0.0, 0.0, 1.0);
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: curve,
-            reverseCurve: curve,
-          );
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 1),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          );
-        },
-      ),
-    );
+    isOpenNotifier.value = true;
+    Navigator.of(context, rootNavigator: true)
+        .push(
+          PageRouteBuilder<void>(
+            opaque: false,
+            barrierDismissible: false,
+            barrierColor: Colors.transparent,
+            transitionDuration: const Duration(milliseconds: 420),
+            reverseTransitionDuration: const Duration(milliseconds: 380),
+            pageBuilder: (modalContext, _, _) {
+              return BlocProvider(
+                create: (_) => QueueBloc(playbackController: playbackController)
+                  ..add(const QueueStarted()),
+                child: const QueueSheetScreen(),
+              );
+            },
+            transitionsBuilder: (context, animation, _, child) {
+              const curve = Cubic(0.3, 0.0, 0.0, 1.0);
+              final curved = CurvedAnimation(
+                parent: animation,
+                curve: curve,
+                reverseCurve: curve,
+              );
+              return SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 1),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              );
+            },
+          ),
+        )
+        .whenComplete(() {
+          isOpenNotifier.value = false;
+        });
   }
 
   @override

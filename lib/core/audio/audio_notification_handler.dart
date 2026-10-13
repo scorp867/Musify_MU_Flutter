@@ -17,6 +17,7 @@ class AudioNotificationHandler extends BaseAudioHandler
   final OnAudioQuery _audioQuery;
   final Map<String, MediaItem> _latestMediaItems = {};
   final Map<String, Future<MediaItem>> _artworkRequests = {};
+  final Map<String, Uri> _cachedArtUris = {};
   String? _pendingQueueItemId;
   late final StreamSubscription _playbackSub;
 
@@ -84,13 +85,22 @@ class AudioNotificationHandler extends BaseAudioHandler
     _addLatestMediaItem(item);
 
     if (item.id != mediaItem.value?.id) {
-      mediaItem.add(item);
-      _fetchAndCacheArtwork(item).then((updatedItem) {
-        if (mediaItem.value?.id == updatedItem.id) {
-          _addLatestMediaItem(updatedItem);
-          mediaItem.add(updatedItem);
-        }
-      });
+      final cachedArtUri = _cachedArtUris[item.id];
+      final initialItem = cachedArtUri != null && item.artUri != cachedArtUri
+          ? item.copyWith(artUri: cachedArtUri)
+          : item;
+      _addLatestMediaItem(initialItem);
+      mediaItem.add(initialItem);
+
+      if (cachedArtUri == null) {
+        _fetchAndCacheArtwork(initialItem).then((updatedItem) {
+          if (mediaItem.value?.id == updatedItem.id &&
+              mediaItem.value?.artUri != updatedItem.artUri) {
+            _addLatestMediaItem(updatedItem);
+            mediaItem.add(updatedItem);
+          }
+        });
+      }
     }
   }
 
@@ -139,7 +149,9 @@ class AudioNotificationHandler extends BaseAudioHandler
     final currentItem = currentMediaItem;
     if (currentItem == null || currentItem.id != item.id) return;
 
-    final updatedItem = await _fetchAndCacheArtwork(item);
+    _cachedArtUris.remove(item.id);
+    final updatedItem =
+        await _fetchAndCacheArtwork(item, bumpArtworkVersion: true);
     _addLatestMediaItem(updatedItem);
     mediaItem.add(updatedItem);
 
@@ -161,13 +173,17 @@ class AudioNotificationHandler extends BaseAudioHandler
     await updateCurrentMediaItem(currentItem);
   }
 
-  Future<MediaItem> _fetchAndCacheArtwork(MediaItem item) {
+  Future<MediaItem> _fetchAndCacheArtwork(
+    MediaItem item, {
+    bool bumpArtworkVersion = false,
+  }) {
     final requestKey =
-        '${item.id}:${item.extras?[MediaItemMapper.dateModifiedKey]}';
+        '${item.id}:${item.extras?[MediaItemMapper.dateModifiedKey]}:$bumpArtworkVersion';
     final inFlightRequest = _artworkRequests[requestKey];
     if (inFlightRequest != null) return inFlightRequest;
 
-    final request = _loadAndCacheArtwork(item);
+    final request =
+        _loadAndCacheArtwork(item, bumpArtworkVersion: bumpArtworkVersion);
     _artworkRequests[requestKey] = request;
     request.whenComplete(() {
       if (identical(_artworkRequests[requestKey], request)) {
@@ -177,30 +193,47 @@ class AudioNotificationHandler extends BaseAudioHandler
     return request;
   }
 
-  Future<MediaItem> _loadAndCacheArtwork(MediaItem item) async {
+  Future<MediaItem> _loadAndCacheArtwork(
+    MediaItem item, {
+    required bool bumpArtworkVersion,
+  }) async {
     try {
+      if (!bumpArtworkVersion) {
+        final existingUri = _cachedArtUris[item.id];
+        if (existingUri != null) {
+          return item.artUri == existingUri
+              ? item
+              : item.copyWith(artUri: existingUri);
+        }
+      }
+
       final songId = MediaItemMapper.songId(item);
       if (songId == null) return item;
 
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
       final bytes = await _audioQuery.queryArtwork(
         songId,
         ArtworkType.AUDIO,
         size: 400,
       );
-      final extras = <String, dynamic>{
-        ...?item.extras,
-        MediaItemMapper.artworkVersionKey: timestamp,
-      };
+
+      final Map<String, dynamic>? extras = bumpArtworkVersion
+          ? <String, dynamic>{
+              ...?item.extras,
+              MediaItemMapper.artworkVersionKey:
+                  DateTime.now().millisecondsSinceEpoch,
+            }
+          : item.extras;
 
       if (bytes != null) {
         final tempDir = await getTemporaryDirectory();
         final file = File('${tempDir.path}/art_${item.id}.jpg');
         await file.writeAsBytes(bytes);
-        return item.copyWith(artUri: Uri.file(file.path), extras: extras);
+        final fileUri = Uri.file(file.path);
+        _cachedArtUris[item.id] = fileUri;
+        return item.copyWith(artUri: fileUri, extras: extras);
       }
 
-      return item.copyWith(extras: extras);
+      return bumpArtworkVersion ? item.copyWith(extras: extras) : item;
     } catch (_) {
       // Metadata updates must not interrupt playback when artwork is unavailable.
     }
@@ -222,6 +255,12 @@ class AudioNotificationHandler extends BaseAudioHandler
   @override
   Future<void> removeQueueItemAt(int index) async {
     await _playbackService.removeTrack(index);
+    queue.add(_playbackService.fullTracks);
+  }
+
+  @override
+  Future<void> removeQueueRange(int startIndex, int endIndex) async {
+    await _playbackService.removeTrackRange(startIndex, endIndex);
     queue.add(_playbackService.fullTracks);
   }
 

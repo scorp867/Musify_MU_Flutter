@@ -90,6 +90,9 @@ class FakePlaybackController implements PlaybackController {
   Future<void> removeQueueItemAt(int index) async {}
 
   @override
+  Future<void> removeQueueRange(int absoluteFromIndex, int absoluteToIndex) async{}
+
+  @override
   Future<void> insertQueueItem(int index, MediaItem mediaItem) async {}
 
   final List<MediaItem> updatedItems = [];

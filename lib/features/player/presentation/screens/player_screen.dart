@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -101,6 +103,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   ArtworkColorScheme _currentScheme = ArtworkColorScheme.neutral;
   String? _lastTrackId;
 
+  MediaItem? _displayedItem;
+  MediaItem? _pendingQueueItem;
+  bool _hasPendingQueueItem = false;
+  StreamSubscription<MediaItem?>? _mediaItemSubscription;
+  Timer? _deferredQueueSyncTimer;
+
   ColorExtractionService? _resolveColorService() {
     try {
       return context.read<ColorExtractionService>();
@@ -127,14 +135,66 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _scrollBloc = getIt<NowPlayingScrollBloc>();
       _ownsBloc = true;
     }
+    _displayedItem = _playbackController.currentMediaItem;
+    QueueSheetScreen.isOpenNotifier.addListener(_onQueueSheetOpenChanged);
+    _mediaItemSubscription =
+        _playbackController.mediaItem.listen(_onMediaItemChanged);
   }
 
   @override
   void dispose() {
+    _deferredQueueSyncTimer?.cancel();
+    _mediaItemSubscription?.cancel();
+    QueueSheetScreen.isOpenNotifier.removeListener(_onQueueSheetOpenChanged);
     if (_ownsBloc) {
       _scrollBloc.close();
     }
     super.dispose();
+  }
+
+  void _onQueueSheetOpenChanged() {
+    if (!QueueSheetScreen.isOpenNotifier.value && _hasPendingQueueItem) {
+      _deferredQueueSyncTimer?.cancel();
+      _flushPendingMediaItem();
+    }
+  }
+
+  void _onMediaItemChanged(MediaItem? item) {
+    if (!mounted) return;
+    if (QueueSheetScreen.isOpenNotifier.value) {
+      // While the Queue Sheet is open on top of PlayerScreen, defer rebuilding
+      // PlayerScreen, decoding 720x720 artwork textures, and running 200x200
+      // GPU readbacks for palette extraction until the Queue Sheet animation
+      // and ExoPlayer codec transition are completely finished.
+      _pendingQueueItem = item;
+      _hasPendingQueueItem = true;
+      _deferredQueueSyncTimer?.cancel();
+      _deferredQueueSyncTimer = Timer(
+        const Duration(milliseconds: 900),
+        _flushPendingMediaItem,
+      );
+      return;
+    }
+
+    _deferredQueueSyncTimer?.cancel();
+    _hasPendingQueueItem = false;
+    if (_displayedItem != item) {
+      setState(() {
+        _displayedItem = item;
+      });
+    }
+  }
+
+  void _flushPendingMediaItem() {
+    if (!mounted || !_hasPendingQueueItem) return;
+    final nextItem = _pendingQueueItem;
+    _hasPendingQueueItem = false;
+    _pendingQueueItem = null;
+    if (_displayedItem != nextItem) {
+      setState(() {
+        _displayedItem = nextItem;
+      });
+    }
   }
 
   DataPool? _resolveDataPool() {
@@ -240,6 +300,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final item = _displayedItem;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -252,21 +313,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
       child: PullToDismissScaffold(
         builder: (context, dismissController) {
-          return StreamBuilder<MediaItem?>(
-            stream: _playbackController.mediaItem,
-            builder: (context, snapshot) {
-              final item = snapshot.data;
+          if (item == null) {
+            return PlayerEmptyState(
+              onClose: dismissController.dismiss,
+              onMore: () => _showMoreOptions(context),
+            );
+          }
 
-              if (item == null) {
-                return PlayerEmptyState(
-                  onClose: dismissController.dismiss,
-                  onMore: () => _showMoreOptions(context),
-                );
-              }
-
-              return _buildPlayer(context, item, dismissController);
-            },
-          );
+          return _buildPlayer(context, item, dismissController);
         },
       ),
     );

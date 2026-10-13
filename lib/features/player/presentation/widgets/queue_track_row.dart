@@ -382,20 +382,18 @@ class _QueueTrackRowState extends State<QueueTrackRow>
                           child: Row(
                             children: [
                               // 48x48 Artwork with 4dp corners
-                              RepaintBoundary(
-                                child: ClipRRect(
-                                  borderRadius: const BorderRadius.all(
-                                    Radius.circular(4),
-                                  ),
-                                  child: SizedBox(
-                                    width: 48,
-                                    height: 48,
-                                    child: PlayerArtworkImage(
-                                      item: mediaItem,
-                                      artworkWidth: 48,
-                                      artworkHeight: 48,
-                                      placeholderIconSize: 20,
-                                    ),
+                              ClipRRect(
+                                borderRadius: const BorderRadius.all(
+                                  Radius.circular(4),
+                                ),
+                                child: SizedBox(
+                                  width: 48,
+                                  height: 48,
+                                  child: PlayerArtworkImage(
+                                    item: mediaItem,
+                                    artworkWidth: 48,
+                                    artworkHeight: 48,
+                                    placeholderIconSize: 20,
                                   ),
                                 ),
                               ),
