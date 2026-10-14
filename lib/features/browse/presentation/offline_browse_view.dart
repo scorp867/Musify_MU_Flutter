@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
-import 'package:musify_mu/core/media/media_item_mapper.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
+import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -339,19 +339,11 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
   void _playTrack(List<DomainTrack> tracks, int index) {
     final playback = widget.playbackController;
     if (playback == null) return;
-    final mediaItems = tracks
-        .map((t) => MediaItemMapper.fromTrack(
-              id: t.id,
-              title: t.title,
-              artist: t.artist,
-              album: t.album,
-              durationMilliseconds: t.duration,
-              songId: t.songId,
-              dataPath: t.dataPath,
-              dateModified: t.dateModified,
-            ))
-        .toList(growable: false);
-    playback.playQueue(mediaItems, index);
+    LocalContextResolver.playDomainTracks(
+      playback: playback,
+      tracks: tracks,
+      initialTrackIndex: index,
+    );
   }
 }
 

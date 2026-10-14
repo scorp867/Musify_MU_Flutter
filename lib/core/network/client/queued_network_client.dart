@@ -43,7 +43,7 @@ class QueuedNetworkClient implements NetworkClient {
   }) {
     return _controller.dispatch<Uint8List>(
       priority: priority,
-      tag: tag ?? uri.path,
+      tag: tag,
       ttl: ttl,
       cancelToken: cancelToken,
       bufferIfOffline: bufferIfOffline,
@@ -75,7 +75,7 @@ class QueuedNetworkClient implements NetworkClient {
   }) {
     return _controller.dispatch<Uint8List>(
       priority: priority,
-      tag: tag ?? uri.path,
+      tag: tag,
       ttl: ttl,
       cancelToken: cancelToken,
       bufferIfOffline: bufferIfOffline,

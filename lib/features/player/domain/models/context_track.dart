@@ -3,9 +3,17 @@ import 'package:equatable/equatable.dart';
 
 /// 1:1 with Spotify's com.spotify.player.model.ContextTrack
 ///
-/// Contains the track URI, unique instance uid, provider ('queue' | 'context' | 'autoplay'),
+/// Contains track URI, unique instance uid, provider ('queue' | 'context' | 'autoplay'),
 /// queued flag, and metadata map.
 class ContextTrack extends Equatable {
+  static const String delimiterMeta = 'spotify:meta:delimiter';
+  static const String delimiterStandard = 'spotify:delimiter';
+
+  static const List<String> delimiters = [
+    delimiterMeta,
+    delimiterStandard,
+  ];
+
   final String uri;
   final String uid; // Session-unique instance identifier
   final String provider; // 'queue' | 'context' | 'autoplay'
@@ -19,6 +27,8 @@ class ContextTrack extends Equatable {
     this.isQueued = false,
     this.metadata = const {},
   });
+
+  bool get isDelimiter => delimiters.contains(uri);
 
   String get title => metadata['title'] ?? '';
   String get artist => metadata['artist_name'] ?? metadata['artist'] ?? '';
@@ -34,8 +44,10 @@ class ContextTrack extends Equatable {
   /// Create ContextTrack from an AudioService MediaItem
   factory ContextTrack.fromMediaItem(MediaItem item, {String? uid, bool? isQueued}) {
     final effectiveUid = uid ?? item.extras?['uid']?.toString() ?? item.id;
-    final effectiveIsQueued = isQueued ?? (item.extras?['is_queued'] == true || item.extras?['is_queued'] == 'true');
-    final provider = item.extras?['provider']?.toString() ?? (effectiveIsQueued ? 'queue' : 'context');
+    final effectiveIsQueued = isQueued ??
+        (item.extras?['is_queued'] == true || item.extras?['is_queued'] == 'true');
+    final provider = item.extras?['provider']?.toString() ??
+        (effectiveIsQueued ? 'queue' : 'context');
 
     final meta = <String, String>{
       'title': item.title,
@@ -43,6 +55,7 @@ class ContextTrack extends Equatable {
       'album_title': item.album ?? '',
       if (item.artUri != null) 'image_url': item.artUri.toString(),
       if (item.duration != null) 'duration_ms': item.duration!.inMilliseconds.toString(),
+      'is_queued': effectiveIsQueued.toString(),
     };
 
     if (item.extras != null) {
@@ -119,14 +132,39 @@ class ContextTrack extends Equatable {
     bool? isQueued,
     Map<String, String>? metadata,
   }) {
+    final effectiveIsQueued = isQueued ?? this.isQueued;
+    final updatedMeta = metadata != null
+        ? Map<String, String>.from(metadata)
+        : Map<String, String>.from(this.metadata);
+    updatedMeta['is_queued'] = effectiveIsQueued.toString();
+
     return ContextTrack(
       uri: uri ?? this.uri,
       uid: uid ?? this.uid,
       provider: provider ?? this.provider,
-      isQueued: isQueued ?? this.isQueued,
-      metadata: metadata ?? this.metadata,
+      isQueued: effectiveIsQueued,
+      metadata: updatedMeta,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'uri': uri,
+        'uid': uid,
+        'provider': provider,
+        'is_queued': isQueued,
+        'metadata': metadata,
+      };
+
+  factory ContextTrack.fromJson(Map<String, dynamic> json) => ContextTrack(
+        uri: json['uri'] as String? ?? '',
+        uid: json['uid'] as String? ?? '',
+        provider: json['provider'] as String? ?? 'context',
+        isQueued: json['is_queued'] == true || json['is_queued'] == 'true',
+        metadata: (json['metadata'] as Map?)?.map(
+              (k, v) => MapEntry(k.toString(), v.toString()),
+            ) ??
+            const {},
+      );
 
   @override
   List<Object?> get props => [uri, uid, provider, isQueued, metadata];

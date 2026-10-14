@@ -3,55 +3,92 @@ import 'context_track.dart';
 
 /// 1:1 with Spotify's com.spotify.player.model.PlayerQueue
 ///
-/// Contains currently active track, user-enqueued tracks, upcoming context tracks,
+/// Contains currently active track, single linear nextTracks list,
 /// history, and monotonic revision.
 class PlayerQueue extends Equatable {
-  final ContextTrack? currentTrack;
-  final List<ContextTrack> userQueue; // Tracks explicitly queued by user (isQueued = true)
-  final List<ContextTrack> contextTracks; // Upcoming tracks from album/playlist context (isQueued = false)
-  final List<ContextTrack> prevTracks; // History of recently played tracks
   final String revision;
+  final ContextTrack? track;
+  final List<ContextTrack> nextTracks; // SINGLE linear list (Spotify core source of truth)
+  final List<ContextTrack> prevTracks; // History of recently played tracks
 
   const PlayerQueue({
-    this.currentTrack,
-    this.userQueue = const [],
-    this.contextTracks = const [],
-    this.prevTracks = const [],
     required this.revision,
-  });
+    this.track,
+    this.nextTracks = const [],
+    this.prevTracks = const [],
+  }) : super();
 
-  /// 1:1 with Spotify's nextTracks() concatenation:
-  /// [User Queued Tracks] + [Context Tracks]
-  List<ContextTrack> get nextTracks => [...userQueue, ...contextTracks];
+  /// Factory supporting legacy partitioned construction
+  factory PlayerQueue.partitioned({
+    required String revision,
+    ContextTrack? currentTrack,
+    List<ContextTrack> userQueue = const [],
+    List<ContextTrack> contextTracks = const [],
+    List<ContextTrack> prevTracks = const [],
+  }) {
+    // Stamp userQueue with is_queued = true
+    final stampedUserQueue = userQueue.map((t) => t.copyWith(isQueued: true)).toList();
+    // Stamp contextTracks with is_queued = false
+    final stampedContextTracks = contextTracks.map((t) => t.copyWith(isQueued: false)).toList();
 
-  bool get isEmpty => currentTrack == null && userQueue.isEmpty && contextTracks.isEmpty;
+    return PlayerQueue(
+      revision: revision,
+      track: currentTrack,
+      nextTracks: [...stampedUserQueue, ...stampedContextTracks],
+      prevTracks: prevTracks,
+    );
+  }
 
+  /// 1:1 with Spotify track()
+  ContextTrack? get currentTrack => track;
+
+  /// 1:1 with Spotify hxl0.d(playerQueue): user-queued items
+  List<ContextTrack> get userQueue =>
+      nextTracks.where((t) => t.isQueued).toList();
+
+  /// 1:1 with Spotify hxl0.b(playerQueue): upcoming context items
+  List<ContextTrack> get contextTracks =>
+      nextTracks.where((t) => !t.isQueued).toList();
+
+  bool get isEmpty => track == null && nextTracks.isEmpty;
   bool get hasUserQueue => userQueue.isNotEmpty;
-
   bool get hasContextTracks => contextTracks.isNotEmpty;
 
   PlayerQueue copyWith({
+    String? revision,
+    ContextTrack? track,
     ContextTrack? currentTrack,
+    List<ContextTrack>? nextTracks,
+    List<ContextTrack>? prevTracks,
     List<ContextTrack>? userQueue,
     List<ContextTrack>? contextTracks,
-    List<ContextTrack>? prevTracks,
-    String? revision,
   }) {
+    if (userQueue != null || contextTracks != null) {
+      final uq = userQueue ?? this.userQueue;
+      final cq = contextTracks ?? this.contextTracks;
+      final stampedUserQueue = uq.map((t) => t.copyWith(isQueued: true)).toList();
+      final stampedContextTracks = cq.map((t) => t.copyWith(isQueued: false)).toList();
+      return PlayerQueue(
+        revision: revision ?? this.revision,
+        track: track ?? currentTrack ?? this.track,
+        nextTracks: [...stampedUserQueue, ...stampedContextTracks],
+        prevTracks: prevTracks ?? this.prevTracks,
+      );
+    }
+
     return PlayerQueue(
-      currentTrack: currentTrack ?? this.currentTrack,
-      userQueue: userQueue ?? this.userQueue,
-      contextTracks: contextTracks ?? this.contextTracks,
-      prevTracks: prevTracks ?? this.prevTracks,
       revision: revision ?? this.revision,
+      track: track ?? currentTrack ?? this.track,
+      nextTracks: nextTracks ?? this.nextTracks,
+      prevTracks: prevTracks ?? this.prevTracks,
     );
   }
 
   @override
   List<Object?> get props => [
-        currentTrack?.uid,
-        userQueue.map((t) => t.uid).join(','),
-        contextTracks.map((t) => t.uid).join(','),
-        prevTracks.map((t) => t.uid).join(','),
         revision,
+        track?.uid,
+        nextTracks.map((t) => '${t.uid}:${t.isQueued}').join(','),
+        prevTracks.map((t) => t.uid).join(','),
       ];
 }

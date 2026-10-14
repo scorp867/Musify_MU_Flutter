@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:musify_mu/core/audio/playback_controller.dart';
-import 'package:musify_mu/core/media/media_item_mapper.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
+import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -103,21 +103,11 @@ class LocalMusicScreen extends StatelessWidget {
                     onTap: () {
                       final playback = playbackController;
                       if (playback == null) return;
-                      final mediaItems = tracks
-                          .map(
-                            (track) => MediaItemMapper.fromTrack(
-                              id: track.id,
-                              title: track.title,
-                              artist: track.artist,
-                              album: track.album,
-                              durationMilliseconds: track.duration,
-                              songId: track.songId,
-                              dataPath: track.dataPath,
-                              dateModified: track.dateModified,
-                            ),
-                          )
-                          .toList(growable: false);
-                      playback.playQueue(mediaItems, index);
+                      LocalContextResolver.playDomainTracks(
+                        playback: playback,
+                        tracks: tracks,
+                        initialTrackIndex: index,
+                      );
                     },
                     behavior: HitTestBehavior.opaque,
                     child: Row(

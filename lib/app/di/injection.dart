@@ -63,6 +63,8 @@ import 'package:musify_mu/features/player/data/repositories/color_lyrics_reposit
 import 'package:musify_mu/features/player/data/repositories/scrollsita_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
+import 'package:musify_mu/features/player/application/queue/queue_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/queue_event.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -105,6 +107,11 @@ Future<void> setupInjection() async {
   final handler = audioHandler;
   getIt.registerSingleton<AudioNotificationHandler>(handler);
   getIt.registerSingleton<PlaybackController>(handler);
+  getIt.registerLazySingleton<QueueBloc>(
+    () => QueueBloc(playbackController: getIt<PlaybackController>())
+      ..add(const QueueStarted()),
+    dispose: (bloc) => bloc.close(),
+  );
 
   getIt.registerLazySingleton<AppDatabase>(
     AppDatabase.new,

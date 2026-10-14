@@ -65,3 +65,7 @@ class QueueRepeatToggled extends QueueEvent {
 class QueuePlayPauseToggled extends QueueEvent {
   const QueuePlayPauseToggled();
 }
+
+class QueueNextPageRequested extends QueueEvent {
+  const QueueNextPageRequested();
+}

@@ -23,6 +23,12 @@ class AudioNotificationHandler extends BaseAudioHandler
 
   AudioNotificationHandler(this._playbackService, this._audioQuery) {
     _playbackSub = _playbackService.playbackEventStream.listen(_publishPlaybackState);
+    _playbackService.onQueueChanged = (tracks) {
+      for (final item in tracks) {
+        _addLatestMediaItem(item);
+      }
+      queue.add(tracks);
+    };
   }
 
   void _addLatestMediaItem(MediaItem item) {
@@ -253,6 +259,12 @@ class AudioNotificationHandler extends BaseAudioHandler
   }
 
   @override
+  Future<void> setNextTracks(List<MediaItem> upcomingTracks) async {
+    await _playbackService.setNextTracks(upcomingTracks);
+    queue.add(_playbackService.fullTracks);
+  }
+
+  @override
   Future<void> removeQueueItemAt(int index) async {
     await _playbackService.removeTrack(index);
     queue.add(_playbackService.fullTracks);
@@ -291,8 +303,11 @@ class AudioNotificationHandler extends BaseAudioHandler
 
   @override
   Future<void> stop() async {
-    await _playbackSub.cancel();
     await _playbackService.stop();
     return super.stop();
+  }
+
+  Future<void> dispose() async {
+    await _playbackSub.cancel();
   }
 }

@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
+import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';
+import 'package:musify_mu/features/player/domain/queue/queue_filter_helper.dart';
+import 'package:musify_mu/features/player/domain/queue/queue_mutator.dart';
 
 import 'queue_event.dart';
 import 'queue_state.dart';
@@ -53,7 +56,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
   DateTime? _animationEndTime;
   Future<void> _mutationChain = Future<void>.value();
 
-  // Track explicit user-queued uids in memory
+  // Track explicit user-queued uids in memory (1:1 with Spotify is_queued flag tracking)
   final Set<String> _userQueuedUids = {};
   int _revisionCounter = 0;
   int _uidSeed = 0;
@@ -88,6 +91,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     on<QueueShuffleToggled>(_onShuffleToggled);
     on<QueueRepeatToggled>(_onRepeatToggled);
     on<QueuePlayPauseToggled>(_onPlayPauseToggled);
+    on<QueueNextPageRequested>(_onNextPageRequested);
     on<_QueueDataChanged>(_onDataChanged);
     on<_PlaybackStatusChanged>(_onPlaybackStatusChanged);
   }
@@ -183,7 +187,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       return;
     }
 
-    final userQueueCount = currentQueue.userQueue.length;
+    final userQueueCount = QueueFilterHelper.getUserQueue(currentQueue).length;
     final baseOffset = state.currentIndex + 1;
     final nextCurrentTrack =
         event.track.copyWith(isQueued: false, provider: 'context');
@@ -191,29 +195,23 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     _lastMediaItem = nextCurrentTrack.toMediaItem();
     _lastQueueIndex = baseOffset;
     final tapGen = ++_latestTapGeneration;
-
-    // Reserve the 375ms window exclusively for the 120fps QueueSheet UI
-    // transition (matching Spotify's p/pa3.java ItemAnimator completion guard)
-    // so MediaCodec/AudioTrack teardown & creation never drops animation frames.
     _animationEndTime = DateTime.now().add(const Duration(milliseconds: 375));
 
     if (tapIdx < userQueueCount) {
       // Case 1: Tapped a track inside userQueue.
-      // Remove queued tracks up to and including the tapped queued track,
-      // and preserve the remaining queued tracks + all context tracks.
       for (var i = 0; i <= tapIdx; i++) {
         _userQueuedUids.remove(nextTracks[i].uid);
       }
 
-      final newUserQueue = currentQueue.userQueue.sublist(tapIdx + 1);
-      final newContextTracks = currentQueue.contextTracks;
+      final remainingUserQueue =
+          QueueFilterHelper.getUserQueue(currentQueue).sublist(tapIdx + 1);
+      final contextTracks = QueueFilterHelper.getContextQueue(currentQueue);
 
       _revisionCounter++;
       emit(state.copyWith(
         queue: currentQueue.copyWith(
-          currentTrack: nextCurrentTrack,
-          userQueue: newUserQueue,
-          contextTracks: newContextTracks,
+          track: nextCurrentTrack,
+          nextTracks: [...remainingUserQueue, ...contextTracks],
           revision: '$_revisionCounter',
         ),
         currentIndex: baseOffset,
@@ -234,19 +232,16 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       });
     } else {
       // Case 2: Tapped a context track below userQueue.
-      // Preserve ALL userQueue tracks so they still play next after the tapped
-      // track, and remove only the skipped context tracks up to tapIdx.
       final contextTapIdx = tapIdx - userQueueCount;
-      final newUserQueue = currentQueue.userQueue;
-      final newContextTracks =
-          currentQueue.contextTracks.sublist(contextTapIdx + 1);
+      final existingUserQueue = QueueFilterHelper.getUserQueue(currentQueue);
+      final remainingContextTracks =
+          QueueFilterHelper.getContextQueue(currentQueue).sublist(contextTapIdx + 1);
 
       _revisionCounter++;
       emit(state.copyWith(
         queue: currentQueue.copyWith(
-          currentTrack: nextCurrentTrack,
-          userQueue: newUserQueue,
-          contextTracks: newContextTracks,
+          track: nextCurrentTrack,
+          nextTracks: [...existingUserQueue, ...remainingContextTracks],
           revision: '$_revisionCounter',
         ),
         currentIndex: baseOffset,
@@ -254,15 +249,12 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       ));
 
       _enqueueMutation(() async {
-        // Atomically remove skipped context tracks [userQueueCount .. tapIdx)
         if (tapIdx > userQueueCount) {
           await _playbackController.removeQueueRange(
             baseOffset + userQueueCount,
             baseOffset + tapIdx,
           );
         }
-        // Move the tapped context track (now at baseOffset + userQueueCount)
-        // right before userQueue (at baseOffset) so userQueue plays immediately after it.
         if (userQueueCount > 0) {
           await _playbackController.reorderQueueItem(
             baseOffset + userQueueCount,
@@ -286,50 +278,51 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     if (oldIdx == targetIdx) return;
 
     final currentQueue = state.queue;
-    final nextTracks = List<ContextTrack>.from(currentQueue.nextTracks);
+    final visibleTracks =
+        QueueFilterHelper.getVisibleUpcomingTracks(currentQueue);
 
-    if (oldIdx < 0 || oldIdx >= nextTracks.length) return;
-    if (targetIdx < 0 || targetIdx >= nextTracks.length) return;
+    if (oldIdx < 0 || oldIdx >= visibleTracks.length) return;
+    final clampedTarget = targetIdx.clamp(0, visibleTracks.length - 1);
 
-    final movedTrack = nextTracks.removeAt(oldIdx);
-    nextTracks.insert(targetIdx, movedTrack);
-
-    // Cross-section drag conversion:
-    final userQueueCount = currentQueue.userQueue.length;
-    final isDroppedIntoUserQueue = targetIdx < userQueueCount;
-
-    final updatedTrack = movedTrack.copyWith(
-      isQueued: isDroppedIntoUserQueue,
-      provider: isDroppedIntoUserQueue ? 'queue' : 'context',
-    );
-    nextTracks[targetIdx] = updatedTrack;
-
-    if (isDroppedIntoUserQueue) {
-      _userQueuedUids.add(updatedTrack.uid);
-    } else {
-      _userQueuedUids.remove(updatedTrack.uid);
-    }
-
-    final newUserQueue = nextTracks.where((t) => t.isQueued).toList();
-    final newContextTracks = nextTracks.where((t) => !t.isQueued).toList();
+    final draggedTrack = visibleTracks[oldIdx];
+    final userQueueCount =
+        QueueFilterHelper.getUserQueue(currentQueue).length;
+    final effectiveUserQueueCount =
+        draggedTrack.isQueued ? userQueueCount - 1 : userQueueCount;
+    final isDroppedIntoUserQueue =
+        userQueueCount > 0 && clampedTarget <= effectiveUserQueueCount;
 
     _revisionCounter++;
-    final newPlayerQueue = currentQueue.copyWith(
-      userQueue: newUserQueue,
-      contextTracks: newContextTracks,
-      revision: '$_revisionCounter',
-    );
+    final newPlayerQueue = QueueMutator.reorderTrack(
+      currentQueue,
+      draggedTrack: draggedTrack,
+      targetVisibleIndex: clampedTarget,
+      isTargetInUserQueue: isDroppedIntoUserQueue,
+    ).copyWith(revision: '$_revisionCounter');
+
+    if (isDroppedIntoUserQueue) {
+      _userQueuedUids.add(draggedTrack.uid);
+    } else {
+      _userQueuedUids.remove(draggedTrack.uid);
+    }
 
     emit(state.copyWith(queue: newPlayerQueue));
 
-    final baseOffset = state.currentIndex + 1;
+    // 1:1 with hxl0.a / SetQueueCommand: Sync entire updated nextTracks to audio engine
+    final upcomingMediaItems = newPlayerQueue.nextTracks
+        .map((t) => t.toMediaItem())
+        .toList(growable: false);
+
+    _lastQueue = [
+      if (state.nowPlaying != null) state.nowPlaying!.toMediaItem(),
+      ...upcomingMediaItems,
+    ];
+
     _enqueueMutation(() async {
-      await _playbackController.reorderQueueItem(
-        baseOffset + oldIdx,
-        baseOffset + targetIdx,
-      );
+      await _playbackController.setNextTracks(upcomingMediaItems);
     });
   }
+
 
   Future<void> _onTrackRemoved(
     QueueTrackRemoved event,
@@ -339,26 +332,24 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     _userQueuedUids.remove(uid);
 
     final currentQueue = state.queue;
-    final nextTracks = List<ContextTrack>.from(currentQueue.nextTracks);
-    final removeIdx = nextTracks.indexWhere((t) => t.uid == uid);
+    final removeIdx = currentQueue.nextTracks.indexWhere((t) => t.uid == uid);
 
     if (removeIdx != -1) {
-      nextTracks.removeAt(removeIdx);
-      final newUserQueue = nextTracks.where((t) => t.isQueued).toList();
-      final newContextTracks = nextTracks.where((t) => !t.isQueued).toList();
-
       _revisionCounter++;
-      emit(state.copyWith(
-        queue: currentQueue.copyWith(
-          userQueue: newUserQueue,
-          contextTracks: newContextTracks,
-          revision: '$_revisionCounter',
-        ),
-      ));
+      final updatedQueue = QueueMutator.removeTrack(currentQueue, uid)
+          .copyWith(revision: '$_revisionCounter');
 
-      final absoluteRemoveIndex = state.currentIndex + 1 + removeIdx;
+      emit(state.copyWith(queue: updatedQueue));
+
+      final upcomingMediaItems = updatedQueue.nextTracks
+          .map((t) => t.toMediaItem())
+          .toList(growable: false);
+      _lastQueue = [
+        if (state.nowPlaying != null) state.nowPlaying!.toMediaItem(),
+        ...upcomingMediaItems,
+      ];
       _enqueueMutation(() async {
-        await _playbackController.removeQueueItemAt(absoluteRemoveIndex);
+        await _playbackController.setNextTracks(upcomingMediaItems);
       });
     }
   }
@@ -377,23 +368,24 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     _userQueuedUids.add(newUid);
 
     final currentQueue = state.queue;
-    final newUserQueue = [...currentQueue.userQueue, queuedTrack];
-
     _revisionCounter++;
+    final updatedQueue = QueueMutator.addToQueue(currentQueue, [queuedTrack])
+        .copyWith(revision: '$_revisionCounter');
+
     emit(state.copyWith(
-      queue: currentQueue.copyWith(
-        userQueue: newUserQueue,
-        revision: '$_revisionCounter',
-      ),
+      queue: updatedQueue,
+      lastAddedUid: newUid,
     ));
 
-    final insertIndex = state.currentIndex + 1 + currentQueue.userQueue.length;
-    _animationEndTime = DateTime.now().add(const Duration(milliseconds: 375));
+    final upcomingMediaItems = updatedQueue.nextTracks
+        .map((t) => t.toMediaItem())
+        .toList(growable: false);
+    _lastQueue = [
+      if (state.nowPlaying != null) state.nowPlaying!.toMediaItem(),
+      ...upcomingMediaItems,
+    ];
     _enqueueMutation(() async {
-      await _playbackController.insertQueueItem(
-        insertIndex,
-        queuedTrack.toMediaItem(),
-      );
+      await _playbackController.setNextTracks(upcomingMediaItems);
     });
   }
 
@@ -403,23 +395,24 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
   ) async {
     _userQueuedUids.clear();
     final currentQueue = state.queue;
-    final userCount = currentQueue.userQueue.length;
+    final userCount = QueueFilterHelper.getUserQueue(currentQueue).length;
     if (userCount == 0) return;
 
     _revisionCounter++;
-    emit(state.copyWith(
-      queue: currentQueue.copyWith(
-        userQueue: const [],
-        revision: '$_revisionCounter',
-      ),
-    ));
+    final updatedQueue = QueueMutator.clearUserQueue(currentQueue)
+        .copyWith(revision: '$_revisionCounter');
 
-    final baseOffset = state.currentIndex + 1;
+    emit(state.copyWith(queue: updatedQueue));
+
+    final upcomingMediaItems = updatedQueue.nextTracks
+        .map((t) => t.toMediaItem())
+        .toList(growable: false);
+    _lastQueue = [
+      if (state.nowPlaying != null) state.nowPlaying!.toMediaItem(),
+      ...upcomingMediaItems,
+    ];
     _enqueueMutation(() async {
-      await _playbackController.removeQueueRange(
-        baseOffset,
-        baseOffset + userCount,
-      );
+      await _playbackController.setNextTracks(upcomingMediaItems);
     });
   }
 
@@ -483,7 +476,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     if (currentIndex == -1) {
       emit(state.copyWith(
         queue: PlayerQueue(
-          currentTrack: ContextTrack.fromMediaItem(
+          track: ContextTrack.fromMediaItem(
             current,
             uid: 'now_${current.id}',
           ),
@@ -505,9 +498,8 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
 
     final existingNext = state.queue.nextTracks;
 
-    // Fast path: if the upcoming URI sequence already matches our optimistic
-    // state.queue.nextTracks, preserve all existing UIDs and userQueue/contextTracks
-    // division so ReorderableListView and row animations are never interrupted.
+    // Fast path: if the upcoming URI sequence matches optimistic nextTracks,
+    // preserve existing UIDs and isQueued division so ReorderableListView is smooth.
     if (existingNext.isNotEmpty &&
         upcomingItems.isNotEmpty &&
         state.nowPlaying?.uri == current.id) {
@@ -531,7 +523,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
                 : 'now_${current.id}',
           );
           emit(state.copyWith(
-            queue: state.queue.copyWith(currentTrack: updatedCurrent),
+            queue: state.queue.copyWith(track: updatedCurrent),
             currentIndex: currentIndex,
             totalTracks: queue.length,
           ));
@@ -546,7 +538,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
         uid: state.nowPlaying!.uid,
       );
       emit(state.copyWith(
-        queue: state.queue.copyWith(currentTrack: updatedCurrent),
+        queue: state.queue.copyWith(track: updatedCurrent),
         currentIndex: currentIndex,
         totalTracks: queue.length,
       ));
@@ -555,8 +547,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
 
     // Reconcile upcoming items while preserving existing UIDs and isQueued status
     final availableExisting = List<ContextTrack>.from(existingNext);
-    final userQueue = <ContextTrack>[];
-    final contextTracks = <ContextTrack>[];
+    final upcomingTracks = <ContextTrack>[];
     final occurrenceCounts = <String, int>{};
 
     for (var i = 0; i < upcomingItems.length; i++) {
@@ -564,48 +555,83 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       final count = (occurrenceCounts[item.id] ?? 0) + 1;
       occurrenceCounts[item.id] = count;
 
-      final matchIdx = availableExisting.indexWhere((t) => t.uri == item.id);
+      final itemUid = item.extras?['uid']?.toString();
+      var matchIdx = -1;
+      if (itemUid != null && itemUid.isNotEmpty) {
+        matchIdx = availableExisting.indexWhere((t) => t.uid == itemUid);
+      }
+      if (matchIdx == -1) {
+        matchIdx = availableExisting.indexWhere((t) => t.uri == item.id);
+      }
+
       ContextTrack track;
       if (matchIdx != -1) {
         final matched = availableExisting.removeAt(matchIdx);
-        final isQueued = matched.isQueued ||
-            _userQueuedUids.contains(matched.uid) ||
+        final explicitUid = matched.uid;
+        final isQueued = _userQueuedUids.contains(explicitUid) ||
             item.extras?['is_queued'] == true ||
             item.extras?['is_queued'] == 'true';
         track = ContextTrack.fromMediaItem(
           item,
-          uid: matched.uid,
+          uid: explicitUid,
           isQueued: isQueued,
         );
       } else {
-        final explicitUid = item.extras?['uid']?.toString();
-        final deterministicUid = explicitUid ??
+        final explicitUid = itemUid ??
             (count == 1 ? item.id : '${item.id}_#_$count');
-        final isQueued = _userQueuedUids.contains(deterministicUid) ||
+        final isQueued = _userQueuedUids.contains(explicitUid) ||
             item.extras?['is_queued'] == true ||
             item.extras?['is_queued'] == 'true';
         track = ContextTrack.fromMediaItem(
           item,
-          uid: deterministicUid,
+          uid: explicitUid,
           isQueued: isQueued,
         );
       }
 
-      if (track.isQueued) {
-        userQueue.add(track);
-      } else {
-        contextTracks.add(track);
+      upcomingTracks.add(track);
+    }
+
+    // Pre-emptively fetch next page if upcoming context tracks are nearly exhausted
+    final contextUpcomingCount =
+        upcomingTracks.where((t) => !t.isQueued).length;
+    if (contextUpcomingCount <= 8) {
+      final lastContextTrack =
+          upcomingTracks.where((t) => !t.isQueued).lastOrNull;
+      final nextPageUrl = lastContextTrack?.metadata['next_page_url'] ??
+          current.extras?['next_page_url']?.toString();
+      if (nextPageUrl != null && nextPageUrl.isNotEmpty) {
+        final page = LocalContextResolver.resolvePage(nextPageUrl);
+        if (page != null) {
+          final tempQueue = PlayerQueue(
+            revision: '$_revisionCounter',
+            track: ContextTrack.fromMediaItem(current, uid: 'now_${current.id}'),
+            nextTracks: upcomingTracks,
+          );
+          final pagedQueue = QueueMutator.updatePage(tempQueue, page);
+          upcomingTracks
+            ..clear()
+            ..addAll(pagedQueue.nextTracks);
+
+          final upcomingMedia = upcomingTracks
+              .map((t) => t.toMediaItem())
+              .toList(growable: false);
+          _lastQueue = [
+            current,
+            ...upcomingMedia,
+          ];
+          _playbackController.setNextTracks(upcomingMedia);
+        }
       }
     }
 
     _revisionCounter++;
     final playerQueue = PlayerQueue(
-      currentTrack: ContextTrack.fromMediaItem(
+      track: ContextTrack.fromMediaItem(
         current,
         uid: 'now_${current.id}',
       ),
-      userQueue: userQueue,
-      contextTracks: contextTracks,
+      nextTracks: upcomingTracks,
       revision: '$_revisionCounter',
     );
 
@@ -614,6 +640,37 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       currentIndex: currentIndex,
       totalTracks: queue.length,
     ));
+  }
+
+  Future<void> _onNextPageRequested(
+    QueueNextPageRequested event,
+    Emitter<QueueState> emit,
+  ) async {
+    final lastContextTrack = state.queue.contextTracks.lastOrNull;
+    final nextPageUrl = lastContextTrack?.metadata['next_page_url'];
+    if (nextPageUrl == null || nextPageUrl.isEmpty) return;
+
+    final page = LocalContextResolver.resolvePage(nextPageUrl);
+    if (page == null) return;
+
+    _revisionCounter++;
+    final updatedQueue = QueueMutator.updatePage(state.queue, page)
+        .copyWith(revision: '$_revisionCounter');
+
+    emit(state.copyWith(queue: updatedQueue));
+
+    final upcomingMediaItems = updatedQueue.nextTracks
+        .map((t) => t.toMediaItem())
+        .toList(growable: false);
+
+    _lastQueue = [
+      if (state.nowPlaying != null) state.nowPlaying!.toMediaItem(),
+      ...upcomingMediaItems,
+    ];
+
+    _enqueueMutation(() async {
+      await _playbackController.setNextTracks(upcomingMediaItems);
+    });
   }
 
   @override

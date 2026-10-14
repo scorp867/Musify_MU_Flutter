@@ -10,6 +10,7 @@ class QueueState extends Equatable {
   final bool isPlaying;
   final AudioServiceShuffleMode shuffleMode;
   final AudioServiceRepeatMode repeatMode;
+  final String? lastAddedUid;
 
   const QueueState({
     this.queue = const PlayerQueue(revision: '0'),
@@ -18,6 +19,7 @@ class QueueState extends Equatable {
     this.isPlaying = true,
     this.shuffleMode = AudioServiceShuffleMode.none,
     this.repeatMode = AudioServiceRepeatMode.none,
+    this.lastAddedUid,
   });
 
   ContextTrack? get nowPlaying => queue.currentTrack;
@@ -37,6 +39,8 @@ class QueueState extends Equatable {
     bool? isPlaying,
     AudioServiceShuffleMode? shuffleMode,
     AudioServiceRepeatMode? repeatMode,
+    String? lastAddedUid,
+    bool preserveLastAddedUid = false,
   }) {
     return QueueState(
       queue: queue ?? this.queue,
@@ -45,6 +49,8 @@ class QueueState extends Equatable {
       isPlaying: isPlaying ?? this.isPlaying,
       shuffleMode: shuffleMode ?? this.shuffleMode,
       repeatMode: repeatMode ?? this.repeatMode,
+      lastAddedUid:
+          lastAddedUid ?? (preserveLastAddedUid ? this.lastAddedUid : null),
     );
   }
 
@@ -56,5 +62,6 @@ class QueueState extends Equatable {
         isPlaying,
         shuffleMode,
         repeatMode,
+        lastAddedUid,
       ];
 }

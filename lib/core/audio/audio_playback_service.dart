@@ -13,8 +13,11 @@ class AudioPlaybackService {
   late final PlaybackQueueManager _queueManager;
   late final StreamSubscription<int?> _indexSubscription;
 
+  void Function(List<MediaItem> tracks)? onQueueChanged;
+
   AudioPlaybackService() {
     _queueManager = PlaybackQueueManager(_player);
+    _queueManager.onQueueChanged = (tracks) => onQueueChanged?.call(tracks);
     _indexSubscription = _player.currentIndexStream.listen(_queueManager.onIndexChanged);
   }
 
@@ -46,9 +49,25 @@ class AudioPlaybackService {
 
   Future<void> stop() => _player.stop();
 
-  Future<void> seekToNext() => _player.seekToNext();
+  Future<void> seekToNext() async {
+    final nextIndex = _queueManager.currentAbsoluteIndex + 1;
+    if (nextIndex < _queueManager.fullTracks.length) {
+      await _queueManager.seekToAbsoluteIndex(nextIndex);
+    }
+  }
 
-  Future<void> seekToPrevious() => _player.seekToPrevious();
+  Future<void> seekToPrevious() async {
+    if (_player.position > const Duration(seconds: 3)) {
+      await _player.seek(Duration.zero);
+    } else {
+      final prevIndex = _queueManager.currentAbsoluteIndex - 1;
+      if (prevIndex >= 0) {
+        await _queueManager.seekToAbsoluteIndex(prevIndex);
+      } else {
+        await _player.seek(Duration.zero);
+      }
+    }
+  }
 
   Future<void> seekToAbsoluteIndex(int absoluteIndex) =>
       _queueManager.seekToAbsoluteIndex(absoluteIndex);
@@ -71,6 +90,9 @@ class AudioPlaybackService {
 
   Future<void> insertTrack(int absoluteIndex, MediaItem track) =>
       _queueManager.insertTrack(absoluteIndex, track);
+
+  Future<void> setNextTracks(List<MediaItem> upcomingTracks) =>
+      _queueManager.setNextTracks(upcomingTracks);
 
   Stream<PlaybackEvent> get playbackEventStream => _player.playbackEventStream;
 }

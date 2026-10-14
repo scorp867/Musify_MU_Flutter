@@ -110,6 +110,9 @@ class FakePlaybackController implements PlaybackController {
   Future<void> playQueue(List<MediaItem> tracks, int initialIndex) async {}
 
   @override
+  Future<void> setNextTracks(List<MediaItem> upcomingTracks) async {}
+
+  @override
   Future<void> updateCurrentMediaItem(MediaItem item) async {
     updatedItems.add(item);
     currentMediaItem = item;

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 import 'package:musify_mu/features/player/application/queue/queue_bloc.dart';
 import 'package:musify_mu/features/player/application/queue/queue_event.dart';
 import 'package:musify_mu/features/player/application/queue/queue_state.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
+import 'package:musify_mu/features/player/domain/queue/queue_filter_helper.dart';
 
 import '../widgets/peek_scroll_view.dart';
 import '../widgets/player_theme.dart';
@@ -47,9 +49,8 @@ class QueueSheetScreen extends StatelessWidget {
             transitionDuration: const Duration(milliseconds: 420),
             reverseTransitionDuration: const Duration(milliseconds: 380),
             pageBuilder: (modalContext, _, _) {
-              return BlocProvider(
-                create: (_) => QueueBloc(playbackController: playbackController)
-                  ..add(const QueueStarted()),
+              return BlocProvider<QueueBloc>.value(
+                value: getIt<QueueBloc>(),
                 child: const QueueSheetScreen(),
               );
             },
@@ -104,14 +105,12 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
   late final SpotifyStretchController _stretchController;
   late final SpotifyPeekScrollController _scrollController;
 
-  final Set<String> _knownUserQueueUids = <String>{};
   final Set<String> _animatedInsertUids = <String>{};
   final Set<String> _slideDownUids = <String>{};
   final Set<String> _clearingUids = <String>{};
   List<ContextTrack>? _tapTransitionTracks;
   String? _tappedTrackUid;
   int _tapAnimationGeneration = 0;
-  bool _hasInitializedQueueUids = false;
   bool _isClearingQueue = false;
 
   // Matches p/y7o.java + p/z6y0.java DefaultItemAnimator:
@@ -135,69 +134,34 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     super.dispose();
   }
 
-  void _syncUserQueueAnimations(QueueState state, {required bool isFromListener}) {
+  void _handleTrackAddedAnimation(QueueState state, String addedUid) {
     final userQueue = state.queue.userQueue;
-    final currentUserUids = userQueue.map((t) => t.uid).toSet();
-
-    if (!_hasInitializedQueueUids) {
-      if (state.hasQueue || state.hasUpcoming) {
-        _knownUserQueueUids
-          ..clear()
-          ..addAll(currentUserUids);
-        _hasInitializedQueueUids = true;
-      }
-      return;
-    }
+    final index = userQueue.indexWhere((t) => t.uid == addedUid);
+    if (index == -1) return;
 
     final scrollOffset =
         _scrollController.hasClients ? _scrollController.offset : 0.0;
-    final newlyInsertedVisible = <String>[];
-    var offScreenInsertedDelta = 0.0;
 
-    for (var i = 0; i < userQueue.length; i++) {
-      final uid = userQueue[i].uid;
-      if (!_knownUserQueueUids.contains(uid)) {
-        // Check if the insertion slot [i] is above the current viewport.
-        // If above the viewport, do NOT animate 0->64px; instead keep its height
-        // at 64px and compensate scrollOffset by +64px so visible items in the
-        // viewport do not shift down by 1 step.
-        if (isFromListener &&
-            _scrollController.hasClients &&
-            i * 64.0 < scrollOffset - 4.0) {
-          offScreenInsertedDelta += 64.0;
-        } else {
-          _animatedInsertUids.add(uid);
-          newlyInsertedVisible.add(uid);
-        }
-      }
+    // Check if the insertion slot [index] is above the current viewport.
+    // If above the viewport, do NOT animate 0->64px; instead keep its height
+    // at 64px and compensate scrollOffset by +64px so visible items in the
+    // viewport do not shift down by 1 step.
+    if (_scrollController.hasClients && index * 64.0 < scrollOffset - 4.0) {
+      _scrollController.jumpTo(scrollOffset + 64.0);
+      return;
     }
 
-    _knownUserQueueUids
-      ..clear()
-      ..addAll(currentUserUids);
-    _animatedInsertUids.retainAll(currentUserUids);
-
-    if (offScreenInsertedDelta > 0.0 && _scrollController.hasClients) {
-      _scrollController.jumpTo(scrollOffset + offScreenInsertedDelta);
+    _animatedInsertUids.add(addedUid);
+    if (mounted) {
+      setState(() {});
     }
 
-    if (newlyInsertedVisible.isNotEmpty) {
-      if (isFromListener && mounted) {
+    Future<void>.delayed(_itemAnimatorTotalWait, () {
+      if (!mounted) return;
+      if (_animatedInsertUids.remove(addedUid)) {
         setState(() {});
       }
-      Future<void>.delayed(_itemAnimatorTotalWait, () {
-        if (!mounted) return;
-        var changed = false;
-        for (final uid in newlyInsertedVisible) {
-          if (_animatedInsertUids.remove(uid)) {
-            changed = true;
-          }
-        }
-        if (changed) {
-          setState(() {});
-        }
-      });
-    }
+    });
   }
 
   void _handleClearQueue() {
@@ -208,7 +172,8 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     final userQueueCount = userQueue.length;
     if (userQueueCount == 0) return;
 
-    final currentTracks = List<ContextTrack>.from(state.nextTracks);
+    final currentTracks = List<ContextTrack>.from(
+        QueueFilterHelper.getVisibleUpcomingTracks(state.queue));
     final scrollOffset =
         _scrollController.hasClients ? _scrollController.offset : 0.0;
     final firstVisibleIndex =
@@ -267,7 +232,8 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
 
   void _handleTrackTapped(ContextTrack track) {
     final state = context.read<QueueBloc>().state;
-    final currentTracks = List<ContextTrack>.from(state.nextTracks);
+    final currentTracks = List<ContextTrack>.from(
+        QueueFilterHelper.getVisibleUpcomingTracks(state.queue));
     final tapIdx = currentTracks.indexWhere((t) => t.uid == track.uid);
     if (tapIdx == -1) return;
 
@@ -494,15 +460,15 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                         previous.queue.revision != current.queue.revision ||
                         previous.currentIndex != current.currentIndex,
                     listener: (context, state) {
-                      _syncUserQueueAnimations(state, isFromListener: true);
+                      final addedUid = state.lastAddedUid;
+                      if (addedUid != null) {
+                        _handleTrackAddedAnimation(state, addedUid);
+                      }
                     },
                     buildWhen: (previous, current) =>
                         previous.queue.revision != current.queue.revision ||
                         previous.currentIndex != current.currentIndex,
                     builder: (context, state) {
-                      if (!_hasInitializedQueueUids) {
-                        _syncUserQueueAnimations(state, isFromListener: false);
-                      }
                       return _buildList(context, state);
                     },
                   ),
@@ -544,7 +510,8 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
   }
 
   Widget _buildList(BuildContext context, QueueState state) {
-    final nextTracks = _tapTransitionTracks ?? state.nextTracks;
+    final nextTracks = _tapTransitionTracks ??
+        QueueFilterHelper.getVisibleUpcomingTracks(state.queue);
     if (!state.hasQueue && !state.hasUpcoming && nextTracks.isEmpty) {
       return _buildPlaceholder();
     }
@@ -558,7 +525,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         scrollController: _scrollController,
         physics: const ClampingScrollPhysics(),
         buildDefaultDragHandles: false,
-        scrollCacheExtent: const ScrollCacheExtent.pixels(3500.0),
+        scrollCacheExtent: const ScrollCacheExtent.pixels(400.0),
         padding: EdgeInsets.only(bottom: bottomPad),
         proxyDecorator: _proxyDecorator,
         itemCount: nextTracks.length,
