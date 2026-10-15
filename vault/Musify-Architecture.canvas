@@ -1,0 +1,21 @@
+{
+	"nodes":[
+		{"id":"n_app","type":"text","text":"## App Entry & DI Root\n- `lib/main.dart`\n- `lib/app/app.dart`\n- `lib/app/di/injection.dart`","x":0,"y":-300,"width":300,"height":160},
+		{"id":"n_ui","type":"text","text":"## UI Presentation Layer\n- `lib/features/home/`\n- `lib/features/player/`\n- `lib/features/shell/`\n- `lib/features/library/`\n- `lib/features/browse/`\n- BLoC UI Event/State Machines","x":-450,"y":0,"width":340,"height":240},
+		{"id":"n_network","type":"text","text":"## Core Network & Auth\n- `DioNetworkClient` (Cronet / QUIC)\n- `TokenRefreshMutex` (Async 401 Lock)\n- `SpotifyTransport` (Web & Android)\n- `AuthSessionProvider`","x":450,"y":0,"width":340,"height":240},
+		{"id":"n_local","type":"text","text":"## Local Storage & Drift\n- `AppDatabase` (Drift SQLite)\n- `DeviceMusicDataSource`\n- `LocalMusicRepository`\n- Local/Remote Sync","x":-450,"y":320,"width":340,"height":240},
+		{"id":"n_protos","type":"text","text":"## Spotify Wire Protobufs\n- 24 Schemas in `protos/spotify/`\n- Casita, Browsita, Extended Metadata\n- Color Lyrics & Scrollsita","x":0,"y":400,"width":300,"height":180},
+		{"id":"n_audio","type":"text","text":"## Core Audio Engine\n- `PlaybackController`\n- `PlaybackQueueManager` (50 sliding)\n- `AudioPlaybackService` (JustAudio)\n- `AudioNotificationHandler` (MediaSession)","x":20,"y":0,"width":340,"height":240},
+		{"id":"n_kodiak","type":"text","text":"## Kodiak Reactive Data\n- `KodiakDataPool`\n- `ExtendedMetadataClient`\n- Trait Plugins (20+ plugins)\n- Protobuf Wire Deserializer","x":500,"y":340,"width":340,"height":240}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n_app","fromSide":"bottom","toNode":"n_ui","toSide":"top"},
+		{"id":"e2","fromNode":"n_app","fromSide":"bottom","toNode":"n_audio","toSide":"top"},
+		{"id":"e3","fromNode":"n_app","fromSide":"bottom","toNode":"n_network","toSide":"top"},
+		{"id":"e4","fromNode":"n_ui","fromSide":"right","toNode":"n_audio","toSide":"left"},
+		{"id":"e5","fromNode":"n_audio","fromSide":"right","toNode":"n_network","toSide":"left"},
+		{"id":"e6","fromNode":"n_network","fromSide":"bottom","toNode":"n_kodiak","toSide":"top"},
+		{"id":"e7","fromNode":"n_kodiak","fromSide":"bottom","toNode":"n_protos","toSide":"top"},
+		{"id":"e8","fromNode":"n_ui","fromSide":"bottom","toNode":"n_local","toSide":"top"}
+	]
+}
