@@ -15,16 +15,14 @@ import 'queue_state.dart';
 class _QueueDataChanged extends QueueEvent {
   final List<MediaItem> queue;
   final MediaItem? currentItem;
-  final int windowEnd;
 
   const _QueueDataChanged(
     this.queue,
     this.currentItem,
-    this.windowEnd,
   );
 
   @override
-  List<Object?> get props => [queue, currentItem?.id, windowEnd];
+  List<Object?> get props => [queue, currentItem?.id];
 }
 
 class _PlaybackStatusChanged extends QueueEvent {
@@ -76,6 +74,9 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       }
     }).catchError((_) {}).whenComplete(() {
       _pendingMutations--;
+      if (_pendingMutations == 0 && !isClosed) {
+        _emitQueueChange();
+      }
     });
   }
 
@@ -131,7 +132,6 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     add(_QueueDataChanged(
       _lastQueue,
       _lastMediaItem,
-      _playbackController.audioWindowEndIndex,
     ));
   }
 
@@ -193,76 +193,88 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
         event.track.copyWith(isQueued: false, provider: 'context');
 
     _lastMediaItem = nextCurrentTrack.toMediaItem();
-    _lastQueueIndex = baseOffset;
     final tapGen = ++_latestTapGeneration;
     _animationEndTime = DateTime.now().add(const Duration(milliseconds: 375));
 
-    if (tapIdx < userQueueCount) {
-      // Case 1: Tapped a track inside userQueue.
-      for (var i = 0; i <= tapIdx; i++) {
-        _userQueuedUids.remove(nextTracks[i].uid);
+    if (tapIdx < userQueueCount || userQueueCount == 0) {
+      // Case 1: Tapped a track inside userQueue (or no user queue exists).
+      // Preceding user queue items are consumed into playback history.
+      if (userQueueCount > 0) {
+        final removeCount = tapIdx < userQueueCount ? tapIdx + 1 : userQueueCount;
+        for (var i = 0; i < removeCount; i++) {
+          _userQueuedUids.remove(nextTracks[i].uid);
+        }
       }
 
-      final remainingUserQueue =
-          QueueFilterHelper.getUserQueue(currentQueue).sublist(tapIdx + 1);
+      final remainingUserQueue = userQueueCount > 0
+          ? QueueFilterHelper.getUserQueue(currentQueue).sublist(tapIdx + 1)
+          : const <ContextTrack>[];
       final contextTracks = QueueFilterHelper.getContextQueue(currentQueue);
+      final remainingContextTracks = userQueueCount == 0
+          ? (tapIdx + 1 < contextTracks.length
+              ? contextTracks.sublist(tapIdx + 1)
+              : const <ContextTrack>[])
+          : contextTracks;
+      final targetAbsoluteIndex = baseOffset + tapIdx;
 
+      _lastQueueIndex = targetAbsoluteIndex;
       _revisionCounter++;
       emit(state.copyWith(
         queue: currentQueue.copyWith(
           track: nextCurrentTrack,
-          nextTracks: [...remainingUserQueue, ...contextTracks],
+          nextTracks: [...remainingUserQueue, ...remainingContextTracks],
           revision: '$_revisionCounter',
         ),
-        currentIndex: baseOffset,
+        currentIndex: targetAbsoluteIndex,
         isPlaying: true,
       ));
 
       _enqueueMutation(() async {
-        if (tapIdx > 0) {
-          await _playbackController.removeQueueRange(
-            baseOffset,
-            baseOffset + tapIdx,
-          );
-        }
         if (_latestTapGeneration == tapGen) {
-          await _playbackController.skipToQueueItem(baseOffset);
+          await _playbackController.skipToQueueItem(targetAbsoluteIndex);
           await _playbackController.play();
         }
       });
     } else {
-      // Case 2: Tapped a context track below userQueue.
+      // Case 2: Tapped a context track below preserved userQueue.
+      // 1:1 with Spotify: User queue remains preserved at head of upcoming tracks,
+      // while tapped context track becomes active.
       final contextTapIdx = tapIdx - userQueueCount;
       final existingUserQueue = QueueFilterHelper.getUserQueue(currentQueue);
       final remainingContextTracks =
           QueueFilterHelper.getContextQueue(currentQueue).sublist(contextTapIdx + 1);
+      final newUpcomingTracks = [...existingUserQueue, ...remainingContextTracks];
+
+      final nextActiveMedia = nextCurrentTrack.toMediaItem();
+      final upcomingMediaItems = newUpcomingTracks
+          .map((t) => t.toMediaItem())
+          .toList(growable: false);
+
+      final targetAbsoluteIndex = baseOffset;
+      _lastQueueIndex = targetAbsoluteIndex;
+      _lastQueue = [
+        nextActiveMedia,
+        ...upcomingMediaItems,
+      ];
 
       _revisionCounter++;
       emit(state.copyWith(
         queue: currentQueue.copyWith(
           track: nextCurrentTrack,
-          nextTracks: [...existingUserQueue, ...remainingContextTracks],
+          nextTracks: newUpcomingTracks,
           revision: '$_revisionCounter',
         ),
-        currentIndex: baseOffset,
+        currentIndex: targetAbsoluteIndex,
         isPlaying: true,
       ));
 
       _enqueueMutation(() async {
-        if (tapIdx > userQueueCount) {
-          await _playbackController.removeQueueRange(
-            baseOffset + userQueueCount,
-            baseOffset + tapIdx,
-          );
-        }
-        if (userQueueCount > 0) {
-          await _playbackController.reorderQueueItem(
-            baseOffset + userQueueCount,
-            baseOffset,
-          );
-        }
         if (_latestTapGeneration == tapGen) {
-          await _playbackController.skipToQueueItem(baseOffset);
+          await _playbackController.setNextTracks([
+            nextActiveMedia,
+            ...upcomingMediaItems,
+          ]);
+          await _playbackController.skipToQueueItem(targetAbsoluteIndex);
           await _playbackController.play();
         }
       });
@@ -287,10 +299,8 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     final draggedTrack = visibleTracks[oldIdx];
     final userQueueCount =
         QueueFilterHelper.getUserQueue(currentQueue).length;
-    final effectiveUserQueueCount =
-        draggedTrack.isQueued ? userQueueCount - 1 : userQueueCount;
     final isDroppedIntoUserQueue =
-        userQueueCount > 0 && clampedTarget <= effectiveUserQueueCount;
+        userQueueCount > 0 && clampedTarget < userQueueCount;
 
     _revisionCounter++;
     final newPlayerQueue = QueueMutator.reorderTrack(
@@ -487,13 +497,9 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
       return;
     }
 
-    final windowEnd = event.windowEnd;
     final upcomingStart = currentIndex + 1;
-    final upcomingCap = windowEnd > 0 ? windowEnd : queue.length;
-    final upcomingEnd = upcomingCap.clamp(0, queue.length);
-
-    final upcomingItems = upcomingStart < upcomingEnd
-        ? queue.sublist(upcomingStart, upcomingEnd)
+    final upcomingItems = upcomingStart < queue.length
+        ? queue.sublist(upcomingStart)
         : const <MediaItem>[];
 
     final existingNext = state.queue.nextTracks;

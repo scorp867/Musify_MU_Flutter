@@ -3,7 +3,7 @@ title: "queue_sheet_screen.dart"
 path: "lib/features/player/presentation/screens/queue_sheet_screen.dart"
 type: "source-code"
 tags: [code, dart, musify-mu, feature, player, queue, presentation]
-lines: 613
+lines: 832
 incoming_dependencies: 1
 outgoing_dependencies: 13
 ---
@@ -47,6 +47,7 @@ Replicating Android Spotify's `DefaultItemAnimator` timing:
 
 ### 3. Queue Clear and Tap-to-Play Transition Logic
 - When a user taps a track down the queue:
+  - Freezes visible upcoming items in `_tapTransitionTracks` during the transition window.
   - Computes skipped tracks between current position and the tapped track.
   - Adds skipped track UIDs to `_clearingUids` while setting `_tappedTrackUid`.
   - Dispatches `QueueTrackTapped(track: track, absoluteIndex: absoluteIndex)` to `QueueBloc`.
@@ -54,6 +55,12 @@ Replicating Android Spotify's `DefaultItemAnimator` timing:
 - When clearing the queue:
   - If all user-queued tracks are off-screen above the scroll viewport, jumps scroll position by `-userQueueCount * 64.0` immediately without visual glitching.
   - If visible, marks visible queued UIDs in `_clearingUids` and animates them away before dispatching `QueueCleared()`.
+
+### 4. Reorderable Upcoming Track List
+- Rendered via `ReorderableListView.builder` wrapped in `SpotifyStretchOverscrollIndicator`.
+- Uses `onReorderItem: (oldIndex, newIndex)`:
+  - Guarded by `if (_tapTransitionTracks != null) return;` to lock reordering during active tap transitions.
+  - Dispatches `QueueReordered(oldIndex, newIndex)` directly to `QueueBloc`.
 
 ## API Breakdown
 
@@ -111,3 +118,4 @@ Replicating Android Spotify's `DefaultItemAnimator` timing:
 1. **Fixed Item Extents Mandatory**: Track rows in the upcoming queue MUST maintain a strict 64.0dp extent (`itemExtent: 64.0`). All off-screen jump offsets and transition math depend directly on `index * 64.0`.
 2. **Generation Guard on Timers**: All `Future.delayed(_itemAnimatorTotalWait)` callbacks verify `_tapAnimationGeneration == gen` before mutating state. Without this check, rapid sequential user taps result in race conditions and dropped tracks.
 3. **Route Mutex**: Like `PlayerScreen`, `QueueSheetScreen.show` relies on static `_isOpen` to prevent multiple queue sheets from opening if tapped simultaneously.
+4. **Reorder Mutex During Tap Transitions**: `onReorderItem` is locked when `_tapTransitionTracks != null` to prevent concurrent list mutations while skipped items are animating out.

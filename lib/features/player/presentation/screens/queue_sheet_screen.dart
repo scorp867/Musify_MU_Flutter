@@ -530,6 +530,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         proxyDecorator: _proxyDecorator,
         itemCount: nextTracks.length,
         onReorderItem: (oldIndex, newIndex) {
+          if (_tapTransitionTracks != null) return;
           context.read<QueueBloc>().add(QueueReordered(oldIndex, newIndex));
         },
         itemBuilder: (context, index) {
