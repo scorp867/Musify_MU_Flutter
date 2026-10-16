@@ -3,7 +3,7 @@ title: "playback_queue_manager.dart"
 path: "lib/core/audio/playback_queue_manager.dart"
 type: "source-code"
 tags: [code, dart, musify-mu, core, audio, queue, prefetch, 2-slot-pipeline, gapless]
-lines: 310
+lines: 294
 incoming_dependencies: 1
 outgoing_dependencies: 4
 ---
@@ -62,8 +62,8 @@ When Slot 0 finishes, `just_audio` transitions into Slot 1 gaplessly (0ms delay)
 | `seekToAbsoluteIndex` | `Future<void>` | `int absoluteIndex` | Seeks playback to target index and refreshes prefetch slot |
 | `onIndexChanged` | `Future<void>` | `int? index` | Handles native transition into Slot 1, shifts slots, and preloads new next track |
 | `reorderTrack` | `Future<void>` | `int fromAbsolute, int toAbsolute` | Moves tracks within metadata queue and realigns current index |
-| `removeTrack` | `Future<void>` | `int absoluteIndex` | Removes item, skipping forward if current playing track is removed |
-| `removeTrackRange` | `Future<void>` | `int startAbsolute, int endAbsolute` | Removes track range and updates prefetch slot |
+| `removeTrack` | `Future<void>` | `int absoluteIndex` | Delegates directly to `removeTrackRange(absoluteIndex, absoluteIndex + 1)` |
+| `removeTrackRange` | `Future<void>` | `int startAbsolute, int endAbsolute` | Removes track range, updates playback or halts player when empty, realigns current index, and refreshes prefetch slot and queue listeners |
 | `insertTrack` | `Future<void>` | `int absoluteIndex, MediaItem track` | Inserts track into metadata list |
 
 ## State & Data Flow Analysis
@@ -73,6 +73,13 @@ When Slot 0 finishes, `just_audio` transitions into Slot 1 gaplessly (0ms delay)
   When `just_audio` completes Slot 0, it gaplessly plays Slot 1. `onIndexChanged` intercepts the event:
   1. `await playlist.removeAt(0)`
   2. If `_prefetchLevel == PrefetchLevel.media`, adds the new upcoming track into Slot 1 (`await playlist.add(nextSource)`).
+- **Track Removal & Depletion Handling**:
+  `removeTrack(absoluteIndex)` delegates to `removeTrackRange(absoluteIndex, absoluteIndex + 1)`. Clamping prevents out-of-bounds removal.
+  - If the active playing track falls within `[start, end)`:
+    - If tracks remain, `setQueue` repositions playback to `start.clamp(0, _fullTracks.length - 1)`.
+    - If the entire queue is depleted, `_currentIndex` resets to `0`, `_playlist` is cleared to `null`, hardware playback halts via `_player.stop()`, and `onQueueChanged` is notified.
+  - If removing tracks positioned before the active playing index (`end <= _currentIndex`), `_currentIndex` is shifted by `-(end - start)`.
+  - For all mutations, `_refreshPrefetchSlot()` resynchronizes Slot 1 to reflect the active next track, and `onQueueChanged` notifies listeners with `List.unmodifiable(_fullTracks)`.
 - **Cosmos Page Auto-Loading**:
   In `_checkAndLoadNextPage()`, if `_fullTracks.length - (_currentIndex + 1) <= 8`, it extracts `next_page_url` from the last track and queries `LocalContextResolver.resolvePage(nextPageUrl)`. The resolved page tracks are automatically mapped and appended to `_fullTracks`, notifying `onQueueChanged`.
 

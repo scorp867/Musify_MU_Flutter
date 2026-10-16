@@ -79,43 +79,34 @@ graph TD
 
 ---
 
-## Phase 1: Critical Bug Fixes (App-Breaking)
+## Phase 1: Core Queue Architecture & Stability Specifications
 
 > [!IMPORTANT]
-> These 6 issues cause crashes, permanent state freezes, silent data loss, or wrong-song playback. Fix before any other work.
+> Foundational specifications governing transport lifecycle, mutation synchronization, gapless 2-slot prefetch, network scoping, and UI reordering.
 
-### 1.1 `AudioNotificationHandler.stop()` permanently destroys playback subscription
-- **File**: [audio_notification_handler.dart#L293-L297](file:///c:/Users/Admin/Musify_MU/lib/core/audio/audio_notification_handler.dart#L293-L297)
-- **Problem**: `stop()` cancels `_playbackSub` — the singleton's only event stream subscription. After one `stop()` call (e.g. notification swipe dismiss), no playback state, position, or media notifications ever update again. The player UI becomes permanently unresponsive.
-- **Fix**: Remove `await _playbackSub.cancel();` from `stop()`. Only cancel in a dedicated `dispose()` method called on app shutdown.
+### 1.1 Lifecycle Isolation in `AudioNotificationHandler.stop()`
+- **File**: `[audio_notification_handler.dart](file:///home/Documents/Musify_MU/lib/core/audio/audio_notification_handler.dart)`
+- **Specification**: `stop()` isolates playback service termination (`_playbackService.stop()` and `super.stop()`) from event stream lifecycle management. Stream subscription `_playbackSub` remains active throughout normal player usage, and cancels exclusively in `dispose()` upon application termination.
 
-### 1.2 `QueueBloc` silently drops audio updates during mutations (permanent state freeze)
-- **File**: [queue_bloc.dart#L61-L77](file:///c:/Users/Admin/Musify_MU/lib/features/player/application/queue/queue_bloc.dart#L61-L77)
-- **Problem**: While `_pendingMutations > 0`, all `queue` and `mediaItem` stream events are cached but never emitted. When `whenComplete` fires and decrements `_pendingMutations` to 0, **no code calls `_emitQueueChange()`**. If the audio service emitted its updated queue during the mutation window, that update is lost forever.
-- **Fix**: Add `if (_pendingMutations == 0 && !isClosed) _emitQueueChange();` inside `whenComplete`.
+### 1.2 Guaranteed Audio Synchronization in `QueueBloc` Mutations
+- **File**: `[queue_bloc.dart](file:///home/Documents/Musify_MU/lib/features/player/application/queue/queue_bloc.dart)`
+- **Specification**: Asynchronous queue mutations execute sequentially within `_enqueueMutation`. When all active mutations finish (`_pendingMutations == 0`), `whenComplete` triggers `_emitQueueChange()`. Any audio service stream updates received during in-flight mutations are guaranteed to emit the latest reconciled state without dropped updates.
 
-### 1.3 `PlaybackQueueManager` sliding window index desynchronization
-- **File**: [playback_queue_manager.dart#L135-L169](file:///c:/Users/Admin/Musify_MU/lib/core/audio/playback_queue_manager.dart#L135-L169)
-- **Problem**: `removeTrack` and `removeTrackRange` unconditionally decrement `_windowEndIndex` but never adjust `_windowStartIndex` when items before the window are removed. This corrupts the window-to-absolute index mapping, causing wrong-song playback and mismatched metadata.
-- **Fix**: Apply conditional window boundary adjustment:
-  - `index < _windowStartIndex` → decrement both `_windowStartIndex` and `_windowEndIndex`
-  - `index >= _windowStartIndex && index < _windowEndIndex` → remove from playlist, decrement `_windowEndIndex`
-  - `index >= _windowEndIndex` → no window changes
+### 1.3 Native 2-Slot Pipeline Architecture (`PlaybackQueueManager`)
+- **File**: `[playback_queue_manager.dart](file:///home/Documents/Musify_MU/lib/core/audio/playback_queue_manager.dart)`
+- **Specification**: Audio playback is structured 1:1 with Spotify's C++ `ContextPlayer` 2-slot gapless prefetch pipeline. `just_audio`'s `ConcatenatingAudioSource` maintains strictly two slots: Slot 0 (currently audible track) and Slot 1 (next upcoming track prefetched at `PrefetchLevel.media`). The entire context is preserved as linear metadata in `_fullTracks`. Slicing upcoming tracks via `sublist(_currentIndex + 1)` and loading subsequent Cosmos pages on demand eliminates sliding window arithmetic, boundary offset errors, and memory bloat.
 
-### 1.4 Prepend operation fires stale index events before window update
-- **File**: [playback_queue_manager.dart#L215-L232](file:///c:/Users/Admin/Musify_MU/lib/core/audio/playback_queue_manager.dart#L215-L232)
-- **Problem**: `playlist.insertAll(0, previousBatch)` shifts `just_audio`'s current index by N. The index stream fires immediately, but `_windowStartIndex` hasn't been updated yet. `windowToAbsoluteIndex()` returns a wrong absolute index, causing wrong track metadata emission.
-- **Fix**: Update `_windowStartIndex = nextStartIndex` **before** calling `playlist.insertAll`, or suppress index events during window mutations.
+### 1.4 Immediate Audio Preload Synchronization
+- **File**: `[playback_queue_manager.dart](file:///home/Documents/Musify_MU/lib/core/audio/playback_queue_manager.dart)`
+- **Specification**: Index advancement is handled reactively by `onIndexChanged`. When Slot 0 finishes, `just_audio` transitions gaplessly into Slot 1. The manager removes the completed Slot 0 audio source, shifts Slot 1 into Slot 0, and loads the new upcoming track into Slot 1 via `_refreshPrefetchSlot()`. Preload transitions operate on immediate audio source tags without asynchronous prepend races.
 
-### 1.5 `QueuedNetworkClient` silently cancels distinct requests sharing the same URL path
-- **File**: [queued_network_client.dart#L46](file:///c:/Users/Admin/Musify_MU/lib/core/network/client/queued_network_client.dart#L46)
-- **Problem**: `tag: tag ?? uri.path` ignores query parameters. Two requests like `GET /search?q=rock` and `GET /search?q=jazz` share `tag: '/search'`, causing the first to be silently cancelled and dropped. POST mutations to the same path also cancel each other.
-- **Fix**: Remove `?? uri.path` fallback. Pass `tag: tag` (null if not explicitly provided). Superseding should only happen with explicitly provided tags.
+### 1.5 Explicit Request Tagging in `QueuedNetworkClient`
+- **File**: `[queued_network_client.dart](file:///home/Documents/Musify_MU/lib/core/network/client/queued_network_client.dart)`
+- **Specification**: `QueuedNetworkClient.get` forwards `tag: tag` directly to `NetworkTrafficController`. Request superseding and deduplication operate exclusively on explicit tags rather than URI path fallbacks, ensuring distinct queries and mutations are never inadvertently cancelled or dropped.
 
-### 1.6 Downward reorder off-by-one and silent drop at queue end
-- **File**: [queue_sheet_screen.dart#L565-L567](file:///c:/Users/Admin/Musify_MU/lib/features/player/presentation/screens/queue_sheet_screen.dart#L565-L567) and [queue_bloc.dart#L280-L295](file:///c:/Users/Admin/Musify_MU/lib/features/player/application/queue/queue_bloc.dart#L280-L295)
-- **Problem**: Flutter's `ReorderableListView` reports `newIndex` before removal. Missing `if (oldIndex < newIndex) newIndex -= 1;` correction. Also, `if (targetIdx >= nextTracks.length) return;` silently drops valid end-of-list reorders.
-- **Fix**: Apply the standard Flutter reorder index correction. Allow `targetIdx == nextTracks.length - 1`.
+### 1.6 Reorder Boundaries & Tap Transition Lock
+- **Files**: `[queue_sheet_screen.dart](file:///home/Documents/Musify_MU/lib/features/player/presentation/screens/queue_sheet_screen.dart)`, `[queue_bloc.dart](file:///home/Documents/Musify_MU/lib/features/player/application/queue/queue_bloc.dart)`
+- **Specification**: Upcoming items render via `ReorderableListView.builder` with `onReorderItem: (oldIndex, newIndex)`. Reorder gestures are locked during active tap transitions (`_tapTransitionTracks != null`). In `QueueBloc._onReordered`, target indices are clamped within visible track bounds (`0 <= target < visibleTracks.length`), and updated upcoming tracks sync directly to the audio engine via `setNextTracks(upcomingMediaItems)`.
 
 ---
 
@@ -349,7 +340,7 @@ graph TD
 - `_EncoreCirclePlayPauseButton` is 34x34dp (minimum: 48x48dp)
 
 ### 6.3 Fix responsive layout / text scaling overflow
-- `_SessionModifierButton` has fixed `height: 58` — overflows at high text scale factors
+- `_SessionModifierButton` has fixed `height: 58`; overflows at high text scale factors
 - Fixed-width labels clip on localized text
 
 ### 6.4 Extract hardcoded strings to localization files

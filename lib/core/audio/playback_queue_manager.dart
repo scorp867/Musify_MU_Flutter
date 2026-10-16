@@ -191,27 +191,7 @@ class PlaybackQueueManager {
   }
 
   Future<void> removeTrack(int absoluteIndex) async {
-    if (absoluteIndex < 0 || absoluteIndex >= _fullTracks.length) return;
-
-    if (absoluteIndex == _currentIndex) {
-      // Removing currently playing track: skip to next
-      if (_currentIndex + 1 < _fullTracks.length) {
-        await seekToAbsoluteIndex(_currentIndex + 1);
-        _fullTracks.removeAt(absoluteIndex);
-        _currentIndex = (_currentIndex - 1).clamp(0, _fullTracks.length - 1);
-      } else {
-        _fullTracks.removeAt(absoluteIndex);
-        await _player.stop();
-      }
-      return;
-    }
-
-    _fullTracks.removeAt(absoluteIndex);
-    if (absoluteIndex < _currentIndex) {
-      _currentIndex--;
-    }
-
-    _refreshPrefetchSlot();
+    await removeTrackRange(absoluteIndex, absoluteIndex + 1);
   }
 
   Future<void> removeTrackRange(int startAbsolute, int endAbsolute) async {
@@ -227,8 +207,11 @@ class PlaybackQueueManager {
         final newIndex = start.clamp(0, _fullTracks.length - 1);
         await setQueue(_fullTracks, newIndex);
       } else {
+        _currentIndex = 0;
+        _playlist = null;
         await _player.stop();
       }
+      onQueueChanged?.call(List.unmodifiable(_fullTracks));
       return;
     }
 
@@ -237,6 +220,7 @@ class PlaybackQueueManager {
     }
 
     _refreshPrefetchSlot();
+    onQueueChanged?.call(List.unmodifiable(_fullTracks));
   }
 
   Future<void> insertTrack(int absoluteIndex, MediaItem track) async {

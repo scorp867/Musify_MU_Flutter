@@ -28,6 +28,28 @@ subprojects {
         val androidExt = proj.extensions.findByName("android")
         if (androidExt != null) {
             try {
+                val getNamespace = androidExt.javaClass.getMethod("getNamespace")
+                val currentNamespace = getNamespace.invoke(androidExt)
+                if (currentNamespace == null || (currentNamespace is String && currentNamespace.isEmpty())) {
+                    var ns = proj.group.toString()
+                    if (ns.isEmpty() || ns == "unspecified") {
+                        val manifestFile = proj.file("src/main/AndroidManifest.xml")
+                        if (manifestFile.exists()) {
+                            val match = Regex("""package\s*=\s*"([^"]+)"""").find(manifestFile.readText())
+                            if (match != null) {
+                                ns = match.groupValues[1]
+                            }
+                        }
+                    }
+                    if (ns.isNotEmpty() && ns != "unspecified") {
+                        val setNamespace = androidExt.javaClass.getMethod("setNamespace", String::class.java)
+                        setNamespace.invoke(androidExt, ns)
+                    }
+                }
+            } catch (_: Throwable) {
+                // Ignore if method not present
+            }
+            try {
                 val m = androidExt.javaClass.getMethod("compileSdkVersion", Int::class.javaPrimitiveType)
                 m.invoke(androidExt, 37)
             } catch (_: Throwable) {

@@ -79,40 +79,31 @@ outgoing_dependencies: 6
           await Future<void>.delayed(remaining);
         }
       }
-      await action();
-    }).whenComplete(() {
+      if (!isClosed) {
+        await action();
+      }
+    }).catchError((_) {}).whenComplete(() {
       _pendingMutations--;
-      if (_pendingMutations == 0) {
+      if (_pendingMutations == 0 && !isClosed) {
         _emitQueueChange();
       }
     });
   }
   ```
-  When a user clears the queue or swipes to delete, the row plays a 375ms collapse animation. Re-emitting the queue state mid-animation would instantly remove the widget from the tree, causing jarring visual popping. `_enqueueMutation` waits for `_animationEndTime` before committing the audio layer mutation and updating the UI state.
+  When a user clears the queue or swipes to delete, the row plays a 375ms collapse animation. Re-emitting the queue state mid-animation would instantly remove the widget from the tree, causing visual popping. `_enqueueMutation` waits for `_animationEndTime` before committing the audio layer mutation and updating the UI state.
 
-## Gotchas, Edge Cases & Technical Debt
-> [!WARNING] Hardware Window vs. Total Playlist Size
-> `PlaybackController.audioWindowEndIndex` only represents the upper limit of the currently loaded hardware window (50 tracks). `QueueBloc._onDataChanged` must inspect total context track length rather than truncating upcoming items at `audioWindowEndIndex`.
+- **Queue Track Tap Handling (`_onTrackTapped`)**:
+  Aliged with Spotify's `SkipToNextTrackCommand` (`ContextPlayer.SkipNext`):
+  - **Case 1 (Tapping a queued track or context track with no user queue)**:
+    Computes `targetAbsoluteIndex = baseOffset + tapIdx`, marks preceding queued tracks as consumed, and dispatches `_playbackController.skipToQueueItem(targetAbsoluteIndex)`. Preceding tracks remain intact in `_fullTracks` as played history, while `PlaybackQueueManager` advances Slot 0 to the target track and preloads Slot 1 with the next upcoming track.
+  - **Case 2 (Tapping a context track below preserved user queue)**:
+    Preserves the user queue ahead of remaining context tracks (`[...existingUserQueue, ...remainingContextTracks]`), synchronizes upcoming tracks via `_playbackController.setNextTracks([nextActiveMedia, ...upcomingMediaItems])`, and seeks playback to `targetAbsoluteIndex`.
 
-## Implementation Highlight
-```dart
-class QueueBloc extends Bloc<QueueEvent, QueueState> {
-  final PlaybackController _playbackController;
+- **Direct Upcoming Track Reconciliation (`_onDataChanged`)**:
+  Upcoming tracks are derived directly via `queue.sublist(currentIndex + 1)`. Total playlist expansion is governed by Cosmos page pagination (`LocalContextResolver.resolvePage`), which automatically loads and appends the next `ContextPage` when upcoming context tracks reach `<= 8`.
 
-  QueueBloc({required PlaybackController playbackController})
-      : _playbackController = playbackController,
-        super(const QueueState()) {
-    on<QueueStarted>(_onStarted);
-    on<QueueTrackTapped>(_onTrackTapped);
-    on<QueueReordered>(_onReordered);
-    on<QueueTrackRemoved>(_onTrackRemoved);
-    on<QueueTrackAdded>(_onTrackAdded);
-    on<QueueCleared>(_onCleared);
-    on<QueueShuffleToggled>(_onShuffleToggled);
-    on<QueueRepeatToggled>(_onRepeatToggled);
-    on<QueuePlayPauseToggled>(_onPlayPauseToggled);
-    on<_QueueDataChanged>(_onDataChanged);
-    on<_PlaybackStatusChanged>(_onPlaybackStatusChanged);
-  }
-}
-```
+## Architecture Invariants
+> [!NOTE] 1:1 Parity with Spotify Player Pipeline
+> - `QueueBloc` never mutates or deletes skipped tracks from `PlaybackController` during tap-to-play operations; tracks prior to the playhead represent immutable playback history.
+> - `_pendingMutations` safeguards UI stability during active animations, with guaranteed `_emitQueueChange()` dispatch upon mutation chain completion.
+> - Cosmos paging (`ContextPage`) decouples UI queue representation from physical audio prefetch, which operates strictly via `PlaybackQueueManager`'s 2-slot pipeline.
