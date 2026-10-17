@@ -1,43 +1,39 @@
+// ignore_for_file: deprecated_member_use
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
-import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:musify_mu/core/audio/playback_queue_manager.dart';
 
-/// Owns the audio player and transport commands.
+/// Owns the [AudioPlayer] instance and coordinates native transport and queue operations.
 ///
-/// Queue policy and sliding-window pagination live in
-/// [PlaybackQueueManager], keeping this service focused on player I/O.
+/// Uses [ConcatenatingAudioSource] inside [PlaybackQueueManager] as the single source
+/// of truth for queue order, native gapless transitions, shuffle order, and loop modes.
 class AudioPlaybackService {
   final AudioPlayer _player = AudioPlayer();
   late final PlaybackQueueManager _queueManager;
-  late final StreamSubscription<int?> _indexSubscription;
 
   void Function(List<MediaItem> tracks)? onQueueChanged;
 
   AudioPlaybackService() {
     _queueManager = PlaybackQueueManager(_player);
     _queueManager.onQueueChanged = (tracks) => onQueueChanged?.call(tracks);
-    _indexSubscription = _player.currentIndexStream.listen(_queueManager.onIndexChanged);
   }
-
-  Future<void> dispose() async {
-    await _indexSubscription.cancel();
-    await _player.dispose();
-  }
-
 
   AudioPlayer get player => _player;
 
+  Stream<SequenceState?> get sequenceStateStream => _player.sequenceStateStream;
+  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
+  Stream<Duration> get positionStream => _player.positionStream;
+  Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
+  Stream<PlaybackEvent> get playbackEventStream => _player.playbackEventStream;
+
+  SequenceState? get sequenceState => _player.sequenceState;
+  PlayerState get playerState => _player.playerState;
+
   Future<void> setAudioSource(String uri) async {
-    // Bug 2.17 fix: Clear queue manager state so index listeners don't
-    // operate on a stale playlist when single-track playback bypasses the queue.
     _queueManager.reset();
-    try {
-      await _player.setAudioSource(AudioSource.uri(Uri.parse(uri)));
-    } catch (error) {
-      debugPrint('Error loading audio source: $error');
-    }
+    final parsedUri = uri.contains('://') ? Uri.parse(uri) : Uri.file(uri);
+    await _player.setAudioSource(AudioSource.uri(parsedUri));
   }
 
   Future<void> setQueue(List<MediaItem> tracks, int initialIndex) {
@@ -53,25 +49,20 @@ class AudioPlaybackService {
   Future<void> stop() => _player.stop();
 
   Future<void> seekToNext() async {
-    final nextIndex = _queueManager.currentAbsoluteIndex + 1;
-    if (nextIndex < _queueManager.fullTracks.length) {
-      await _queueManager.seekToAbsoluteIndex(nextIndex);
-    } else if (_queueManager.loopMode == LoopMode.all &&
-        _queueManager.fullTracks.isNotEmpty) {
-      await _queueManager.seekToAbsoluteIndex(0);
+    if (_player.hasNext) {
+      await _player.seekToNext();
+    } else if (_player.loopMode == LoopMode.all && fullTracks.isNotEmpty) {
+      await _player.seek(Duration.zero, index: 0);
     }
   }
 
   Future<void> seekToPrevious() async {
     if (_player.position > const Duration(seconds: 3)) {
       await _player.seek(Duration.zero);
+    } else if (_player.hasPrevious) {
+      await _player.seekToPrevious();
     } else {
-      final prevIndex = _queueManager.currentAbsoluteIndex - 1;
-      if (prevIndex >= 0) {
-        await _queueManager.seekToAbsoluteIndex(prevIndex);
-      } else {
-        await _player.seek(Duration.zero);
-      }
+      await _player.seek(Duration.zero);
     }
   }
 
@@ -100,21 +91,14 @@ class AudioPlaybackService {
   Future<void> setNextTracks(List<MediaItem> upcomingTracks) =>
       _queueManager.setNextTracks(upcomingTracks);
 
-  Stream<PlaybackEvent> get playbackEventStream => _player.playbackEventStream;
+  Future<void> setShuffleModeEnabled(bool enabled) =>
+      _queueManager.setShuffleModeEnabled(enabled);
 
-  // Forward shuffle mode changes to PlaybackQueueManager.
-  // Note: We do NOT forward shuffleModeEnabled to just_audio's _player because
-  // the player holds only the 2-slot prefetch pipeline. Shuffling that pipeline
-  // causes unwanted track jumps and resets the UI progress slider to 0.
-  Future<void> setShuffleModeEnabled(bool enabled) async {
-    _queueManager.setShuffleModeEnabled(enabled);
-  }
+  Future<void> setLoopMode(LoopMode mode) =>
+      _queueManager.setLoopMode(mode);
 
-  Future<void> setLoopMode(LoopMode mode) async {
-    _queueManager.setLoopMode(mode);
-    // Only pass LoopMode.one to just_audio player so it loops the single active track.
-    // Full queue looping (LoopMode.all) is handled orchestrally by PlaybackQueueManager.
-    await _player.setLoopMode(mode == LoopMode.one ? LoopMode.one : LoopMode.off);
+  Future<void> dispose() async {
+    await _queueManager.dispose();
+    await _player.dispose();
   }
 }
-

@@ -1,11 +1,20 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:just_audio/just_audio.dart';
 
+/// Defines the contract for controlling audio playback and observing playback state.
 abstract interface class PlaybackController {
   Stream<MediaItem?> get mediaItem;
   Stream<PlaybackState> get playbackState;
   Stream<List<MediaItem>> get queue;
   MediaItem? get currentMediaItem;
   int get audioWindowEndIndex;
+
+  Stream<SequenceState?> get sequenceStateStream;
+  Stream<PlayerState> get playerStateStream;
+  Stream<Duration> get positionStream;
+  Stream<Duration> get bufferedPositionStream;
+  SequenceState? get sequenceState;
+  PlayerState get playerState;
 
   Future<void> playQueue(List<MediaItem> tracks, int initialIndex);
   Future<void> reorderQueueItem(int fromIndex, int toIndex);

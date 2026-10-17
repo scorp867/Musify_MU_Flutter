@@ -10,6 +10,10 @@ import 'package:path_provider/path_provider.dart';
 import 'audio_playback_service.dart';
 import 'playback_controller.dart';
 
+/// Bridges [AudioPlaybackService] with the system notification and lockscreen via [BaseAudioHandler].
+///
+/// Drives [playbackState], [mediaItem], and [queue] deterministically from native
+/// [SequenceState] and [PlayerState] streams without dual-state drift or reactionary resyncs.
 class AudioNotificationHandler extends BaseAudioHandler
     with SeekHandler
     implements PlaybackController {
@@ -18,30 +22,91 @@ class AudioNotificationHandler extends BaseAudioHandler
   final Map<String, MediaItem> _latestMediaItems = {};
   final Map<String, Future<MediaItem>> _artworkRequests = {};
   final Map<String, Uri> _cachedArtUris = {};
-  String? _pendingQueueItemId;
-  late final StreamSubscription _playbackSub;
+
+  late final StreamSubscription<SequenceState?> _sequenceSub;
+  late final StreamSubscription<PlayerState> _playerStateSub;
+
+  int? _pendingInitialIndex;
 
   AudioNotificationHandler(this._playbackService, this._audioQuery) {
-    _playbackSub = _playbackService.playbackEventStream.listen(_publishPlaybackState);
-    _playbackService.onQueueChanged = (tracks) {
-      for (final item in tracks) {
-        _addLatestMediaItem(item);
-      }
-      queue.add(tracks);
-    };
+    _sequenceSub = _playbackService.sequenceStateStream.listen(_onSequenceStateChanged);
+    _playerStateSub = _playbackService.playerStateStream.listen(_onPlayerStateChanged);
   }
 
   void _addLatestMediaItem(MediaItem item) {
     if (_latestMediaItems.length > 500) {
       final keysToRemove = _latestMediaItems.keys.take(_latestMediaItems.length - 400).toList();
-      keysToRemove.forEach(_latestMediaItems.remove);
+      for (final key in keysToRemove) {
+        _latestMediaItems.remove(key);
+      }
     }
     _latestMediaItems[item.id] = item;
   }
 
-  void _publishPlaybackState(PlaybackEvent event) {
+  void _onSequenceStateChanged(SequenceState? sequenceState) {
+    if (sequenceState == null || sequenceState.sequence.isEmpty) {
+      _pendingInitialIndex = null;
+      mediaItem.add(null);
+      queue.add(const []);
+      _publishPlaybackState();
+      return;
+    }
+
+    final effectiveTracks = sequenceState.effectiveSequence
+        .map((source) => source.tag as MediaItem)
+        .toList(growable: false);
+    queue.add(effectiveTracks);
+
+    // If an initial seek is pending (cold start), ignore transient events until
+    // currentIndex reaches the target initialIndex to prevent flashing track 0.
+    if (_pendingInitialIndex != null) {
+      if (sequenceState.currentIndex == _pendingInitialIndex) {
+        _pendingInitialIndex = null;
+      } else {
+        return;
+      }
+    }
+
+    final currentSource = sequenceState.currentSource;
+    if (currentSource != null) {
+      final taggedItem = currentSource.tag as MediaItem;
+      final item = _latestMediaItems[taggedItem.id] ?? taggedItem;
+      _addLatestMediaItem(item);
+
+      if (item.id != mediaItem.valueOrNull?.id) {
+        final cachedArtUri = _cachedArtUris[item.id];
+        final initialItem = cachedArtUri != null && item.artUri != cachedArtUri
+            ? item.copyWith(artUri: cachedArtUri)
+            : item;
+        _addLatestMediaItem(initialItem);
+        mediaItem.add(initialItem);
+
+        if (cachedArtUri == null) {
+          _fetchAndCacheArtwork(initialItem).then((updatedItem) {
+            if (mediaItem.valueOrNull?.id == updatedItem.id &&
+                mediaItem.valueOrNull?.artUri != updatedItem.artUri) {
+              _addLatestMediaItem(updatedItem);
+              mediaItem.add(updatedItem);
+            }
+          });
+        }
+      }
+    } else {
+      mediaItem.add(null);
+    }
+
+    _publishPlaybackState();
+  }
+
+  void _onPlayerStateChanged(PlayerState _) {
+    _publishPlaybackState();
+  }
+
+  void _publishPlaybackState({int? overrideQueueIndex}) {
     final player = _playbackService.player;
+    final sequenceState = player.sequenceState;
     final playing = player.playing;
+    final queueIndex = overrideQueueIndex ?? sequenceState.currentIndex;
 
     playbackState.add(
       playbackState.value.copyWith(
@@ -56,62 +121,31 @@ class AudioNotificationHandler extends BaseAudioHandler
           MediaAction.seekBackward,
         },
         androidCompactActionIndices: const [0, 1, 2],
-        processingState: const {
-          ProcessingState.idle: AudioProcessingState.idle,
-          ProcessingState.loading: AudioProcessingState.loading,
-          ProcessingState.buffering: AudioProcessingState.buffering,
-          ProcessingState.ready: AudioProcessingState.ready,
-          ProcessingState.completed: AudioProcessingState.completed,
-        }[player.processingState]!,
+        processingState: switch (player.processingState) {
+          ProcessingState.idle => AudioProcessingState.idle,
+          ProcessingState.loading => AudioProcessingState.loading,
+          ProcessingState.buffering => AudioProcessingState.buffering,
+          ProcessingState.ready => AudioProcessingState.ready,
+          ProcessingState.completed => AudioProcessingState.completed,
+        },
         playing: playing,
         updatePosition: player.position,
         bufferedPosition: player.bufferedPosition,
         speed: player.speed,
-        queueIndex: event.currentIndex != null
-            ? _playbackService.windowToAbsoluteIndex(event.currentIndex!)
-            : null,
+        queueIndex: queueIndex,
+        shuffleMode: player.shuffleModeEnabled
+            ? AudioServiceShuffleMode.all
+            : AudioServiceShuffleMode.none,
+        repeatMode: switch (player.loopMode) {
+          LoopMode.one => AudioServiceRepeatMode.one,
+          LoopMode.all => AudioServiceRepeatMode.all,
+          LoopMode.off => AudioServiceRepeatMode.none,
+        },
       ),
     );
-
-    final currentIndex = event.currentIndex;
-    if (currentIndex == null || currentIndex >= player.sequence.length) {
-      return;
-    }
-
-    final taggedItem = player.sequence[currentIndex].tag as MediaItem?;
-    if (taggedItem == null) return;
-
-    final item = _latestMediaItems[taggedItem.id] ?? taggedItem;
-    final pendingQueueItemId = _pendingQueueItemId;
-    if (pendingQueueItemId != null) {
-      if (item.id != pendingQueueItemId) return;
-      _pendingQueueItemId = null;
-    }
-
-    _addLatestMediaItem(item);
-
-    if (item.id != mediaItem.value?.id) {
-      final cachedArtUri = _cachedArtUris[item.id];
-      final initialItem = cachedArtUri != null && item.artUri != cachedArtUri
-          ? item.copyWith(artUri: cachedArtUri)
-          : item;
-      _addLatestMediaItem(initialItem);
-      mediaItem.add(initialItem);
-
-      if (cachedArtUri == null) {
-        _fetchAndCacheArtwork(initialItem).then((updatedItem) {
-          if (mediaItem.value?.id == updatedItem.id &&
-              mediaItem.value?.artUri != updatedItem.artUri) {
-            _addLatestMediaItem(updatedItem);
-            mediaItem.add(updatedItem);
-          }
-        });
-      }
-    }
   }
 
   Future<void> playTrack(MediaItem item, String uri) async {
-    _pendingQueueItemId = null;
     item = await _fetchAndCacheArtwork(item);
     _addLatestMediaItem(item);
     mediaItem.add(item);
@@ -122,40 +156,26 @@ class AudioNotificationHandler extends BaseAudioHandler
 
   @override
   Future<void> playQueue(List<MediaItem> tracks, int initialIndex) async {
-    if (tracks.isEmpty || initialIndex < 0 || initialIndex >= tracks.length) {
-      return;
+    if (tracks.isEmpty) {
+      throw ArgumentError('Queue tracks cannot be empty.');
+    }
+    if (initialIndex < 0 || initialIndex >= tracks.length) {
+      throw RangeError.range(initialIndex, 0, tracks.length - 1, 'initialIndex');
     }
 
-    final queueItems = List<MediaItem>.of(tracks);
-    final requestedItemId = queueItems[initialIndex].id;
-    _pendingQueueItemId = requestedItemId;
-
-    try {
-      var currentItem = await _fetchAndCacheArtwork(queueItems[initialIndex]);
-      queueItems[initialIndex] = currentItem;
-
-      for (final item in queueItems) {
-        _addLatestMediaItem(item);
-      }
-
-      mediaItem.add(currentItem);
-      queue.add(queueItems);
-
-      // Bug 2.10 fix: Emit interim playbackState with the correct queueIndex
-      // for the new queue. Without this, subscribers can see the stale index
-      // from the previous queue paired with newly published queue contents,
-      // causing RangeError on queue[queueIndex] access.
-      playbackState.add(playbackState.value.copyWith(
-        queueIndex: initialIndex,
-      ));
-
-      await _playbackService.setQueue(queueItems, initialIndex);
-      await _playbackService.play();
-    } finally {
-      if (_pendingQueueItemId == requestedItemId) {
-        _pendingQueueItemId = null;
-      }
+    for (final item in tracks) {
+      _addLatestMediaItem(item);
     }
+
+    _pendingInitialIndex = initialIndex;
+
+    // Immediately publish the target item and playback state so UI never flashes track 0
+    final targetItem = _latestMediaItems[tracks[initialIndex].id] ?? tracks[initialIndex];
+    mediaItem.add(targetItem);
+    _publishPlaybackState(overrideQueueIndex: initialIndex);
+
+    await _playbackService.setQueue(tracks, initialIndex);
+    await _playbackService.play();
   }
 
   @override
@@ -182,9 +202,13 @@ class AudioNotificationHandler extends BaseAudioHandler
 
   @override
   Future<void> refreshArtwork() async {
-    final currentItem = currentMediaItem;
-    if (currentItem == null) return;
-    await updateCurrentMediaItem(currentItem);
+    final item = currentMediaItem;
+    if (item == null) return;
+    _cachedArtUris.remove(item.id);
+    final updatedItem =
+        await _fetchAndCacheArtwork(item, bumpArtworkVersion: true);
+    _addLatestMediaItem(updatedItem);
+    mediaItem.add(updatedItem);
   }
 
   Future<MediaItem> _fetchAndCacheArtwork(
@@ -192,9 +216,9 @@ class AudioNotificationHandler extends BaseAudioHandler
     bool bumpArtworkVersion = false,
   }) {
     final requestKey =
-        '${item.id}:${item.extras?[MediaItemMapper.dateModifiedKey]}:$bumpArtworkVersion';
-    final inFlightRequest = _artworkRequests[requestKey];
-    if (inFlightRequest != null) return inFlightRequest;
+        '${item.id}_${bumpArtworkVersion ? "bump" : "nobump"}';
+    final existingRequest = _artworkRequests[requestKey];
+    if (existingRequest != null) return existingRequest;
 
     final request =
         _loadAndCacheArtwork(item, bumpArtworkVersion: bumpArtworkVersion);
@@ -249,7 +273,7 @@ class AudioNotificationHandler extends BaseAudioHandler
 
       return bumpArtworkVersion ? item.copyWith(extras: extras) : item;
     } catch (_) {
-      // Metadata updates must not interrupt playback when artwork is unavailable.
+      // Artwork caching failure does not interrupt playback.
     }
     return item;
   }
@@ -261,34 +285,45 @@ class AudioNotificationHandler extends BaseAudioHandler
   int get audioWindowEndIndex => _playbackService.windowEndIndex;
 
   @override
-  Future<void> reorderQueueItem(int fromIndex, int toIndex) async {
-    await _playbackService.reorderTrack(fromIndex, toIndex);
-    queue.add(_playbackService.fullTracks);
-  }
+  Stream<SequenceState?> get sequenceStateStream =>
+      _playbackService.sequenceStateStream;
 
   @override
-  Future<void> setNextTracks(List<MediaItem> upcomingTracks) async {
-    await _playbackService.setNextTracks(upcomingTracks);
-    queue.add(_playbackService.fullTracks);
-  }
+  Stream<PlayerState> get playerStateStream =>
+      _playbackService.playerStateStream;
 
   @override
-  Future<void> removeQueueItemAt(int index) async {
-    await _playbackService.removeTrack(index);
-    queue.add(_playbackService.fullTracks);
-  }
+  Stream<Duration> get positionStream => _playbackService.positionStream;
 
   @override
-  Future<void> removeQueueRange(int startIndex, int endIndex) async {
-    await _playbackService.removeTrackRange(startIndex, endIndex);
-    queue.add(_playbackService.fullTracks);
-  }
+  Stream<Duration> get bufferedPositionStream =>
+      _playbackService.bufferedPositionStream;
 
   @override
-  Future<void> insertQueueItem(int index, MediaItem mediaItem) async {
-    await _playbackService.insertTrack(index, mediaItem);
-    queue.add(_playbackService.fullTracks);
-  }
+  SequenceState? get sequenceState => _playbackService.sequenceState;
+
+  @override
+  PlayerState get playerState => _playbackService.playerState;
+
+  @override
+  Future<void> reorderQueueItem(int fromIndex, int toIndex) =>
+      _playbackService.reorderTrack(fromIndex, toIndex);
+
+  @override
+  Future<void> setNextTracks(List<MediaItem> upcomingTracks) =>
+      _playbackService.setNextTracks(upcomingTracks);
+
+  @override
+  Future<void> removeQueueItemAt(int index) =>
+      _playbackService.removeTrack(index);
+
+  @override
+  Future<void> removeQueueRange(int startIndex, int endIndex) =>
+      _playbackService.removeTrackRange(startIndex, endIndex);
+
+  @override
+  Future<void> insertQueueItem(int index, MediaItem mediaItem) =>
+      _playbackService.insertTrack(index, mediaItem);
 
   @override
   Future<void> play() => _playbackService.play();
@@ -315,37 +350,26 @@ class AudioNotificationHandler extends BaseAudioHandler
     return super.stop();
   }
 
-  // Bug 2.12 fix: Forward shuffle and repeat mode changes to the audio player
-  // and broadcast the updated mode via playbackState. Without these overrides,
-  // the inherited no-ops from BaseAudioHandler swallow all mode changes.
   @override
-  Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
-    await _playbackService.setShuffleModeEnabled(
-      shuffleMode == AudioServiceShuffleMode.all ||
-          shuffleMode == AudioServiceShuffleMode.group,
-    );
-    playbackState.add(playbackState.value.copyWith(
-      shuffleMode: shuffleMode,
-      updatePosition: _playbackService.player.position,
-    ));
-  }
+  Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) =>
+      _playbackService.setShuffleModeEnabled(
+        shuffleMode == AudioServiceShuffleMode.all ||
+            shuffleMode == AudioServiceShuffleMode.group,
+      );
 
   @override
-  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
+  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) {
     final loopMode = switch (repeatMode) {
       AudioServiceRepeatMode.one => LoopMode.one,
-      AudioServiceRepeatMode.all ||
-      AudioServiceRepeatMode.group => LoopMode.all,
+      AudioServiceRepeatMode.all || AudioServiceRepeatMode.group => LoopMode.all,
       _ => LoopMode.off,
     };
-    await _playbackService.setLoopMode(loopMode);
-    playbackState.add(playbackState.value.copyWith(
-      repeatMode: repeatMode,
-      updatePosition: _playbackService.player.position,
-    ));
+    return _playbackService.setLoopMode(loopMode);
   }
 
   Future<void> dispose() async {
-    await _playbackSub.cancel();
+    await _sequenceSub.cancel();
+    await _playerStateSub.cancel();
+    await _playbackService.dispose();
   }
 }

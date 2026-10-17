@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
 import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
@@ -1085,12 +1086,18 @@ class _FakePlaybackController implements PlaybackController {
   final _mediaItemController = StreamController<MediaItem?>.broadcast();
   final _playbackStateController = StreamController<PlaybackState>.broadcast();
   final _queueController = StreamController<List<MediaItem>>.broadcast();
+  final _sequenceStateController = StreamController<SequenceState?>.broadcast();
+  final _playerStateController = StreamController<PlayerState>.broadcast();
+  final _positionController = StreamController<Duration>.broadcast();
+  final _bufferedPositionController = StreamController<Duration>.broadcast();
 
   List<MediaItem> playQueueItems = [];
   int playQueueIndex = -1;
   List<MediaItem> nextTracks = [];
   MediaItem? _current;
   List<MediaItem> _currentQueue = [];
+  SequenceState? _sequenceState;
+  final PlayerState _playerState = PlayerState(true, ProcessingState.ready);
 
   void simulateData(List<MediaItem> queue, MediaItem current) {
     _currentQueue = queue;
@@ -1103,7 +1110,24 @@ class _FakePlaybackController implements PlaybackController {
     _mediaItemController.close();
     _playbackStateController.close();
     _queueController.close();
+    _sequenceStateController.close();
+    _playerStateController.close();
+    _positionController.close();
+    _bufferedPositionController.close();
   }
+
+  @override
+  Stream<SequenceState?> get sequenceStateStream => _sequenceStateController.stream;
+  @override
+  Stream<PlayerState> get playerStateStream => _playerStateController.stream;
+  @override
+  Stream<Duration> get positionStream => _positionController.stream;
+  @override
+  Stream<Duration> get bufferedPositionStream => _bufferedPositionController.stream;
+  @override
+  SequenceState? get sequenceState => _sequenceState;
+  @override
+  PlayerState get playerState => _playerState;
 
   @override
   Stream<MediaItem?> get mediaItem => _mediaItemController.stream;

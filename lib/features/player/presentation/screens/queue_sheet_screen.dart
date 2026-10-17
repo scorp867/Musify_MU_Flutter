@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
+import 'package:musify_mu/core/audio/queue_differ.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 import 'package:musify_mu/features/player/application/queue/queue_bloc.dart';
 import 'package:musify_mu/features/player/application/queue/queue_event.dart';
@@ -460,8 +461,15 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                         previous.queue.revision != current.queue.revision ||
                         previous.currentIndex != current.currentIndex,
                     listener: (context, state) {
+                      for (final edit in state.edits) {
+                        if (edit is QueueEditInsert &&
+                            edit.targetIndex < state.queue.nextTracks.length) {
+                          final track = state.queue.nextTracks[edit.targetIndex];
+                          _handleTrackAddedAnimation(state, track.uid);
+                        }
+                      }
                       final addedUid = state.lastAddedUid;
-                      if (addedUid != null) {
+                      if (addedUid != null && !_animatedInsertUids.contains(addedUid)) {
                         _handleTrackAddedAnimation(state, addedUid);
                       }
                     },

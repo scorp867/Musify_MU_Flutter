@@ -1,339 +1,93 @@
-// ConcatenatingAudioSource is required for gapless prefetching.
 // ignore_for_file: deprecated_member_use
-
-import 'dart:developer' as dev;
 import 'package:audio_service/audio_service.dart';
-import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:musify_mu/core/audio/queue_differ.dart';
 import 'package:musify_mu/core/media/media_item_mapper.dart';
-import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
-import 'package:musify_mu/features/player/domain/models/prefetch_level.dart';
 
-/// 1:1 with Spotify's C++ ContextPlayer & EsMediaPrefetch audio feeding architecture.
+/// Manages native queue operations directly on [ConcatenatingAudioSource].
 ///
-/// Instead of complex sliding-window math over large playlists, this manager maintains:
-///   1. A full linear track list (`_fullTracks`) as pure metadata.
-///   2. A 2-slot gapless audio source pipeline in just_audio:
-///      - Slot 0: Active playing track
-///      - Slot 1: Next upcoming track (prefetched via PrefetchLevel.media)
-///
-/// When Slot 0 finishes, just_audio transitions into Slot 1 gaplessly (0ms delay).
-/// The manager shifts Slot 1 to Slot 0 and buffers the new next track into Slot 1.
-/// This completely eliminates sliding-window math and index drift bugs.
+/// Operates with [ConcatenatingAudioSource] as the single source of truth:
+/// - Zero secondary in-memory track lists to prevent state drift.
+/// - All queue mutations (move, remove, insert, setNextTracks) execute natively and atomically.
+/// - In-place diffing via [QueueDiffer] prevents empty queue flashes and maintains gapless playback.
+/// - Indices, shuffle order, and gapless transitions are managed natively by just_audio.
 class PlaybackQueueManager {
   final AudioPlayer _player;
-
   ConcatenatingAudioSource? _playlist;
-  List<MediaItem> _fullTracks = const [];
-  List<MediaItem> _unshuffledTracks = const [];
-  int _currentIndex = 0;
-  bool _isTransitioning = false;
-  bool _shuffleEnabled = false;
-  LoopMode _loopMode = LoopMode.off;
-  PrefetchLevel _prefetchLevel = PrefetchLevel.media;
+
   void Function(List<MediaItem> tracks)? onQueueChanged;
 
   PlaybackQueueManager(this._player);
 
-  PrefetchLevel get prefetchLevel => _prefetchLevel;
-  set prefetchLevel(PrefetchLevel level) {
-    _prefetchLevel = level;
-    _refreshPrefetchSlot();
+  ConcatenatingAudioSource? get playlist => _playlist;
+
+  bool get isShuffleEnabled => _player.shuffleModeEnabled;
+  LoopMode get loopMode => _player.loopMode;
+
+  int get currentAbsoluteIndex => _player.currentIndex ?? 0;
+  int get windowEndIndex => _playlist?.length ?? 0;
+  int windowToAbsoluteIndex(int windowIndex) => windowIndex;
+
+  List<MediaItem> get fullTracks {
+    final playlist = _playlist;
+    if (playlist == null || playlist.length == 0) return const [];
+    return playlist.children
+        .map((source) => (source as IndexedAudioSource).tag as MediaItem)
+        .toList(growable: false);
   }
 
-  bool get isShuffleEnabled => _shuffleEnabled;
-  LoopMode get loopMode => _loopMode;
-
-  bool _isTrackQueued(MediaItem track) {
-    return track.extras?['is_queued'] == true ||
-        track.extras?['is_queued'] == 'true';
-  }
-
-  void setShuffleModeEnabled(bool enabled) {
-    if (_shuffleEnabled == enabled) return;
-    _shuffleEnabled = enabled;
-
-    if (_fullTracks.isEmpty || _currentIndex + 1 >= _fullTracks.length) return;
-
-    if (enabled) {
-      if (_unshuffledTracks.isEmpty) {
-        _unshuffledTracks = List<MediaItem>.of(_fullTracks);
-      }
-      _applyShuffleToUpcoming();
-    } else {
-      if (_unshuffledTracks.isNotEmpty) {
-        final playedAndCurrent = _fullTracks.sublist(0, _currentIndex + 1);
-        final upcoming = _fullTracks.sublist(_currentIndex + 1);
-
-        // Keep user-queued tracks preserved at the head of upcoming
-        final userQueued = upcoming.where(_isTrackQueued).toList();
-
-        // Collect IDs of context tracks already played or currently playing
-        final playedContextIds = playedAndCurrent
-            .where((t) => !_isTrackQueued(t))
-            .map((t) => t.id)
-            .toSet();
-
-        // Restore remaining unplayed context tracks in their original sequence
-        final restoredContext = _unshuffledTracks
-            .where((t) => !_isTrackQueued(t) && !playedContextIds.contains(t.id))
-            .toList();
-
-        _fullTracks = [
-          ...playedAndCurrent,
-          ...userQueued,
-          ...restoredContext,
-        ];
-      }
-    }
-
-    _refreshPrefetchSlot();
-    onQueueChanged?.call(List.unmodifiable(_fullTracks));
-  }
-
-  void _applyShuffleToUpcoming() {
-    if (_fullTracks.isEmpty || _currentIndex + 1 >= _fullTracks.length) return;
-
-    final playedAndCurrent = _fullTracks.sublist(0, _currentIndex + 1);
-    final upcoming = _fullTracks.sublist(_currentIndex + 1);
-
-    final userQueued = <MediaItem>[];
-    final contextTracks = <MediaItem>[];
-
-    for (final track in upcoming) {
-      if (_isTrackQueued(track)) {
-        userQueued.add(track);
-      } else {
-        contextTracks.add(track);
-      }
-    }
-
-    contextTracks.shuffle();
-
-    _fullTracks = [
-      ...playedAndCurrent,
-      ...userQueued,
-      ...contextTracks,
-    ];
-  }
-
-  void setLoopMode(LoopMode mode) {
-    _loopMode = mode;
-    _refreshPrefetchSlot();
-  }
-
-  int get currentAbsoluteIndex => _currentIndex;
-  int get windowStartIndex => _currentIndex;
-  int get windowEndIndex => _fullTracks.length;
-
-  int windowToAbsoluteIndex(int windowIndex) =>
-      (_currentIndex + windowIndex).clamp(0, _fullTracks.isEmpty ? 0 : _fullTracks.length - 1);
-
-  int absoluteToWindowIndex(int absoluteIndex) =>
-      absoluteIndex - _currentIndex;
-
-  List<MediaItem> get fullTracks => List.unmodifiable(_fullTracks);
-
-  /// Bug 2.17 fix: Clears all queue state so that single-track playback via
-  /// setAudioSource doesn't leave dangling playlist references and index
-  /// listeners operating on an obsolete queue.
   void reset() {
     _playlist = null;
-    _fullTracks = const [];
-    _unshuffledTracks = const [];
-    _currentIndex = 0;
-    _isTransitioning = false;
-  }
-
-  Future<void> _rebuildAudioPipeline(int index) async {
-    _currentIndex = index.clamp(0, _fullTracks.isEmpty ? 0 : _fullTracks.length - 1);
-    final wasPlaying = _player.playing;
-
-    final sources = <AudioSource>[
-      _createAudioSource(_fullTracks[_currentIndex]),
-    ];
-
-    if (_prefetchLevel == PrefetchLevel.media && _currentIndex + 1 < _fullTracks.length) {
-      sources.add(_createAudioSource(_fullTracks[_currentIndex + 1]));
-    }
-
-    final playlist = ConcatenatingAudioSource(children: sources);
-    _playlist = playlist;
-
-    debugPrint('[SPOTIFY-QUEUE] pipeline rebuilt: ${_fullTracks.length} tracks, '
-        'current=$_currentIndex (${_fullTracks[_currentIndex].title}), '
-        'prefetched=${sources.length > 1}');
-
-    await _player.setAudioSource(
-      playlist,
-      initialIndex: 0,
-      initialPosition: Duration.zero,
-    );
-
-    if (wasPlaying) {
-      await _player.play();
-    }
   }
 
   Future<void> setQueue(List<MediaItem> tracks, int initialIndex) async {
-    if (tracks.isEmpty || initialIndex < 0 || initialIndex >= tracks.length) {
-      return;
+    if (tracks.isEmpty) {
+      throw ArgumentError('Queue tracks cannot be empty.');
+    }
+    if (initialIndex < 0 || initialIndex >= tracks.length) {
+      throw RangeError.range(initialIndex, 0, tracks.length - 1, 'initialIndex');
     }
 
-    _isTransitioning = true;
-    try {
-      _unshuffledTracks = List<MediaItem>.of(tracks);
-      _fullTracks = List<MediaItem>.of(tracks);
-      _currentIndex = initialIndex;
+    final sources = tracks.map(_createAudioSource).toList();
+    final playlist = ConcatenatingAudioSource(children: sources);
+    _playlist = playlist;
 
-      if (_shuffleEnabled && _currentIndex + 1 < _fullTracks.length) {
-        _applyShuffleToUpcoming();
-      }
+    await _player.setAudioSource(
+      playlist,
+      initialIndex: initialIndex,
+      initialPosition: Duration.zero,
+    );
 
-      await _rebuildAudioPipeline(_currentIndex);
-      _checkAndLoadNextPage();
-    } catch (e) {
-      dev.log('Set queue failed: $e');
-      _playlist = null;
-    } finally {
-      _isTransitioning = false;
-    }
-  }
-
-  /// Checks if playback has approached the end of the loaded window,
-  /// and automatically resolves and appends the next page 1:1 with Spotify's Cosmos ContextPlayer.
-  void _checkAndLoadNextPage() {
-    if (_fullTracks.isEmpty) return;
-    final remaining = _fullTracks.length - (_currentIndex + 1);
-    if (remaining <= 8) {
-      final lastTrack = _fullTracks.last;
-      final nextPageUrl = lastTrack.extras?['next_page_url']?.toString();
-      if (nextPageUrl != null && nextPageUrl.isNotEmpty) {
-        final page = LocalContextResolver.resolvePage(nextPageUrl);
-        if (page != null && page.tracks != null && page.tracks!.isNotEmpty) {
-          final existingUids = _fullTracks
-              .map((t) => t.extras?['uid']?.toString() ?? t.id)
-              .toSet();
-          final newMediaItems = page.tracks!
-              .where((t) => !existingUids.contains(t.uid))
-              .map((t) => t.toMediaItem())
-              .toList(growable: false);
-          if (newMediaItems.isNotEmpty) {
-            _unshuffledTracks = [..._unshuffledTracks, ...newMediaItems];
-            if (_shuffleEnabled) {
-              final shuffledNew = List<MediaItem>.of(newMediaItems)..shuffle();
-              _fullTracks.addAll(shuffledNew);
-            } else {
-              _fullTracks.addAll(newMediaItems);
-            }
-            _refreshPrefetchSlot();
-            onQueueChanged?.call(List.unmodifiable(_fullTracks));
-          }
-        }
-      }
-    }
+    onQueueChanged?.call(fullTracks);
   }
 
   Future<void> seekToAbsoluteIndex(int absoluteIndex) async {
-    if (absoluteIndex < 0 || absoluteIndex >= _fullTracks.length) return;
-
-    // If seeking to the already prefetched next track in slot 1:
     final playlist = _playlist;
-    if (playlist != null &&
-        absoluteIndex == _currentIndex + 1 &&
-        playlist.length > 1 &&
-        _player.currentIndex == 0) {
-      await _player.seek(Duration.zero, index: 1);
-      _checkAndLoadNextPage();
-      return;
+    if (playlist == null) {
+      throw StateError('Cannot seek: no active playlist is set.');
+    }
+    if (absoluteIndex < 0 || absoluteIndex >= playlist.length) {
+      throw RangeError.range(absoluteIndex, 0, playlist.length - 1, 'absoluteIndex');
     }
 
-    // Rebuild the 2-slot pipeline at the requested index without overwriting _unshuffledTracks
-    _isTransitioning = true;
-    try {
-      await _rebuildAudioPipeline(absoluteIndex);
-      _checkAndLoadNextPage();
-      onQueueChanged?.call(List.unmodifiable(_fullTracks));
-    } finally {
-      _isTransitioning = false;
-    }
-  }
-
-  /// Called by the currentIndexStream listener on track completion/skip.
-  Future<void> onIndexChanged(int? index) async {
-    if (_isTransitioning || index == null || _fullTracks.isEmpty) return;
-
-    final playlist = _playlist;
-    if (playlist == null) return;
-
-    // Natural advance to Slot 1 (prefetched next track)
-    final hasNext = _currentIndex + 1 < _fullTracks.length;
-    final canLoop = _loopMode == LoopMode.all && _fullTracks.isNotEmpty;
-
-    if (index == 1 && (hasNext || canLoop)) {
-      _isTransitioning = true;
-      try {
-        if (hasNext) {
-          _currentIndex++;
-        } else if (canLoop) {
-          _currentIndex = 0;
-        }
-
-        debugPrint('[SPOTIFY-QUEUE] Gapless transition to track $_currentIndex: '
-            '${_fullTracks[_currentIndex].title}');
-
-        // Remove the played track at Slot 0. Slot 1 becomes the new Slot 0.
-        await playlist.removeAt(0);
-
-        // Preload the new next track into Slot 1
-        if (_prefetchLevel == PrefetchLevel.media) {
-          MediaItem? nextTrack;
-          if (_currentIndex + 1 < _fullTracks.length) {
-            nextTrack = _fullTracks[_currentIndex + 1];
-          } else if (_loopMode == LoopMode.all && _fullTracks.isNotEmpty) {
-            nextTrack = _fullTracks[0];
-          }
-
-          if (nextTrack != null) {
-            final nextSource = _createAudioSource(nextTrack);
-            await playlist.add(nextSource);
-            debugPrint('[SPOTIFY-QUEUE] Prefetched next track into Slot 1: '
-                '${nextTrack.title}');
-          }
-        }
-
-        _checkAndLoadNextPage();
-      } catch (e) {
-        dev.log('Error advancing prefetch pipeline: $e');
-      } finally {
-        _isTransitioning = false;
-      }
-    }
+    await _player.seek(Duration.zero, index: absoluteIndex);
   }
 
   Future<void> reorderTrack(int fromAbsolute, int toAbsolute) async {
-    if (fromAbsolute < 0 ||
-        fromAbsolute >= _fullTracks.length ||
-        toAbsolute < 0 ||
-        toAbsolute >= _fullTracks.length ||
-        fromAbsolute == toAbsolute) {
-      return;
+    final playlist = _playlist;
+    if (playlist == null) {
+      throw StateError('Cannot reorder: no active playlist is set.');
     }
-
-    final item = _fullTracks.removeAt(fromAbsolute);
-    _fullTracks.insert(toAbsolute, item);
-
-    // Adjust current index if the moving item affected it
-    if (fromAbsolute == _currentIndex) {
-      _currentIndex = toAbsolute;
-    } else if (fromAbsolute < _currentIndex && toAbsolute >= _currentIndex) {
-      _currentIndex--;
-    } else if (fromAbsolute > _currentIndex && toAbsolute <= _currentIndex) {
-      _currentIndex++;
+    if (fromAbsolute < 0 || fromAbsolute >= playlist.length) {
+      throw RangeError.range(fromAbsolute, 0, playlist.length - 1, 'fromAbsolute');
     }
+    if (toAbsolute < 0 || toAbsolute >= playlist.length) {
+      throw RangeError.range(toAbsolute, 0, playlist.length - 1, 'toAbsolute');
+    }
+    if (fromAbsolute == toAbsolute) return;
 
-    _refreshPrefetchSlot();
-    onQueueChanged?.call(List.unmodifiable(_fullTracks));
+    await playlist.move(fromAbsolute, toAbsolute);
+    onQueueChanged?.call(fullTracks);
   }
 
   Future<void> removeTrack(int absoluteIndex) async {
@@ -341,116 +95,138 @@ class PlaybackQueueManager {
   }
 
   Future<void> removeTrackRange(int startAbsolute, int endAbsolute) async {
-    final start = startAbsolute.clamp(0, _fullTracks.length);
-    final end = endAbsolute.clamp(start, _fullTracks.length);
-    if (end <= start) return;
-
-    final removingCurrent = _currentIndex >= start && _currentIndex < end;
-    final removed = _fullTracks.sublist(start, end);
-    final removedIds = removed.map((t) => t.id).toSet();
-    _unshuffledTracks = _unshuffledTracks.where((t) => !removedIds.contains(t.id)).toList();
-    _fullTracks.removeRange(start, end);
-
-    if (removingCurrent) {
-      if (_fullTracks.isNotEmpty) {
-        final newIndex = start.clamp(0, _fullTracks.length - 1);
-        await setQueue(_fullTracks, newIndex);
-      } else {
-        _currentIndex = 0;
-        _playlist = null;
-        await _player.stop();
-      }
-      onQueueChanged?.call(List.unmodifiable(_fullTracks));
-      return;
+    final playlist = _playlist;
+    if (playlist == null) {
+      throw StateError('Cannot remove tracks: no active playlist is set.');
     }
-
-    if (end <= _currentIndex) {
-      _currentIndex -= (end - start);
+    if (startAbsolute < 0 || startAbsolute > playlist.length) {
+      throw RangeError.range(startAbsolute, 0, playlist.length, 'startAbsolute');
     }
+    if (endAbsolute < startAbsolute || endAbsolute > playlist.length) {
+      throw RangeError.range(endAbsolute, startAbsolute, playlist.length, 'endAbsolute');
+    }
+    if (startAbsolute == endAbsolute) return;
 
-    _refreshPrefetchSlot();
-    onQueueChanged?.call(List.unmodifiable(_fullTracks));
+    await playlist.removeRange(startAbsolute, endAbsolute);
+    onQueueChanged?.call(fullTracks);
   }
 
   Future<void> insertTrack(int absoluteIndex, MediaItem track) async {
-    final clampedIndex = absoluteIndex.clamp(0, _fullTracks.length);
-    _fullTracks.insert(clampedIndex, track);
-
-    if (clampedIndex <= _currentIndex) {
-      _currentIndex++;
-    }
-
-    _refreshPrefetchSlot();
-  }
-
-  /// 1:1 with SetQueueCommand: Replaces upcoming tracks starting at _currentIndex + 1
-  /// with the new list of tracks, updating all metadata (including is_queued and uid),
-  /// and refreshing prefetch Slot 1.
-  Future<void> setNextTracks(List<MediaItem> upcomingTracks) async {
-    // Bug 2.6 fix: Guard against _currentIndex being -1 or out-of-bounds.
-    // When no track is actively playing, preserve the current track (if any)
-    // rather than wiping _fullTracks with an empty sublist.
-    final safeIndex = _currentIndex.clamp(0, _fullTracks.isEmpty ? 0 : _fullTracks.length - 1);
-    final playedTracks = _fullTracks.isEmpty
-        ? const <MediaItem>[]
-        : _fullTracks.sublist(0, safeIndex + 1);
-    _fullTracks
-      ..clear()
-      ..addAll(playedTracks)
-      ..addAll(upcomingTracks);
-
-    if (!_shuffleEnabled) {
-      _unshuffledTracks = List<MediaItem>.of(_fullTracks);
-    }
-
-    await _refreshPrefetchSlot();
-  }
-
-  /// Ensures Slot 1 in ConcatenatingAudioSource reflects the current next track in _fullTracks
-  Future<void> _refreshPrefetchSlot() async {
     final playlist = _playlist;
-    if (playlist == null || _isTransitioning) return;
-
-    try {
-      final hasNextInList = _currentIndex + 1 < _fullTracks.length;
-      final canLoopAll = _loopMode == LoopMode.all && _fullTracks.isNotEmpty;
-      final shouldHavePrefetch =
-          _prefetchLevel == PrefetchLevel.media && (hasNextInList || canLoopAll);
-
-      if (!shouldHavePrefetch) {
-        if (playlist.length > 1) {
-          await playlist.removeAt(1);
-        }
-        return;
-      }
-
-      final expectedNextTrack = hasNextInList
-          ? _fullTracks[_currentIndex + 1]
-          : _fullTracks[0];
-
-      if (playlist.length > 1) {
-        final currentSlot1Tag = playlist.children[1].sequence.firstOrNull?.tag as MediaItem?;
-        if (currentSlot1Tag?.id == expectedNextTrack.id) {
-          return; // Already up to date
-        }
-        await playlist.removeAt(1);
-      }
-
-      await playlist.add(_createAudioSource(expectedNextTrack));
-      debugPrint('[SPOTIFY-QUEUE] Updated prefetch Slot 1 to: ${expectedNextTrack.title}');
-    } catch (e) {
-      dev.log('Error refreshing prefetch slot: $e');
+    if (playlist == null) {
+      throw StateError('Cannot insert track: no active playlist is set.');
     }
+    if (absoluteIndex < 0 || absoluteIndex > playlist.length) {
+      throw RangeError.range(absoluteIndex, 0, playlist.length, 'absoluteIndex');
+    }
+
+    await playlist.insert(absoluteIndex, _createAudioSource(track));
+    onQueueChanged?.call(fullTracks);
+  }
+
+  Future<void> setNextTracks(List<MediaItem> upcomingTracks) async {
+    final playlist = _playlist;
+    if (playlist == null) {
+      throw StateError('Cannot set upcoming tracks: no active playlist is set.');
+    }
+
+    final currentIndex = _player.currentIndex ?? -1;
+    final upcomingStart = currentIndex >= 0 ? currentIndex + 1 : 0;
+
+    final currentChildren = playlist.children;
+    final currentUpcomingSources = upcomingStart < currentChildren.length
+        ? currentChildren.sublist(upcomingStart)
+        : const <AudioSource>[];
+    final currentUpcomingItems = currentUpcomingSources
+        .map((source) => (source as IndexedAudioSource).tag as MediaItem)
+        .toList(growable: false);
+
+    final currentKeys = QueueDiffer.computeKeys(
+      currentUpcomingItems.map((item) => KeySource(
+        uri: item.id,
+        uid: item.extras?['uid']?.toString(),
+      )).toList(growable: false),
+    );
+
+    final targetKeys = QueueDiffer.computeKeys(
+      upcomingTracks.map((item) => KeySource(
+        uri: item.id,
+        uid: item.extras?['uid']?.toString(),
+      )).toList(growable: false),
+    );
+
+    final edits = QueueDiffer.diff(currentKeys, targetKeys);
+    if (edits.isEmpty) return;
+
+    if (!QueueDiffer.validate(currentKeys, targetKeys, edits)) {
+      // Fallback: safe authoritative rebuild if diff validation fails
+      if (playlist.length > upcomingStart) {
+        await playlist.removeRange(upcomingStart, playlist.length);
+      }
+      if (upcomingTracks.isNotEmpty) {
+        final newSources = upcomingTracks.map(_createAudioSource).toList();
+        await playlist.addAll(newSources);
+      }
+      onQueueChanged?.call(fullTracks);
+      return;
+    }
+
+    // Apply minimal edit script sequentially onto playlist
+    var i = 0;
+    while (i < edits.length) {
+      switch (edits[i]) {
+        case QueueEditRemove(:final index):
+          var j = i;
+          while (j < edits.length) {
+            final e = edits[j];
+            if (e is! QueueEditRemove || e.index != index) break;
+            j++;
+          }
+          final count = j - i;
+          final realStart = upcomingStart + index;
+          await playlist.removeRange(realStart, realStart + count);
+          i = j;
+
+        case QueueEditInsert(:final index):
+          final block = <AudioSource>[];
+          var j = i;
+          while (j < edits.length) {
+            final e = edits[j];
+            if (e is! QueueEditInsert || e.index != index) break;
+            block.add(_createAudioSource(upcomingTracks[e.targetIndex]));
+            j++;
+          }
+          final realAt = upcomingStart + index;
+          final inOrderBlock = block.reversed.toList();
+          if (realAt >= playlist.length) {
+            await playlist.addAll(inOrderBlock);
+          } else {
+            await playlist.insertAll(realAt, inOrderBlock);
+          }
+          i = j;
+
+        case QueueEditMove(:final from, :final to):
+          final realFrom = upcomingStart + from;
+          final realTo = upcomingStart + to;
+          await playlist.move(realFrom, realTo);
+          i++;
+      }
+    }
+
+    onQueueChanged?.call(fullTracks);
+  }
+
+  Future<void> setShuffleModeEnabled(bool enabled) async {
+    await _player.setShuffleModeEnabled(enabled);
+  }
+
+  Future<void> setLoopMode(LoopMode mode) async {
+    await _player.setLoopMode(mode);
   }
 
   AudioSource _createAudioSource(MediaItem item) {
     final pathOrUrl = MediaItemMapper.dataPath(item) ?? '';
-
-    // Bug 2.13 fix: Detect URI scheme properly instead of only checking 'http'.
-    // Android content:// URIs, Spotify stream URLs, and other schemes must use
-    // Uri.parse, while only bare filesystem paths use Uri.file.
     if (pathOrUrl.isEmpty) {
-      dev.log('Empty audio path for item ${item.id}, using placeholder');
       return AudioSource.uri(Uri.parse('about:blank'), tag: item);
     }
 
@@ -459,5 +235,9 @@ class PlaybackQueueManager {
         : Uri.file(pathOrUrl);
 
     return AudioSource.uri(uri, tag: item);
+  }
+
+  Future<void> dispose() async {
+    _playlist = null;
   }
 }

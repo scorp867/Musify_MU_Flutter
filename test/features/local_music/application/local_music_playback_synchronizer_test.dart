@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/features/local_music/application/local_music_playback_synchronizer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
@@ -102,6 +103,24 @@ class FakePlaybackController implements PlaybackController {
 
   @override
   Stream<PlaybackState> get playbackState => const Stream.empty();
+
+  @override
+  Stream<SequenceState?> get sequenceStateStream => const Stream.empty();
+
+  @override
+  Stream<PlayerState> get playerStateStream => const Stream.empty();
+
+  @override
+  Stream<Duration> get positionStream => const Stream.empty();
+
+  @override
+  Stream<Duration> get bufferedPositionStream => const Stream.empty();
+
+  @override
+  SequenceState? get sequenceState => null;
+
+  @override
+  PlayerState get playerState => PlayerState(false, ProcessingState.idle);
 
   @override
   Stream<List<MediaItem>> get queue => const Stream.empty();
