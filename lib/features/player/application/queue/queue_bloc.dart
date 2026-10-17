@@ -175,12 +175,18 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     final tapIdx = nextTracks.indexWhere((t) => t.uid == event.track.uid);
 
     if (tapIdx == -1) {
+      // Bug 2.5 fix: Resolve the track's live index by URI from the latest
+      // queue snapshot instead of using the stale event.absoluteIndex, which
+      // can drift when rapid mutations reorder the queue between dispatch
+      // and execution.
+      final liveIndex = _lastQueue.indexWhere((m) => m.id == event.track.uri);
+      final resolvedIndex = liveIndex != -1 ? liveIndex : event.absoluteIndex;
       final tapGen = ++_latestTapGeneration;
       _animationEndTime =
           DateTime.now().add(const Duration(milliseconds: 375));
       _enqueueMutation(() async {
         if (_latestTapGeneration == tapGen) {
-          await _playbackController.skipToQueueItem(event.absoluteIndex);
+          await _playbackController.skipToQueueItem(resolvedIndex);
           await _playbackController.play();
         }
       });
@@ -188,7 +194,12 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     }
 
     final userQueueCount = QueueFilterHelper.getUserQueue(currentQueue).length;
-    final baseOffset = state.currentIndex + 1;
+    // Bug 2.6 fix: Guard against currentIndex == -1 (startup / empty queue).
+    // Fall back to the last known queue index or 0 so baseOffset stays valid.
+    final safeCurrentIndex = state.currentIndex >= 0
+        ? state.currentIndex
+        : (_lastQueueIndex ?? 0);
+    final baseOffset = safeCurrentIndex + 1;
     final nextCurrentTrack =
         event.track.copyWith(isQueued: false, provider: 'context');
 
@@ -504,37 +515,35 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
 
     final existingNext = state.queue.nextTracks;
 
-    // Fast path: if the upcoming URI sequence matches optimistic nextTracks,
-    // preserve existing UIDs and isQueued division so ReorderableListView is smooth.
+    // Fast path: if the upcoming URI sequence exactly matches optimistic
+    // nextTracks (same length, same order), preserve existing UIDs and
+    // isQueued division so ReorderableListView is smooth.
+    // Bug 2.3 fix: Only fast-path when lengths are identical. The previous
+    // `lengthDiff <= 2` shortcut silently dropped newly paginated tracks.
     if (existingNext.isNotEmpty &&
         upcomingItems.isNotEmpty &&
+        existingNext.length == upcomingItems.length &&
         state.nowPlaying?.uri == current.id) {
-      final checkLen = existingNext.length < upcomingItems.length
-          ? existingNext.length
-          : upcomingItems.length;
-      final lengthDiff = (existingNext.length - upcomingItems.length).abs();
-      if (lengthDiff <= 2 && checkLen > 0) {
-        var allMatch = true;
-        for (var i = 0; i < checkLen; i++) {
-          if (existingNext[i].uri != upcomingItems[i].id) {
-            allMatch = false;
-            break;
-          }
+      var allMatch = true;
+      for (var i = 0; i < existingNext.length; i++) {
+        if (existingNext[i].uri != upcomingItems[i].id) {
+          allMatch = false;
+          break;
         }
-        if (allMatch) {
-          final updatedCurrent = ContextTrack.fromMediaItem(
-            current,
-            uid: state.nowPlaying?.uri == current.id
-                ? state.nowPlaying!.uid
-                : 'now_${current.id}',
-          );
-          emit(state.copyWith(
-            queue: state.queue.copyWith(track: updatedCurrent),
-            currentIndex: currentIndex,
-            totalTracks: queue.length,
-          ));
-          return;
-        }
+      }
+      if (allMatch) {
+        final updatedCurrent = ContextTrack.fromMediaItem(
+          current,
+          uid: state.nowPlaying?.uri == current.id
+              ? state.nowPlaying!.uid
+              : 'now_${current.id}',
+        );
+        emit(state.copyWith(
+          queue: state.queue.copyWith(track: updatedCurrent),
+          currentIndex: currentIndex,
+          totalTracks: queue.length,
+        ));
+        return;
       }
     } else if (existingNext.isEmpty &&
         upcomingItems.isEmpty &&
@@ -555,6 +564,7 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
     final availableExisting = List<ContextTrack>.from(existingNext);
     final upcomingTracks = <ContextTrack>[];
     final occurrenceCounts = <String, int>{};
+    final seenUids = <String>{};
 
     for (var i = 0; i < upcomingItems.length; i++) {
       final item = upcomingItems[i];
@@ -570,65 +580,44 @@ class QueueBloc extends Bloc<QueueEvent, QueueState> {
         matchIdx = availableExisting.indexWhere((t) => t.uri == item.id);
       }
 
-      ContextTrack track;
+      String candidateUid;
+      bool isQueued;
+
       if (matchIdx != -1) {
         final matched = availableExisting.removeAt(matchIdx);
-        final explicitUid = matched.uid;
-        final isQueued = _userQueuedUids.contains(explicitUid) ||
+        candidateUid = matched.uid;
+        isQueued = _userQueuedUids.contains(candidateUid) ||
             item.extras?['is_queued'] == true ||
             item.extras?['is_queued'] == 'true';
-        track = ContextTrack.fromMediaItem(
-          item,
-          uid: explicitUid,
-          isQueued: isQueued,
-        );
       } else {
-        final explicitUid = itemUid ??
-            (count == 1 ? item.id : '${item.id}_#_$count');
-        final isQueued = _userQueuedUids.contains(explicitUid) ||
+        candidateUid = (itemUid != null && itemUid.isNotEmpty)
+            ? itemUid
+            : (count == 1 ? item.id : '${item.id}_#_$count');
+        isQueued = _userQueuedUids.contains(candidateUid) ||
             item.extras?['is_queued'] == true ||
             item.extras?['is_queued'] == 'true';
-        track = ContextTrack.fromMediaItem(
-          item,
-          uid: explicitUid,
-          isQueued: isQueued,
-        );
       }
+
+      // Enforce strict UID uniqueness across all upcoming items.
+      // If two items share a UID (e.g. repeated tracks or identical extras),
+      // disambiguate to prevent duplicate GlobalKeys in ReorderableListView.
+      if (candidateUid.isEmpty) {
+        candidateUid = 'track_${current.id}_$i';
+      }
+      var uniqueUid = candidateUid;
+      var dupSuffix = 2;
+      while (seenUids.contains(uniqueUid)) {
+        uniqueUid = '${candidateUid}_#_${dupSuffix++}';
+      }
+      seenUids.add(uniqueUid);
+
+      final track = ContextTrack.fromMediaItem(
+        item,
+        uid: uniqueUid,
+        isQueued: isQueued,
+      );
 
       upcomingTracks.add(track);
-    }
-
-    // Pre-emptively fetch next page if upcoming context tracks are nearly exhausted
-    final contextUpcomingCount =
-        upcomingTracks.where((t) => !t.isQueued).length;
-    if (contextUpcomingCount <= 8) {
-      final lastContextTrack =
-          upcomingTracks.where((t) => !t.isQueued).lastOrNull;
-      final nextPageUrl = lastContextTrack?.metadata['next_page_url'] ??
-          current.extras?['next_page_url']?.toString();
-      if (nextPageUrl != null && nextPageUrl.isNotEmpty) {
-        final page = LocalContextResolver.resolvePage(nextPageUrl);
-        if (page != null) {
-          final tempQueue = PlayerQueue(
-            revision: '$_revisionCounter',
-            track: ContextTrack.fromMediaItem(current, uid: 'now_${current.id}'),
-            nextTracks: upcomingTracks,
-          );
-          final pagedQueue = QueueMutator.updatePage(tempQueue, page);
-          upcomingTracks
-            ..clear()
-            ..addAll(pagedQueue.nextTracks);
-
-          final upcomingMedia = upcomingTracks
-              .map((t) => t.toMediaItem())
-              .toList(growable: false);
-          _lastQueue = [
-            current,
-            ...upcomingMedia,
-          ];
-          _playbackController.setNextTracks(upcomingMedia);
-        }
-      }
     }
 
     _revisionCounter++;

@@ -61,6 +61,7 @@ dependencies:
   connectivity_plus: ^7.3.2
   lottie: ^3.6.1
   visibility_detector: ^0.4.0+2
+  bloc_concurrency: ^0.3.0
 
 dev_dependencies:
   flutter_test:

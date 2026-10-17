@@ -1,3 +1,5 @@
+import "dart:developer";
+import "package:flutter/foundation.dart";
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:musify_mu/app/app.dart';
@@ -21,6 +23,24 @@ Future<void> main() async {
     ),
   );
   await setupInjection();
+
+  if (kDebugMode) {
+    void logVmService([int attempts = 0]) {
+      Service.getInfo().then((info) {
+        if (info.serverUri != null) {
+          debugPrint('VIVO_PORT: ${info.serverUri!.port}');
+          debugPrint('VIVO_PATH: ${info.serverUri!.path}');
+        } else if (attempts < 10) {
+          Future<void>.delayed(
+            const Duration(milliseconds: 200),
+            () => logVmService(attempts + 1),
+          );
+        }
+      });
+    }
+
+    logVmService();
+  }
 
   runApp(
     MusifyApp(

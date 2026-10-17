@@ -253,9 +253,14 @@ abstract class QueueMutator {
     final pageTracks = page.tracks ?? const [];
     if (pageTracks.isEmpty) return playerQueue;
 
+    final existingUids = playerQueue.nextTracks.map((t) => t.uid).toSet();
+    final uniqueNewTracks =
+        pageTracks.where((t) => !existingUids.contains(t.uid)).toList();
+    if (uniqueNewTracks.isEmpty) return playerQueue;
+
     return playerQueue.copyWith(
       revision: _nextRevision(playerQueue.revision),
-      nextTracks: [...playerQueue.nextTracks, ...pageTracks],
+      nextTracks: [...playerQueue.nextTracks, ...uniqueNewTracks],
     );
   }
 }

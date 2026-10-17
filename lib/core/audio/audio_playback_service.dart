@@ -102,15 +102,19 @@ class AudioPlaybackService {
 
   Stream<PlaybackEvent> get playbackEventStream => _player.playbackEventStream;
 
-  // Bug 2.12 fix: Forward shuffle and repeat mode changes to just_audio player.
+  // Forward shuffle mode changes to PlaybackQueueManager.
+  // Note: We do NOT forward shuffleModeEnabled to just_audio's _player because
+  // the player holds only the 2-slot prefetch pipeline. Shuffling that pipeline
+  // causes unwanted track jumps and resets the UI progress slider to 0.
   Future<void> setShuffleModeEnabled(bool enabled) async {
     _queueManager.setShuffleModeEnabled(enabled);
-    await _player.setShuffleModeEnabled(enabled);
   }
 
   Future<void> setLoopMode(LoopMode mode) async {
     _queueManager.setLoopMode(mode);
-    await _player.setLoopMode(mode);
+    // Only pass LoopMode.one to just_audio player so it loops the single active track.
+    // Full queue looping (LoopMode.all) is handled orchestrally by PlaybackQueueManager.
+    await _player.setLoopMode(mode == LoopMode.one ? LoopMode.one : LoopMode.off);
   }
 }
 
