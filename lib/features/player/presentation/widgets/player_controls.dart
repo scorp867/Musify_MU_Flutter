@@ -2,10 +2,11 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
+import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 
 import 'player_theme.dart';
 
-class PlayerSeekBar extends StatelessWidget {
+class PlayerSeekBar extends StatefulWidget {
   const PlayerSeekBar({
     super.key,
     required this.item,
@@ -20,20 +21,44 @@ class PlayerSeekBar extends StatelessWidget {
   final ValueChanged<Duration?> onDragPositionChanged;
 
   @override
+  State<PlayerSeekBar> createState() => _PlayerSeekBarState();
+}
+
+class _PlayerSeekBarState extends State<PlayerSeekBar> {
+  Duration _lastPosition = Duration.zero;
+  Duration _lastBuffered = Duration.zero;
+  String? _lastTrackId;
+
+  @override
   Widget build(BuildContext context) {
+    if (_lastTrackId != widget.item.id) {
+      _lastTrackId = widget.item.id;
+      _lastPosition = Duration.zero;
+      _lastBuffered = Duration.zero;
+    }
+
     return StreamBuilder<Duration>(
       stream: AudioService.position,
       builder: (context, positionSnapshot) {
+        if (positionSnapshot.hasData && positionSnapshot.data! > Duration.zero) {
+          _lastPosition = positionSnapshot.data!;
+        }
+
         return StreamBuilder<PlaybackState>(
-          stream: playbackController.playbackState,
+          stream: widget.playbackController.playbackState,
           builder: (context, stateSnapshot) {
             final state = stateSnapshot.data;
-            final duration = item.duration ?? Duration.zero;
-            final currentPosition =
-                dragPosition ??
-                positionSnapshot.data ??
-                state?.position ??
-                Duration.zero;
+            if (state != null) {
+              if (state.bufferedPosition > Duration.zero) {
+                _lastBuffered = state.bufferedPosition;
+              }
+              if (!positionSnapshot.hasData && state.position > Duration.zero) {
+                _lastPosition = state.position;
+              }
+            }
+
+            final duration = widget.item.duration ?? Duration.zero;
+            final currentPosition = widget.dragPosition ?? _lastPosition;
 
             final hasDuration = duration.inMilliseconds > 0;
             final maxValue = hasDuration
@@ -43,7 +68,7 @@ class PlayerSeekBar extends StatelessWidget {
                 .toDouble()
                 .clamp(0.0, maxValue)
                 .toDouble();
-            final bufferedValue = (state?.bufferedPosition ?? Duration.zero)
+            final bufferedValue = _lastBuffered
                 .inMilliseconds
                 .toDouble()
                 .clamp(0.0, maxValue)
@@ -75,7 +100,7 @@ class PlayerSeekBar extends StatelessWidget {
                     secondaryTrackValue: hasDuration ? bufferedValue : null,
                     onChanged: hasDuration
                         ? (value) {
-                            onDragPositionChanged(
+                            widget.onDragPositionChanged(
                               Duration(milliseconds: value.round()),
                             );
                           }
@@ -85,8 +110,8 @@ class PlayerSeekBar extends StatelessWidget {
                             final target = Duration(
                               milliseconds: value.round(),
                             );
-                            playbackController.seek(target);
-                            onDragPositionChanged(null);
+                            widget.playbackController.seek(target);
+                            widget.onDragPositionChanged(null);
                           }
                         : null,
                   ),
@@ -125,31 +150,39 @@ class PlayerPlaybackControls extends StatelessWidget {
     super.key,
     required this.item,
     required this.playbackController,
-    this.shuffleEnabled = false,
-    this.repeatEnabled = false,
+    this.shuffleMode = AudioServiceShuffleMode.none,
+    this.repeatMode = AudioServiceRepeatMode.none,
     this.onShuffle,
     this.onRepeat,
   });
 
   final MediaItem item;
   final PlaybackController playbackController;
-  final bool shuffleEnabled;
-  final bool repeatEnabled;
+  final AudioServiceShuffleMode shuffleMode;
+  final AudioServiceRepeatMode repeatMode;
   final VoidCallback? onShuffle;
   final VoidCallback? onRepeat;
+
+  bool get _isShuffling =>
+      shuffleMode == AudioServiceShuffleMode.all ||
+      shuffleMode == AudioServiceShuffleMode.group;
+
+  bool get _isRepeating =>
+      repeatMode == AudioServiceRepeatMode.all ||
+      repeatMode == AudioServiceRepeatMode.one;
+
+  bool get _isRepeatingOne => repeatMode == AudioServiceRepeatMode.one;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _TransportButton(
-          icon: Icons.shuffle_rounded,
-          tooltip: 'Shuffle',
-          iconColor: shuffleEnabled ? PlayerColors.accent : Colors.white60,
-          showActiveDot: shuffleEnabled,
+        _SpotifyTransportButton(
+          tooltip: _isShuffling ? 'Disable shuffle' : 'Enable shuffle',
+          isActive: _isShuffling,
           onPressed: onShuffle,
-          size: 24,
+          iconBuilder: (color) => SpotifyIcon.shuffle(color: color, size: 22),
         ),
         _TransportButton(
           icon: Icons.skip_previous_rounded,
@@ -164,13 +197,17 @@ class PlayerPlaybackControls extends StatelessWidget {
           onPressed: playbackController.skipToNext,
           size: 38,
         ),
-        _TransportButton(
-          icon: repeatEnabled ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-          tooltip: repeatEnabled ? 'Repeat one' : 'Repeat',
-          iconColor: repeatEnabled ? PlayerColors.accent : Colors.white60,
-          showActiveDot: repeatEnabled,
+        _SpotifyTransportButton(
+          tooltip: _isRepeatingOne
+              ? 'Repeat one'
+              : _isRepeating
+                  ? 'Repeat all'
+                  : 'Enable repeat',
+          isActive: _isRepeating,
           onPressed: onRepeat,
-          size: 24,
+          iconBuilder: (color) => _isRepeatingOne
+              ? SpotifyIcon.repeatOnce(color: color, size: 22)
+              : SpotifyIcon.repeat(color: color, size: 22),
         ),
       ],
     );
@@ -239,31 +276,64 @@ class _TransportButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
-    this.iconColor = Colors.white,
-    this.showActiveDot = false,
     this.size = 28,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
-  final Color iconColor;
-  final bool showActiveDot;
   final double size;
 
   @override
   Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: tooltip,
+      icon: Icon(icon, color: Colors.white, size: size),
+      padding: const EdgeInsets.all(8),
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+    );
+  }
+}
+
+class _SpotifyTransportButton extends StatelessWidget {
+  const _SpotifyTransportButton({
+    required this.tooltip,
+    required this.isActive,
+    required this.onPressed,
+    required this.iconBuilder,
+  });
+
+  final String tooltip;
+  final bool isActive;
+  final VoidCallback? onPressed;
+  final Widget Function(Color color) iconBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final targetColor = isActive
+        ? PlayerColors.accent
+        : Colors.white.withValues(alpha: 0.6);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          onPressed: onPressed,
-          tooltip: tooltip,
-          icon: Icon(icon, color: iconColor, size: size),
-          padding: const EdgeInsets.all(8),
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        TweenAnimationBuilder<Color?>(
+          tween: ColorTween(end: targetColor),
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          builder: (context, animatedColor, _) {
+            final color = animatedColor ?? targetColor;
+            return IconButton(
+              onPressed: onPressed,
+              tooltip: tooltip,
+              icon: iconBuilder(color),
+              padding: const EdgeInsets.all(8),
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            );
+          },
         ),
-        if (showActiveDot)
+        if (isActive)
           Container(
             width: 4,
             height: 4,

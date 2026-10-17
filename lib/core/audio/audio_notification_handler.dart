@@ -141,6 +141,14 @@ class AudioNotificationHandler extends BaseAudioHandler
       mediaItem.add(currentItem);
       queue.add(queueItems);
 
+      // Bug 2.10 fix: Emit interim playbackState with the correct queueIndex
+      // for the new queue. Without this, subscribers can see the stale index
+      // from the previous queue paired with newly published queue contents,
+      // causing RangeError on queue[queueIndex] access.
+      playbackState.add(playbackState.value.copyWith(
+        queueIndex: initialIndex,
+      ));
+
       await _playbackService.setQueue(queueItems, initialIndex);
       await _playbackService.play();
     } finally {
@@ -305,6 +313,36 @@ class AudioNotificationHandler extends BaseAudioHandler
   Future<void> stop() async {
     await _playbackService.stop();
     return super.stop();
+  }
+
+  // Bug 2.12 fix: Forward shuffle and repeat mode changes to the audio player
+  // and broadcast the updated mode via playbackState. Without these overrides,
+  // the inherited no-ops from BaseAudioHandler swallow all mode changes.
+  @override
+  Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
+    await _playbackService.setShuffleModeEnabled(
+      shuffleMode == AudioServiceShuffleMode.all ||
+          shuffleMode == AudioServiceShuffleMode.group,
+    );
+    playbackState.add(playbackState.value.copyWith(
+      shuffleMode: shuffleMode,
+      updatePosition: _playbackService.player.position,
+    ));
+  }
+
+  @override
+  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
+    final loopMode = switch (repeatMode) {
+      AudioServiceRepeatMode.one => LoopMode.one,
+      AudioServiceRepeatMode.all ||
+      AudioServiceRepeatMode.group => LoopMode.all,
+      _ => LoopMode.off,
+    };
+    await _playbackService.setLoopMode(loopMode);
+    playbackState.add(playbackState.value.copyWith(
+      repeatMode: repeatMode,
+      updatePosition: _playbackService.player.position,
+    ));
   }
 
   Future<void> dispose() async {

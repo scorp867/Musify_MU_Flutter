@@ -30,6 +30,9 @@ class AudioPlaybackService {
   AudioPlayer get player => _player;
 
   Future<void> setAudioSource(String uri) async {
+    // Bug 2.17 fix: Clear queue manager state so index listeners don't
+    // operate on a stale playlist when single-track playback bypasses the queue.
+    _queueManager.reset();
     try {
       await _player.setAudioSource(AudioSource.uri(Uri.parse(uri)));
     } catch (error) {
@@ -53,6 +56,9 @@ class AudioPlaybackService {
     final nextIndex = _queueManager.currentAbsoluteIndex + 1;
     if (nextIndex < _queueManager.fullTracks.length) {
       await _queueManager.seekToAbsoluteIndex(nextIndex);
+    } else if (_queueManager.loopMode == LoopMode.all &&
+        _queueManager.fullTracks.isNotEmpty) {
+      await _queueManager.seekToAbsoluteIndex(0);
     }
   }
 
@@ -95,5 +101,16 @@ class AudioPlaybackService {
       _queueManager.setNextTracks(upcomingTracks);
 
   Stream<PlaybackEvent> get playbackEventStream => _player.playbackEventStream;
+
+  // Bug 2.12 fix: Forward shuffle and repeat mode changes to just_audio player.
+  Future<void> setShuffleModeEnabled(bool enabled) async {
+    _queueManager.setShuffleModeEnabled(enabled);
+    await _player.setShuffleModeEnabled(enabled);
+  }
+
+  Future<void> setLoopMode(LoopMode mode) async {
+    _queueManager.setLoopMode(mode);
+    await _player.setLoopMode(mode);
+  }
 }
 

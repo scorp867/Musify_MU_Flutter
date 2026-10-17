@@ -27,6 +27,9 @@ import '../widgets/player_sheets.dart';
 import '../widgets/player_theme.dart';
 import '../widgets/pull_to_dismiss_scaffold.dart';
 import 'queue_sheet_screen.dart';
+import '../../application/queue/queue_bloc.dart';
+import '../../application/queue/queue_event.dart';
+import '../../application/queue/queue_state.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
@@ -97,8 +100,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Duration? _dragPosition;
   bool _isFavorite = false;
-  bool _shuffleEnabled = false;
-  bool _repeatEnabled = false;
 
   ArtworkColorScheme _currentScheme = ArtworkColorScheme.neutral;
   String? _lastTrackId;
@@ -409,13 +410,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onDragPositionChanged: _setDragPosition,
                   ),
                   const SizedBox(height: 8),
-                  PlayerPlaybackControls(
-                    item: item,
-                    playbackController: _playbackController,
-                    shuffleEnabled: _shuffleEnabled,
-                    repeatEnabled: _repeatEnabled,
-                    onShuffle: _toggleShuffle,
-                    onRepeat: _toggleRepeat,
+                  BlocBuilder<QueueBloc, QueueState>(
+                    buildWhen: (previous, current) =>
+                        previous.shuffleMode != current.shuffleMode ||
+                        previous.repeatMode != current.repeatMode,
+                    builder: (context, queueState) {
+                      return PlayerPlaybackControls(
+                        item: item,
+                        playbackController: _playbackController,
+                        shuffleMode: queueState.shuffleMode,
+                        repeatMode: queueState.repeatMode,
+                        onShuffle: () {
+                          context
+                              .read<QueueBloc>()
+                              .add(const QueueShuffleToggled());
+                        },
+                        onRepeat: () {
+                          context
+                              .read<QueueBloc>()
+                              .add(const QueueRepeatToggled());
+                        },
+                      );
+                    },
                   ),
                   const SizedBox(height: 6),
                   PlayerUtilityRow(
@@ -486,27 +502,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  void _toggleShuffle() {
-    setState(() {
-      _shuffleEnabled = !_shuffleEnabled;
-    });
 
-    _playbackController.setShuffleMode(
-      _shuffleEnabled
-          ? AudioServiceShuffleMode.all
-          : AudioServiceShuffleMode.none,
-    );
-  }
-
-  void _toggleRepeat() {
-    setState(() {
-      _repeatEnabled = !_repeatEnabled;
-    });
-
-    _playbackController.setRepeatMode(
-      _repeatEnabled ? AudioServiceRepeatMode.one : AudioServiceRepeatMode.none,
-    );
-  }
 
   void _showQueue(BuildContext context) {
     QueueSheetScreen.show(context, _playbackController);
