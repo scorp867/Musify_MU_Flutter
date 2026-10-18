@@ -1,6 +1,4 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 
 import 'player_artwork.dart';
 import 'player_theme.dart';
@@ -8,12 +6,18 @@ import 'player_theme.dart';
 class QueueNowPlayingCard extends StatelessWidget {
   const QueueNowPlayingCard({
     super.key,
-    required this.item,
-    required this.playbackController,
+    this.title = 'Starboy',
+    this.artist = 'The Weeknd, Daft Punk',
+    this.imageUrl,
+    this.songId,
+    this.isPlaying = false,
   });
 
-  final MediaItem item;
-  final PlaybackController playbackController;
+  final String title;
+  final String artist;
+  final String? imageUrl;
+  final int? songId;
+  final bool isPlaying;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +37,8 @@ class QueueNowPlayingCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: PlayerArtworkImage(
-                item: item,
+                songId: songId,
+                imageUrl: imageUrl,
                 artworkWidth: 52,
                 artworkHeight: 52,
                 placeholderIconSize: 22,
@@ -46,7 +51,7 @@ class QueueNowPlayingCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.title.isNotEmpty ? item.title : 'Unknown Track',
+                  title.isNotEmpty ? title : 'Unknown Track',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -58,7 +63,7 @@ class QueueNowPlayingCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  item.artist ?? 'Unknown Artist',
+                  artist.isNotEmpty ? artist : 'Unknown Artist',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -71,13 +76,7 @@ class QueueNowPlayingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          StreamBuilder<PlaybackState>(
-            stream: playbackController.playbackState,
-            builder: (context, snapshot) {
-              final playing = snapshot.data?.playing ?? false;
-              return _NowPlayingIndicator(isPlaying: playing);
-            },
-          ),
+          _NowPlayingIndicator(isPlaying: isPlaying),
         ],
       ),
     );
@@ -129,48 +128,47 @@ class _NowPlayingIndicatorState extends State<_NowPlayingIndicator>
   }
 
   void _syncAnimations() {
-    for (final controller in _controllers) {
+    for (int i = 0; i < _barCount; i++) {
       if (widget.isPlaying) {
-        controller.repeat(reverse: true);
+        _controllers[i].repeat(reverse: true);
       } else {
-        controller.stop();
+        _controllers[i].stop();
+        _controllers[i].animateTo(0.0, duration: const Duration(milliseconds: 200));
       }
     }
   }
 
   @override
   void dispose() {
-    for (final controller in _controllers) {
-      controller.dispose();
+    for (final c in _controllers) {
+      c.dispose();
     }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 24,
-      height: 24,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: List.generate(_barCount, (i) {
-          return AnimatedBuilder(
-            animation: _controllers[i],
-            builder: (context, child) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(_barCount, (i) {
+        return Padding(
+          padding: EdgeInsets.only(right: i < _barCount - 1 ? 2.5 : 0),
+          child: AnimatedBuilder(
+            animation: _animations[i],
+            builder: (context, _) {
               return Container(
                 width: 3.5,
-                height: widget.isPlaying ? _animations[i].value : _minHeights[i],
-                margin: EdgeInsets.only(left: i > 0 ? 2 : 0),
+                height: _animations[i].value,
                 decoration: BoxDecoration(
                   color: PlayerColors.accent,
                   borderRadius: BorderRadius.circular(2),
                 ),
               );
             },
-          );
-        }),
-      ),
+          ),
+        );
+      }),
     );
   }
 }

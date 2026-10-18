@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait.dart';
@@ -18,17 +17,17 @@ import '../player_artwork.dart';
 /// - "Follow" outline button
 /// - Artist biography preview snippet with expandable "See more" behavior
 /// - Dual-mode: Binds reactively to [DataPool] when available (online),
-///   or falls back to [MediaItem] metadata (offline).
+///   or falls back to metadata (offline).
 class PlayerAboutArtistSection extends StatefulWidget {
   const PlayerAboutArtistSection({
     super.key,
-    required this.item,
+    this.artistName = 'The Weeknd',
     this.dataPool,
     this.artistUri,
     this.onFollow,
   });
 
-  final MediaItem item;
+  final String artistName;
   final DataPool? dataPool;
   final String? artistUri;
   final VoidCallback? onFollow;
@@ -44,12 +43,11 @@ class _PlayerAboutArtistSectionState extends State<PlayerAboutArtistSection> {
 
   @override
   Widget build(BuildContext context) {
-    final artistName = widget.item.artist?.isNotEmpty == true
-        ? widget.item.artist!
+    final artistName = widget.artistName.isNotEmpty
+        ? widget.artistName
         : 'Unknown Artist';
 
-    final artistUri = widget.artistUri ??
-        (widget.item.extras?['artistUri'] as String?);
+    final artistUri = widget.artistUri;
 
     // If DataPool and an artist URI exist, watch for live Kodiak traits
     if (widget.dataPool != null && artistUri != null && artistUri.isNotEmpty) {
@@ -78,7 +76,7 @@ class _PlayerAboutArtistSectionState extends State<PlayerAboutArtistSection> {
       );
     }
 
-    // Offline: render with MediaItem metadata only (no trait data available)
+    // Offline: render with fallback metadata (no trait data available)
     return _buildCard(
       artistName: artistName,
     );
@@ -121,15 +119,13 @@ class _PlayerAboutArtistSectionState extends State<PlayerAboutArtistSection> {
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: 190,
-                    errorBuilder: (context, error, stackTrace) => PlayerArtworkImage(
-                      item: widget.item,
+                    errorBuilder: (context, error, stackTrace) => const PlayerArtworkImage(
                       artworkWidth: double.infinity,
                       artworkHeight: 190,
                     ),
                   )
                 else
-                  PlayerArtworkImage(
-                    item: widget.item,
+                  const PlayerArtworkImage(
                     artworkWidth: double.infinity,
                     artworkHeight: 190,
                   ),

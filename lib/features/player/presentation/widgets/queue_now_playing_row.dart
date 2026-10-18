@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
-import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
 import 'player_artwork.dart';
 import 'player_theme.dart';
@@ -12,13 +11,19 @@ import 'player_theme.dart';
 class QueueNowPlayingRow extends StatelessWidget {
   const QueueNowPlayingRow({
     super.key,
-    required this.track,
+    this.title = 'Starboy',
+    this.artist = 'The Weeknd, Daft Punk',
+    this.imageUrl,
+    this.songId,
     this.isPlaying = true,
     this.onTap,
     this.onPlayPause,
   });
 
-  final ContextTrack track;
+  final String title;
+  final String artist;
+  final String? imageUrl;
+  final int? songId;
   final bool isPlaying;
   final VoidCallback? onTap;
   final VoidCallback? onPlayPause;
@@ -52,8 +57,7 @@ class QueueNowPlayingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mediaItem = track.toMediaItem();
-    final trackKey = ValueKey<String>(track.uri);
+    final trackKey = ValueKey<String>('$title-$artist');
 
     return RepaintBoundary(
       child: Material(
@@ -90,7 +94,8 @@ class QueueNowPlayingRow extends StatelessWidget {
                           width: 48,
                           height: 48,
                           child: PlayerArtworkImage(
-                            item: mediaItem,
+                            songId: songId,
+                            imageUrl: imageUrl,
                             artworkWidth: 48,
                             artworkHeight: 48,
                             placeholderIconSize: 20,
@@ -132,8 +137,8 @@ class QueueNowPlayingRow extends StatelessWidget {
                                       );
                                     },
                                     child: Text(
-                                      track.title.isNotEmpty
-                                          ? track.title
+                                      title.isNotEmpty
+                                          ? title
                                           : 'Unknown Track',
                                       key: trackKey,
                                       maxLines: 1,
@@ -170,8 +175,8 @@ class QueueNowPlayingRow extends StatelessWidget {
                                 );
                               },
                               child: Text(
-                                track.artist.isNotEmpty
-                                    ? track.artist
+                                artist.isNotEmpty
+                                    ? artist
                                     : 'Unknown Artist',
                                 key: trackKey,
                                 maxLines: 1,
@@ -222,30 +227,43 @@ class _EncoreCirclePlayPauseButton extends StatefulWidget {
 }
 
 class _EncoreCirclePlayPauseButtonState
-    extends State<_EncoreCirclePlayPauseButton> {
-  bool _isPressed = false;
+    extends State<_EncoreCirclePlayPauseButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _scaleController;
+  late final Animation<double> _scaleAnimation;
 
-  // Matches Spotify res/anim/encore_button_animation_interpolator.xml
-  // and @integer/encore_button_animation_time (200ms)
-  static const Cubic _encoreButtonCurve = Cubic(0.3, 0.0, 0.0, 1.0);
-  static const Duration _encoreButtonDuration = Duration(milliseconds: 200);
-  static final Tween<double> _iconScaleTween =
-      Tween<double>(begin: 0.78, end: 1.0);
+  @override
+  void initState() {
+    super.initState();
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.90).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scaleController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) {
-        setState(() => _isPressed = false);
-        widget.onTap?.call();
-      },
-      onTapCancel: () => setState(() => _isPressed = false),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _isPressed ? 0.93 : 1.0,
-        duration: _encoreButtonDuration,
-        curve: _encoreButtonCurve,
+      onTapDown: (_) => _scaleController.forward(),
+      onTapUp: (_) => _scaleController.reverse(),
+      onTapCancel: () => _scaleController.reverse(),
+      onTap: widget.onTap,
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) => Transform.scale(
+          scale: _scaleAnimation.value,
+          child: child,
+        ),
         child: Container(
           width: 34,
           height: 34,
@@ -253,28 +271,13 @@ class _EncoreCirclePlayPauseButtonState
             color: Colors.white,
             shape: BoxShape.circle,
           ),
-          child: Center(
-            child: AnimatedSwitcher(
-              duration: _encoreButtonDuration,
-              switchInCurve: _encoreButtonCurve,
-              switchOutCurve: _encoreButtonCurve,
-              transitionBuilder: (child, anim) => ScaleTransition(
-                scale: _iconScaleTween.animate(anim),
-                child: FadeTransition(opacity: anim, child: child),
-              ),
-              child: widget.isPlaying
-                  ? SpotifyIcon.pause(
-                      key: const ValueKey('pause'),
-                      color: Colors.black,
-                      size: 15,
-                    )
-                  : SpotifyIcon.play(
-                      key: const ValueKey('play'),
-                      color: Colors.black,
-                      size: 15,
-                    ),
-            ),
-          ),
+          alignment: Alignment.center,
+          child: widget.isPlaying
+              ? SpotifyIcon.pause(size: 16, color: Colors.black)
+              : Padding(
+                  padding: const EdgeInsets.only(left: 1.5),
+                  child: SpotifyIcon.play(size: 16, color: Colors.black),
+                ),
         ),
       ),
     );
@@ -291,113 +294,82 @@ class _PlayIndicator extends StatefulWidget {
 }
 
 class _PlayIndicatorState extends State<_PlayIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
+    with TickerProviderStateMixin {
+  late final List<AnimationController> _controllers;
+  late final List<Animation<double>> _animations;
+
+  static const _barCount = 3;
+  static const _durations = [480, 620, 530];
+  static const _minHeights = [3.0, 5.0, 4.0];
+  static const _maxHeights = [14.0, 18.0, 15.0];
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 850),
-    );
-    if (widget.isPlaying) {
-      _controller.repeat(reverse: true);
-    }
+    _controllers = List.generate(_barCount, (i) {
+      return AnimationController(
+        vsync: this,
+        duration: Duration(milliseconds: _durations[i]),
+      );
+    });
+    _animations = List.generate(_barCount, (i) {
+      return Tween<double>(begin: _minHeights[i], end: _maxHeights[i]).animate(
+        CurvedAnimation(parent: _controllers[i], curve: Curves.easeInOut),
+      );
+    });
+    _syncAnimations();
   }
 
   @override
-  void didUpdateWidget(covariant _PlayIndicator oldWidget) {
+  void didUpdateWidget(_PlayIndicator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isPlaying != oldWidget.isPlaying) {
+    if (oldWidget.isPlaying != widget.isPlaying) {
+      _syncAnimations();
+    }
+  }
+
+  void _syncAnimations() {
+    for (int i = 0; i < _barCount; i++) {
       if (widget.isPlaying) {
-        _controller.repeat(reverse: true);
+        _controllers[i].repeat(reverse: true);
       } else {
-        _controller.animateTo(
-          0.15,
-          duration: const Duration(milliseconds: 250),
-          curve: const Cubic(0.3, 0.0, 0.0, 1.0),
-        );
+        _controllers[i].stop();
+        _controllers[i].animateTo(0.0, duration: const Duration(milliseconds: 200));
       }
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    for (final c in _controllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Isolated in its own RepaintBoundary and driven via CustomPainter(repaint:)
-    // so 120Hz equalizer ticks cause 0 widget rebuilds and never repaint neighbors.
-    return RepaintBoundary(
-      child: SizedBox(
-        width: 13,
-        height: 13,
-        child: CustomPaint(
-          painter: _EqualizerPainter(
-            animation: _controller,
-            isPlaying: widget.isPlaying,
-            color: PlayerColors.accent,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(_barCount, (i) {
+        return Padding(
+          padding: EdgeInsets.only(right: i < _barCount - 1 ? 2.0 : 0),
+          child: AnimatedBuilder(
+            animation: _animations[i],
+            builder: (context, _) {
+              return Container(
+                width: 2.5,
+                height: _animations[i].value,
+                decoration: BoxDecoration(
+                  color: PlayerColors.accent,
+                  borderRadius: BorderRadius.circular(1.5),
+                ),
+              );
+            },
           ),
-        ),
-      ),
+        );
+      }),
     );
-  }
-}
-
-class _EqualizerPainter extends CustomPainter {
-  final Animation<double> animation;
-  final bool isPlaying;
-  final Color color;
-  final Paint _barPaint;
-
-  _EqualizerPainter({
-    required this.animation,
-    required this.isPlaying,
-    required this.color,
-  })  : _barPaint = Paint()
-          ..color = color
-          ..style = PaintingStyle.fill,
-        super(repaint: animation);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const barCount = 3;
-    final barWidth = size.width / 5.0;
-    final gap = barWidth;
-    final maxHeight = size.height;
-    final progress = animation.value;
-
-    const heightsWhenPaused = [0.65, 0.35, 0.80];
-
-    for (var i = 0; i < barCount; i++) {
-      final double factor;
-      if (!isPlaying) {
-        factor = heightsWhenPaused[i];
-      } else {
-        final phase = (progress + i * 0.37) % 1.0;
-        final wave = (phase * 2.0 - 1.0).abs();
-        factor = 0.25 + 0.75 * wave;
-      }
-      final barHeight = maxHeight * factor;
-      final x = i * (barWidth + gap);
-      final y = maxHeight - barHeight;
-
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, y, barWidth, barHeight),
-          const Radius.circular(1.0),
-        ),
-        _barPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _EqualizerPainter oldDelegate) {
-    return oldDelegate.isPlaying != isPlaying || oldDelegate.color != color;
   }
 }

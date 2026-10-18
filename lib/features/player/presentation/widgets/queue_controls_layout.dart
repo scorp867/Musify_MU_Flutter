@@ -1,8 +1,10 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 
 import 'player_theme.dart';
+
+enum QueueShuffleMode { none, all }
+enum QueueRepeatMode { none, all, one }
 
 /// 1:1 with Spotify's layout_queue_controls.xml & screenshots:
 ///
@@ -21,22 +23,19 @@ class QueueControlsLayout extends StatelessWidget {
     this.isTimerActive = false,
   });
 
-  final AudioServiceShuffleMode shuffleMode;
-  final AudioServiceRepeatMode repeatMode;
+  final QueueShuffleMode shuffleMode;
+  final QueueRepeatMode repeatMode;
   final VoidCallback onShuffleTapped;
   final VoidCallback onRepeatTapped;
   final VoidCallback onTimerTapped;
   final bool isTimerActive;
 
-  bool get _isShuffling =>
-      shuffleMode == AudioServiceShuffleMode.all ||
-      shuffleMode == AudioServiceShuffleMode.group;
+  bool get _isShuffling => shuffleMode == QueueShuffleMode.all;
 
   bool get _isRepeating =>
-      repeatMode == AudioServiceRepeatMode.all ||
-      repeatMode == AudioServiceRepeatMode.one;
+      repeatMode == QueueRepeatMode.all || repeatMode == QueueRepeatMode.one;
 
-  bool get _isRepeatingOne => repeatMode == AudioServiceRepeatMode.one;
+  bool get _isRepeatingOne => repeatMode == QueueRepeatMode.one;
 
   @override
   Widget build(BuildContext context) {
@@ -59,55 +58,68 @@ class QueueControlsLayout extends StatelessWidget {
                     PlayerColors.background.withValues(alpha: 0.85),
                     PlayerColors.background,
                   ],
-                  stops: const [0.0, 0.65, 1.0],
                 ),
               ),
             ),
           ),
 
-          // queue_controls_content_area + SessionModifierContainerView
+          // Bottom docked controls bar
           Container(
             color: PlayerColors.background,
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 4,
-              bottom: bottomSafe + 12,
-            ),
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 12 + bottomSafe),
             child: Row(
               children: [
+                // 1. Shuffle Card
                 Expanded(
-                  child: _SessionModifierButton(
+                  child: _ControlCard(
+                    icon: SpotifyIcon.shuffle(
+                      size: 20,
+                      color: _isShuffling
+                          ? PlayerColors.accent
+                          : PlayerColors.textSecondary,
+                    ),
                     label: 'Shuffle',
                     isActive: _isShuffling,
                     onTap: onShuffleTapped,
-                    iconBuilder: (color) => SpotifyIcon.shuffle(
-                      color: color,
-                      size: 22,
-                    ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
+
+                // 2. Repeat Card
                 Expanded(
-                  child: _SessionModifierButton(
-                    label: 'Repeat',
+                  child: _ControlCard(
+                    icon: _isRepeatingOne
+                        ? SpotifyIcon.repeatOnce(
+                            size: 20,
+                            color: PlayerColors.accent,
+                          )
+                        : SpotifyIcon.repeat(
+                            size: 20,
+                            color: _isRepeating
+                                ? PlayerColors.accent
+                                : PlayerColors.textSecondary,
+                          ),
+                    label: _isRepeatingOne
+                        ? 'Repeat 1'
+                        : (_isRepeating ? 'Repeat All' : 'Repeat'),
                     isActive: _isRepeating,
                     onTap: onRepeatTapped,
-                    iconBuilder: (color) => _isRepeatingOne
-                        ? SpotifyIcon.repeatOnce(color: color, size: 22)
-                        : SpotifyIcon.repeat(color: color, size: 22),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
+
+                // 3. Sleep Timer Card
                 Expanded(
-                  child: _SessionModifierButton(
+                  child: _ControlCard(
+                    icon: SpotifyIcon.timer(
+                      size: 20,
+                      color: isTimerActive
+                          ? PlayerColors.accent
+                          : PlayerColors.textSecondary,
+                    ),
                     label: 'Timer',
                     isActive: isTimerActive,
                     onTap: onTimerTapped,
-                    iconBuilder: (color) => SpotifyIcon.timer(
-                      color: color,
-                      size: 22,
-                    ),
                   ),
                 ),
               ],
@@ -119,80 +131,50 @@ class QueueControlsLayout extends StatelessWidget {
   }
 }
 
-class _SessionModifierButton extends StatefulWidget {
-  const _SessionModifierButton({
+class _ControlCard extends StatelessWidget {
+  const _ControlCard({
+    required this.icon,
     required this.label,
     required this.isActive,
     required this.onTap,
-    required this.iconBuilder,
   });
 
+  final Widget icon;
   final String label;
   final bool isActive;
   final VoidCallback onTap;
-  final Widget Function(Color color) iconBuilder;
-
-  @override
-  State<_SessionModifierButton> createState() => _SessionModifierButtonState();
-}
-
-class _SessionModifierButtonState extends State<_SessionModifierButton> {
-  bool _isPressed = false;
-
-  // Matches res/anim/encore_button_animation_interpolator.xml
-  // and @integer/encore_button_animation_time (200ms)
-  static const Cubic _encoreButtonCurve = Cubic(0.3, 0.0, 0.0, 1.0);
-  static const Duration _encoreButtonDuration = Duration(milliseconds: 200);
 
   @override
   Widget build(BuildContext context) {
-    final targetColor = widget.isActive ? PlayerColors.accent : Colors.white;
-
-    return RepaintBoundary(
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _isPressed = true),
-        onTapUp: (_) {
-          setState(() => _isPressed = false);
-          widget.onTap();
-        },
-        onTapCancel: () => setState(() => _isPressed = false),
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedScale(
-          scale: _isPressed ? 0.95 : 1.0,
-          duration: _encoreButtonDuration,
-          curve: _encoreButtonCurve,
-          child: Container(
-            height: 58,
-            decoration: const BoxDecoration(
-              color: Color(0xFF242424),
-              borderRadius: BorderRadius.all(Radius.circular(10)),
-            ),
-            child: TweenAnimationBuilder<Color?>(
-              tween: ColorTween(end: targetColor),
-              duration: const Duration(milliseconds: 240),
-              curve: _encoreButtonCurve,
-              builder: (context, animatedColor, _) {
-                final resolvedColor = animatedColor ?? targetColor;
-                return Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    widget.iconBuilder(resolvedColor),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.label,
-                      style: TextStyle(
-                        color: resolvedColor.withValues(
-                          alpha: widget.isActive ? 1.0 : 0.85,
-                        ),
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.1,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF242424),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              icon,
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isActive ? PlayerColors.accent : Colors.white70,
+                  fontSize: 11,
+                  fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                  letterSpacing: -0.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
         ),
       ),

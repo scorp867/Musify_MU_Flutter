@@ -48,7 +48,6 @@ Future<void> main() async {
           getIt()..add(const AuthSessionRestored()),
       createLocalMusicBloc: () =>
           getIt<LocalMusicBloc>()..add(const LoadLocalTracks()),
-      playbackController: getIt(),
     ),
   );
 }

@@ -43,8 +43,6 @@ dependencies:
   path: ^1.9.1
   on_audio_query: ^2.9.0
   permission_handler: ^13.0.2
-  just_audio: ^0.10.6
-  audio_service: ^0.18.19
   shared_preferences: ^2.5.5
   webview_flutter: ^4.14.1
   flutter_secure_storage: ^11.1.1

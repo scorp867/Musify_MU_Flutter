@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/core/media/media_item_mapper.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
@@ -14,18 +13,14 @@ export 'now_playing_scroll_event.dart';
 export 'now_playing_scroll_state.dart';
 
 /// BLoC coordinating the Now Playing scroll cards and color-synced lyrics pipeline.
-///
-/// Follows Spotify Android's SDUI orchestration:
-/// 1. Dispatches parallel requests to [ScrollSitaRepository] and [LyricsRepository].
-/// 2. Emits [NowPlayingScrollLoaded] with ordered descriptors and color lyrics payload.
 class NowPlayingScrollBloc
     extends Bloc<NowPlayingScrollEvent, NowPlayingScrollState> {
-  final ScrollSitaRepository _scrollSitaRepository;
-  final LyricsRepository _lyricsRepository;
+  final ScrollSitaRepository? _scrollSitaRepository;
+  final LyricsRepository? _lyricsRepository;
 
   NowPlayingScrollBloc({
-    required ScrollSitaRepository scrollSitaRepository,
-    required LyricsRepository lyricsRepository,
+    ScrollSitaRepository? scrollSitaRepository,
+    LyricsRepository? lyricsRepository,
   })  : _scrollSitaRepository = scrollSitaRepository,
         _lyricsRepository = lyricsRepository,
         super(const NowPlayingScrollInitial()) {
@@ -36,34 +31,18 @@ class NowPlayingScrollBloc
     FetchNowPlayingScroll event,
     Emitter<NowPlayingScrollState> emit,
   ) async {
-    final item = event.item;
-
-    List<ScrollCardDescriptor> previousCards = const [];
-    if (state is NowPlayingScrollLoaded) {
-      final loaded = state as NowPlayingScrollLoaded;
-      if (loaded.item.id == item.id) {
-        return;
-      }
-      previousCards = loaded.cards;
-    }
+    final trackId = event.trackId;
 
     emit(NowPlayingScrollLoading(
-      item: item,
-      currentCards: previousCards,
+      trackId: trackId,
+      currentCards: const [],
     ));
-
-    final songId = MediaItemMapper.songId(item)?.toString();
-    final trackId = (item.extras?['trackId'] as String?) ?? songId ?? item.id;
-
-    // Local songs have no Spotify track URI; skip the lyrics network call entirely.
-    final hasSpotifyUri =
-        (item.extras?['uri'] as String?)?.startsWith('spotify:track:') == true ||
-        item.id.startsWith('spotify:track:');
 
     try {
       final results = await Future.wait([
-        _scrollSitaRepository.getScrollCards(item),
-        hasSpotifyUri
+        _scrollSitaRepository?.getScrollCards(trackId) ??
+            Future.value(const <ScrollCardDescriptor>[]),
+        (trackId != null && _lyricsRepository != null)
             ? _lyricsRepository.getLyrics(trackId)
             : Future<ColorLyricsResponse?>.value(null),
       ]);
@@ -72,20 +51,15 @@ class NowPlayingScrollBloc
       final lyrics = results[1] as ColorLyricsResponse?;
 
       emit(NowPlayingScrollLoaded(
-        item: item,
+        trackId: trackId,
         cards: cards,
         lyrics: lyrics,
       ));
     } catch (e) {
-      List<ScrollCardDescriptor> fallbackCards = const [];
-      try {
-        fallbackCards = await _scrollSitaRepository.getScrollCards(item);
-      } catch (_) {}
-
       emit(NowPlayingScrollFailure(
-        item: item,
+        trackId: trackId,
         message: e.toString(),
-        fallbackCards: fallbackCards,
+        fallbackCards: const [],
       ));
     }
   }

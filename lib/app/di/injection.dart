@@ -1,8 +1,4 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:get_it/get_it.dart';
-import 'package:musify_mu/core/audio/audio_notification_handler.dart';
-import 'package:musify_mu/core/audio/audio_playback_service.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/media/extended_metadata_service.dart';
@@ -47,7 +43,6 @@ import 'package:musify_mu/features/library/data/sources/library_remote_source.da
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/library/domain/repositories/library_repository.dart';
 import 'package:musify_mu/features/library/domain/usecases/load_library.dart';
-import 'package:musify_mu/features/local_music/application/local_music_playback_synchronizer.dart';
 import 'package:musify_mu/features/local_music/data/database/app_database.dart';
 import 'package:musify_mu/features/local_music/data/datasources/device_music_data_source.dart';
 import 'package:musify_mu/features/local_music/data/datasources/local_tracks_store.dart';
@@ -63,8 +58,6 @@ import 'package:musify_mu/features/player/data/repositories/color_lyrics_reposit
 import 'package:musify_mu/features/player/data/repositories/scrollsita_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
-import 'package:musify_mu/features/player/application/queue/queue_bloc.dart';
-import 'package:musify_mu/features/player/application/queue/queue_event.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -93,25 +86,6 @@ Future<void> setupInjection() async {
   }
 
   getIt.registerLazySingleton<OnAudioQuery>(OnAudioQuery.new);
-  getIt.registerLazySingleton<AudioPlaybackService>(AudioPlaybackService.new);
-
-  final audioHandler = await AudioService.init(
-    builder: () => AudioNotificationHandler(getIt(), getIt()),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: 'um.musify.mu.musify_mu.channel.audio',
-      androidNotificationChannelName: 'Musify MU Playback',
-      androidNotificationOngoing: true,
-      androidStopForegroundOnPause: true,
-    ),
-  );
-  final handler = audioHandler;
-  getIt.registerSingleton<AudioNotificationHandler>(handler);
-  getIt.registerSingleton<PlaybackController>(handler);
-  getIt.registerLazySingleton<QueueBloc>(
-    () => QueueBloc(playbackController: getIt<PlaybackController>())
-      ..add(const QueueStarted()),
-    dispose: (bloc) => bloc.close(),
-  );
 
   getIt.registerLazySingleton<AppDatabase>(
     AppDatabase.new,
@@ -134,12 +108,9 @@ Future<void> setupInjection() async {
     ),
     dispose: (repo) => (repo as LocalMusicRepositoryImpl).dispose(),
   );
-  getIt.registerLazySingleton<LocalMusicPlaybackSynchronizer>(
-    () => LocalMusicPlaybackSynchronizer(getIt()),
-  );
 
   getIt.registerFactory<LocalMusicBloc>(
-    () => LocalMusicBloc(repository: getIt(), playbackSynchronizer: getIt()),
+    () => LocalMusicBloc(repository: getIt()),
   );
 
   // --- Spotify Auth Infrastructure ---

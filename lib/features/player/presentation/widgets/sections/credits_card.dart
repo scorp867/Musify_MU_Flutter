@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/credits_trait.dart';
@@ -17,14 +16,14 @@ import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait
 class PlayerCreditsSection extends StatefulWidget {
   const PlayerCreditsSection({
     super.key,
-    required this.item,
+    this.artistName = 'The Weeknd, Daft Punk',
     this.dataPool,
     this.trackUri,
     this.contributorUris = const [],
     this.onShowAll,
   });
 
-  final MediaItem item;
+  final String artistName;
   final DataPool? dataPool;
   final String? trackUri;
   final List<String> contributorUris;
@@ -209,9 +208,9 @@ class _PlayerCreditsSectionState extends State<PlayerCreditsSection> {
 
     if (list.isNotEmpty) return list;
 
-    // 3. Last resort: parse from MediaItem.artist
-    final rawArtists = widget.item.artist;
-    if (rawArtists != null && rawArtists.isNotEmpty) {
+    // 3. Fallback: parse from artistName
+    final rawArtists = widget.artistName;
+    if (rawArtists.isNotEmpty) {
       final names = rawArtists
           .split(RegExp(r',\s*|\s*&\s*|\s+feat\.\s+|\s+ft\.\s+'))
           .map((n) => n.trim())

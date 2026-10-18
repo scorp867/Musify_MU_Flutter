@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:equatable/equatable.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
@@ -11,35 +10,35 @@ sealed class NowPlayingScrollState extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Initial state before any media item is resolved.
+/// Initial state before any track is resolved.
 final class NowPlayingScrollInitial extends NowPlayingScrollState {
   const NowPlayingScrollInitial();
 }
 
-/// State emitted while loading cards or lyrics for a media item.
+/// State emitted while loading cards or lyrics for a track.
 final class NowPlayingScrollLoading extends NowPlayingScrollState {
-  final MediaItem item;
+  final String? trackId;
   final List<ScrollCardDescriptor> currentCards;
   final ColorLyricsResponse? currentLyrics;
 
   const NowPlayingScrollLoading({
-    required this.item,
+    this.trackId,
     this.currentCards = const [],
     this.currentLyrics,
   });
 
   @override
-  List<Object?> get props => [item.id, currentCards, currentLyrics];
+  List<Object?> get props => [trackId, currentCards, currentLyrics];
 }
 
 /// State emitted when card descriptors and lyrics have been fetched.
 final class NowPlayingScrollLoaded extends NowPlayingScrollState {
-  final MediaItem item;
+  final String? trackId;
   final List<ScrollCardDescriptor> cards;
   final ColorLyricsResponse? lyrics;
 
   const NowPlayingScrollLoaded({
-    required this.item,
+    this.trackId,
     required this.cards,
     this.lyrics,
   });
@@ -47,21 +46,21 @@ final class NowPlayingScrollLoaded extends NowPlayingScrollState {
   bool get hasLyrics => lyrics != null && lyrics!.hasLyrics();
 
   @override
-  List<Object?> get props => [item.id, cards, lyrics];
+  List<Object?> get props => [trackId, cards, lyrics];
 }
 
 /// State emitted on failure to load scroll cards or lyrics.
 final class NowPlayingScrollFailure extends NowPlayingScrollState {
-  final MediaItem item;
+  final String? trackId;
   final String message;
   final List<ScrollCardDescriptor> fallbackCards;
 
   const NowPlayingScrollFailure({
-    required this.item,
+    this.trackId,
     required this.message,
     this.fallbackCards = const [],
   });
 
   @override
-  List<Object?> get props => [item.id, message, fallbackCards];
+  List<Object?> get props => [trackId, message, fallbackCards];
 }

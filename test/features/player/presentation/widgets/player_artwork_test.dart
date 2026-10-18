@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/player/presentation/widgets/player_artwork.dart';
@@ -11,7 +10,6 @@ void main() {
       const MaterialApp(
         home: Center(
           child: PlayerArtworkImage(
-            item: MediaItem(id: 'online-track', title: 'Track'),
             artworkWidth: 40,
             artworkHeight: 40,
             placeholderIconSize: 20,

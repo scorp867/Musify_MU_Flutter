@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
@@ -8,7 +7,6 @@ import 'package:musify_mu/features/shell/presentation/main_screen.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/drawer_menu.dart';
 
 class HiddenDrawerScaffold extends StatefulWidget {
-  final PlaybackController? playbackController;
   final ModePersistence modePersistence;
   final HomeFeedBloc Function() createHomeFeedBloc;
   final BrowseBloc Function() createBrowseBloc;
@@ -16,7 +14,6 @@ class HiddenDrawerScaffold extends StatefulWidget {
 
   const HiddenDrawerScaffold({
     super.key,
-    this.playbackController,
     required this.modePersistence,
     required this.createHomeFeedBloc,
     required this.createBrowseBloc,
@@ -57,7 +54,6 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
       child: MainScreen(
         onMenuPressed: _toggleDrawer,
         isDrawerOpen: false,
-        playbackController: widget.playbackController,
         modePersistence: widget.modePersistence,
         createHomeFeedBloc: widget.createHomeFeedBloc,
         createBrowseBloc: widget.createBrowseBloc,
@@ -69,8 +65,7 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
   @override
   void didUpdateWidget(covariant HiddenDrawerScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.playbackController != oldWidget.playbackController ||
-        widget.modePersistence != oldWidget.modePersistence) {
+    if (widget.modePersistence != oldWidget.modePersistence) {
       _initMainScreen();
     }
   }

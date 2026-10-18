@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 
@@ -8,12 +7,20 @@ import 'player_theme.dart';
 class QueueTrackTile extends StatelessWidget {
   const QueueTrackTile({
     super.key,
-    required this.item,
+    required this.title,
+    required this.artist,
+    this.duration,
+    this.imageUrl,
+    this.songId,
     required this.index,
     required this.onTap,
   });
 
-  final MediaItem item;
+  final String title;
+  final String artist;
+  final Duration? duration;
+  final String? imageUrl;
+  final int? songId;
   final int index;
   final VoidCallback onTap;
 
@@ -36,7 +43,8 @@ class QueueTrackTile extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: PlayerArtworkImage(
-                      item: item,
+                      songId: songId,
+                      imageUrl: imageUrl,
                       artworkWidth: 44,
                       artworkHeight: 44,
                       placeholderIconSize: 18,
@@ -49,7 +57,7 @@ class QueueTrackTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item.title.isNotEmpty ? item.title : 'Unknown Track',
+                        title.isNotEmpty ? title : 'Unknown Track',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -61,7 +69,7 @@ class QueueTrackTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        item.artist ?? 'Unknown Artist',
+                        artist.isNotEmpty ? artist : 'Unknown Artist',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -73,10 +81,10 @@ class QueueTrackTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (item.duration != null) ...[
+                if (duration != null) ...[
                   const SizedBox(width: 6),
                   Text(
-                    DurationFormatter.duration(item.duration!),
+                    DurationFormatter.duration(duration!),
                     style: const TextStyle(
                       color: PlayerColors.muted,
                       fontSize: 12,

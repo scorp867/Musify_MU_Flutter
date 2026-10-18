@@ -1,15 +1,16 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
 class PlayerMetadata extends StatelessWidget {
   const PlayerMetadata({
     super.key,
-    required this.item,
+    this.title = 'Starboy',
+    this.artist = 'The Weeknd, Daft Punk',
     required this.isFavorite,
     required this.onFavoriteChanged,
   });
 
-  final MediaItem item;
+  final String title;
+  final String artist;
   final bool isFavorite;
   final VoidCallback onFavoriteChanged;
 
@@ -24,7 +25,7 @@ class PlayerMetadata extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                item.title.isEmpty ? 'Unknown Track' : item.title,
+                title.isEmpty ? 'Unknown Track' : title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -37,9 +38,7 @@ class PlayerMetadata extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                item.artist?.isNotEmpty == true
-                    ? item.artist!
-                    : 'Unknown Artist',
+                artist.isNotEmpty ? artist : 'Unknown Artist',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(

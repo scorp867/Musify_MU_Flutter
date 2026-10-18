@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
@@ -15,9 +14,6 @@ import 'package:musify_mu/features/player/presentation/widgets/sections/merch_ca
 
 /// Debug screen for testing the NowPlaying scroll cards + lyrics pipeline
 /// without requiring actual audio playback.
-///
-/// Feeds a hardcoded Spotify MediaItem into the BLoC and renders
-/// the resulting scroll cards and lyrics exactly as the real player would.
 class DebugNowPlayingScreen extends StatefulWidget {
   const DebugNowPlayingScreen({super.key});
 
@@ -30,25 +26,8 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
   ScrollCardRegistry? _registry;
   DataPool? _pool;
 
-  // Test track: spotify:track:3ySVdXje5nm31d7vL3jNV3
-  static final _testItem = MediaItem(
-    id: 'spotify:track:3ySVdXje5nm31d7vL3jNV3',
-    title: 'Saiyaara',
-    artist: 'Sohail Sen, Mohit Chauhan, Tarannum Malik Jain',
-    album: 'Ek Tha Tiger',
-    artUri: Uri.parse(
-      'https://i.scdn.co/image/ab67616d0000b273e8b066f70c206551210d902b',
-    ),
-    extras: const {
-      'uri': 'spotify:track:3ySVdXje5nm31d7vL3jNV3',
-      'trackId': '3ySVdXje5nm31d7vL3jNV3',
-      'artistUri': 'spotify:artist:1bTROl5p3rGTpvKeWnGgrw',
-      'monthlyListeners': 11400000,
-      'isVerified': true,
-      'artistBio':
-          'Sohail Sen is a film composer and independent artist creating music across major Hindi films including What’s Your Raashee?, Mere Brother Ki Dulhan, Ek Tha Tiger, and Gunday.',
-    },
-  );
+  static const String _trackId = '3ySVdXje5nm31d7vL3jNV3';
+  static const String _artist = 'Sohail Sen, Mohit Chauhan, Tarannum Malik Jain';
 
   @override
   void initState() {
@@ -69,27 +48,28 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
   }
 
   void _initRegistry() {
-    _registry = ScrollCardRegistry(dataPool: _pool)
+    final pool = _pool;
+    _registry = ScrollCardRegistry(dataPool: pool)
       ..register<CreatorBioCardDescriptor>((context, desc) {
         return PlayerAboutArtistSection(
-          item: _testItem,
-          dataPool: _pool,
+          artistName: _artist,
+          dataPool: pool,
           artistUri: desc.creatorUri,
         );
       })
       ..register<CreditsCardDescriptor>((context, desc) {
         return PlayerCreditsSection(
-          item: _testItem,
-          dataPool: _pool,
+          artistName: _artist,
+          dataPool: pool,
           trackUri: desc.entityUri,
           contributorUris: desc.contributorUris,
         );
       })
       ..register<LiveEventsCardDescriptor>((context, desc) {
         return PlayerEventsSection(
-          artistName: _testItem.artist ?? 'Artist',
+          artistName: _artist,
           artistUri: desc.artistUri,
-          dataPool: _pool,
+          dataPool: pool,
           onShowAll: () {},
         );
       })
@@ -102,7 +82,7 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
   }
 
   void _fetchData() {
-    _bloc.add(FetchNowPlayingScroll(_testItem));
+    _bloc.add(const FetchNowPlayingScroll(_trackId));
   }
 
   @override
@@ -288,7 +268,7 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
         backgroundColor: bg,
         colorLyrics: colorLyrics,
         dataPool: _pool,
-        trackUri: state.item.id,
+        trackUri: state.trackId ?? '',
       ),
     );
   }

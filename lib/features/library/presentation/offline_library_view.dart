@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
-import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
+import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 /// Offline library view -- shows local music files in a library layout.
@@ -15,13 +14,11 @@ import 'package:on_audio_query/on_audio_query.dart';
 class OfflineLibraryView extends StatefulWidget {
   final VoidCallback? onMenuPressed;
   final VoidCallback? onToggleMode;
-  final PlaybackController? playbackController;
 
   const OfflineLibraryView({
     super.key,
     this.onMenuPressed,
     this.onToggleMode,
-    this.playbackController,
   });
 
   @override
@@ -183,13 +180,18 @@ class _OfflineLibraryViewState extends State<OfflineLibraryView> {
   }
 
   void _playTrack(List<DomainTrack> tracks, int index) {
-    final playback = widget.playbackController;
-    if (playback == null) return;
-    LocalContextResolver.playDomainTracks(
-      playback: playback,
-      tracks: tracks,
-      initialTrackIndex: index,
-    );
+    if (index >= 0 && index < tracks.length) {
+      final track = tracks[index];
+      PlayerScreen.show(
+        context,
+        title: track.title,
+        artist: track.artist.isNotEmpty ? track.artist : 'Local Artist',
+        album: track.album ?? 'Local Music',
+        songId: track.songId ?? int.tryParse(track.id),
+      );
+    } else {
+      PlayerScreen.show(context);
+    }
   }
 }
 

@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 
@@ -61,9 +60,18 @@ class PlayerOptionsSheet extends StatelessWidget {
 }
 
 class PlayerTrackDetailsSheet extends StatelessWidget {
-  const PlayerTrackDetailsSheet({super.key, required this.item});
+  const PlayerTrackDetailsSheet({
+    super.key,
+    this.title = 'Starboy',
+    this.artist = 'The Weeknd, Daft Punk',
+    this.album = 'Starboy',
+    this.duration = const Duration(minutes: 3, seconds: 50),
+  });
 
-  final MediaItem item;
+  final String title;
+  final String artist;
+  final String album;
+  final Duration? duration;
 
   @override
   Widget build(BuildContext context) {
@@ -75,19 +83,19 @@ class PlayerTrackDetailsSheet extends StatelessWidget {
           children: [
             const PlayerSheetHeader(title: 'Track details'),
             const SizedBox(height: 18),
-            PlayerSheetDetailRow(label: 'Title', value: item.title),
+            PlayerSheetDetailRow(label: 'Title', value: title),
             PlayerSheetDetailRow(
               label: 'Artist',
-              value: item.artist ?? 'Unknown Artist',
+              value: artist.isNotEmpty ? artist : 'Unknown Artist',
             ),
             PlayerSheetDetailRow(
               label: 'Album',
-              value: item.album ?? 'Unknown Album',
+              value: album.isNotEmpty ? album : 'Unknown Album',
             ),
-            if (item.duration != null)
+            if (duration != null)
               PlayerSheetDetailRow(
                 label: 'Duration',
-                value: DurationFormatter.duration(item.duration!),
+                value: DurationFormatter.duration(duration!),
               ),
           ],
         ),

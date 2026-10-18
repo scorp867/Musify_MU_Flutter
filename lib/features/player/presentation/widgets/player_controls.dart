@@ -1,177 +1,131 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 
 import 'player_theme.dart';
+import 'queue_controls_layout.dart';
 
-class PlayerSeekBar extends StatefulWidget {
+class PlayerSeekBar extends StatelessWidget {
   const PlayerSeekBar({
     super.key,
-    required this.item,
-    required this.playbackController,
-    required this.dragPosition,
+    this.duration = const Duration(minutes: 3, seconds: 50),
+    this.position = Duration.zero,
+    this.bufferedPosition = Duration.zero,
+    this.dragPosition,
     required this.onDragPositionChanged,
+    this.onSeek,
   });
 
-  final MediaItem item;
-  final PlaybackController playbackController;
+  final Duration duration;
+  final Duration position;
+  final Duration bufferedPosition;
   final Duration? dragPosition;
   final ValueChanged<Duration?> onDragPositionChanged;
-
-  @override
-  State<PlayerSeekBar> createState() => _PlayerSeekBarState();
-}
-
-class _PlayerSeekBarState extends State<PlayerSeekBar> {
-  Duration _lastPosition = Duration.zero;
-  Duration _lastBuffered = Duration.zero;
-  String? _lastTrackId;
+  final ValueChanged<Duration>? onSeek;
 
   @override
   Widget build(BuildContext context) {
-    if (_lastTrackId != widget.item.id) {
-      _lastTrackId = widget.item.id;
-      _lastPosition = Duration.zero;
-      _lastBuffered = Duration.zero;
-    }
+    final currentPos = dragPosition ?? position;
+    final currentPosMs = currentPos.inMilliseconds.toDouble();
+    final durationMs = duration.inMilliseconds.toDouble();
+    final bufferedMs = bufferedPosition.inMilliseconds.toDouble();
 
-    return StreamBuilder<Duration>(
-      stream: AudioService.position,
-      builder: (context, positionSnapshot) {
-        if (positionSnapshot.hasData && positionSnapshot.data! > Duration.zero) {
-          _lastPosition = positionSnapshot.data!;
-        }
+    final maxVal = durationMs > 0 ? durationMs : 1.0;
+    final sliderVal = currentPosMs.clamp(0.0, maxVal);
 
-        return StreamBuilder<PlaybackState>(
-          stream: widget.playbackController.playbackState,
-          builder: (context, stateSnapshot) {
-            final state = stateSnapshot.data;
-            if (state != null) {
-              if (state.bufferedPosition > Duration.zero) {
-                _lastBuffered = state.bufferedPosition;
-              }
-              if (!positionSnapshot.hasData && state.position > Duration.zero) {
-                _lastPosition = state.position;
-              }
-            }
-
-            final duration = widget.item.duration ?? Duration.zero;
-            final currentPosition = widget.dragPosition ?? _lastPosition;
-
-            final hasDuration = duration.inMilliseconds > 0;
-            final maxValue = hasDuration
-                ? duration.inMilliseconds.toDouble()
-                : 1.0;
-            final sliderValue = currentPosition.inMilliseconds
-                .toDouble()
-                .clamp(0.0, maxValue)
-                .toDouble();
-            final bufferedValue = _lastBuffered
-                .inMilliseconds
-                .toDouble()
-                .clamp(0.0, maxValue)
-                .toDouble();
-
-            return Column(
-              children: [
-                SliderTheme(
-                  data: SliderThemeData(
-                    trackHeight: 4,
-                    activeTrackColor: Colors.white,
-                    inactiveTrackColor: Colors.white.withValues(alpha: 0.18),
-                    secondaryActiveTrackColor: Colors.white.withValues(
-                      alpha: 0.35,
-                    ),
-                    thumbColor: Colors.white,
-                    overlayColor: PlayerColors.accent.withValues(alpha: 0.16),
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 5,
-                    ),
-                    overlayShape: const RoundSliderOverlayShape(
-                      overlayRadius: 14,
-                    ),
-                    trackShape: const RoundedRectSliderTrackShape(),
-                  ),
-                  child: Slider(
-                    value: sliderValue,
-                    max: maxValue,
-                    secondaryTrackValue: hasDuration ? bufferedValue : null,
-                    onChanged: hasDuration
-                        ? (value) {
-                            widget.onDragPositionChanged(
-                              Duration(milliseconds: value.round()),
-                            );
-                          }
-                        : null,
-                    onChangeEnd: hasDuration
-                        ? (value) {
-                            final target = Duration(
-                              milliseconds: value.round(),
-                            );
-                            widget.playbackController.seek(target);
-                            widget.onDragPositionChanged(null);
-                          }
-                        : null,
-                  ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 3.5,
+            thumbShape: const RoundSliderThumbShape(
+              enabledThumbRadius: 5.5,
+              elevation: 2,
+            ),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            activeTrackColor: Colors.white,
+            inactiveTrackColor: Colors.white.withValues(alpha: 0.20),
+            secondaryActiveTrackColor: Colors.white.withValues(alpha: 0.35),
+            thumbColor: Colors.white,
+            overlayColor: Colors.white.withValues(alpha: 0.12),
+          ),
+          child: Slider(
+            value: sliderVal,
+            min: 0.0,
+            max: maxVal,
+            secondaryTrackValue: bufferedMs > 0 ? bufferedMs.clamp(0.0, maxVal) : null,
+            onChanged: (val) {
+              onDragPositionChanged(Duration(milliseconds: val.round()));
+            },
+            onChangeEnd: (val) {
+              final target = Duration(milliseconds: val.round());
+              onDragPositionChanged(null);
+              onSeek?.call(target);
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                DurationFormatter.duration(currentPos),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.70),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.2,
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(_formatDuration(currentPosition), style: _timeStyle),
-                      Text(_formatDuration(duration), style: _timeStyle),
-                    ],
-                  ),
+              ),
+              Text(
+                DurationFormatter.duration(duration),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.70),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: -0.2,
                 ),
-              ],
-            );
-          },
-        );
-      },
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
-
-  static String _formatDuration(Duration duration) {
-    return DurationFormatter.duration(duration);
-  }
-
-  static const _timeStyle = TextStyle(
-    color: Color(0xFFB3B3B3),
-    fontSize: 11.5,
-    fontWeight: FontWeight.w400,
-  );
 }
 
 class PlayerPlaybackControls extends StatelessWidget {
   const PlayerPlaybackControls({
     super.key,
-    required this.item,
-    required this.playbackController,
-    this.shuffleMode = AudioServiceShuffleMode.none,
-    this.repeatMode = AudioServiceRepeatMode.none,
+    this.isPlaying = false,
+    this.isBuffering = false,
+    this.shuffleMode = QueueShuffleMode.none,
+    this.repeatMode = QueueRepeatMode.none,
+    this.onPlayPause,
+    this.onNext,
+    this.onPrevious,
     this.onShuffle,
     this.onRepeat,
   });
 
-  final MediaItem item;
-  final PlaybackController playbackController;
-  final AudioServiceShuffleMode shuffleMode;
-  final AudioServiceRepeatMode repeatMode;
+  final bool isPlaying;
+  final bool isBuffering;
+  final QueueShuffleMode shuffleMode;
+  final QueueRepeatMode repeatMode;
+  final VoidCallback? onPlayPause;
+  final VoidCallback? onNext;
+  final VoidCallback? onPrevious;
   final VoidCallback? onShuffle;
   final VoidCallback? onRepeat;
 
-  bool get _isShuffling =>
-      shuffleMode == AudioServiceShuffleMode.all ||
-      shuffleMode == AudioServiceShuffleMode.group;
+  bool get _isShuffling => shuffleMode == QueueShuffleMode.all;
 
   bool get _isRepeating =>
-      repeatMode == AudioServiceRepeatMode.all ||
-      repeatMode == AudioServiceRepeatMode.one;
+      repeatMode == QueueRepeatMode.all || repeatMode == QueueRepeatMode.one;
 
-  bool get _isRepeatingOne => repeatMode == AudioServiceRepeatMode.one;
+  bool get _isRepeatingOne => repeatMode == QueueRepeatMode.one;
 
   @override
   Widget build(BuildContext context) {
@@ -187,14 +141,18 @@ class PlayerPlaybackControls extends StatelessWidget {
         _TransportButton(
           icon: Icons.skip_previous_rounded,
           tooltip: 'Previous track',
-          onPressed: playbackController.skipToPrevious,
+          onPressed: onPrevious,
           size: 38,
         ),
-        _PlayPauseButton(playbackController: playbackController),
+        _PlayPauseButton(
+          isPlaying: isPlaying,
+          isBuffering: isBuffering,
+          onPressed: onPlayPause,
+        ),
         _TransportButton(
           icon: Icons.skip_next_rounded,
           tooltip: 'Next track',
-          onPressed: playbackController.skipToNext,
+          onPressed: onNext,
           size: 38,
         ),
         _SpotifyTransportButton(
@@ -215,58 +173,49 @@ class PlayerPlaybackControls extends StatelessWidget {
 }
 
 class _PlayPauseButton extends StatelessWidget {
-  const _PlayPauseButton({required this.playbackController});
+  const _PlayPauseButton({
+    required this.isPlaying,
+    required this.isBuffering,
+    this.onPressed,
+  });
 
-  final PlaybackController playbackController;
+  final bool isPlaying;
+  final bool isBuffering;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<PlaybackState>(
-      stream: playbackController.playbackState,
-      builder: (context, snapshot) {
-        final state = snapshot.data;
-        final playing = state?.playing ?? false;
-        final isBuffering =
-            state?.processingState == AudioProcessingState.loading ||
-            state?.processingState == AudioProcessingState.buffering;
-
-        return Material(
-          color: Colors.white,
-          shape: const CircleBorder(),
-          elevation: 4,
-          shadowColor: Colors.black54,
-          child: InkWell(
-            onTap: isBuffering
-                ? null
-                : playing
-                ? playbackController.pause
-                : playbackController.play,
-            customBorder: const CircleBorder(),
-            child: SizedBox(
-              width: 64,
-              height: 64,
-              child: Center(
-                child: isBuffering
-                    ? const SizedBox(
-                        width: 26,
-                        height: 26,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.8,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.black87,
-                          ),
-                        ),
-                      )
-                    : Icon(
-                        playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                        color: Colors.black,
-                        size: 38,
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 4,
+      shadowColor: Colors.black54,
+      child: InkWell(
+        onTap: isBuffering ? null : onPressed,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 64,
+          height: 64,
+          child: Center(
+            child: isBuffering
+                ? const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.8,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Colors.black87,
                       ),
-              ),
-            ),
+                    ),
+                  )
+                : Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.black,
+                    size: 38,
+                  ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

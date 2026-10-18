@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/home/presentation/online_home_screen.dart';
@@ -15,7 +14,6 @@ class HomeTab extends StatelessWidget {
   final VoidCallback onToggleMode;
   final GlobalKey iconKey;
   final bool iconVisible;
-  final PlaybackController? playbackController;
   final HomeFeedBloc Function() createHomeFeedBloc;
 
   const HomeTab({
@@ -27,7 +25,6 @@ class HomeTab extends StatelessWidget {
     required this.iconKey,
     required this.createHomeFeedBloc,
     this.iconVisible = true,
-    this.playbackController,
   });
 
   @override
@@ -69,10 +66,8 @@ class HomeTab extends StatelessWidget {
             return Column(
               children: [
                 titleRow,
-                Expanded(
-                  child: LocalMusicScreen(
-                    playbackController: playbackController,
-                  ),
+                const Expanded(
+                  child: LocalMusicScreen(),
                 ),
               ],
             );

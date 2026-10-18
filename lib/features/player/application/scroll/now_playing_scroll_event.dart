@@ -1,4 +1,3 @@
-import 'package:audio_service/audio_service.dart';
 import 'package:equatable/equatable.dart';
 
 /// Events for [NowPlayingScrollBloc].
@@ -9,12 +8,12 @@ sealed class NowPlayingScrollEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Triggered when the active now playing media item changes.
+/// Triggered when the active now playing track changes.
 final class FetchNowPlayingScroll extends NowPlayingScrollEvent {
-  final MediaItem item;
+  final String? trackId;
 
-  const FetchNowPlayingScroll(this.item);
+  const FetchNowPlayingScroll([this.trackId]);
 
   @override
-  List<Object?> get props => [item.id];
+  List<Object?> get props => [trackId];
 }

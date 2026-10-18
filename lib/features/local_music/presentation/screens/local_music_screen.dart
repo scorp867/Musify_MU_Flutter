@@ -1,18 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
-import 'package:musify_mu/features/local_music/domain/local_context_resolver.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
+import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 class LocalMusicScreen extends StatelessWidget {
-  final PlaybackController? playbackController;
-
-  const LocalMusicScreen({super.key, this.playbackController});
+  const LocalMusicScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -101,12 +98,12 @@ class LocalMusicScreen extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 16),
                   child: GestureDetector(
                     onTap: () {
-                      final playback = playbackController;
-                      if (playback == null) return;
-                      LocalContextResolver.playDomainTracks(
-                        playback: playback,
-                        tracks: tracks,
-                        initialTrackIndex: index,
+                      PlayerScreen.show(
+                        context,
+                        title: track.title,
+                        artist: track.artist.isNotEmpty ? track.artist : 'Local Artist',
+                        album: track.album ?? 'Local Music',
+                        songId: track.songId ?? int.tryParse(track.id),
                       );
                     },
                     behavior: HitTestBehavior.opaque,

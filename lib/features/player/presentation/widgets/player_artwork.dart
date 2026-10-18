@@ -1,29 +1,12 @@
 import 'dart:collection';
-import 'dart:typed_data';
 import 'dart:ui';
 
-import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
-import 'package:musify_mu/core/media/media_item_mapper.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 import 'player_theme.dart';
 
-/// Singleton in-memory LRU cache of canonical [ImageProvider]s for local song
-/// artwork.
-///
-/// Why this is critical for 120fps scrolling & ReorderableListView dragging:
-/// `QueryArtworkWidget` from `on_audio_query` calls `OnAudioQuery().queryArtwork()`
-/// inside `StatelessWidget.build()` and wraps the returned `Uint8List` in a new
-/// `MemoryImage` on every build. Because `Uint8List` uses identity equality,
-/// every rebuild during drag-reordering bypassed Flutter's `ImageCache`,
-/// triggered native Android JPEG re-encoding (`vendor.vivo.imageencoder.dump`),
-/// and forced Skia (`SkJpegCodec::onGetPixels`) to re-decode JPEGs on the fly.
-///
-/// By caching the canonical [ImageProvider] instance per `(songId, version, isLarge)`,
-/// Flutter's GPU `ImageCache` recognizes the provider in O(1) and renders the
-/// decoded GPU texture synchronously on frame 0 with zero MethodChannel or
-/// Skia decode overhead.
+/// Singleton in-memory LRU cache of canonical [ImageProvider]s for local song artwork.
 class _ArtworkMemoryCache {
   _ArtworkMemoryCache._();
 
@@ -42,7 +25,6 @@ class _ArtworkMemoryCache {
   static ImageProvider? getSync(_ArtworkCacheKey key) {
     final existing = _providers.remove(key);
     if (existing != null) {
-      // Refresh LRU order
       _providers[key] = existing;
     }
     return existing;
@@ -66,12 +48,12 @@ class _ArtworkMemoryCache {
 
   static Future<ImageProvider?> _fetchAndCache(_ArtworkCacheKey key) async {
     try {
-      final Uint8List? bytes = await _audioQuery.queryArtwork(
+      final bytes = await _audioQuery.queryArtwork(
         key.songId,
         ArtworkType.AUDIO,
         format: ArtworkFormat.JPEG,
         size: key.querySize,
-        quality: key.isLarge ? 90 : 70,
+        quality: 85,
       );
 
       if (bytes == null || bytes.isEmpty) {
@@ -79,12 +61,9 @@ class _ArtworkMemoryCache {
         return null;
       }
 
-      // Wrap in ResizeImage so Skia decodes thumbnails directly to target
-      // pixel dimensions (e.g. 144x144 instead of 571x571 or 1000x1000).
-      final ImageProvider provider = ResizeImage(
+      final provider = ResizeImage(
         MemoryImage(bytes),
         width: key.decodeWidthPx,
-        height: key.decodeWidthPx,
         allowUpscaling: false,
       );
 
@@ -100,47 +79,51 @@ class _ArtworkMemoryCache {
       _inFlight.remove(key);
     }
   }
+
 }
 
-@immutable
 class _ArtworkCacheKey {
+  final int songId;
+  final dynamic version;
+  final bool isLarge;
+  final int decodeWidthPx;
+  final int querySize;
+
   const _ArtworkCacheKey({
     required this.songId,
     required this.version,
     required this.isLarge,
-    required this.querySize,
     required this.decodeWidthPx,
+    required this.querySize,
   });
-
-  final int songId;
-  final Object? version;
-  final bool isLarge;
-  final int querySize;
-  final int decodeWidthPx;
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is _ArtworkCacheKey &&
-          other.songId == songId &&
-          other.version == version &&
-          other.isLarge == isLarge &&
-          other.decodeWidthPx == decodeWidthPx;
+          runtimeType == other.runtimeType &&
+          songId == other.songId &&
+          version == other.version &&
+          isLarge == other.isLarge &&
+          decodeWidthPx == other.decodeWidthPx;
 
   @override
   int get hashCode => Object.hash(songId, version, isLarge, decodeWidthPx);
 }
 
 class PlayerBackdrop extends StatelessWidget {
-  const PlayerBackdrop({super.key, required this.item});
+  const PlayerBackdrop({
+    super.key,
+    this.songId,
+    this.imageUrl,
+  });
 
-  final MediaItem item;
+  final int? songId;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
-    final songId = MediaItemMapper.songId(item);
-
-    if (songId == null) {
+    if (songId == null && (imageUrl == null || imageUrl!.isEmpty)) {
       return const SizedBox.shrink();
     }
 
@@ -152,7 +135,8 @@ class PlayerBackdrop extends StatelessWidget {
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
               child: PlayerArtworkImage(
-                item: item,
+                songId: songId,
+                imageUrl: imageUrl,
                 artworkWidth: double.infinity,
                 artworkHeight: double.infinity,
               ),
@@ -165,9 +149,14 @@ class PlayerBackdrop extends StatelessWidget {
 }
 
 class PlayerAlbumArtwork extends StatelessWidget {
-  const PlayerAlbumArtwork({super.key, required this.item});
+  const PlayerAlbumArtwork({
+    super.key,
+    this.songId,
+    this.imageUrl,
+  });
 
-  final MediaItem item;
+  final int? songId;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -191,7 +180,10 @@ class PlayerAlbumArtwork extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: PlayerArtworkImage(item: item),
+              child: PlayerArtworkImage(
+                songId: songId,
+                imageUrl: imageUrl,
+              ),
             ),
           ),
         ),
@@ -203,14 +195,16 @@ class PlayerAlbumArtwork extends StatelessWidget {
 class PlayerArtworkImage extends StatefulWidget {
   const PlayerArtworkImage({
     super.key,
-    required this.item,
+    this.songId,
+    this.imageUrl,
     this.artworkWidth,
     this.artworkHeight,
     this.placeholderIconSize,
     this.size,
   });
 
-  final MediaItem item;
+  final int? songId;
+  final String? imageUrl;
   final double? artworkWidth;
   final double? artworkHeight;
   final double? placeholderIconSize;
@@ -233,7 +227,8 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
   @override
   void didUpdateWidget(covariant PlayerArtworkImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.item.id != widget.item.id ||
+    if (oldWidget.songId != widget.songId ||
+        oldWidget.imageUrl != widget.imageUrl ||
         oldWidget.artworkWidth != widget.artworkWidth ||
         oldWidget.size != widget.size) {
       _resolveArtwork();
@@ -241,16 +236,12 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
   }
 
   void _resolveArtwork() {
-    final songId = MediaItemMapper.songId(widget.item);
+    final songId = widget.songId;
     if (songId == null) {
       _cacheKey = null;
       _imageProvider = null;
       return;
     }
-
-    final artworkVersion =
-        widget.item.extras?[MediaItemMapper.artworkVersionKey] ??
-            widget.item.extras?[MediaItemMapper.dateModifiedKey];
 
     final bool isLarge =
         widget.artworkWidth == null || widget.artworkWidth! > 100;
@@ -259,15 +250,13 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
 
     final key = _ArtworkCacheKey(
       songId: songId,
-      version: artworkVersion,
+      version: null,
       isLarge: isLarge,
       querySize: querySize,
       decodeWidthPx: decodeWidthPx,
     );
     _cacheKey = key;
 
-    // Fast synchronous path: if already cached in memory, assign immediately
-    // so build() renders on frame 0 without waiting for any Future!
     final syncHit = _ArtworkMemoryCache.getSync(key);
     if (syncHit != null) {
       _imageProvider = syncHit;
@@ -297,6 +286,18 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
     if (provider != null) {
       return Image(
         image: provider,
+        width: widget.artworkWidth ?? double.infinity,
+        height: widget.artworkHeight ?? double.infinity,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: isLarge ? FilterQuality.medium : FilterQuality.low,
+        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+      );
+    }
+
+    if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty) {
+      return Image.network(
+        widget.imageUrl!,
         width: widget.artworkWidth ?? double.infinity,
         height: widget.artworkHeight ?? double.infinity,
         fit: BoxFit.cover,

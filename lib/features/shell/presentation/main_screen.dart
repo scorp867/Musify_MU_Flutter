@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
-import 'package:musify_mu/core/audio/playback_controller.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ui/animations/mode_transition.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
@@ -24,7 +23,6 @@ import 'package:musify_mu/features/shell/presentation/widgets/network_status_bot
 class MainScreen extends StatefulWidget {
   final VoidCallback onMenuPressed;
   final bool isDrawerOpen;
-  final PlaybackController? playbackController;
   final ModePersistence modePersistence;
   final HomeFeedBloc Function() createHomeFeedBloc;
   final BrowseBloc Function() createBrowseBloc;
@@ -38,7 +36,6 @@ class MainScreen extends StatefulWidget {
     required this.createHomeFeedBloc,
     required this.createBrowseBloc,
     required this.createLibraryBloc,
-    this.playbackController,
   });
 
   @override
@@ -162,7 +159,6 @@ class _MainScreenState extends State<MainScreen> {
                       onToggleMode: _toggleMode,
                       iconKey: _iconKey,
                       iconVisible: _iconVisible,
-                      playbackController: widget.playbackController,
                       createHomeFeedBloc: widget.createHomeFeedBloc,
                     )
                   else
@@ -173,7 +169,6 @@ class _MainScreenState extends State<MainScreen> {
                       isActive: _currentIndex == 1,
                       onMenuPressed: widget.onMenuPressed,
                       onToggleMode: _toggleMode,
-                      playbackController: widget.playbackController,
                       createBrowseBloc: widget.createBrowseBloc,
                     )
                   else
@@ -184,7 +179,6 @@ class _MainScreenState extends State<MainScreen> {
                       isActive: _currentIndex == 2,
                       onMenuPressed: widget.onMenuPressed,
                       onToggleMode: _toggleMode,
-                      playbackController: widget.playbackController,
                       createLibraryBloc: widget.createLibraryBloc,
                     )
                   else
@@ -207,7 +201,6 @@ class _MainScreenState extends State<MainScreen> {
                 children: [
                   RepaintBoundary(
                     child: MiniPlayer(
-                      controller: widget.playbackController,
                       colorService: context.read<ColorExtractionService>(),
                     ),
                   ),
@@ -238,7 +231,6 @@ class _BrowseTab extends StatelessWidget {
   final bool isActive;
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
-  final PlaybackController? playbackController;
   final BrowseBloc Function() createBrowseBloc;
 
   const _BrowseTab({
@@ -247,7 +239,6 @@ class _BrowseTab extends StatelessWidget {
     required this.onMenuPressed,
     required this.onToggleMode,
     required this.createBrowseBloc,
-    this.playbackController,
   });
 
   @override
@@ -256,7 +247,6 @@ class _BrowseTab extends StatelessWidget {
       return OfflineBrowseView(
         onMenuPressed: onMenuPressed,
         onToggleMode: onToggleMode,
-        playbackController: playbackController,
       );
     }
 
@@ -329,7 +319,6 @@ class _LibraryTab extends StatelessWidget {
   final bool isActive;
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
-  final PlaybackController? playbackController;
   final LibraryBloc Function(String userId) createLibraryBloc;
 
   const _LibraryTab({
@@ -338,7 +327,6 @@ class _LibraryTab extends StatelessWidget {
     required this.onMenuPressed,
     required this.onToggleMode,
     required this.createLibraryBloc,
-    this.playbackController,
   });
 
   @override
@@ -347,7 +335,6 @@ class _LibraryTab extends StatelessWidget {
       return OfflineLibraryView(
         onMenuPressed: onMenuPressed,
         onToggleMode: onToggleMode,
-        playbackController: playbackController,
       );
     }
 

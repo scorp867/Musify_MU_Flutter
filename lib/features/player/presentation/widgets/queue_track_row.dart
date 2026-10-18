@@ -1,38 +1,20 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
-import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
 import 'player_artwork.dart';
 import 'player_theme.dart';
 
 /// 1:1 with Spotify's layout_default_track_row.xml & p/l1q0.java (ItemTouchHelper)
 /// + p/z6y0.java (DefaultItemAnimator).
-///
-/// Structure & Physics (from XML & decompiled APK):
-///   - Row height: 64dp
-///   - ArtworkView: 48x48, 4dp radius, marginStart=16dp, marginEnd=12dp
-///   - Title: BodyMedium, white
-///   - Subtitle Row:
-///       [QueuedBadgeView (13dp green queue badge, marginEnd=5dp) when track.isQueued]
-///       ArtistName (BodySmall, #B3B3B3)
-///   - DragHandle: encore_icon_sort, marginEnd=8dp
-///   - Swipe Right (Add to Queue, l1q0.java):
-///       * Clamped to 0.45 * rowWidth
-///       * #1ED760 background rect [0..dX] with addToQueue icon dynamically
-///         centered at dX/2 and clipped to [0..dX]
-///       * Armed when dX/width > 0.25
-///       * Smoothly recovers to 0.0 over 280ms (DecelerateInterpolator) and
-///         invokes onAddToQueue() upon reaching dX == 0.0
-///   - Swipe Left (Delete, l1q0.java + z6y0.java):
-///       * #E22134 background rect [width+dX..width] with delete icon
-///         dynamically centered at width + dX/2 and clipped to [width+dX..width]
-///       * Slides out (240ms Decelerate) then collapses height over 250ms
-///         (FastOutSlowInInterpolator) before invoking onRemove()
 class QueueTrackRow extends StatefulWidget {
   const QueueTrackRow({
     super.key,
-    required this.track,
+    required this.title,
+    required this.artist,
+    this.isQueued = false,
+    this.imageUrl,
+    this.songId,
     required this.index,
     required this.onTap,
     required this.onRemove,
@@ -45,7 +27,11 @@ class QueueTrackRow extends StatefulWidget {
     this.isTappedPlaying = false,
   });
 
-  final ContextTrack track;
+  final String title;
+  final String artist;
+  final bool isQueued;
+  final String? imageUrl;
+  final int? songId;
   final int index;
   final VoidCallback onTap;
   final VoidCallback onRemove;
@@ -332,17 +318,7 @@ class _QueueTrackRowState extends State<QueueTrackRow>
 
   @override
   Widget build(BuildContext context) {
-    final track = widget.track;
-    final mediaItem = track.toMediaItem();
-
     // Pre-built static row subtree wrapped in its own RepaintBoundary + ColoredBox.
-    // Why:
-    //   1) During 120Hz horizontal swipes, rowContent is NEVER rebuilt or repainted;
-    //      Transform.translate only shifts its cached GPU texture layer.
-    //   2) No AnimatedScale or AnimatedDefaultTextStyle tickers per row, and no
-    //      onHighlightChanged setState on touch-down during scrolling.
-    //   3) RawGestureDetector wraps ONLY the left content area so the right-side
-    //      ReorderableDragStartListener has zero gesture arena competition.
     final cachedRowLayer = RepaintBoundary(
       child: ColoredBox(
         color: PlayerColors.background,
@@ -390,7 +366,8 @@ class _QueueTrackRowState extends State<QueueTrackRow>
                                   width: 48,
                                   height: 48,
                                   child: PlayerArtworkImage(
-                                    item: mediaItem,
+                                    songId: widget.songId,
+                                    imageUrl: widget.imageUrl,
                                     artworkWidth: 48,
                                     artworkHeight: 48,
                                     placeholderIconSize: 20,
@@ -409,8 +386,8 @@ class _QueueTrackRowState extends State<QueueTrackRow>
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        track.title.isNotEmpty
-                                            ? track.title
+                                        widget.title.isNotEmpty
+                                            ? widget.title
                                             : 'Unknown Track',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -426,7 +403,7 @@ class _QueueTrackRowState extends State<QueueTrackRow>
                                       const SizedBox(height: 2),
                                       Row(
                                         children: [
-                                          if (track.isQueued)
+                                          if (widget.isQueued)
                                             Padding(
                                               padding: const EdgeInsets.only(
                                                 right: 5,
@@ -438,8 +415,8 @@ class _QueueTrackRowState extends State<QueueTrackRow>
                                             ),
                                           Expanded(
                                             child: Text(
-                                              track.artist.isNotEmpty
-                                                  ? track.artist
+                                              widget.artist.isNotEmpty
+                                                  ? widget.artist
                                                   : 'Unknown Artist',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
