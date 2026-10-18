@@ -16,6 +16,8 @@ import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/presentation/library_view.dart';
 import 'package:musify_mu/features/library/presentation/offline_library_view.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/data/queue/context_track_extensions.dart';
 import 'package:musify_mu/features/player/presentation/widgets/mini_player.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/bottom_navigation.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/network_status_bottom_bar.dart';
@@ -200,8 +202,24 @@ class _MainScreenState extends State<MainScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   RepaintBoundary(
-                    child: MiniPlayer(
-                      colorService: context.read<ColorExtractionService>(),
+                    child: BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
+                      builder: (context, queueState) {
+                        final track = queueState.nowPlaying;
+                        final bloc = context.read<PlayerQueueBloc>();
+                        return MiniPlayer(
+                          title: (track?.title.isNotEmpty == true)
+                              ? track!.title
+                              : 'Starboy',
+                          artist: (track?.artist.isNotEmpty == true)
+                              ? track!.artist
+                              : 'The Weeknd, Daft Punk',
+                          imageUrl: track?.imageUrl,
+                          isPlaying: queueState.isPlaying,
+                          queueBloc: bloc,
+                          currentTrack: track,
+                          colorService: context.read<ColorExtractionService>(),
+                        );
+                      },
                     ),
                   ),
                   RepaintBoundary(

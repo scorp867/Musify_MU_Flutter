@@ -12,6 +12,7 @@ import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
 
 class MusifyApp extends StatelessWidget {
@@ -62,6 +63,9 @@ class MusifyApp extends StatelessWidget {
             ),
           BlocProvider<NetworkStatusBloc>.value(
             value: getIt<NetworkStatusBloc>(),
+          ),
+          BlocProvider<PlayerQueueBloc>.value(
+            value: getIt<PlayerQueueBloc>(),
           ),
         ],
         child: app,

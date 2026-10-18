@@ -1,6 +1,7 @@
 import 'dart:developer' as dev;
 import 'package:flutter/services.dart';
 import 'package:on_audio_query/on_audio_query.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 abstract interface class DeviceMusicDataSource {
   Future<bool> hasPermission();
@@ -20,14 +21,24 @@ class OnAudioQueryDeviceMusicDataSource implements DeviceMusicDataSource {
   OnAudioQueryDeviceMusicDataSource(this._audioQuery);
 
   @override
-  Future<bool> hasPermission() => _audioQuery.permissionsStatus();
+  Future<bool> hasPermission() async {
+    final audio = await Permission.audio.status;
+    if (audio.isGranted || audio.isLimited) return true;
+    final storage = await Permission.storage.status;
+    return storage.isGranted || storage.isLimited;
+  }
 
   @override
   Future<bool> requestPermission() async {
     try {
-      return await _audioQuery.permissionsRequest();
+      if (await hasPermission()) return true;
+
+      final audioStatus = await Permission.audio.request();
+      if (audioStatus.isGranted || audioStatus.isLimited) return true;
+
+      final storageStatus = await Permission.storage.request();
+      return storageStatus.isGranted || storageStatus.isLimited;
     } catch (e) {
-      // on_audio_query PluginProvider may not be initialized yet.
       dev.log('Permission request failed: $e');
       return false;
     }

@@ -1,6 +1,5 @@
 package um.musify.mu.musify_mu
 
-import android.content.Context
 import android.database.ContentObserver
 import android.net.Uri
 import android.os.Handler
@@ -11,7 +10,6 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
-import com.ryanheise.audioservice.AudioServicePlugin
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "musify_mu/mediastore_observer"
@@ -27,10 +25,6 @@ class MainActivity : FlutterActivity() {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
         }
-    }
-
-    override fun provideFlutterEngine(context: Context): FlutterEngine? {
-        return AudioServicePlugin.getFlutterEngine(context)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

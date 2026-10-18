@@ -58,6 +58,13 @@ import 'package:musify_mu/features/player/data/repositories/color_lyrics_reposit
 import 'package:musify_mu/features/player/data/repositories/scrollsita_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
+import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_options_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_queue_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -335,5 +342,39 @@ Future<void> setupInjection() async {
       scrollSitaRepository: getIt<ScrollSitaRepository>(),
       lyricsRepository: getIt<LyricsRepository>(),
     ),
+  );
+
+  // --- Spotify Esperanto Transport & ContextPlayer Clients ---
+  getIt.registerLazySingleton<EsperantoTransport>(
+    () => InMemoryEsperantoTransport(),
+    dispose: (t) {
+      if (t is InMemoryEsperantoTransport) t.dispose();
+    },
+  );
+  getIt.registerLazySingleton<ContextPlayerQueueClient>(
+    () => ContextPlayerQueueClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<ContextPlayerControlClient>(
+    () => ContextPlayerControlClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<ContextPlayerOptionsClient>(
+    () => ContextPlayerOptionsClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<ContextPlayerStateClient>(
+    () => ContextPlayerStateClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<ContextPlayerPlayClient>(
+    () => ContextPlayerPlayClient(getIt<EsperantoTransport>()),
+  );
+
+  // --- Spotify Playback & Queue BLoC ---
+  getIt.registerLazySingleton<PlayerQueueBloc>(
+    () => PlayerQueueBloc(
+      queueClient: getIt<ContextPlayerQueueClient>(),
+      controlClient: getIt<ContextPlayerControlClient>(),
+      optionsClient: getIt<ContextPlayerOptionsClient>(),
+      stateClient: getIt<ContextPlayerStateClient>(),
+    ),
+    dispose: (bloc) => bloc.close(),
   );
 }

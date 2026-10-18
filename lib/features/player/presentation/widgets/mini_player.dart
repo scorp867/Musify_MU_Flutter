@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
+import '../../application/queue/player_queue_bloc.dart';
+import '../../domain/models/context_track.dart';
 import 'player_artwork.dart';
 
 /// A sleek Spotify-authentic miniplayer featuring dynamic artwork palette extraction,
@@ -17,6 +19,8 @@ class MiniPlayer extends StatefulWidget {
   final VoidCallback? onPrevious;
   final VoidCallback? onTap;
   final ColorExtractionService? colorService;
+  final PlayerQueueBloc? queueBloc;
+  final ContextTrack? currentTrack;
 
   const MiniPlayer({
     super.key,
@@ -31,6 +35,8 @@ class MiniPlayer extends StatefulWidget {
     this.onPrevious,
     this.onTap,
     this.colorService,
+    this.queueBloc,
+    this.currentTrack,
   });
 
   @override
@@ -66,15 +72,31 @@ class _MiniPlayerState extends State<MiniPlayer> {
           if (widget.onTap != null) {
             widget.onTap!();
           } else {
-            PlayerScreen.show(context);
+            PlayerScreen.show(
+              context,
+              queueBloc: widget.queueBloc,
+              currentTrack: widget.currentTrack,
+              title: widget.title,
+              artist: widget.artist,
+              imageUrl: widget.imageUrl,
+              songId: widget.songId,
+            );
           }
         },
         onHorizontalDragEnd: (details) {
           final velocity = details.primaryVelocity ?? 0;
           if (velocity < -250) {
-            widget.onNext?.call();
+            if (widget.onNext != null) {
+              widget.onNext!();
+            } else {
+              widget.queueBloc?.add(const SkipToNextTrack());
+            }
           } else if (velocity > 250) {
-            widget.onPrevious?.call();
+            if (widget.onPrevious != null) {
+              widget.onPrevious!();
+            } else {
+              widget.queueBloc?.add(const SkipToPrevTrack());
+            }
           }
         },
         child: AnimatedContainer(
@@ -178,7 +200,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
                         setState(() {
                           _isPlaying = !_isPlaying;
                         });
-                        widget.onPlayPause?.call();
+                        if (widget.onPlayPause != null) {
+                          widget.onPlayPause!();
+                        } else if (widget.queueBloc != null) {
+                          widget.queueBloc!.add(const TogglePlayPause());
+                        }
                       },
                     ),
                   ],
