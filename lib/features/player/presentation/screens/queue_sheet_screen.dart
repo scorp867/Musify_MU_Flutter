@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../data/esperanto/context_player_options_client.dart';
+import '../../data/mock/mock_queue_seeder.dart';
 import '../../data/queue/context_track_extensions.dart';
 import '../../domain/models/context_track.dart';
 import '../widgets/peek_scroll_view.dart';
@@ -25,6 +27,8 @@ class MockQueueTrack {
   final bool isQueued;
   final String? imageUrl;
   final int? songId;
+  final String? uri;
+  final ContextTrack? contextTrack;
 
   const MockQueueTrack({
     required this.id,
@@ -35,6 +39,8 @@ class MockQueueTrack {
     this.isQueued = false,
     this.imageUrl,
     this.songId,
+    this.uri,
+    this.contextTrack,
   });
 
   MockQueueTrack copyWith({
@@ -46,16 +52,30 @@ class MockQueueTrack {
     bool? isQueued,
     String? imageUrl,
     int? songId,
+    String? uri,
+    ContextTrack? contextTrack,
   }) {
+    final nextId = id ?? this.id;
+    final nextIsQueued = isQueued ?? this.isQueued;
+    final nextCt = contextTrack ??
+        this.contextTrack?.toBuilder()
+            .uid(nextId)
+            .metadata({
+              ...this.contextTrack!.metadata,
+              ContextTrackMetadata.keyIsQueued: nextIsQueued.toString(),
+            }).build();
+
     return MockQueueTrack(
-      id: id ?? this.id,
+      id: nextId,
       title: title ?? this.title,
       artist: artist ?? this.artist,
       album: album ?? this.album,
       duration: duration ?? this.duration,
-      isQueued: isQueued ?? this.isQueued,
+      isQueued: nextIsQueued,
       imageUrl: imageUrl ?? this.imageUrl,
       songId: songId ?? this.songId,
+      uri: uri ?? this.uri,
+      contextTrack: nextCt,
     );
   }
 }
@@ -63,13 +83,20 @@ class MockQueueTrack {
 /// Bidirectional conversion extensions between MockQueueTrack and ContextTrack
 extension MockQueueTrackToContextTrack on MockQueueTrack {
   ContextTrack toContextTrack() {
-    return ContextTrack.builder('spotify:track:$id')
+    if (contextTrack != null) {
+      return contextTrack!;
+    }
+    final effectiveUri = (uri != null && uri!.isNotEmpty)
+        ? uri!
+        : (id.startsWith('spotify:') ? id : 'spotify:track:$id');
+    return ContextTrack.builder(effectiveUri)
         .uid(id)
         .metadata({
           ContextTrackMetadata.keyTitle: title,
           ContextTrackMetadata.keyArtistName: artist,
           ContextTrackMetadata.keyAlbumTitle: album,
           ContextTrackMetadata.keyImageLargeUrl: ?imageUrl,
+          ContextTrackMetadata.keyImageUrl: ?imageUrl,
           ContextTrackMetadata.keyIsQueued: isQueued.toString(),
           ContextTrackMetadata.keyDuration: duration.inMilliseconds.toString(),
         })
@@ -81,12 +108,14 @@ extension ContextTrackToMockQueueTrack on ContextTrack {
   MockQueueTrack toMockQueueTrack() {
     return MockQueueTrack(
       id: uid.isNotEmpty ? uid : uri,
+      uri: uri,
       title: title.isNotEmpty ? title : 'Untitled',
       artist: artist.isNotEmpty ? artist : 'Unknown Artist',
       album: album.isNotEmpty ? album : '',
       duration: duration,
       isQueued: isQueued,
       imageUrl: imageUrl,
+      contextTrack: this,
     );
   }
 }
@@ -202,6 +231,7 @@ class QueueSheetScreen extends StatelessWidget {
     this.onAddToQueue,
   });
 
+  static bool _isOpen = false;
   static final ValueNotifier<bool> isOpenNotifier = ValueNotifier<bool>(false);
 
   static void show(
@@ -225,7 +255,12 @@ class QueueSheetScreen extends StatelessWidget {
     void Function(MockQueueTrack track)? onTrackRemoved,
     void Function(MockQueueTrack track)? onAddToQueue,
   }) {
+    if (_isOpen) return;
+    _isOpen = true;
     isOpenNotifier.value = true;
+
+    final effectiveBloc = bloc ??
+        (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
     Navigator.of(context, rootNavigator: true)
         .push(
           PageRouteBuilder<void>(
@@ -236,7 +271,7 @@ class QueueSheetScreen extends StatelessWidget {
             reverseTransitionDuration: const Duration(milliseconds: 380),
             pageBuilder: (modalContext, _, _) {
               return QueueSheetScreen(
-                bloc: bloc,
+                bloc: effectiveBloc,
                 nowPlayingContextTrack: nowPlayingContextTrack,
                 contextTracks: contextTracks,
                 nowPlaying: nowPlaying,
@@ -274,23 +309,24 @@ class QueueSheetScreen extends StatelessWidget {
           ),
         )
         .whenComplete(() {
+          _isOpen = false;
           isOpenNotifier.value = false;
         });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (bloc != null) {
+    final effectiveBloc = bloc ??
+        (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
+
+    if (effectiveBloc != null) {
       return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
-        bloc: bloc,
+        bloc: effectiveBloc,
         builder: (context, state) {
           final liveNowPlaying = state.nowPlaying?.toMockQueueTrack() ??
               nowPlayingContextTrack?.toMockQueueTrack() ??
               nowPlaying;
-          final liveTracks = state.visibleTracks.isNotEmpty
-              ? state.visibleTracks.map((t) => t.toMockQueueTrack()).toList()
-              : (contextTracks?.map((t) => t.toMockQueueTrack()).toList() ??
-                  tracks);
+          final liveTracks = state.visibleTracks.map((t) => t.toMockQueueTrack()).toList();
           final liveShuffle = state.isShuffling
               ? QueueShuffleMode.all
               : QueueShuffleMode.none;
@@ -310,7 +346,7 @@ class QueueSheetScreen extends StatelessWidget {
           return PullToDismissScaffold(
             barrierBaseAlpha: 0.72,
             builder: (scaffoldContext, dismissController) {
-              final activeBloc = bloc;
+              final activeBloc = effectiveBloc;
               return _QueueSheetBody(
                 dismissController: dismissController,
                 nowPlaying: liveNowPlaying,
@@ -319,28 +355,30 @@ class QueueSheetScreen extends StatelessWidget {
                 shuffleMode: liveShuffle,
                 repeatMode: liveRepeat,
                 isTimerActive: isTimerActive,
-                onPlayPause: () => activeBloc?.add(const TogglePlayPause()),
-                onShuffleTapped: () => activeBloc?.add(const ToggleShuffle()),
-                onRepeatTapped: () => activeBloc?.add(const ToggleRepeat()),
+                onPlayPause: () => activeBloc.add(const TogglePlayPause()),
+                onShuffleTapped: () => activeBloc.add(const ToggleShuffle()),
+                onRepeatTapped: () => activeBloc.add(const ToggleRepeat()),
                 onTimerTapped: onTimerTapped,
-                onClearQueue: () => activeBloc?.add(const ClearQueue()),
+                onClearQueue: () => activeBloc.add(const ClearQueue()),
+                onResetQueue: () => MockQueueSeeder.resetQueue(activeBloc),
                 onReorder: (oldIndex, newIndex) {
-                  if (activeBloc != null && oldIndex < state.visibleTracks.length) {
+                  if (oldIndex < state.visibleTracks.length && state.visibleTracks.isNotEmpty) {
                     final track = state.visibleTracks[oldIndex];
+                    final destIndex = newIndex.clamp(0, state.visibleTracks.length - 1);
                     activeBloc.add(ReorderQueueTrack(
                       track: track,
-                      destinationVisibleIndex: newIndex,
+                      destinationVisibleIndex: destIndex,
                     ));
                   }
                 },
                 onTrackTapped: (mockTrack) {
-                  activeBloc?.add(PlayTrackFromQueue(mockTrack.toContextTrack()));
+                  activeBloc.add(PlayTrackFromQueue(mockTrack.toContextTrack()));
                 },
                 onTrackRemoved: (mockTrack) {
-                  activeBloc?.add(RemoveTracksFromQueue([mockTrack.toContextTrack()]));
+                  activeBloc.add(RemoveTracksFromQueue([mockTrack.toContextTrack()]));
                 },
                 onAddToQueue: (mockTrack) {
-                  activeBloc?.add(AddTracksToQueue([mockTrack.toContextTrack()]));
+                  activeBloc.add(AddTracksToQueue([mockTrack.toContextTrack()]));
                 },
               );
             },
@@ -408,6 +446,7 @@ class _QueueSheetBody extends StatefulWidget {
     this.onTrackTapped,
     this.onTrackRemoved,
     this.onAddToQueue,
+    this.onResetQueue,
   });
 
   final PullToDismissController dismissController;
@@ -426,6 +465,7 @@ class _QueueSheetBody extends StatefulWidget {
   final void Function(MockQueueTrack track)? onTrackTapped;
   final void Function(MockQueueTrack track)? onTrackRemoved;
   final void Function(MockQueueTrack track)? onAddToQueue;
+  final VoidCallback? onResetQueue;
 
   @override
   State<_QueueSheetBody> createState() => _QueueSheetBodyState();
@@ -435,6 +475,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     with TickerProviderStateMixin {
   late final SpotifyStretchController _stretchController;
   late final SpotifyPeekScrollController _scrollController;
+  late final String _sheetSessionId = UniqueKey().toString();
 
   late List<MockQueueTrack> _tracks;
   late MockQueueTrack _nowPlaying;
@@ -446,6 +487,19 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
   final Set<String> _slideDownUids = {};
   final Set<String> _clearingUids = {};
 
+  static List<MockQueueTrack> _sanitizeTracks(List<MockQueueTrack> rawTracks) {
+    final seen = <String, int>{};
+    return rawTracks.map((t) {
+      final baseId = t.id.isNotEmpty ? t.id : (t.uri ?? 'track');
+      final count = seen[baseId] ?? 0;
+      seen[baseId] = count + 1;
+      if (count > 0) {
+        return t.copyWith(id: '${baseId}_dup_$count');
+      }
+      return t.id.isNotEmpty ? t : t.copyWith(id: baseId);
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -455,9 +509,10 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
       stretchController: _stretchController,
     );
 
-    _tracks = List<MockQueueTrack>.from(
-      widget.tracks.isNotEmpty ? widget.tracks : _defaultMockTracks,
-    );
+    final rawTracks = widget.tracks.isNotEmpty || widget.onResetQueue != null
+        ? widget.tracks
+        : _defaultMockTracks;
+    _tracks = _sanitizeTracks(rawTracks);
     _nowPlaying = widget.nowPlaying ?? _defaultNowPlaying;
     _isPlaying = widget.isPlaying;
     _shuffleMode = widget.shuffleMode;
@@ -469,9 +524,10 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     super.didUpdateWidget(oldWidget);
     if (widget.tracks != oldWidget.tracks) {
       setState(() {
-        _tracks = List<MockQueueTrack>.from(
-          widget.tracks.isNotEmpty ? widget.tracks : _defaultMockTracks,
-        );
+        final rawTracks = widget.tracks.isNotEmpty || widget.onResetQueue != null
+            ? widget.tracks
+            : _defaultMockTracks;
+        _tracks = _sanitizeTracks(rawTracks);
       });
     }
     if (widget.nowPlaying != oldWidget.nowPlaying) {
@@ -666,28 +722,31 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         proxyDecorator: _proxyDecorator,
         itemCount: _tracks.length,
         onReorderItem: (oldIndex, newIndex) {
-          setState(() {
-            final item = _tracks.removeAt(oldIndex);
+          if (oldIndex < _tracks.length && _tracks.isNotEmpty) {
+            final destIndex = newIndex.clamp(0, _tracks.length - 1);
+            setState(() {
+              final item = _tracks.removeAt(oldIndex);
 
-            // Spotify lr5.java lines 580-596: determine if destination is within user queue section
-            int lastQueuedIdx = -1;
-            for (int i = _tracks.length - 1; i >= 0; i--) {
-              if (_tracks[i].isQueued) {
-                lastQueuedIdx = i;
-                break;
+              // Spotify lr5.java lines 580-596: determine if destination is within user queue section
+              int lastQueuedIdx = -1;
+              for (int i = _tracks.length - 1; i >= 0; i--) {
+                if (_tracks[i].isQueued) {
+                  lastQueuedIdx = i;
+                  break;
+                }
               }
-            }
 
-            final bool targetIsQueued;
-            if (lastQueuedIdx == -1) {
-              targetIsQueued = newIndex == 0 && item.isQueued;
-            } else {
-              targetIsQueued = newIndex <= (lastQueuedIdx + 1);
-            }
+              final bool targetIsQueued;
+              if (lastQueuedIdx == -1) {
+                targetIsQueued = destIndex == 0 && item.isQueued;
+              } else {
+                targetIsQueued = destIndex <= (lastQueuedIdx + 1);
+              }
 
-            _tracks.insert(newIndex, item.copyWith(isQueued: targetIsQueued));
-          });
-          widget.onReorder?.call(oldIndex, newIndex);
+              _tracks.insert(destIndex, item.copyWith(isQueued: targetIsQueued));
+            });
+            widget.onReorder?.call(oldIndex, destIndex);
+          }
         },
         itemBuilder: (context, index) {
           final track = _tracks[index];
@@ -698,7 +757,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
           final isClearingRow = _clearingUids.contains(track.id);
 
           return QueueTrackRow(
-            key: ValueKey('track_${track.id}'),
+            key: ValueKey('track_${_sheetSessionId}_${track.id}'),
             title: track.title,
             artist: track.artist,
             isQueued: track.isQueued,
@@ -717,7 +776,10 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
             },
             onRemove: () {
               setState(() {
-                _tracks.removeWhere((t) => t.id == track.id);
+                final removeIndex = _tracks.indexOf(track);
+                if (removeIndex != -1) {
+                  _tracks.removeAt(removeIndex);
+                }
               });
               widget.onTrackRemoved?.call(track);
             },
@@ -730,14 +792,14 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                   userQueueCount * 64.0 < scrollOffset - 4.0) {
                 _scrollController.jumpTo(scrollOffset + 64.0);
               }
+              final queuedCopy = track.copyWith(
+                id: '${track.id}_queued_${DateTime.now().microsecondsSinceEpoch}',
+                isQueued: true,
+              );
               setState(() {
-                final queuedCopy = track.copyWith(
-                  id: '${track.id}_queued_${DateTime.now().microsecondsSinceEpoch}',
-                  isQueued: true,
-                );
                 _tracks.insert(userQueueCount, queuedCopy);
               });
-              widget.onAddToQueue?.call(track);
+              widget.onAddToQueue?.call(queuedCopy);
             },
           );
         },
@@ -796,6 +858,27 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                 height: 1.4,
               ),
             ),
+            if (widget.onResetQueue != null) ...[
+              const SizedBox(height: 20),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: PlayerColors.muted),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
+                onPressed: widget.onResetQueue,
+                child: const Text(
+                  'Restore Test Queue',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

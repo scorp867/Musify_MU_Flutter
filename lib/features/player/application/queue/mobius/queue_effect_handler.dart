@@ -1,0 +1,167 @@
+import '../../../data/esperanto/context_player_control_client.dart';
+import '../../../data/esperanto/context_player_options_client.dart';
+import '../../../data/esperanto/context_player_play_client.dart';
+import '../../../data/esperanto/context_player_queue_client.dart';
+import '../../../data/queue/queue_add_handler.dart';
+import '../../../data/queue/queue_clear_handler.dart';
+import '../../../data/queue/queue_helpers.dart';
+import '../../../data/queue/queue_remove_handler.dart';
+import '../../../data/queue/queue_reorder_handler.dart';
+import '../../../domain/commands/add_to_queue_command.dart';
+import '../../../domain/commands/pause_command.dart';
+import '../../../domain/commands/play_command.dart';
+import '../../../domain/commands/resume_command.dart';
+import '../../../domain/commands/set_options_command.dart';
+import '../../../domain/commands/skip_to_next_track_command.dart';
+import '../../../domain/commands/skip_to_prev_track_command.dart';
+import '../../../domain/models/context.dart';
+import '../../../domain/models/play_origin.dart';
+import '../../../domain/models/player_queue.dart';
+import '../player_queue_event.dart';
+import 'mobius_types.dart';
+import 'queue_effects.dart';
+
+/// 1:1 replica of Spotify Mobius Queue Effect Handler (p.mwp0, p.dwp0, p.hwp0).
+/// Dispatches asynchronous commands to ContextPlayer clients and reports back events.
+class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, PlayerQueueEvent> {
+  final ContextPlayerQueueClient? queueClient;
+  final ContextPlayerControlClient? controlClient;
+  final ContextPlayerOptionsClient? optionsClient;
+  final ContextPlayerPlayClient? playClient;
+  final PlayerQueue Function() getCurrentQueue;
+
+  QueueMobiusEffectHandler({
+    this.queueClient,
+    this.controlClient,
+    this.optionsClient,
+    this.playClient,
+    required this.getCurrentQueue,
+  });
+
+  @override
+  Future<PlayerQueueEvent?> handleEffect(QueueEffect effect) async {
+    try {
+      if (effect is AddTracksEffect) {
+        final qc = queueClient;
+        if (qc == null) return null;
+
+        // 1:1 with Spotify dwp0 lines 28-33:
+        if (effect.tracks.length == 1 &&
+            effect.mode == QueueInsertMode.addToEndOfQueue) {
+          await qc.addToQueue(AddToQueueCommand.create(effect.tracks.first));
+        } else {
+          final updated = QueueAddHandler.addTracks(
+            getCurrentQueue(),
+            effect.tracks,
+            mode: effect.mode,
+          );
+          final command = QueueHelpers.createSetQueueCommand(updated);
+          await qc.setQueue(command);
+        }
+        return null;
+      }
+
+      if (effect is RemoveTracksEffect) {
+        final qc = queueClient;
+        if (qc == null) return null;
+
+        final updated = QueueRemoveHandler.removeTracks(
+          getCurrentQueue(),
+          effect.tracks,
+        );
+        final command = QueueHelpers.createSetQueueCommand(updated);
+        await qc.setQueue(command);
+        return null;
+      }
+
+      if (effect is ReorderTrackEffect) {
+        final qc = queueClient;
+        if (qc == null) return null;
+
+        // 1:1 with Spotify gxl0 / lr5
+        final updated = QueueReorderHandler.reorderTrack(
+          playerQueue: getCurrentQueue(),
+          trackToMove: effect.track,
+          destinationVisibleIndex: effect.destinationIndex,
+        );
+        final command = QueueHelpers.createSetQueueCommand(updated);
+        await qc.setQueue(command);
+        return null;
+      }
+
+      if (effect is ClearQueueEffect) {
+        final qc = queueClient;
+        if (qc == null) return null;
+
+        // 1:1 with Spotify hwp0 case 0 / pml0 case 2
+        final updated = QueueClearHandler.clearUserQueue(getCurrentQueue());
+        final command = QueueHelpers.createSetQueueCommand(updated);
+        await qc.setQueue(command);
+        return null;
+      }
+
+      if (effect is ToggleShuffleEffect) {
+        final oc = optionsClient;
+        if (oc != null) {
+          await oc.setShuffle(effect.nextShuffle);
+        }
+        return null;
+      }
+
+      if (effect is ToggleRepeatEffect) {
+        final oc = optionsClient;
+        if (oc != null) {
+          final command = SetOptionsCommand.builder()
+              .repeatingContext(effect.nextRepeatContext)
+              .repeatingTrack(effect.nextRepeatTrack)
+              .build();
+          await oc.setOptions(command);
+        }
+        return null;
+      }
+
+      if (effect is PlayPauseEffect) {
+        final cc = controlClient;
+        if (cc != null) {
+          if (effect.currentlyPlaying) {
+            await cc.pause(PauseCommand.builder().build());
+          } else {
+            await cc.resume(ResumeCommand.builder().build());
+          }
+        }
+        return null;
+      }
+
+      if (effect is SkipNextEffect) {
+        final cc = controlClient;
+        if (cc != null) {
+          await cc.skipToNext(SkipToNextTrackCommand.create());
+        }
+        return null;
+      }
+
+      if (effect is SkipPrevEffect) {
+        final cc = controlClient;
+        if (cc != null) {
+          await cc.skipToPrev(SkipToPrevTrackCommand.create());
+        }
+        return null;
+      }
+
+      if (effect is PlayTrackEffect) {
+        final pc = playClient;
+        if (pc != null) {
+          final playCommand = PlayCommand.create(
+            Context.fromUri(effect.track.uri),
+            const PlayOrigin(),
+          );
+          await pc.play(playCommand);
+        }
+        return null;
+      }
+    } catch (e) {
+      return QueueErrorOccurred(e.toString());
+    }
+    return null;
+  }
+}

@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
-import 'package:musify_mu/features/player/data/queue/context_track_extensions.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_options.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';

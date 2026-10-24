@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../../domain/models/ad_break_context.dart';
 import '../../domain/models/audio_stream.dart';
 import '../../domain/models/bitrate_level.dart';
@@ -13,9 +16,96 @@ import '../../domain/models/player_state.dart';
 import '../../domain/models/restrictions.dart';
 import '../../domain/models/sleep_timer.dart';
 import '../../domain/models/suppressions.dart';
+import 'proto/spotify_esperanto_proto.dart' as proto;
 import 'queue_proto_mappers.dart';
 
 abstract class PlayerStateProtoMappers {
+  /// Converts a binary protobuf ContextPlayerState to domain PlayerState.
+  static PlayerState fromContextPlayerStateProto(proto.ContextPlayerState p) {
+    final builder = PlayerState.builder();
+    if (p.hasTimestamp()) {
+      builder.timestamp(p.timestamp.toInt());
+    }
+    if (p.hasContextUri()) {
+      builder.contextUri(p.contextUri);
+    }
+    if (p.hasContextUrl()) {
+      builder.contextUrl(p.contextUrl);
+    }
+    if (p.hasTrack()) {
+      builder.track(QueueProtoMappers.fromProvidedTrackProto(p.track));
+    }
+    if (p.nextTracks.isNotEmpty) {
+      builder.nextTracks(
+          p.nextTracks.map(QueueProtoMappers.fromProvidedTrackProto).toList());
+    }
+    if (p.prevTracks.isNotEmpty) {
+      builder.prevTracks(
+          p.prevTracks.map(QueueProtoMappers.fromProvidedTrackProto).toList());
+    }
+    if (p.hasIndex()) {
+      builder.index(
+          ContextIndex.create(p.index.page.toInt(), p.index.track.toInt()));
+    }
+    if (p.hasPositionAsOfTimestamp() && p.positionAsOfTimestamp.hasValue()) {
+      builder.positionAsOfTimestamp(p.positionAsOfTimestamp.value.toInt());
+    }
+    if (p.hasDuration() && p.duration.hasValue()) {
+      builder.duration(p.duration.value.toInt());
+    }
+    if (p.hasIsPlaying()) {
+      builder.isPlaying(p.isPlaying);
+    }
+    if (p.hasIsPaused()) {
+      builder.isPaused(p.isPaused);
+    }
+    if (p.hasIsBuffering()) {
+      builder.isBuffering(p.isBuffering);
+    }
+    if (p.hasPlaybackQuality()) {
+      final pq = p.playbackQuality;
+      builder.playbackQuality(PlaybackQuality.builder()
+          .bitrateLevel(BitrateLevel.values.firstWhere(
+              (b) => b.index == pq.bitrateLevel.value,
+              orElse: () => BitrateLevel.unknown))
+          .strategy(BitrateStrategy.values.firstWhere(
+              (s) => s.index == pq.strategy.value,
+              orElse: () => BitrateStrategy.unknown))
+          .targetBitrateLevel(BitrateLevel.values.firstWhere(
+              (b) => b.index == pq.targetBitrateLevel.value,
+              orElse: () => BitrateLevel.unknown))
+          .targetBitrateAvailable(pq.targetBitrateAvailable)
+          .hifiStatus(HiFiStatus.values.firstWhere(
+              (h) => h.index == pq.hifiStatus.value,
+              orElse: () => HiFiStatus.none))
+          .build());
+    }
+    return builder.build();
+  }
+
+  /// Decodes PlayerState from either binary Protobuf wire bytes or JSON.
+  static PlayerState playerStateFromBinaryOrJson(Uint8List bytes) {
+    if (bytes.isEmpty) return PlayerState.empty;
+    try {
+      final p = proto.ContextPlayerState.fromBuffer(bytes);
+      if (p.hasTimestamp() ||
+          p.hasContextUri() ||
+          p.hasTrack() ||
+          p.hasIsPlaying() ||
+          p.hasIsPaused()) {
+        return fromContextPlayerStateProto(p);
+      }
+    } catch (_) {
+      // Fall through to JSON
+    }
+
+    try {
+      final jsonMap = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      return playerStateFromProto(jsonMap);
+    } catch (_) {
+      return PlayerState.empty;
+    }
+  }
   /// Maps an EsRestrictions protobuf structure into domain Restrictions (from Spotify fat0.a).
   static Restrictions restrictionsFromProto(Map<String, dynamic>? proto) {
     if (proto == null) return Restrictions.empty;

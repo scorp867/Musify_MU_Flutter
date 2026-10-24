@@ -132,6 +132,44 @@ void main() {
       expect(updated.nextTracks[1].uid, 'uid2');
     });
 
+    test('QueueRemoveHandler: removing duplicate track with distinct UID removes only targeted track', () {
+      final track1Dup = ContextTrack.builder('spotify:track:1')
+          .uid('uid1_second_instance')
+          .metadata({
+            ContextTrackMetadata.keyTitle: 'Track 1',
+            ContextTrackMetadata.keyArtistName: 'Artist 1',
+          })
+          .build();
+
+      final initialQueue = PlayerQueue(
+        nextTracks: [track1, track2, track1Dup],
+      );
+
+      final updated = QueueRemoveHandler.removeTracks(
+        initialQueue,
+        [track1],
+      );
+
+      expect(updated.nextTracks.length, 2);
+      expect(updated.nextTracks[0].uid, 'uid2');
+      expect(updated.nextTracks[1].uid, 'uid1_second_instance');
+    });
+
+    test('QueueRemoveHandler: removing duplicate track with identical queueKey removes only one instance', () {
+      final initialQueue = PlayerQueue(
+        nextTracks: [track1, track2, track1],
+      );
+
+      final updated = QueueRemoveHandler.removeTracks(
+        initialQueue,
+        [track1],
+      );
+
+      expect(updated.nextTracks.length, 2);
+      expect(updated.nextTracks[0].uid, 'uid2');
+      expect(updated.nextTracks[1].uid, 'uid1');
+    });
+
     test('QueueClearHandler: removes only user-queued tracks and keeps context tracks', () {
       final initialQueue = PlayerQueue(
         nextTracks: [userQueuedTrack, track1, track2],

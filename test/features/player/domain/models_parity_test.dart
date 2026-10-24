@@ -6,7 +6,6 @@ import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_options.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';
-import 'package:musify_mu/features/player/domain/models/player_state.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:musify_mu/features/player/domain/models/restrictions.dart';
 

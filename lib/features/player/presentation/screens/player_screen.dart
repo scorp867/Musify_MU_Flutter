@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/eased_gradient.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
@@ -58,6 +59,9 @@ class PlayerScreen extends StatefulWidget {
     if (_isOpen) return;
     _isOpen = true;
 
+    final effectiveBloc = queueBloc ??
+        (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
+
     try {
       await Navigator.of(context, rootNavigator: true).push(
         PageRouteBuilder<void>(
@@ -74,7 +78,7 @@ class PlayerScreen extends StatefulWidget {
               duration: duration,
               imageUrl: imageUrl,
               songId: songId,
-              queueBloc: queueBloc,
+              queueBloc: effectiveBloc,
               currentTrack: currentTrack,
             );
           },
@@ -131,11 +135,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     'Side bitch out of your league too, ah',
   ];
 
+  PlayerQueueBloc? get _effectiveBloc =>
+      widget.queueBloc ??
+      (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
+
   @override
   Widget build(BuildContext context) {
-    if (widget.queueBloc != null) {
+    final bloc = _effectiveBloc;
+    if (bloc != null) {
       return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
-        bloc: widget.queueBloc,
+        bloc: bloc,
         builder: (context, queueState) {
           return _buildContent(context, queueState: queueState);
         },
@@ -288,16 +297,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handlePlayPause() {
-    if (widget.queueBloc != null) {
-      widget.queueBloc!.add(const PlayerQueueTogglePlayPause());
+    final bloc = _effectiveBloc;
+    if (bloc != null) {
+      bloc.add(const PlayerQueueTogglePlayPause());
     } else {
       setState(() => _isPlaying = !_isPlaying);
     }
   }
 
   void _handleShuffle() {
-    if (widget.queueBloc != null) {
-      widget.queueBloc!.add(const PlayerQueueToggleShuffle());
+    final bloc = _effectiveBloc;
+    if (bloc != null) {
+      bloc.add(const PlayerQueueToggleShuffle());
     } else {
       setState(() {
         _shuffleMode = _shuffleMode == QueueShuffleMode.all
@@ -308,8 +319,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleRepeat() {
-    if (widget.queueBloc != null) {
-      widget.queueBloc!.add(const PlayerQueueCycleRepeat());
+    final bloc = _effectiveBloc;
+    if (bloc != null) {
+      bloc.add(const PlayerQueueCycleRepeat());
     } else {
       setState(() {
         if (_repeatMode == QueueRepeatMode.none) {
@@ -324,11 +336,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleNext() {
-    widget.queueBloc?.add(const PlayerQueueSkipNext());
+    _effectiveBloc?.add(const PlayerQueueSkipNext());
   }
 
   void _handlePrevious() {
-    widget.queueBloc?.add(const PlayerQueueSkipPrevious());
+    _effectiveBloc?.add(const PlayerQueueSkipPrevious());
   }
 
   void _onExpandLyrics() {
@@ -356,7 +368,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }) {
     QueueSheetScreen.show(
       context,
-      bloc: widget.queueBloc,
+      bloc: _effectiveBloc,
       nowPlayingContextTrack: activeTrack ?? widget.currentTrack,
       isPlaying: isPlayingVal ?? _isPlaying,
       shuffleMode: shuffleVal ?? _shuffleMode,

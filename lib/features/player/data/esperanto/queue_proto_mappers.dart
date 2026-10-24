@@ -1,10 +1,204 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:fixnum/fixnum.dart';
+
 import '../../domain/commands/options/command_options.dart';
 import '../../domain/commands/options/logging_params.dart';
 import '../../domain/commands/set_queue_command.dart';
 import '../../domain/models/context_track.dart';
 import '../../domain/models/player_queue.dart';
+import 'proto/spotify_esperanto_proto.dart' as proto;
 
 abstract class QueueProtoMappers {
+  /// Converts a binary protobuf ContextTrack to domain ContextTrack.
+  static ContextTrack fromContextTrackProto(proto.ContextTrack p) {
+    return ContextTrack.builder(p.uri)
+        .uid(p.uid)
+        .metadata(Map<String, String>.from(p.metadata))
+        .build();
+  }
+
+  /// Converts a domain ContextTrack to binary protobuf ContextTrack.
+  static proto.ContextTrack toContextTrackProto(ContextTrack track) {
+    final p = proto.ContextTrack()
+      ..uri = track.uri
+      ..uid = track.uid;
+    if (track.metadata.isNotEmpty) {
+      p.metadata.addAll(track.metadata);
+    }
+    return p;
+  }
+
+  /// Converts a binary protobuf ProvidedTrack to domain ContextTrack.
+  static ContextTrack fromProvidedTrackProto(proto.ProvidedTrack p) {
+    final builder = p.hasContextTrack()
+        ? fromContextTrackProto(p.contextTrack).toBuilder()
+        : ContextTrack.builder('');
+    if (p.hasProvider() && p.provider.isNotEmpty) {
+      builder.provider(p.provider);
+    }
+    return builder.build();
+  }
+
+  /// Converts a domain ContextTrack to binary protobuf ProvidedTrack.
+  static proto.ProvidedTrack toProvidedTrackProto(ContextTrack track) {
+    final p = proto.ProvidedTrack()
+      ..contextTrack = toContextTrackProto(track);
+    if (track.provider.isNotEmpty) {
+      p.provider = track.provider;
+    }
+    return p;
+  }
+
+  /// Converts a binary protobuf Queue to domain PlayerQueue.
+  static PlayerQueue fromQueueProto(proto.Queue p) {
+    final builder = PlayerQueue.builder();
+    if (p.hasQueueRevision()) {
+      builder.revision(p.queueRevision.toString());
+    }
+    if (p.hasTrack()) {
+      builder.track(fromProvidedTrackProto(p.track));
+    }
+    if (p.nextTracks.isNotEmpty) {
+      builder.nextTracks(p.nextTracks.map(fromProvidedTrackProto).toList());
+    }
+    if (p.prevTracks.isNotEmpty) {
+      builder.prevTracks(p.prevTracks.map(fromProvidedTrackProto).toList());
+    }
+    return builder.build();
+  }
+
+  /// Converts a domain PlayerQueue to binary protobuf Queue.
+  static proto.Queue toQueueProto(PlayerQueue queue) {
+    final p = proto.Queue();
+    final rev = int.tryParse(queue.revision) ?? 0;
+    p.queueRevision = Int64(rev);
+    if (queue.track != null) {
+      p.track = toProvidedTrackProto(queue.track!);
+    }
+    if (queue.nextTracks.isNotEmpty) {
+      p.nextTracks.addAll(queue.nextTracks.map(toProvidedTrackProto));
+    }
+    if (queue.prevTracks.isNotEmpty) {
+      p.prevTracks.addAll(queue.prevTracks.map(toProvidedTrackProto));
+    }
+    return p;
+  }
+
+  /// Converts a SetQueueCommand to binary protobuf SetQueueRequest.
+  static proto.SetQueueRequest toSetQueueRequestProto(SetQueueCommand command) {
+    final p = proto.SetQueueRequest();
+    final rev = int.tryParse(command.queueRevision) ?? 0;
+    p.queueRevision = Int64(rev);
+    if (command.nextTracks.isNotEmpty) {
+      p.nextTracks.addAll(command.nextTracks.map(toProvidedTrackProto));
+    }
+    if (command.prevTracks.isNotEmpty) {
+      p.prevTracks.addAll(command.prevTracks.map(toProvidedTrackProto));
+    }
+    if (command.options != null) {
+      final opts = proto.CommandOptions();
+      if (command.options!.overrideRestrictions != null) {
+        opts.overrideRestrictions = command.options!.overrideRestrictions!;
+      }
+      if (command.options!.onlyForPlaybackId != null) {
+        opts.onlyForPlaybackId = utf8.encode(command.options!.onlyForPlaybackId!);
+      }
+      if (command.options!.systemInitiated != null) {
+        opts.systemInitiated = command.options!.systemInitiated!;
+      }
+      if (command.options!.onlyForLocalDevice != null) {
+        opts.onlyForLocalDevice = command.options!.onlyForLocalDevice!;
+      }
+      p.options = opts;
+    }
+    if (command.loggingParams != null) {
+      final lp = proto.LoggingParams();
+      if (command.loggingParams!.commandInitiatedTime != null) {
+        lp.commandInitiatedTime = proto.OptionalInt64()
+          ..value = Int64(command.loggingParams!.commandInitiatedTime!);
+      }
+      if (command.loggingParams!.commandReceivedTime != null) {
+        lp.commandReceivedTime = proto.OptionalInt64()
+          ..value = Int64(command.loggingParams!.commandReceivedTime!);
+      }
+      if (command.loggingParams!.pageInstanceIds.isNotEmpty) {
+        lp.pageInstanceIds.addAll(command.loggingParams!.pageInstanceIds);
+      }
+      if (command.loggingParams!.interactionIds.isNotEmpty) {
+        lp.interactionIds.addAll(command.loggingParams!.interactionIds);
+      }
+      p.loggingParams = lp;
+    }
+    return p;
+  }
+
+  /// Converts AddToQueueCommand to binary protobuf AddToQueueRequest.
+  static proto.AddToQueueRequest toAddToQueueRequestProto({
+    required ContextTrack track,
+    CommandOptions? options,
+    LoggingParams? loggingParams,
+  }) {
+    final p = proto.AddToQueueRequest()
+      ..track = toContextTrackProto(track);
+    if (options != null) {
+      final opts = proto.CommandOptions();
+      if (options.overrideRestrictions != null) {
+        opts.overrideRestrictions = options.overrideRestrictions!;
+      }
+      if (options.onlyForPlaybackId != null) {
+        opts.onlyForPlaybackId = utf8.encode(options.onlyForPlaybackId!);
+      }
+      if (options.systemInitiated != null) {
+        opts.systemInitiated = options.systemInitiated!;
+      }
+      if (options.onlyForLocalDevice != null) {
+        opts.onlyForLocalDevice = options.onlyForLocalDevice!;
+      }
+      p.options = opts;
+    }
+    if (loggingParams != null) {
+      final lp = proto.LoggingParams();
+      if (loggingParams.commandInitiatedTime != null) {
+        lp.commandInitiatedTime = proto.OptionalInt64()
+          ..value = Int64(loggingParams.commandInitiatedTime!);
+      }
+      if (loggingParams.commandReceivedTime != null) {
+        lp.commandReceivedTime = proto.OptionalInt64()
+          ..value = Int64(loggingParams.commandReceivedTime!);
+      }
+      if (loggingParams.pageInstanceIds.isNotEmpty) {
+        lp.pageInstanceIds.addAll(loggingParams.pageInstanceIds);
+      }
+      if (loggingParams.interactionIds.isNotEmpty) {
+        lp.interactionIds.addAll(loggingParams.interactionIds);
+      }
+      p.loggingParams = lp;
+    }
+    return p;
+  }
+
+  /// Decodes a PlayerQueue from either raw binary Protobuf wire bytes or JSON.
+  static PlayerQueue queueFromBinaryOrJson(Uint8List bytes) {
+    if (bytes.isEmpty) return PlayerQueue.empty;
+    try {
+      final p = proto.Queue.fromBuffer(bytes);
+      if (p.hasQueueRevision() || p.nextTracks.isNotEmpty || p.hasTrack()) {
+        return fromQueueProto(p);
+      }
+    } catch (_) {
+      // Fall through to JSON decoder
+    }
+
+    try {
+      final jsonMap = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      return queueFromProto(jsonMap);
+    } catch (_) {
+      return PlayerQueue.empty;
+    }
+  }
+
   /// Maps a ProvidedTrack structure into a domain ContextTrack (from Spotify t5j.a).
   static ContextTrack providedTrackToContextTrack(Map<String, dynamic> providedTrack) {
     final contextTrackMap = providedTrack['context_track'] as Map<String, dynamic>? ??

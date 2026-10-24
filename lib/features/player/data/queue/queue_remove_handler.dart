@@ -10,10 +10,15 @@ abstract class QueueRemoveHandler {
     PlayerQueue playerQueue,
     List<ContextTrack> tracksToRemove,
   ) {
-    final keysToRemove = tracksToRemove.map((t) => t.queueKey).toSet();
-    final remainingTracks = playerQueue.nextTracks
-        .where((track) => !keysToRemove.contains(track.queueKey))
-        .toList(growable: true);
+    final remainingTracks = List<ContextTrack>.from(playerQueue.nextTracks);
+
+    for (final trackToRemove in tracksToRemove) {
+      final key = trackToRemove.queueKey;
+      final index = remainingTracks.indexWhere((t) => t.queueKey == key);
+      if (index != -1) {
+        remainingTracks.removeAt(index);
+      }
+    }
 
     return playerQueue.toBuilder().nextTracks(remainingTracks).build();
   }
