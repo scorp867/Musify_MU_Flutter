@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -122,6 +124,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   QueueShuffleMode _shuffleMode = QueueShuffleMode.none;
   QueueRepeatMode _repeatMode = QueueRepeatMode.none;
 
+  Timer? _positionTimer;
+  late final ValueNotifier<Duration> _positionNotifier;
+
   static const Color _topGradientColor = Color(0xFF1E3264);
 
   static const List<String> _mockLyrics = [
@@ -140,11 +145,54 @@ class _PlayerScreenState extends State<PlayerScreen> {
       (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
 
   @override
+  void initState() {
+    super.initState();
+    _positionNotifier = ValueNotifier<Duration>(_currentPosition);
+  }
+
+  @override
+  void dispose() {
+    _positionTimer?.cancel();
+    _positionTimer = null;
+    _positionNotifier.dispose();
+    super.dispose();
+  }
+
+  void _syncPositionTimer(bool isPlaying, PlayerQueueState? queueState) {
+    if (isPlaying) {
+      if (_positionTimer == null || !_positionTimer!.isActive) {
+        _positionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+          if (_dragPosition == null && mounted) {
+            final bloc = _effectiveBloc;
+            if (bloc != null) {
+              _positionNotifier.value = bloc.state.currentPosition;
+            }
+          }
+        });
+      }
+    } else {
+      _positionTimer?.cancel();
+      _positionTimer = null;
+    }
+    if (_dragPosition == null && queueState != null) {
+      _positionNotifier.value = queueState.currentPosition;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final bloc = _effectiveBloc;
     if (bloc != null) {
       return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
         bloc: bloc,
+        buildWhen: (previous, current) {
+          return previous.nowPlaying != current.nowPlaying ||
+              previous.isPlaying != current.isPlaying ||
+              previous.isBuffering != current.isBuffering ||
+              previous.isShuffling != current.isShuffling ||
+              previous.repeatMode != current.repeatMode ||
+              previous.durationMs != current.durationMs;
+        },
         builder: (context, queueState) {
           return _buildContent(context, queueState: queueState);
         },
@@ -159,15 +207,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final activeTrack = queueState?.currentTrack ?? widget.currentTrack;
     final displayTitle = (activeTrack?.title.isNotEmpty == true)
         ? activeTrack!.title
-        : widget.title;
+        : (queueState?.title.isNotEmpty == true ? queueState!.title : widget.title);
     final displayArtist = (activeTrack?.artist.isNotEmpty == true)
         ? activeTrack!.artist
-        : widget.artist;
+        : (queueState?.artist.isNotEmpty == true ? queueState!.artist : widget.artist);
     final displayAlbum = (activeTrack?.album.isNotEmpty == true)
         ? activeTrack!.album
-        : widget.album;
-    final displayDuration = activeTrack?.duration ?? widget.duration;
-    final displayImageUrl = activeTrack?.imageUrl ?? widget.imageUrl;
+        : (queueState?.album.isNotEmpty == true ? queueState!.album : widget.album);
+    final displayDuration = (queueState != null && queueState.durationMs > 0)
+        ? queueState.currentDuration
+        : (activeTrack?.duration ?? widget.duration);
+    final displayImageUrl = activeTrack?.imageUrl ?? queueState?.imageUrl ?? widget.imageUrl;
 
     final isPlaying = queueState?.isPlaying ?? _isPlaying;
     final shuffleMode = queueState != null
@@ -178,6 +228,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ? QueueRepeatMode.one
             : (queueState.repeatContext ? QueueRepeatMode.all : QueueRepeatMode.none))
         : _repeatMode;
+
+    _syncPositionTimer(isPlaying, queueState);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
@@ -231,7 +283,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
                       child: PlayerAlbumArtwork(
                         imageUrl: displayImageUrl,
-                        songId: widget.songId,
+                        songId: widget.songId ?? queueState?.songId,
                       ),
                     ),
                   ),
@@ -243,16 +295,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onFavoriteChanged: _toggleFavorite,
                   ),
                   const SizedBox(height: 10),
-                  PlayerSeekBar(
-                    duration: displayDuration,
-                    position: _currentPosition,
-                    dragPosition: _dragPosition,
-                    onDragPositionChanged: _setDragPosition,
-                    onSeek: (pos) => setState(() => _currentPosition = pos),
+                  ValueListenableBuilder<Duration>(
+                    valueListenable: _positionNotifier,
+                    builder: (context, pos, _) {
+                      return PlayerSeekBar(
+                        duration: displayDuration,
+                        position: _dragPosition ?? pos,
+                        dragPosition: _dragPosition,
+                        onDragPositionChanged: (dragPos) {
+                          setState(() => _dragPosition = dragPos);
+                          if (dragPos != null) {
+                            _positionNotifier.value = dragPos;
+                          }
+                        },
+                        onSeek: _handleSeek,
+                      );
+                    },
                   ),
                   const SizedBox(height: 8),
                   PlayerPlaybackControls(
                     isPlaying: isPlaying,
+                    isBuffering: queueState?.isBuffering ?? false,
                     shuffleMode: shuffleMode,
                     repeatMode: repeatMode,
                     onPlayPause: _handlePlayPause,
@@ -294,6 +357,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
     );
+  }
+
+  void _handleSeek(Duration pos) {
+    _setDragPosition(null);
+    final bloc = _effectiveBloc;
+    if (bloc != null) {
+      bloc.add(SeekToTrackPosition(pos.inMilliseconds));
+    } else {
+      setState(() => _currentPosition = pos);
+    }
   }
 
   void _handlePlayPause() {

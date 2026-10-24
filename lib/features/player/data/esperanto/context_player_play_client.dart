@@ -6,11 +6,18 @@ import '../../domain/commands/options/logging_params.dart';
 import '../../domain/commands/options/play_options.dart';
 import '../../domain/commands/options/prepare_play_options.dart';
 import '../../domain/commands/play_command.dart';
+import '../../domain/commands/play_session_command.dart';
 import '../../domain/commands/prepare_play_command.dart';
+import '../../domain/commands/update_context_command.dart';
+import '../../domain/commands/update_page_command.dart';
+import '../../domain/commands/update_track_command.dart';
+import '../../domain/commands/update_view_uri_command.dart';
 import '../../domain/models/context.dart';
 import '../../domain/models/play_origin.dart';
 import 'esperanto_transport.dart';
+import 'queue_proto_mappers.dart';
 
+/// 1:1 replica of Spotify ContextPlayer Play Client (p.y3v).
 class ContextPlayerPlayClient extends EsperantoClientBase {
   static const String serviceName = 'spotify.player.esperanto.proto.ContextPlayer';
 
@@ -137,5 +144,60 @@ class ContextPlayerPlayClient extends EsperantoClientBase {
 
     final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
     await callSingle(serviceName, 'PreparePlay', payloadBytes);
+  }
+
+  /// Executes PlaySessionCommand matching Spotify playback session start.
+  Future<void> playSession(PlaySessionCommand command) async {
+    final payloadMap = {
+      if (command.loggingParams != null)
+        'logging_params': _loggingParamsToProto(command.loggingParams),
+      if (command.playOptions != null)
+        'play_options': _playOptionsToProto(command.playOptions),
+    };
+    final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
+    await callSingle(serviceName, 'PlaySession', payloadBytes);
+  }
+
+  /// Executes UpdateContextCommand matching Spotify context metadata update.
+  Future<void> updateContext(UpdateContextCommand command) async {
+    final payloadMap = {
+      'context': _contextToProto(command.context),
+    };
+    final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
+    await callSingle(serviceName, 'UpdateContext', payloadBytes);
+  }
+
+  /// Executes UpdateTrackCommand matching Spotify active track metadata update.
+  Future<void> updateTrack(UpdateTrackCommand command) async {
+    final payloadMap = {
+      'track': QueueProtoMappers.contextTrackToProto(command.track),
+    };
+    final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
+    await callSingle(serviceName, 'UpdateTrack', payloadBytes);
+  }
+
+  /// Executes UpdatePageCommand matching Spotify context page update.
+  Future<void> updatePage(UpdatePageCommand command) async {
+    final payloadMap = {
+      'page': {
+        if (command.page.pageUrl.isNotEmpty) 'page_url': command.page.pageUrl,
+        if (command.page.nextPageUrl.isNotEmpty)
+          'next_page_url': command.page.nextPageUrl,
+        if (command.page.metadata.isNotEmpty) 'metadata': command.page.metadata,
+        if (command.page.tracks != null && command.page.tracks!.isNotEmpty)
+          'tracks': command.page.tracks!.map(QueueProtoMappers.contextTrackToProto).toList(),
+      },
+    };
+    final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
+    await callSingle(serviceName, 'UpdatePage', payloadBytes);
+  }
+
+  /// Executes UpdateViewUriCommand matching Spotify view URI update.
+  Future<void> updateViewUri(UpdateViewUriCommand command) async {
+    final payloadMap = {
+      'view_uri': command.viewUri,
+    };
+    final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
+    await callSingle(serviceName, 'UpdateViewUri', payloadBytes);
   }
 }

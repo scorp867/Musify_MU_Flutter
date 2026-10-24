@@ -214,6 +214,7 @@ class _MainScreenState extends State<MainScreen> {
                               ? track!.artist
                               : 'The Weeknd, Daft Punk',
                           imageUrl: track?.imageUrl,
+                          songId: track?.songId,
                           isPlaying: queueState.isPlaying,
                           queueBloc: bloc,
                           currentTrack: track,

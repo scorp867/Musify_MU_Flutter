@@ -27,6 +27,12 @@ class PlayerQueueState {
   /// Whether playback is active
   bool get isPlaying => playerState?.isPlaying ?? false;
 
+  /// Whether playback is currently paused
+  bool get isPaused => playerState?.isPaused ?? false;
+
+  /// Whether playback is currently buffering
+  bool get isBuffering => playerState?.isBuffering ?? false;
+
   /// Whether shuffle is active
   bool get isShuffling =>
       playerState?.options.shufflingContext ?? false;
@@ -46,6 +52,76 @@ class PlayerQueueState {
     if (options.repeatingTrack) return RepeatMode.track;
     if (options.repeatingContext) return RepeatMode.context;
     return RepeatMode.none;
+  }
+
+  /// Drift-free current playback position in milliseconds.
+  /// Computed using Spotify's position interpolation formula:
+  /// `positionAsOfTimestamp + (playbackSpeed * (now - timestamp))`
+  int get positionMs {
+    final ps = playerState;
+    if (ps == null) return 0;
+    final calculated = ps.position(DateTime.now().millisecondsSinceEpoch);
+    if (calculated != null && calculated >= 0) return calculated;
+    return ps.positionAsOfTimestamp ?? 0;
+  }
+
+  /// Total duration of the current track in milliseconds
+  int get durationMs {
+    final ps = playerState;
+    if (ps?.duration != null && ps!.duration! > 0) {
+      return ps.duration!;
+    }
+    final rawDuration = nowPlaying?.metadata[ContextTrackMetadata.keyDuration];
+    if (rawDuration != null && rawDuration.isNotEmpty) {
+      final parsed = int.tryParse(rawDuration);
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return 0;
+  }
+
+  /// Playback position as Duration
+  Duration get currentPosition => Duration(milliseconds: positionMs);
+
+  /// Track duration as Duration
+  Duration get currentDuration => Duration(milliseconds: durationMs);
+
+  /// Normalized playback progress clamped to [0.0, 1.0]
+  double get playbackProgress {
+    final total = durationMs;
+    if (total <= 0) return 0.0;
+    return (positionMs / total).clamp(0.0, 1.0);
+  }
+
+  /// Display title for the active track
+  String get title {
+    final t = nowPlaying?.metadata[ContextTrackMetadata.keyTitle];
+    if (t != null && t.isNotEmpty) return t;
+    return nowPlaying?.uri ?? '';
+  }
+
+  /// Display artist for the active track
+  String get artist {
+    return nowPlaying?.metadata[ContextTrackMetadata.keyArtistName] ?? '';
+  }
+
+  /// Display album for the active track
+  String get album {
+    return nowPlaying?.metadata[ContextTrackMetadata.keyAlbumTitle] ?? '';
+  }
+
+  /// Image URL for the active track
+  String? get imageUrl {
+    return nowPlaying?.metadata[ContextTrackMetadata.keyImageLargeUrl] ??
+        nowPlaying?.metadata[ContextTrackMetadata.keyImageUrl];
+  }
+
+  /// Device song ID for offline/local music artwork
+  int? get songId {
+    final raw = nowPlaying?.metadata[ContextTrackMetadata.keySongId];
+    if (raw != null && raw.isNotEmpty) {
+      return int.tryParse(raw);
+    }
+    return null;
   }
 
   /// User-queued tracks only (where is_queued = true)

@@ -15,6 +15,9 @@ extension ContextTrackExtensions on ContextTrack {
   /// Album title resolved from metadata.
   String get album => metadata[ContextTrackMetadata.keyAlbumTitle] ?? '';
 
+  /// MediaStore / OnAudioQuery song ID resolved from metadata.
+  int? get songId => int.tryParse(metadata[ContextTrackMetadata.keySongId] ?? '');
+
   /// Artwork URL resolved from metadata (prioritizes large, xlarge, small).
   String? get imageUrl =>
       metadata[ContextTrackMetadata.keyImageLargeUrl] ??

@@ -1,8 +1,11 @@
 import '../../../data/queue/queue_add_handler.dart';
 import '../../../data/queue/queue_clear_handler.dart';
+import '../../../data/queue/queue_helpers.dart';
 import '../../../data/queue/queue_remove_handler.dart';
 import '../../../data/queue/queue_reorder_handler.dart';
+import '../../../domain/models/context_track.dart';
 import '../../../domain/models/player_options.dart';
+import '../../../domain/models/player_queue.dart';
 import '../../../domain/models/player_state.dart';
 import '../player_queue_event.dart';
 import '../player_queue_state.dart';
@@ -52,6 +55,32 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
     );
   }
 
+  if (event is SetQueueTracks) {
+    final updatedQueue = model.queue.toBuilder()
+        .nextTracks(event.nextTracks)
+        .prevTracks(event.prevTracks ?? model.queue.prevTracks)
+        .build();
+    return Next.next(
+      model.copyWith(queue: updatedQueue),
+      {
+        SetQueueTracksEffect(
+          nextTracks: event.nextTracks,
+          prevTracks: event.prevTracks,
+        ),
+      },
+    );
+  }
+
+  if (event is PlayContext) {
+    return Next.dispatch({
+      PlayContextEffect(
+        context: event.context,
+        options: event.options,
+        playOrigin: event.playOrigin,
+      ),
+    });
+  }
+
   if (event is RemoveTracksFromQueue) {
     final updatedQueue = QueueRemoveHandler.removeTracks(
       model.queue,
@@ -95,9 +124,26 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
         .options(updatedOptions)
         .build();
 
+    PlayerQueue updatedQueue = model.queue;
+    if (nextShuffle && model.queue.nextTracks.isNotEmpty) {
+      final userQueue = QueueHelpers.getUserQueuedTracks(model.queue);
+      final contextTracks = List<ContextTrack>.from(QueueHelpers.getContextTracks(model.queue));
+      contextTracks.shuffle();
+      updatedQueue = model.queue.toBuilder()
+          .nextTracks([...userQueue, ...contextTracks])
+          .build();
+    }
+
     return Next.next(
-      model.copyWith(playerState: updatedPs),
-      {ToggleShuffleEffect(nextShuffle)},
+      model.copyWith(
+        playerState: updatedPs,
+        queue: updatedQueue,
+      ),
+      {
+        ToggleShuffleEffect(nextShuffle),
+        if (nextShuffle)
+          SetQueueTracksEffect(nextTracks: updatedQueue.nextTracks),
+      },
     );
   }
 
@@ -164,6 +210,65 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
 
   if (event is PlayTrackFromQueue) {
     return Next.dispatch({PlayTrackEffect(event.track)});
+  }
+
+  if (event is SeekToTrackPosition) {
+    final updatedPs = (model.playerState ?? const PlayerState())
+        .toBuilder()
+        .positionAsOfTimestamp(event.positionMs)
+        .build();
+
+    return Next.next(
+      model.copyWith(playerState: updatedPs),
+      {SeekToEffect(event.positionMs)},
+    );
+  }
+
+  if (event is StopPlayback) {
+    final updatedPs = (model.playerState ?? const PlayerState())
+        .toBuilder()
+        .isPlaying(false)
+        .isPaused(false)
+        .build();
+
+    return Next.next(
+      model.copyWith(playerState: updatedPs),
+      {const StopEffect()},
+    );
+  }
+
+  if (event is SendPlayerSignal) {
+    return Next.dispatch({SignalEffect(event.signal)});
+  }
+
+  if (event is SetSleepTimer) {
+    return Next.dispatch({SetSleepTimerEffect(event.command)});
+  }
+
+  if (event is PlayAsNextInQueue) {
+    final updatedQueue = QueueAddHandler.addTracks(
+      model.queue,
+      event.tracks,
+      mode: QueueInsertMode.playNext,
+    );
+    return Next.next(
+      model.copyWith(queue: updatedQueue),
+      {PlayAsNextInQueueEffect(event.tracks)},
+    );
+  }
+
+  if (event is UpdateContext) {
+    return Next.dispatch({UpdateContextEffect(event.context)});
+  }
+
+  if (event is UpdateTrack) {
+    return Next.dispatch({UpdateTrackEffect(event.track)});
+  }
+
+  if (event is TrackFinished) {
+    if (model.queue.nextTracks.isNotEmpty) {
+      return Next.dispatch({const SkipNextEffect()});
+    }
   }
 
   return Next.noChange();

@@ -252,6 +252,7 @@ abstract class ContextTrackMetadata {
   static const String keyShowPublisher = 'show.publisher';
   static const String keyShuffleAveragePosition = 'shuffle.average_position';
   static const String keySkippableAdDelay = 'ad.skippable_ad_delay';
+  static const String keySongId = 'song_id';
   static const String keyStationSubtitle = 'station_subtitle';
   static const String keyStationTitle = 'station_title';
   static const String keyStationUri = 'station_uri';

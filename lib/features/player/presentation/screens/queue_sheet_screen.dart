@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -6,7 +7,6 @@ import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../data/esperanto/context_player_options_client.dart';
-import '../../data/mock/mock_queue_seeder.dart';
 import '../../data/queue/context_track_extensions.dart';
 import '../../domain/models/context_track.dart';
 import '../widgets/peek_scroll_view.dart';
@@ -78,6 +78,22 @@ class MockQueueTrack {
       contextTrack: nextCt,
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is MockQueueTrack &&
+        other.id == id &&
+        other.uri == uri &&
+        other.isQueued == isQueued &&
+        other.title == title &&
+        other.artist == artist &&
+        other.album == album &&
+        other.songId == songId;
+  }
+
+  @override
+  int get hashCode => Object.hash(id, uri, isQueued, title, artist, album, songId);
 }
 
 /// Bidirectional conversion extensions between MockQueueTrack and ContextTrack
@@ -99,6 +115,7 @@ extension MockQueueTrackToContextTrack on MockQueueTrack {
           ContextTrackMetadata.keyImageUrl: ?imageUrl,
           ContextTrackMetadata.keyIsQueued: isQueued.toString(),
           ContextTrackMetadata.keyDuration: duration.inMilliseconds.toString(),
+          ContextTrackMetadata.keySongId: ?songId?.toString(),
         })
         .build();
   }
@@ -115,6 +132,7 @@ extension ContextTrackToMockQueueTrack on ContextTrack {
       duration: duration,
       isQueued: isQueued,
       imageUrl: imageUrl,
+      songId: songId,
       contextTrack: this,
     );
   }
@@ -322,6 +340,14 @@ class QueueSheetScreen extends StatelessWidget {
     if (effectiveBloc != null) {
       return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
         bloc: effectiveBloc,
+        buildWhen: (previous, current) {
+          return previous.nowPlaying != current.nowPlaying ||
+              previous.isPlaying != current.isPlaying ||
+              previous.isShuffling != current.isShuffling ||
+              previous.repeatMode != current.repeatMode ||
+              !listEquals(previous.visibleTracks, current.visibleTracks) ||
+              previous.queue != current.queue;
+        },
         builder: (context, state) {
           final liveNowPlaying = state.nowPlaying?.toMockQueueTrack() ??
               nowPlayingContextTrack?.toMockQueueTrack() ??
@@ -360,7 +386,7 @@ class QueueSheetScreen extends StatelessWidget {
                 onRepeatTapped: () => activeBloc.add(const ToggleRepeat()),
                 onTimerTapped: onTimerTapped,
                 onClearQueue: () => activeBloc.add(const ClearQueue()),
-                onResetQueue: () => MockQueueSeeder.resetQueue(activeBloc),
+                onResetQueue: () => activeBloc.add(const LoadQueue()),
                 onReorder: (oldIndex, newIndex) {
                   if (oldIndex < state.visibleTracks.length && state.visibleTracks.isNotEmpty) {
                     final track = state.visibleTracks[oldIndex];
@@ -522,7 +548,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
   @override
   void didUpdateWidget(_QueueSheetBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.tracks != oldWidget.tracks) {
+    if (!listEquals(widget.tracks, oldWidget.tracks)) {
       setState(() {
         final rawTracks = widget.tracks.isNotEmpty || widget.onResetQueue != null
             ? widget.tracks
@@ -850,24 +876,25 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
             ),
             const SizedBox(height: 8),
             Text(
-              'Add tracks from playlists or albums to keep the music playing.',
+              'Add songs to your queue using swipe gestures or search for tracks to play next.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: PlayerColors.textSecondary,
+                color: Colors.white.withValues(alpha: 0.60),
                 fontSize: 13,
                 height: 1.4,
               ),
             ),
             if (widget.onResetQueue != null) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
-                  side: const BorderSide(color: PlayerColors.muted),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
                 onPressed: widget.onResetQueue,
                 child: const Text(

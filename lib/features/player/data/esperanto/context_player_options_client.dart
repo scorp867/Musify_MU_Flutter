@@ -4,9 +4,14 @@ import 'dart:typed_data';
 
 import '../../domain/commands/options/command_options.dart';
 import '../../domain/commands/options/logging_params.dart';
+import '../../domain/commands/options/timer_type.dart';
 import '../../domain/commands/set_options_command.dart';
+import '../../domain/commands/set_repeating_context_command.dart';
+import '../../domain/commands/set_repeating_track_command.dart';
 import '../../domain/commands/set_shuffling_context_command.dart';
+import '../../domain/commands/set_sleep_timer_command.dart';
 import 'esperanto_transport.dart';
+import 'proto/spotify_esperanto_proto.dart' as proto;
 
 enum RepeatMode {
   none,
@@ -14,72 +19,149 @@ enum RepeatMode {
   track,
 }
 
+/// 1:1 replica of Spotify ContextPlayer Options Client (p.k4v).
+/// Emits 100% binary Protobuf payloads matching the Spotify Esperanto wire specification.
 class ContextPlayerOptionsClient extends EsperantoClientBase {
   static const String serviceName = 'spotify.player.esperanto.proto.ContextPlayer';
 
   ContextPlayerOptionsClient(super.transport);
 
-  static Map<String, dynamic> _commandOptionsToProto(CommandOptions? options) {
-    if (options == null) return const {};
-    return {
-      if (options.overrideRestrictions != null)
-        'override_restrictions': options.overrideRestrictions,
-      if (options.onlyForPlaybackId != null)
-        'only_for_playback_id': options.onlyForPlaybackId,
-      if (options.systemInitiated != null)
-        'system_initiated': options.systemInitiated,
-      if (options.onlyForLocalDevice != null)
-        'only_for_local_device': options.onlyForLocalDevice,
-    };
+  static proto.CommandOptions? _commandOptionsToProto(CommandOptions? options) {
+    if (options == null) return null;
+    final p = proto.CommandOptions();
+    if (options.overrideRestrictions != null) {
+      p.overrideRestrictions = options.overrideRestrictions!;
+    }
+    if (options.onlyForPlaybackId != null) {
+      p.onlyForPlaybackId = utf8.encode(options.onlyForPlaybackId!);
+    }
+    if (options.systemInitiated != null) {
+      p.systemInitiated = options.systemInitiated!;
+    }
+    if (options.onlyForLocalDevice != null) {
+      p.onlyForLocalDevice = options.onlyForLocalDevice!;
+    }
+    return p;
   }
 
-  static Map<String, dynamic> _loggingParamsToProto(LoggingParams? params) {
-    if (params == null) return const {};
-    return {
-      if (params.commandId != null) 'command_id': params.commandId,
-      if (params.commandInitiatedTime != null)
-        'command_initiated_time': params.commandInitiatedTime,
-      if (params.commandReceivedTime != null)
-        'command_received_time': params.commandReceivedTime,
-      if (params.pageInstanceIds.isNotEmpty)
-        'page_instance_ids': params.pageInstanceIds.toList(),
-      if (params.interactionIds.isNotEmpty)
-        'interaction_ids': params.interactionIds.toList(),
-    };
+  static proto.LoggingParams? _loggingParamsToProto(LoggingParams? params) {
+    if (params == null) return null;
+    final p = proto.LoggingParams();
+    if (params.pageInstanceIds.isNotEmpty) {
+      p.pageInstanceIds.addAll(params.pageInstanceIds);
+    }
+    if (params.interactionIds.isNotEmpty) {
+      p.interactionIds.addAll(params.interactionIds);
+    }
+    return p;
   }
 
-  /// Sets player options matching Spotify k4v.b.
+  /// Sets player options matching Spotify k4v.b via binary Protobuf.
   Future<void> setOptions(SetOptionsCommand command) async {
-    final payloadMap = {
-      if (command.repeatingTrack != null)
-        'repeating_track': {'value': command.repeatingTrack},
-      if (command.repeatingContext != null)
-        'repeating_context': {'value': command.repeatingContext},
-      if (command.shufflingContext != null)
-        'shuffling_context': {'value': command.shufflingContext},
-      if (command.playbackSpeed != null)
-        'playback_speed': command.playbackSpeed,
-      if (command.modes.isNotEmpty) 'modes': command.modes,
-      if (command.options != null)
-        'options': _commandOptionsToProto(command.options),
-      if (command.loggingParams != null)
-        'logging_params': _loggingParamsToProto(command.loggingParams),
-    };
-    final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
+    final req = proto.SetOptionsRequest();
+    if (command.repeatingTrack != null) {
+      req.repeatingTrack = proto.OptionalBoolean()
+        ..value = command.repeatingTrack!;
+    }
+    if (command.repeatingContext != null) {
+      req.repeatingContext = proto.OptionalBoolean()
+        ..value = command.repeatingContext!;
+    }
+    if (command.shufflingContext != null) {
+      req.shufflingContext = proto.OptionalBoolean()
+        ..value = command.shufflingContext!;
+    }
+    if (command.playbackSpeed != null) {
+      req.playbackSpeed = command.playbackSpeed!;
+    }
+    if (command.modes.isNotEmpty) {
+      req.modes.addEntries(command.modes.entries);
+    }
+    final opts = _commandOptionsToProto(command.options);
+    if (opts != null) req.options = opts;
+    final lp = _loggingParamsToProto(command.loggingParams);
+    if (lp != null) req.loggingParams = lp;
+
+    final payloadBytes = Uint8List.fromList(req.writeToBuffer());
     await callSingle(serviceName, 'SetOptions', payloadBytes);
   }
 
-  /// Sets shuffling context matching Spotify k4v.d.
+  /// Sets shuffling context matching Spotify k4v.d via binary Protobuf.
   Future<void> setShufflingContext(SetShufflingContextCommand command) async {
+    final req = proto.SetShufflingContextRequest()
+      ..shufflingContext = command.value;
+    final opts = _commandOptionsToProto(command.options);
+    if (opts != null) req.options = opts;
+    final lp = _loggingParamsToProto(command.loggingParams);
+    if (lp != null) req.loggingParams = lp;
+
+    final payloadBytes = Uint8List.fromList(req.writeToBuffer());
+    await callSingle(serviceName, 'SetShufflingContext', payloadBytes);
+  }
+
+  /// Sets repeating context matching Spotify k4v.c via binary Protobuf.
+  Future<void> setRepeatingContext(SetRepeatingContextCommand command) async {
+    final req = proto.SetRepeatingContextRequest()
+      ..repeatingContext = command.value;
+    final opts = _commandOptionsToProto(command.options);
+    if (opts != null) req.options = opts;
+    final lp = _loggingParamsToProto(command.loggingParams);
+    if (lp != null) req.loggingParams = lp;
+
+    final payloadBytes = Uint8List.fromList(req.writeToBuffer());
+    await callSingle(serviceName, 'SetRepeatingContext', payloadBytes);
+  }
+
+  /// Sets repeating track matching Spotify k4v.c via binary Protobuf.
+  Future<void> setRepeatingTrack(SetRepeatingTrackCommand command) async {
+    final req = proto.SetRepeatingTrackRequest()
+      ..repeatingTrack = command.value;
+    final opts = _commandOptionsToProto(command.options);
+    if (opts != null) req.options = opts;
+    final lp = _loggingParamsToProto(command.loggingParams);
+    if (lp != null) req.loggingParams = lp;
+
+    final payloadBytes = Uint8List.fromList(req.writeToBuffer());
+    await callSingle(serviceName, 'SetRepeatingTrack', payloadBytes);
+  }
+
+  /// Sets sleep timer matching Spotify sleep timer command.
+  Future<void> setSleepTimer(SetSleepTimerCommand command) async {
+    final Map<String, dynamic> timerMap;
+    final timerType = command.timerType;
+    if (timerType is TimerTypeDuration) {
+      timerMap = {'duration': timerType.durationSeconds};
+    } else if (timerType is TimerTypeEndOfTrack) {
+      timerMap = {'end_of_track': true};
+    } else {
+      timerMap = {'clear': true};
+    }
+
     final payloadMap = {
-      'shuffling_context': command.value,
+      'timer_type': timerMap,
       if (command.options != null)
-        'options': _commandOptionsToProto(command.options),
+        'options': {
+          if (command.options!.overrideRestrictions != null)
+            'override_restrictions': command.options!.overrideRestrictions,
+          if (command.options!.onlyForPlaybackId != null)
+            'only_for_playback_id': command.options!.onlyForPlaybackId,
+          if (command.options!.systemInitiated != null)
+            'system_initiated': command.options!.systemInitiated,
+          if (command.options!.onlyForLocalDevice != null)
+            'only_for_local_device': command.options!.onlyForLocalDevice,
+        },
       if (command.loggingParams != null)
-        'logging_params': _loggingParamsToProto(command.loggingParams),
+        'logging_params': {
+          if (command.loggingParams!.commandId != null)
+            'command_id': command.loggingParams!.commandId,
+          if (command.loggingParams!.pageInstanceIds.isNotEmpty)
+            'page_instance_ids': command.loggingParams!.pageInstanceIds.toList(),
+          if (command.loggingParams!.interactionIds.isNotEmpty)
+            'interaction_ids': command.loggingParams!.interactionIds.toList(),
+        },
     };
     final payloadBytes = Uint8List.fromList(utf8.encode(jsonEncode(payloadMap)));
-    await callSingle(serviceName, 'SetShufflingContext', payloadBytes);
+    await callSingle(serviceName, 'SetSleepTimer', payloadBytes);
   }
 
   /// Convenience toggle for shuffle.

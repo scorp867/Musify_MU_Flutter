@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
-import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
+import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
+import 'package:musify_mu/features/player/domain/models/context.dart';
+import 'package:musify_mu/features/player/domain/models/context_page.dart';
+import 'package:musify_mu/features/player/domain/models/context_track.dart';
+import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 class LocalMusicScreen extends StatelessWidget {
@@ -98,13 +104,52 @@ class LocalMusicScreen extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 16),
                   child: GestureDetector(
                     onTap: () {
-                      PlayerScreen.show(
-                        context,
-                        title: track.title,
-                        artist: track.artist.isNotEmpty ? track.artist : 'Local Artist',
-                        album: track.album ?? 'Local Music',
-                        songId: track.songId ?? int.tryParse(track.id),
-                      );
+                      final allContextTracks = tracks.map((t) {
+                        return ContextTrack.builder('spotify:local:${t.id}')
+                            .uid('local_${t.id}')
+                            .metadata({
+                              ContextTrackMetadata.keyTitle: t.title,
+                              ContextTrackMetadata.keyArtistName: t.artist,
+                              ContextTrackMetadata.keyAlbumTitle: t.album ?? 'Local Music',
+                              ContextTrackMetadata.keyDuration: t.duration?.toString() ?? '0',
+                              ContextTrackMetadata.keyLocalFilePath: t.dataPath ?? '',
+                              if (t.songId != null)
+                                ContextTrackMetadata.keySongId: t.songId.toString(),
+                              ContextTrackMetadata.keyIsQueued: 'false',
+                            })
+                            .build();
+                      }).toList(growable: false);
+
+                      final tappedTrack = allContextTracks[index];
+
+                      if (getIt.isRegistered<PlayerQueueBloc>()) {
+                        final activeBloc = getIt<PlayerQueueBloc>();
+
+                        final page = ContextPage.builder()
+                            .tracks(allContextTracks)
+                            .build();
+
+                        final contextModel = Context.builder('spotify:internal:local-files')
+                            .url('context://spotify:internal:local-files')
+                            .metadata({
+                              ContextTrackMetadata.keyTitle: 'Local Files',
+                            })
+                            .pages([page])
+                            .build();
+
+                        final playOptions = PreparePlayOptions.builder()
+                            .skipTo(SkipToTrack.fromUri(tappedTrack.uri))
+                            .build();
+
+                        activeBloc.add(PlayContext(
+                          context: contextModel,
+                          options: playOptions,
+                          playOrigin: const PlayOrigin(
+                            featureIdentifier: 'local_files',
+                            viewUri: 'spotify:internal:local-files',
+                          ),
+                        ));
+                      }
                     },
                     behavior: HitTestBehavior.opaque,
                     child: Row(

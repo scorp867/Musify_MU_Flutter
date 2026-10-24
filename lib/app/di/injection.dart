@@ -59,6 +59,7 @@ import 'package:musify_mu/features/player/data/repositories/scrollsita_repositor
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
+import 'package:musify_mu/features/player/data/esperanto/native_esperanto_transport.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_component.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_options_client.dart';
@@ -66,7 +67,7 @@ import 'package:musify_mu/features/player/data/esperanto/context_player_play_cli
 import 'package:musify_mu/features/player/data/esperanto/context_player_queue_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
-import 'package:musify_mu/features/player/data/mock/mock_queue_seeder.dart';
+import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -346,11 +347,17 @@ Future<void> setupInjection() async {
     ),
   );
 
+  // --- Native Audio Engine ---
+  getIt.registerLazySingleton<MusifyNativeAudioEngine>(
+    MusifyNativeAudioEngine.new,
+    dispose: (engine) => engine.dispose(),
+  );
+
   // --- Spotify Esperanto Transport & ContextPlayer Factory Component (p.t0m) ---
   getIt.registerLazySingleton<EsperantoTransport>(
-    () => InMemoryEsperantoTransport(),
+    () => NativeEsperantoTransport(getIt<MusifyNativeAudioEngine>()),
     dispose: (t) {
-      if (t is InMemoryEsperantoTransport) t.dispose();
+      if (t is NativeEsperantoTransport) t.dispose();
     },
   );
   getIt.registerLazySingleton<ContextPlayerComponent>(
@@ -374,18 +381,13 @@ Future<void> setupInjection() async {
 
   // --- Spotify Playback & Queue BLoC ---
   getIt.registerLazySingleton<PlayerQueueBloc>(
-    () {
-      final bloc = PlayerQueueBloc(
-        queueClient: getIt<ContextPlayerQueueClient>(),
-        controlClient: getIt<ContextPlayerControlClient>(),
-        optionsClient: getIt<ContextPlayerOptionsClient>(),
-        stateClient: getIt<ContextPlayerStateClient>(),
-        playClient: getIt<ContextPlayerPlayClient>(),
-        initialQueue: MockQueueSeeder.createInitialMockQueue(),
-      );
-      MockQueueSeeder.seedInitialState(bloc);
-      return bloc;
-    },
+    () => PlayerQueueBloc(
+      queueClient: getIt<ContextPlayerQueueClient>(),
+      controlClient: getIt<ContextPlayerControlClient>(),
+      optionsClient: getIt<ContextPlayerOptionsClient>(),
+      stateClient: getIt<ContextPlayerStateClient>(),
+      playClient: getIt<ContextPlayerPlayClient>(),
+    ),
     dispose: (bloc) => bloc.close(),
   );
 }

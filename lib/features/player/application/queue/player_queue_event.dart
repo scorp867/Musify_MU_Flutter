@@ -1,5 +1,10 @@
 import '../../data/queue/queue_add_handler.dart';
+import '../../domain/commands/options/prepare_play_options.dart';
+import '../../domain/commands/set_sleep_timer_command.dart';
+import '../../domain/commands/signal_command.dart';
+import '../../domain/models/context.dart';
 import '../../domain/models/context_track.dart';
+import '../../domain/models/play_origin.dart';
 import '../../domain/models/player_queue.dart';
 import '../../domain/models/player_state.dart';
 
@@ -24,7 +29,7 @@ class PlayerStateChanged extends PlayerQueueEvent {
   const PlayerStateChanged(this.playerState);
 }
 
-/// Add tracks to queue (supports standard append or playNext mode)
+/// Add tracks to user queue (supports standard append or playNext mode)
 class AddTracksToQueue extends PlayerQueueEvent {
   final List<ContextTrack> tracks;
   final QueueInsertMode mode;
@@ -32,6 +37,30 @@ class AddTracksToQueue extends PlayerQueueEvent {
   const AddTracksToQueue(
     this.tracks, {
     this.mode = QueueInsertMode.addToEndOfQueue,
+  });
+}
+
+/// Set tracks directly into nextTracks (for context queue updates)
+class SetQueueTracks extends PlayerQueueEvent {
+  final List<ContextTrack> nextTracks;
+  final List<ContextTrack>? prevTracks;
+
+  const SetQueueTracks({
+    required this.nextTracks,
+    this.prevTracks,
+  });
+}
+
+/// Play a context (e.g. album, playlist, local files list) matching Spotify PlayCommand
+class PlayContext extends PlayerQueueEvent {
+  final Context context;
+  final PreparePlayOptions? options;
+  final PlayOrigin playOrigin;
+
+  const PlayContext({
+    required this.context,
+    this.options,
+    this.playOrigin = const PlayOrigin(),
   });
 }
 
@@ -88,6 +117,53 @@ class SkipToPrevTrack extends PlayerQueueEvent {
   const SkipToPrevTrack();
 }
 
+/// Seek playback to an exact position in milliseconds
+class SeekToTrackPosition extends PlayerQueueEvent {
+  final int positionMs;
+  const SeekToTrackPosition(this.positionMs);
+}
+
+/// Stop playback immediately
+class StopPlayback extends PlayerQueueEvent {
+  const StopPlayback();
+}
+
+/// Send a signal command to ContextPlayer
+class SendPlayerSignal extends PlayerQueueEvent {
+  final SignalCommand signal;
+  const SendPlayerSignal(this.signal);
+}
+
+/// Configure sleep timer
+class SetSleepTimer extends PlayerQueueEvent {
+  final SetSleepTimerCommand command;
+  const SetSleepTimer(this.command);
+}
+
+/// Insert tracks to play immediately after the current playing track
+class PlayAsNextInQueue extends PlayerQueueEvent {
+  final List<ContextTrack> tracks;
+  const PlayAsNextInQueue(this.tracks);
+}
+
+/// Update active context metadata
+class UpdateContext extends PlayerQueueEvent {
+  final Context context;
+  const UpdateContext(this.context);
+}
+
+/// Update active track metadata
+class UpdateTrack extends PlayerQueueEvent {
+  final ContextTrack track;
+  const UpdateTrack(this.track);
+}
+
+/// Dispatched when the native engine finishes rendering a track
+class TrackFinished extends PlayerQueueEvent {
+  final ContextTrack? finishedTrack;
+  const TrackFinished([this.finishedTrack]);
+}
+
 /// Dispatched when an asynchronous stream error occurs
 class QueueErrorOccurred extends PlayerQueueEvent {
   final String error;
@@ -100,6 +176,8 @@ typedef PlayerQueueToggleShuffle = ToggleShuffle;
 typedef PlayerQueueCycleRepeat = ToggleRepeat;
 typedef PlayerQueueSkipNext = SkipToNextTrack;
 typedef PlayerQueueSkipPrevious = SkipToPrevTrack;
+typedef PlayerQueueSeekTo = SeekToTrackPosition;
+typedef PlayerQueueStop = StopPlayback;
 typedef PlayerQueueLoadQueue = LoadQueue;
 typedef PlayerQueueClearQueue = ClearQueue;
-
+typedef PlayerQueueSendSignal = SendPlayerSignal;

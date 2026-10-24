@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
 import '../../application/queue/player_queue_bloc.dart';
@@ -29,7 +30,7 @@ class MiniPlayer extends StatefulWidget {
     this.imageUrl,
     this.songId,
     this.isPlaying = false,
-    this.progress = 0.35,
+    this.progress = 0.0,
     this.onPlayPause,
     this.onNext,
     this.onPrevious,
@@ -64,6 +65,36 @@ class _MiniPlayerState extends State<MiniPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    final bloc = widget.queueBloc;
+    if (bloc != null) {
+      return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
+        bloc: bloc,
+        buildWhen: (previous, current) {
+          return previous.nowPlaying != current.nowPlaying ||
+              previous.isPlaying != current.isPlaying ||
+              previous.isBuffering != current.isBuffering ||
+              previous.playbackProgress != current.playbackProgress;
+        },
+        builder: (context, state) {
+          return _buildMiniPlayerContent(context, state: state);
+        },
+      );
+    }
+    return _buildMiniPlayerContent(context);
+  }
+
+  Widget _buildMiniPlayerContent(BuildContext context, {PlayerQueueState? state}) {
+    final displayTitle = (state?.title.isNotEmpty == true)
+        ? state!.title
+        : widget.title;
+    final displayArtist = (state?.artist.isNotEmpty == true)
+        ? state!.artist
+        : widget.artist;
+    final displayImageUrl = state?.imageUrl ?? widget.imageUrl;
+    final displaySongId = state?.songId ?? widget.songId;
+    final isPlaying = state?.isPlaying ?? _isPlaying;
+    final progress = state != null ? state.playbackProgress : widget.progress;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: GestureDetector(
@@ -75,11 +106,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
             PlayerScreen.show(
               context,
               queueBloc: widget.queueBloc,
-              currentTrack: widget.currentTrack,
-              title: widget.title,
-              artist: widget.artist,
-              imageUrl: widget.imageUrl,
-              songId: widget.songId,
+              currentTrack: state?.currentTrack ?? widget.currentTrack,
+              title: displayTitle,
+              artist: displayArtist,
+              imageUrl: displayImageUrl,
+              songId: displaySongId,
             );
           }
         },
@@ -123,8 +154,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: PlayerArtworkImage(
-                        songId: widget.songId,
-                        imageUrl: widget.imageUrl,
+                        songId: displaySongId,
+                        imageUrl: displayImageUrl,
                         artworkWidth: 40,
                         artworkHeight: 40,
                         placeholderIconSize: 20,
@@ -137,7 +168,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            widget.title,
+                            displayTitle,
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.w600,
@@ -149,8 +180,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            widget.artist.isNotEmpty
-                                ? widget.artist
+                            displayArtist.isNotEmpty
+                                ? displayArtist
                                 : 'Unknown Artist',
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.70),
@@ -190,7 +221,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       padding: const EdgeInsets.all(4),
                       constraints: const BoxConstraints(),
                       icon: Icon(
-                        _isPlaying
+                        isPlaying
                             ? Icons.pause_rounded
                             : Icons.play_arrow_rounded,
                         color: Colors.white,
@@ -217,7 +248,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 ),
                 child: RepaintBoundary(
                   child: LinearProgressIndicator(
-                    value: widget.progress.clamp(0.0, 1.0),
+                    value: progress.clamp(0.0, 1.0),
                     backgroundColor: Colors.white.withValues(alpha: 0.15),
                     valueColor: const AlwaysStoppedAnimation<Color>(
                       Colors.white,

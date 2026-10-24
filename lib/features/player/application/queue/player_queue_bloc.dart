@@ -63,6 +63,8 @@ class PlayerQueueBloc extends Bloc<PlayerQueueEvent, PlayerQueueState> {
     on<PlayerStateChanged>(_onDispatch);
     on<QueueErrorOccurred>(_onDispatch);
     on<AddTracksToQueue>(_onDispatch);
+    on<SetQueueTracks>(_onDispatch);
+    on<PlayContext>(_onDispatch);
     on<RemoveTracksFromQueue>(_onDispatch);
     on<ReorderQueueTrack>(_onDispatch);
     on<ClearQueue>(_onDispatch);
@@ -72,6 +74,14 @@ class PlayerQueueBloc extends Bloc<PlayerQueueEvent, PlayerQueueState> {
     on<SkipToNextTrack>(_onDispatch);
     on<SkipToPrevTrack>(_onDispatch);
     on<PlayTrackFromQueue>(_onDispatch);
+    on<SeekToTrackPosition>(_onDispatch);
+    on<StopPlayback>(_onDispatch);
+    on<SendPlayerSignal>(_onDispatch);
+    on<SetSleepTimer>(_onDispatch);
+    on<PlayAsNextInQueue>(_onDispatch);
+    on<UpdateContext>(_onDispatch);
+    on<UpdateTrack>(_onDispatch);
+    on<TrackFinished>(_onDispatch);
 
     _initStreams();
   }

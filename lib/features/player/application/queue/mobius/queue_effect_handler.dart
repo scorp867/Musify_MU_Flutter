@@ -8,13 +8,21 @@ import '../../../data/queue/queue_helpers.dart';
 import '../../../data/queue/queue_remove_handler.dart';
 import '../../../data/queue/queue_reorder_handler.dart';
 import '../../../domain/commands/add_to_queue_command.dart';
+import '../../../domain/commands/options/command_options.dart';
+import '../../../domain/commands/options/prepare_play_options.dart';
 import '../../../domain/commands/pause_command.dart';
 import '../../../domain/commands/play_command.dart';
 import '../../../domain/commands/resume_command.dart';
+import '../../../domain/commands/seek_to_command.dart';
 import '../../../domain/commands/set_options_command.dart';
+import '../../../domain/commands/set_queue_command.dart';
 import '../../../domain/commands/skip_to_next_track_command.dart';
 import '../../../domain/commands/skip_to_prev_track_command.dart';
+import '../../../domain/commands/stop_command.dart';
+import '../../../domain/commands/update_context_command.dart';
+import '../../../domain/commands/update_track_command.dart';
 import '../../../domain/models/context.dart';
+import '../../../domain/models/context_page.dart';
 import '../../../domain/models/play_origin.dart';
 import '../../../domain/models/player_queue.dart';
 import '../player_queue_event.dart';
@@ -57,6 +65,33 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
           );
           final command = QueueHelpers.createSetQueueCommand(updated);
           await qc.setQueue(command);
+        }
+        return null;
+      }
+
+      if (effect is SetQueueTracksEffect) {
+        final qc = queueClient;
+        if (qc != null) {
+          final current = getCurrentQueue();
+          final updated = current.toBuilder()
+              .nextTracks(effect.nextTracks)
+              .prevTracks(effect.prevTracks ?? current.prevTracks)
+              .build();
+          final command = SetQueueCommand.builderFromQueue(updated)
+              .options(CommandOptions.builder().overrideRestrictions(true).build())
+              .build();
+          await qc.setQueue(command);
+        }
+        return null;
+      }
+
+      if (effect is PlayContextEffect) {
+        final pc = playClient;
+        if (pc != null) {
+          final playCommand = PlayCommand.builder(effect.context, effect.playOrigin)
+              .options(effect.options ?? PreparePlayOptions.empty)
+              .build();
+          await pc.play(playCommand);
         }
         return null;
       }
@@ -149,13 +184,90 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
       }
 
       if (effect is PlayTrackEffect) {
+        final cc = controlClient;
         final pc = playClient;
-        if (pc != null) {
+        final currentQueue = getCurrentQueue();
+
+        final isInNextTracks = currentQueue.nextTracks.any(
+          (t) => (t.uid.isNotEmpty && t.uid == effect.track.uid) ||
+                 (t.uri.isNotEmpty && t.uri == effect.track.uri),
+        );
+
+        if (isInNextTracks && cc != null) {
+          // 1:1 with Spotify x0j0 case 25: Skip to specific queued track
+          await cc.skipToNext(SkipToNextTrackCommand.builder().track(effect.track).build());
+        } else if (pc != null) {
+          // Play standalone or context track with full metadata and pages
+          final page = ContextPage.builder().tracks([effect.track]).build();
+          final context = Context.builder(effect.track.uri)
+              .url('context://${effect.track.uri}')
+              .metadata(effect.track.metadata)
+              .pages([page])
+              .build();
           final playCommand = PlayCommand.create(
-            Context.fromUri(effect.track.uri),
-            const PlayOrigin(),
+            context,
+            const PlayOrigin(featureIdentifier: 'local_files'),
           );
           await pc.play(playCommand);
+        }
+        return null;
+      }
+
+      if (effect is SeekToEffect) {
+        final cc = controlClient;
+        if (cc != null) {
+          await cc.seekTo(SeekToCommand.create(effect.positionMs));
+        }
+        return null;
+      }
+
+      if (effect is StopEffect) {
+        final cc = controlClient;
+        if (cc != null) {
+          await cc.stop(StopCommand.create());
+        }
+        return null;
+      }
+
+      if (effect is SignalEffect) {
+        final cc = controlClient;
+        if (cc != null) {
+          await cc.signal(effect.command);
+        }
+        return null;
+      }
+
+      if (effect is SetSleepTimerEffect) {
+        final oc = optionsClient;
+        if (oc != null) {
+          await oc.setSleepTimer(effect.command);
+        }
+        return null;
+      }
+
+      if (effect is PlayAsNextInQueueEffect) {
+        final updated = QueueAddHandler.addTracks(
+          getCurrentQueue(),
+          effect.tracks,
+          mode: QueueInsertMode.playNext,
+        );
+        final command = QueueHelpers.createSetQueueCommand(updated);
+        await queueClient?.setQueue(command);
+        return null;
+      }
+
+      if (effect is UpdateContextEffect) {
+        final pc = playClient;
+        if (pc != null) {
+          await pc.updateContext(UpdateContextCommand.create(effect.context));
+        }
+        return null;
+      }
+
+      if (effect is UpdateTrackEffect) {
+        final pc = playClient;
+        if (pc != null) {
+          await pc.updateTrack(UpdateTrackCommand.create(effect.track));
         }
         return null;
       }
