@@ -79,7 +79,6 @@ class _ArtworkMemoryCache {
       _inFlight.remove(key);
     }
   }
-
 }
 
 class _ArtworkCacheKey {
@@ -258,13 +257,12 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
     _cacheKey = key;
 
     final syncHit = _ArtworkMemoryCache.getSync(key);
+    _imageProvider = syncHit;
     if (syncHit != null) {
-      _imageProvider = syncHit;
       return;
     }
 
     if (_ArtworkMemoryCache.isKnownMissing(key)) {
-      _imageProvider = null;
       return;
     }
 

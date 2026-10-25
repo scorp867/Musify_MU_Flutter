@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
-import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
+import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
+import 'package:musify_mu/features/player/domain/models/context.dart';
+import 'package:musify_mu/features/player/domain/models/context_page.dart';
+import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 /// Offline browse view -- search and explore local music files by artist/album.
@@ -83,7 +89,7 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
                   ),
                 ),
 
-                // Search bar
+                // Search field
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -92,12 +98,13 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
                       onChanged: (v) => setState(() => _searchQuery = v),
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                       decoration: InputDecoration(
-                        hintText: 'Search local files',
+                        hintText: 'What do you want to play?',
                         hintStyle: TextStyle(color: Colors.grey.shade500),
-                        prefixIcon: Icon(Icons.search, color: Colors.grey.shade500),
+                        prefixIcon:
+                            Icon(Icons.search, color: Colors.grey.shade500),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
-                                icon: Icon(Icons.close, color: Colors.grey.shade400),
+                                icon: const Icon(Icons.clear, color: Colors.grey),
                                 onPressed: () {
                                   _searchController.clear();
                                   setState(() => _searchQuery = '');
@@ -110,18 +117,40 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
                           borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide.none,
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
                   ),
                 ),
 
-                // Content
+                // Content: Browse grid or search results
                 if (state is LocalMusicLoading)
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: Center(
-                      child: CircularProgressIndicator(color: Color(0xFF1DB954)),
+                      child:
+                          CircularProgressIndicator(color: Color(0xFF1DB954)),
+                    ),
+                  )
+                else if (state is LocalMusicError)
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Text(
+                        state.message,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  )
+                else if (allTracks.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Text(
+                        'No local music found on your device.',
+                        style: TextStyle(color: Colors.grey, fontSize: 15),
+                      ),
                     ),
                   )
                 else if (_searchQuery.isEmpty)
@@ -136,128 +165,141 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
     );
   }
 
-  /// When no search query, show browse-by-artist and browse-by-album grids.
   Widget _buildBrowseGrid(List<DomainTrack> tracks) {
     // Group by artist
     final artistMap = <String, List<DomainTrack>>{};
     for (final t in tracks) {
-      artistMap.putIfAbsent(t.artist, () => []).add(t);
+      final a = t.artist.isNotEmpty ? t.artist : 'Unknown Artist';
+      artistMap.putIfAbsent(a, () => []).add(t);
     }
-    final artists = artistMap.keys.toList()..sort();
 
     // Group by album
     final albumMap = <String, List<DomainTrack>>{};
     for (final t in tracks) {
-      final album = t.album ?? 'Unknown Album';
-      albumMap.putIfAbsent(album, () => []).add(t);
+      if (t.album != null && t.album!.isNotEmpty) {
+        albumMap.putIfAbsent(t.album!, () => []).add(t);
+      }
     }
-    final albums = albumMap.keys.toList()..sort();
+
+    final topArtists = artistMap.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    final topAlbums = albumMap.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
 
     return SliverList(
       delegate: SliverChildListDelegate([
         // Artists section
-        if (artists.isNotEmpty) ...[
-          _sectionHeader('Artists', '${artists.length}'),
+        if (topArtists.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Text(
+              'Artists',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
           SizedBox(
             height: 160,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: artists.length,
+              itemCount: topArtists.length,
               itemBuilder: (context, index) {
-                final artist = artists[index];
-                final count = artistMap[artist]!.length;
-                final firstTrack = artistMap[artist]!.first;
-                return _ArtistCard(
-                  name: artist,
-                  trackCount: count,
-                  sampleTrack: firstTrack,
+                final entry = topArtists[index];
+                return GestureDetector(
+                  onTap: () => _playTrack(entry.value, 0),
+                  child: _ArtistCard(
+                    name: entry.key,
+                    trackCount: entry.value.length,
+                    sampleTrack: entry.value.first,
+                  ),
                 );
               },
             ),
           ),
-          const SizedBox(height: 24),
         ],
 
         // Albums section
-        if (albums.isNotEmpty) ...[
-          _sectionHeader('Albums', '${albums.length}'),
+        if (topAlbums.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
+            child: Text(
+              'Albums',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
           SizedBox(
-            height: 200,
+            height: 220,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: albums.length,
+              itemCount: topAlbums.length,
               itemBuilder: (context, index) {
-                final album = albums[index];
-                final albumTracks = albumMap[album]!;
-                final artist = albumTracks.first.artist;
-                final firstTrack = albumTracks.first;
-                return _AlbumCard(
-                  name: album,
-                  artist: artist,
-                  sampleTrack: firstTrack,
+                final entry = topAlbums[index];
+                return GestureDetector(
+                  onTap: () => _playTrack(entry.value, 0),
+                  child: _AlbumCard(
+                    name: entry.key,
+                    artist: entry.value.first.artist,
+                    sampleTrack: entry.value.first,
+                  ),
                 );
               },
             ),
           ),
         ],
+
+        // Quick play all section
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
+          child: Text(
+            'All Songs',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: tracks.length.clamp(0, 10),
+          itemBuilder: (context, index) {
+            final track = tracks[index];
+            return _buildTrackRow(track, () => _playTrack(tracks, index));
+          },
+        ),
 
         const ShellBottomSpacer(),
       ]),
     );
   }
 
-  Widget _sectionHeader(String title, String count) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          Text(
-            count,
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// When searching, show filtered track results.
   Widget _buildSearchResults(List<DomainTrack> tracks) {
     final q = _searchQuery.toLowerCase();
-    final filtered = tracks
+    final results = tracks
         .where((t) =>
             t.title.toLowerCase().contains(q) ||
             t.artist.toLowerCase().contains(q) ||
             (t.album?.toLowerCase().contains(q) ?? false))
         .toList();
 
-    if (filtered.isEmpty) {
+    if (results.isEmpty) {
       return SliverFillRemaining(
         hasScrollBody: false,
         child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.search_off, color: Colors.grey.shade600, size: 48),
-              const SizedBox(height: 12),
-              Text(
-                'No results for "$_searchQuery"',
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 15),
-              ),
-            ],
+          child: Text(
+            'No results found for "$_searchQuery"',
+            style: TextStyle(color: Colors.grey.shade400, fontSize: 15),
           ),
         ),
       );
@@ -266,85 +308,134 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       sliver: SliverList.builder(
-        itemCount: filtered.length + 1,
+        itemCount: results.length + 1,
         itemBuilder: (context, index) {
-          if (index == filtered.length) return const ShellBottomSpacer();
-          final track = filtered[index];
-          return GestureDetector(
-            onTap: () => _playTrack(filtered, index),
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
+          if (index == results.length) {
+            return const ShellBottomSpacer();
+          }
+          final track = results[index];
+          return _buildTrackRow(track, () => _playTrack(results, index));
+        },
+      ),
+    );
+  }
+
+  Widget _buildTrackRow(DomainTrack track, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: QueryArtworkWidget(
+                id: track.songId ?? int.tryParse(track.id) ?? 0,
+                type: ArtworkType.AUDIO,
+                artworkHeight: 48,
+                artworkWidth: 48,
+                keepOldArtwork: true,
+                nullArtworkWidget: Container(
+                  width: 48,
+                  height: 48,
+                  color: const Color(0xFF1E293B),
+                  child: const Icon(Icons.music_note,
+                      color: Color(0xFF1DB954), size: 24),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  QueryArtworkWidget(
-                    id: track.songId ?? int.tryParse(track.id) ?? 0,
-                    type: ArtworkType.AUDIO,
-                    artworkHeight: 48,
-                    artworkWidth: 48,
-                    artworkBorder: BorderRadius.zero,
-                    artworkClipBehavior: Clip.none,
-                    artworkQuality: FilterQuality.low,
-                    quality: 50,
-                    keepOldArtwork: true,
-                    nullArtworkWidget: Container(
-                      width: 48,
-                      height: 48,
-                      color: const Color(0xFF1E293B),
-                      child: const Icon(Icons.music_note, color: Color(0xFF1DB954)),
+                  Text(
+                    track.title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          track.title,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${track.artist}${track.album != null ? " \u2022 ${track.album}" : ""}',
-                          style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${track.artist}${track.album != null ? " \u2022 ${track.album}" : ""}',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  if (track.duration != null)
-                    Text(
-                      DurationFormatter.milliseconds(track.duration!),
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-                    ),
                 ],
               ),
             ),
-          );
-        },
+            if (track.duration != null)
+              Text(
+                DurationFormatter.milliseconds(track.duration!),
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+              ),
+          ],
+        ),
       ),
     );
   }
 
   void _playTrack(List<DomainTrack> tracks, int index) {
     if (index >= 0 && index < tracks.length) {
-      final track = tracks[index];
-      PlayerScreen.show(
-        context,
-        title: track.title,
-        artist: track.artist.isNotEmpty ? track.artist : 'Local Artist',
-        album: track.album ?? 'Local Music',
-        songId: track.songId ?? int.tryParse(track.id),
-      );
-    } else {
-      PlayerScreen.show(context);
+      final contextTracks = tracks.map((t) {
+        final uri = t.isLocal
+            ? (t.dataPath != null && t.dataPath!.isNotEmpty
+                ? 'spotify:local:${Uri.encodeComponent(t.dataPath!)}'
+                : 'spotify:local:${t.id}')
+            : 'spotify:track:${t.id}';
+        return ContextTrack.builder(uri)
+            .uid(t.id)
+            .metadata({
+              ContextTrackMetadata.keyTitle: t.title,
+              ContextTrackMetadata.keyArtistName:
+                  t.artist.isNotEmpty ? t.artist : 'Local Artist',
+              if (t.album != null) ContextTrackMetadata.keyAlbumTitle: t.album!,
+              if (t.duration != null)
+                ContextTrackMetadata.keyDuration: t.duration.toString(),
+              if (t.dataPath != null)
+                ContextTrackMetadata.keyLocalFilePath: t.dataPath!,
+              if (t.songId != null)
+                ContextTrackMetadata.keySongId: t.songId.toString(),
+              if (t.artUri != null) ContextTrackMetadata.keyImageUrl: t.artUri!,
+              ContextTrackMetadata.keyIsQueued: 'false',
+            })
+            .build();
+      }).toList(growable: false);
+
+      final activeTrack = contextTracks[index];
+
+      final contextPage = ContextPage.builder()
+          .tracks(contextTracks)
+          .build();
+
+      final playContext = Context.builder('spotify:internal:local-files')
+          .pages([contextPage])
+          .metadata({
+            'context_description': 'Local Files',
+          })
+          .build();
+
+      final options = PreparePlayOptions.builder()
+          .skipTo(SkipToTrack.builder()
+              .trackUid(activeTrack.uid)
+              .trackUri(activeTrack.uri)
+              .build())
+          .build();
+
+      final bloc =
+          getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null;
+      if (bloc != null) {
+        bloc.add(PlayContext(
+          context: playContext,
+          options: options,
+        ));
+      }
     }
   }
 }

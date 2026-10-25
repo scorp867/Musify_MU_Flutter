@@ -117,17 +117,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
       GlobalKey<PeekScrollViewState>();
   final GlobalKey _lyricsKey = GlobalKey();
 
-  Duration? _dragPosition;
-  Duration _currentPosition = Duration.zero;
+  final ValueNotifier<Duration?> _dragNotifier = ValueNotifier<Duration?>(null);
+  late final ValueNotifier<Duration> _positionNotifier;
+
   bool _isPlaying = false;
   bool _isFavorite = false;
   QueueShuffleMode _shuffleMode = QueueShuffleMode.none;
   QueueRepeatMode _repeatMode = QueueRepeatMode.none;
 
   Timer? _positionTimer;
-  late final ValueNotifier<Duration> _positionNotifier;
 
   static const Color _topGradientColor = Color(0xFF1E3264);
+
+  // Memoized 16-step eased gradient decoration to achieve 120 FPS without per-frame rebuild overhead
+  static final Decoration _tier1Decoration = BoxDecoration(
+    gradient: EasedGradient.build(
+      topColor: _topGradientColor,
+      bottomColor: const Color(0xFF121212),
+    ),
+  );
 
   static const List<String> _mockLyrics = [
     'I\'m tryna put you in the worst mood, ah',
@@ -147,7 +155,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _positionNotifier = ValueNotifier<Duration>(_currentPosition);
+    _positionNotifier = ValueNotifier<Duration>(Duration.zero);
+
+    final bloc = _effectiveBloc;
+    if (bloc != null) {
+      _isPlaying = bloc.state.isPlaying;
+      _positionNotifier.value = bloc.state.currentPosition;
+    }
+    _updatePositionTicker(_isPlaying);
   }
 
   @override
@@ -155,14 +170,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _positionTimer?.cancel();
     _positionTimer = null;
     _positionNotifier.dispose();
+    _dragNotifier.dispose();
     super.dispose();
   }
 
-  void _syncPositionTimer(bool isPlaying, PlayerQueueState? queueState) {
+  void _updatePositionTicker(bool isPlaying) {
     if (isPlaying) {
       if (_positionTimer == null || !_positionTimer!.isActive) {
         _positionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-          if (_dragPosition == null && mounted) {
+          if (_dragNotifier.value == null && mounted) {
             final bloc = _effectiveBloc;
             if (bloc != null) {
               _positionNotifier.value = bloc.state.currentPosition;
@@ -174,19 +190,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _positionTimer?.cancel();
       _positionTimer = null;
     }
-    if (_dragPosition == null && queueState != null) {
-      _positionNotifier.value = queueState.currentPosition;
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final bloc = _effectiveBloc;
     if (bloc != null) {
-      return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
+      return BlocConsumer<PlayerQueueBloc, PlayerQueueState>(
         bloc: bloc,
+        listenWhen: (previous, current) {
+          return previous.isPlaying != current.isPlaying;
+        },
+        listener: (context, state) {
+          _updatePositionTicker(state.isPlaying);
+          if (_dragNotifier.value == null) {
+            _positionNotifier.value = state.currentPosition;
+          }
+        },
         buildWhen: (previous, current) {
           return previous.nowPlaying != current.nowPlaying ||
+              previous.songId != current.songId ||
+              previous.imageUrl != current.imageUrl ||
               previous.isPlaying != current.isPlaying ||
               previous.isBuffering != current.isBuffering ||
               previous.isShuffling != current.isShuffling ||
@@ -202,8 +226,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildContent(BuildContext context, {PlayerQueueState? queueState}) {
-    final topInset = MediaQuery.paddingOf(context).top;
-
     final activeTrack = queueState?.currentTrack ?? widget.currentTrack;
     final displayTitle = (activeTrack?.title.isNotEmpty == true)
         ? activeTrack!.title
@@ -217,7 +239,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final displayDuration = (queueState != null && queueState.durationMs > 0)
         ? queueState.currentDuration
         : (activeTrack?.duration ?? widget.duration);
-    final displayImageUrl = activeTrack?.imageUrl ?? queueState?.imageUrl ?? widget.imageUrl;
+    final displayImageUrl = (activeTrack != null || queueState != null)
+        ? (activeTrack?.imageUrl ?? queueState?.imageUrl)
+        : widget.imageUrl;
+    final displaySongId = (activeTrack != null || queueState != null)
+        ? (activeTrack?.songId ?? queueState?.songId)
+        : widget.songId;
 
     final isPlaying = queueState?.isPlaying ?? _isPlaying;
     final shuffleMode = queueState != null
@@ -228,8 +255,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ? QueueRepeatMode.one
             : (queueState.repeatContext ? QueueRepeatMode.all : QueueRepeatMode.none))
         : _repeatMode;
-
-    _syncPositionTimer(isPlaying, queueState);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
@@ -243,77 +268,83 @@ class _PlayerScreenState extends State<PlayerScreen> {
       child: PullToDismissScaffold(
         barrierBaseAlpha: 0.70,
         builder: (context, dismissController) {
-          return Container(
-            margin: EdgeInsets.only(top: topInset),
-            child: PeekScrollView(
-              key: _peekScrollKey,
-              dismissController: dismissController,
-              peekHeight: 64.0,
-              tier1Decoration: BoxDecoration(
-                gradient: EasedGradient.build(
-                  topColor: _topGradientColor,
-                  bottomColor: const Color(0xFF121212),
-                ),
+          return PeekScrollView(
+            key: _peekScrollKey,
+            dismissController: dismissController,
+            peekHeight: 64.0,
+            tier1Decoration: _tier1Decoration,
+            header: PlayerHeader(
+              onClose: dismissController.dismiss,
+              onMore: () => _showMoreOptions(
+                context,
+                title: displayTitle,
+                artist: displayArtist,
+                album: displayAlbum,
+                duration: displayDuration,
+                activeTrack: activeTrack,
+                isPlayingVal: isPlaying,
+                shuffleVal: shuffleMode,
+                repeatVal: repeatMode,
               ),
-              header: PlayerHeader(
-                onClose: dismissController.dismiss,
-                onMore: () => _showMoreOptions(
-                  context,
-                  title: displayTitle,
-                  artist: displayArtist,
-                  album: displayAlbum,
-                  duration: displayDuration,
-                  activeTrack: activeTrack,
-                  isPlayingVal: isPlaying,
-                  shuffleVal: shuffleMode,
-                  repeatVal: repeatMode,
-                ),
-                contextTitle: 'PLAYING FROM ALBUM',
-                contextSubtitle: displayAlbum,
-              ),
-              mainContent: Column(
-                children: [
-                  const Spacer(flex: 1),
-                  Flexible(
-                    flex: 16,
+              contextTitle: 'PLAYING FROM ALBUM',
+              contextSubtitle: displayAlbum,
+            ),
+            mainContent: Column(
+              children: [
+                const Spacer(flex: 1),
+                Flexible(
+                  flex: 16,
+                  child: RepaintBoundary(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(
                         maxWidth: 380,
                         maxHeight: 380,
                       ),
                       child: PlayerAlbumArtwork(
+                        key: ValueKey('artwork_${activeTrack?.uid ?? activeTrack?.uri ?? displaySongId ?? displayImageUrl}'),
                         imageUrl: displayImageUrl,
-                        songId: widget.songId ?? queueState?.songId,
+                        songId: displaySongId,
                       ),
                     ),
                   ),
-                  const Spacer(flex: 1),
-                  PlayerMetadata(
+                ),
+                const Spacer(flex: 1),
+                RepaintBoundary(
+                  child: PlayerMetadata(
                     title: displayTitle,
                     artist: displayArtist,
                     isFavorite: _isFavorite,
                     onFavoriteChanged: _toggleFavorite,
                   ),
-                  const SizedBox(height: 10),
-                  ValueListenableBuilder<Duration>(
-                    valueListenable: _positionNotifier,
-                    builder: (context, pos, _) {
-                      return PlayerSeekBar(
-                        duration: displayDuration,
-                        position: _dragPosition ?? pos,
-                        dragPosition: _dragPosition,
-                        onDragPositionChanged: (dragPos) {
-                          setState(() => _dragPosition = dragPos);
-                          if (dragPos != null) {
-                            _positionNotifier.value = dragPos;
-                          }
+                ),
+                const SizedBox(height: 10),
+                RepaintBoundary(
+                  child: ValueListenableBuilder<Duration?>(
+                    valueListenable: _dragNotifier,
+                    builder: (context, dragPos, _) {
+                      return ValueListenableBuilder<Duration>(
+                        valueListenable: _positionNotifier,
+                        builder: (context, pos, _) {
+                          return PlayerSeekBar(
+                            duration: displayDuration,
+                            position: dragPos ?? pos,
+                            dragPosition: dragPos,
+                            onDragPositionChanged: (newDragPos) {
+                              _dragNotifier.value = newDragPos;
+                              if (newDragPos != null) {
+                                _positionNotifier.value = newDragPos;
+                              }
+                            },
+                            onSeek: _handleSeek,
+                          );
                         },
-                        onSeek: _handleSeek,
                       );
                     },
                   ),
-                  const SizedBox(height: 8),
-                  PlayerPlaybackControls(
+                ),
+                const SizedBox(height: 8),
+                RepaintBoundary(
+                  child: PlayerPlaybackControls(
                     isPlaying: isPlaying,
                     isBuffering: queueState?.isBuffering ?? false,
                     shuffleMode: shuffleMode,
@@ -324,35 +355,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onNext: _handleNext,
                     onPrevious: _handlePrevious,
                   ),
-                  const SizedBox(height: 6),
-                  PlayerUtilityRow(
-                    onQueue: () => _showQueue(
-                      context,
-                      activeTrack: activeTrack,
-                      isPlayingVal: isPlaying,
-                      shuffleVal: shuffleMode,
-                      repeatVal: repeatMode,
-                    ),
+                ),
+                const SizedBox(height: 6),
+                PlayerUtilityRow(
+                  onQueue: () => _showQueue(
+                    context,
+                    activeTrack: activeTrack,
+                    isPlayingVal: isPlaying,
+                    shuffleVal: shuffleMode,
+                    repeatVal: repeatMode,
                   ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-              peekingCard: PlayerLyricsSection(
-                key: _lyricsKey,
-                lyricsLines: _mockLyrics,
-                activeLineIndex: 1,
-                backgroundColor: const Color(0xFF1E3264),
-                onTapHeader: _onExpandLyrics,
-              ),
-              expandedCards: [
-                PlayerAboutArtistSection(
-                  artistName: displayArtist,
                 ),
-                PlayerCreditsSection(
-                  artistName: displayArtist,
-                ),
+                const SizedBox(height: 8),
               ],
             ),
+            peekingCard: PlayerLyricsSection(
+              key: _lyricsKey,
+              lyricsLines: _mockLyrics,
+              activeLineIndex: 1,
+              backgroundColor: const Color(0xFF1E3264),
+              onTapHeader: _onExpandLyrics,
+            ),
+            expandedCards: [
+              PlayerAboutArtistSection(
+                artistName: displayArtist,
+              ),
+              PlayerCreditsSection(
+                artistName: displayArtist,
+              ),
+            ],
           );
         },
       ),
@@ -360,12 +391,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleSeek(Duration pos) {
-    _setDragPosition(null);
+    _dragNotifier.value = null;
     final bloc = _effectiveBloc;
     if (bloc != null) {
       bloc.add(SeekToTrackPosition(pos.inMilliseconds));
     } else {
-      setState(() => _currentPosition = pos);
+      _positionNotifier.value = pos;
     }
   }
 
@@ -374,7 +405,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (bloc != null) {
       bloc.add(const PlayerQueueTogglePlayPause());
     } else {
-      setState(() => _isPlaying = !_isPlaying);
+      setState(() {
+        _isPlaying = !_isPlaying;
+        _updatePositionTicker(_isPlaying);
+      });
     }
   }
 
@@ -426,12 +460,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  void _setDragPosition(Duration? position) {
-    setState(() {
-      _dragPosition = position;
-    });
-  }
-
   void _showQueue(
     BuildContext context, {
     ContextTrack? activeTrack,
@@ -459,56 +487,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
     required String album,
     required Duration duration,
     ContextTrack? activeTrack,
-    bool? isPlayingVal,
-    QueueShuffleMode? shuffleVal,
-    QueueRepeatMode? repeatVal,
+    bool isPlayingVal = false,
+    QueueShuffleMode shuffleVal = QueueShuffleMode.none,
+    QueueRepeatMode repeatVal = QueueRepeatMode.none,
   }) {
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: PlayerColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) {
+      builder: (bottomSheetContext) {
         return PlayerOptionsSheet(
-          onShowDetails: () => _showTrackDetails(
-            context,
-            title: title,
-            artist: artist,
-            album: album,
-            duration: duration,
-          ),
-          onShowQueue: () => _showQueue(
-            context,
-            activeTrack: activeTrack,
-            isPlayingVal: isPlayingVal,
-            shuffleVal: shuffleVal,
-            repeatVal: repeatVal,
-          ),
+          onShowDetails: () {
+            showModalBottomSheet<void>(
+              context: context,
+              backgroundColor: PlayerColors.surface,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              builder: (detailsContext) {
+                return PlayerTrackDetailsSheet(
+                  title: title,
+                  artist: artist,
+                  album: album,
+                  duration: duration,
+                );
+              },
+            );
+          },
+          onShowQueue: () {
+            _showQueue(
+              context,
+              activeTrack: activeTrack,
+              isPlayingVal: isPlayingVal,
+              shuffleVal: shuffleVal,
+              repeatVal: repeatVal,
+            );
+          },
         );
       },
-    );
-  }
-
-  void _showTrackDetails(
-    BuildContext context, {
-    required String title,
-    required String artist,
-    required String album,
-    required Duration duration,
-  }) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: PlayerColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (_) => PlayerTrackDetailsSheet(
-        title: title,
-        artist: artist,
-        album: album,
-        duration: duration,
-      ),
     );
   }
 }

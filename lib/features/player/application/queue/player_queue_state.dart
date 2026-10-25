@@ -119,7 +119,13 @@ class PlayerQueueState {
   int? get songId {
     final raw = nowPlaying?.metadata[ContextTrackMetadata.keySongId];
     if (raw != null && raw.isNotEmpty) {
-      return int.tryParse(raw);
+      final parsed = int.tryParse(raw);
+      if (parsed != null) return parsed;
+    }
+    final uid = nowPlaying?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      final parsed = int.tryParse(uid);
+      if (parsed != null) return parsed;
     }
     return null;
   }

@@ -16,7 +16,16 @@ extension ContextTrackExtensions on ContextTrack {
   String get album => metadata[ContextTrackMetadata.keyAlbumTitle] ?? '';
 
   /// MediaStore / OnAudioQuery song ID resolved from metadata.
-  int? get songId => int.tryParse(metadata[ContextTrackMetadata.keySongId] ?? '');
+  int? get songId {
+    final raw = metadata[ContextTrackMetadata.keySongId];
+    if (raw != null && raw.isNotEmpty) {
+      final parsed = int.tryParse(raw);
+      if (parsed != null) return parsed;
+    }
+    final parsedUid = int.tryParse(uid);
+    if (parsedUid != null) return parsedUid;
+    return null;
+  }
 
   /// Artwork URL resolved from metadata (prioritizes large, xlarge, small).
   String? get imageUrl =>

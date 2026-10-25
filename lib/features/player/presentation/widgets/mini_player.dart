@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
+
 import '../../application/queue/player_queue_bloc.dart';
+import '../../data/queue/context_track_extensions.dart';
 import '../../domain/models/context_track.dart';
 import 'player_artwork.dart';
 
@@ -45,14 +48,18 @@ class MiniPlayer extends StatefulWidget {
 }
 
 class _MiniPlayerState extends State<MiniPlayer> {
-  final Color _currentColor = const Color(0xFF242424);
+  Color _currentColor = const Color(0xFF242424);
   bool _isFavorite = false;
   late bool _isPlaying;
+  String? _lastExtractedKey;
 
   @override
   void initState() {
     super.initState();
     _isPlaying = widget.isPlaying;
+    final initialSongId = widget.queueBloc?.state.songId ?? widget.currentTrack?.songId ?? widget.songId;
+    final initialImageUrl = widget.queueBloc?.state.imageUrl ?? widget.currentTrack?.imageUrl ?? widget.imageUrl;
+    _extractColor(songId: initialSongId, imageUrl: initialImageUrl);
   }
 
   @override
@@ -61,19 +68,69 @@ class _MiniPlayerState extends State<MiniPlayer> {
     if (oldWidget.isPlaying != widget.isPlaying) {
       _isPlaying = widget.isPlaying;
     }
+    if (oldWidget.songId != widget.songId || oldWidget.imageUrl != widget.imageUrl) {
+      _extractColor(songId: widget.songId, imageUrl: widget.imageUrl);
+    }
+  }
+
+  void _extractColor({int? songId, String? imageUrl}) {
+    final key = songId != null ? 'song_$songId' : (imageUrl ?? '');
+    if (key.isEmpty || key == _lastExtractedKey) return;
+    _lastExtractedKey = key;
+
+    final service = widget.colorService ??
+        (getIt.isRegistered<ColorExtractionService>()
+            ? getIt<ColorExtractionService>()
+            : null);
+    if (service == null) return;
+
+    final cached = service.getCached(key);
+    if (cached != null) {
+      final targetColor = cached.isNeutral ? const Color(0xFF242424) : cached.surface;
+      if (_currentColor != targetColor) {
+        setState(() {
+          _currentColor = targetColor;
+        });
+      }
+      return;
+    }
+
+    service.extract(
+      songId: songId,
+      imageUrl: imageUrl,
+      cacheKey: key,
+    ).then((scheme) {
+      if (mounted && _lastExtractedKey == key) {
+        final targetColor = scheme.isNeutral ? const Color(0xFF242424) : scheme.surface;
+        if (_currentColor != targetColor) {
+          setState(() {
+            _currentColor = targetColor;
+          });
+        }
+      }
+    }).catchError((_) {});
   }
 
   @override
   Widget build(BuildContext context) {
     final bloc = widget.queueBloc;
     if (bloc != null) {
-      return BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
+      return BlocConsumer<PlayerQueueBloc, PlayerQueueState>(
         bloc: bloc,
+        listenWhen: (previous, current) {
+          return previous.songId != current.songId ||
+              previous.imageUrl != current.imageUrl;
+        },
+        listener: (context, state) {
+          _extractColor(songId: state.songId, imageUrl: state.imageUrl);
+        },
         buildWhen: (previous, current) {
           return previous.nowPlaying != current.nowPlaying ||
               previous.isPlaying != current.isPlaying ||
               previous.isBuffering != current.isBuffering ||
-              previous.playbackProgress != current.playbackProgress;
+              previous.playbackProgress != current.playbackProgress ||
+              previous.songId != current.songId ||
+              previous.imageUrl != current.imageUrl;
         },
         builder: (context, state) {
           return _buildMiniPlayerContent(context, state: state);
@@ -94,6 +151,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
     final displaySongId = state?.songId ?? widget.songId;
     final isPlaying = state?.isPlaying ?? _isPlaying;
     final progress = state != null ? state.playbackProgress : widget.progress;
+
+    if (_lastExtractedKey == null && (displaySongId != null || displayImageUrl != null)) {
+      _extractColor(songId: displaySongId, imageUrl: displayImageUrl);
+    }
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

@@ -62,6 +62,46 @@ abstract class PlayerStateProtoMappers {
     if (p.hasIsBuffering()) {
       builder.isBuffering(p.isBuffering);
     }
+    if (p.hasIsSystemInitiated()) {
+      builder.isSystemInitiated(p.isSystemInitiated);
+    }
+    if (p.hasOptions()) {
+      final opts = p.options;
+      builder.options(PlayerOptions.builder()
+          .shufflingContext(opts.shufflingContext)
+          .repeatingContext(opts.repeatingContext)
+          .repeatingTrack(opts.repeatingTrack)
+          .playbackSpeed(opts.playbackSpeed != 0.0 ? opts.playbackSpeed : 1.0)
+          .modes(Map<String, String>.from(opts.modes))
+          .build());
+    }
+    if (p.hasRestrictions()) {
+      builder.restrictions(restrictionsFromProtoMessage(p.restrictions));
+    }
+    if (p.hasContextRestrictions()) {
+      builder.contextRestrictions(restrictionsFromProtoMessage(p.contextRestrictions));
+    }
+    if (p.hasSessionId()) {
+      builder.sessionId(p.sessionId);
+    }
+    if (p.hasSessionCommandId()) {
+      builder.sessionCommandId(p.sessionCommandId);
+    }
+    if (p.hasQueueRevision()) {
+      builder.queueRevision(p.queueRevision.toString());
+    }
+    if (p.contextMetadata.isNotEmpty) {
+      builder.contextMetadata(Map<String, String>.from(p.contextMetadata));
+    }
+    if (p.pageMetadata.isNotEmpty) {
+      builder.pageMetadata(Map<String, String>.from(p.pageMetadata));
+    }
+    if (p.signals.isNotEmpty) {
+      builder.signals(List<String>.from(p.signals));
+    }
+    if (p.suppressions.isNotEmpty) {
+      builder.suppressions(Suppressions.create(Set<String>.from(p.suppressions)));
+    }
     if (p.hasPlaybackQuality()) {
       final pq = p.playbackQuality;
       builder.playbackQuality(PlaybackQuality.builder()
@@ -106,6 +146,36 @@ abstract class PlayerStateProtoMappers {
       return PlayerState.empty;
     }
   }
+
+  /// Maps a proto.Restrictions protobuf message into domain Restrictions.
+  static Restrictions restrictionsFromProtoMessage(proto.Restrictions p) {
+    final builder = Restrictions.builder()
+      ..disallowPausingReasons(p.disallowPausingReasons.toSet())
+      ..disallowResumingReasons(p.disallowResumingReasons.toSet())
+      ..disallowSeekingReasons(p.disallowSeekingReasons.toSet())
+      ..disallowPeekingPrevReasons(p.disallowPeekingPrevReasons.toSet())
+      ..disallowPeekingNextReasons(p.disallowPeekingNextReasons.toSet())
+      ..disallowSkippingPrevReasons(p.disallowSkippingPrevReasons.toSet())
+      ..disallowSkippingNextReasons(p.disallowSkippingNextReasons.toSet())
+      ..disallowTogglingRepeatContextReasons(p.disallowTogglingRepeatContextReasons.toSet())
+      ..disallowTogglingRepeatTrackReasons(p.disallowTogglingRepeatTrackReasons.toSet())
+      ..disallowTogglingShuffleReasons(p.disallowTogglingShuffleReasons.toSet())
+      ..disallowSetQueueReasons(p.disallowSetQueueReasons.toSet())
+      ..disallowAddToQueueReasons(p.disallowAddToQueueReasons.toSet())
+      ..disallowInterruptingPlaybackReasons(p.disallowInterruptingPlaybackReasons.toSet())
+      ..disallowTransferringPlaybackReasons(p.disallowTransferringPlaybackReasons.toSet())
+      ..disallowRemoteControlReasons(p.disallowRemoteControlReasons.toSet())
+      ..disallowInsertingIntoNextTracksReasons(p.disallowInsertingIntoNextTracksReasons.toSet())
+      ..disallowInsertingIntoContextTracksReasons(p.disallowInsertingIntoContextTracksReasons.toSet())
+      ..disallowReorderingInNextTracksReasons(p.disallowReorderingInNextTracksReasons.toSet())
+      ..disallowReorderingInContextTracksReasons(p.disallowReorderingInContextTracksReasons.toSet())
+      ..disallowRemovingFromNextTracksReasons(p.disallowRemovingFromNextTracksReasons.toSet())
+      ..disallowRemovingFromContextTracksReasons(p.disallowRemovingFromContextTracksReasons.toSet())
+      ..disallowUpdatingContextReasons(p.disallowUpdatingContextReasons.toSet())
+      ..disallowSettingPlaybackSpeedReasons(p.disallowSettingPlaybackSpeedReasons.toSet());
+    return builder.build();
+  }
+
   /// Maps an EsRestrictions protobuf structure into domain Restrictions (from Spotify fat0.a).
   static Restrictions restrictionsFromProto(Map<String, dynamic>? proto) {
     if (proto == null) return Restrictions.empty;

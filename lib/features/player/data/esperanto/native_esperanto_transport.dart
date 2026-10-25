@@ -37,6 +37,9 @@ class NativeEsperantoTransport implements EsperantoTransport {
   /// The current queue managed locally (mirrors Spotify queue contract).
   PlayerQueue _currentQueue = PlayerQueue.empty;
 
+  /// Original sequentially ordered context tracks before shuffling
+  List<ContextTrack> _originalContextTracks = const [];
+
   /// Playback options (shuffle, repeat) managed locally.
   PlayerOptions _currentOptions = const PlayerOptions();
 
@@ -201,11 +204,15 @@ class NativeEsperantoTransport implements EsperantoTransport {
                   final tracksList = page['tracks'] as List? ?? const [];
                   for (final item in tracksList) {
                     if (item is Map) {
-                      final itemMeta = item['metadata'] as Map?;
+                      final itemMap = item as Map<String, dynamic>;
+                      final metaMap = (itemMap['metadata'] as Map?)?.map(
+                            (k, v) => MapEntry(k.toString(), v.toString()),
+                          ) ??
+                          <String, String>{};
                       contextTracks.add(ContextTrack(
-                        uri: item['uri'] as String? ?? '',
-                        uid: item['uid'] as String? ?? '',
-                        metadata: itemMeta?.map((k, v) => MapEntry(k.toString(), v.toString())) ?? const {},
+                        uri: itemMap['uri'] as String? ?? '',
+                        uid: itemMap['uid'] as String? ?? '',
+                        metadata: metaMap,
                       ));
                     }
                   }
@@ -234,6 +241,8 @@ class NativeEsperantoTransport implements EsperantoTransport {
     }
 
     if (contextTracks.isNotEmpty) {
+      _originalContextTracks = List<ContextTrack>.from(contextTracks);
+
       int activeIndex = 0;
       if (skipToIndex != null && skipToIndex >= 0 && skipToIndex < contextTracks.length) {
         activeIndex = skipToIndex;
@@ -258,6 +267,14 @@ class NativeEsperantoTransport implements EsperantoTransport {
           .prevTracks(prev)
           .nextTracks([...userQueued, ...next])
           .build();
+
+      if (_currentOptions.shufflingContext) {
+        final remainingContext = List<ContextTrack>.from(next);
+        remainingContext.shuffle();
+        _currentQueue = _currentQueue.toBuilder()
+            .nextTracks([...userQueued, ...remainingContext])
+            .build();
+      }
     } else if (contextUri.isNotEmpty) {
       if (contextMetadata.isNotEmpty) {
         trackToPlay = ContextTrack.builder(contextUri).metadata(contextMetadata).build();
@@ -370,18 +387,48 @@ class NativeEsperantoTransport implements EsperantoTransport {
       }
 
       final nextTrack = nextTracks[targetIndex];
-      final preceding = nextTracks.sublist(0, targetIndex);
-      final remainingNext = nextTracks.sublist(targetIndex + 1);
-      final prevTracks = <ContextTrack>[
-        ...preceding.reversed,
-        ?_currentTrack,
-        ..._currentQueue.prevTracks,
-      ];
+      final isTargetQueued = nextTrack.isQueued;
+
+      List<ContextTrack> newNextTracks;
+      List<ContextTrack> newPrevTracks;
+
+      // 1:1 Spotify Queue Lifecycle:
+      // If _currentTrack was user-queued, it was consumed and does NOT go into prevTracks.
+      // Only non-queued context tracks are pushed into prevTracks (playback history).
+      final prevHistory = List<ContextTrack>.from(_currentQueue.prevTracks);
+      if (_currentTrack != null && !_currentTrack!.isQueued) {
+        prevHistory.insert(0, _currentTrack!);
+      }
+
+      if (isTargetQueued) {
+        // Target is an explicitly queued track.
+        // Preceding queued tracks before targetIndex were skipped and consumed.
+        // Remaining tracks after targetIndex (both queued and context) continue as upcoming.
+        newNextTracks = nextTracks.sublist(targetIndex + 1);
+        newPrevTracks = prevHistory;
+      } else {
+        // Target is a context track.
+        // 1:1 Spotify: All user-queued tracks in nextTracks MUST be preserved at the head of nextTracks!
+        final preservedUserQueued = nextTracks.where((t) => t.isQueued).toList(growable: false);
+        final contextTracks = nextTracks.where((t) => !t.isQueued).toList(growable: false);
+
+        final ctxTargetIdx = contextTracks.indexWhere(
+          (t) => (t.uid.isNotEmpty && t.uid == nextTrack.uid) ||
+                 (t.uri.isNotEmpty && t.uri == nextTrack.uri),
+        );
+
+        final safeCtxIdx = ctxTargetIdx != -1 ? ctxTargetIdx : 0;
+        final skippedContextTracks = contextTracks.sublist(0, safeCtxIdx);
+        final remainingContextTracks = contextTracks.sublist(safeCtxIdx + 1);
+
+        newNextTracks = [...preservedUserQueued, ...remainingContextTracks];
+        newPrevTracks = [...skippedContextTracks.reversed, ...prevHistory];
+      }
 
       _currentQueue = _currentQueue
           .toBuilder()
-          .prevTracks(prevTracks)
-          .nextTracks(remainingNext)
+          .prevTracks(newPrevTracks)
+          .nextTracks(newNextTracks)
           .build();
 
       _playTrack(nextTrack);
@@ -404,10 +451,19 @@ class NativeEsperantoTransport implements EsperantoTransport {
     if (prevTracks.isNotEmpty) {
       final prevTrack = prevTracks.first;
       final remainingPrev = prevTracks.sublist(1);
-      final nextTracks = <ContextTrack>[
-        ?_currentTrack,
-        ..._currentQueue.nextTracks,
-      ];
+
+      List<ContextTrack> nextTracks;
+      if (_currentTrack != null) {
+        if (_currentTrack!.isQueued) {
+          nextTracks = [_currentTrack!, ..._currentQueue.nextTracks];
+        } else {
+          final userQueued = _currentQueue.nextTracks.where((t) => t.isQueued).toList(growable: false);
+          final contextTracks = _currentQueue.nextTracks.where((t) => !t.isQueued).toList(growable: false);
+          nextTracks = [...userQueued, _currentTrack!, ...contextTracks];
+        }
+      } else {
+        nextTracks = _currentQueue.nextTracks;
+      }
 
       _currentQueue = _currentQueue
           .toBuilder()
@@ -444,26 +500,73 @@ class NativeEsperantoTransport implements EsperantoTransport {
     }
   }
 
-  Uint8List _handleSetOptions(Uint8List payload) {
-    if (payload.isNotEmpty) {
-      final optBuilder = _currentOptions.toBuilder();
-      bool updated = false;
+  void _applyShuffling(bool shuffling) {
+    _currentOptions = _currentOptions
+        .toBuilder()
+        .shufflingContext(shuffling)
+        .build();
 
-      try {
-        final req = proto.SetOptionsRequest.fromBuffer(payload);
-        if (req.hasShufflingContext()) {
-          optBuilder.shufflingContext(req.shufflingContext.value);
-          updated = true;
+    final userQueue = QueueHelpers.getUserQueuedTracks(_currentQueue);
+
+    if (shuffling) {
+      final contextTracks = List<ContextTrack>.from(QueueHelpers.getContextTracks(_currentQueue));
+      contextTracks.shuffle();
+      _currentQueue = _currentQueue.toBuilder()
+          .nextTracks([...userQueue, ...contextTracks])
+          .build();
+    } else {
+      // 1:1 Spotify Unshuffle: Restore original context tracks order
+      final originalContext = List<ContextTrack>.from(_originalContextTracks);
+      final activeTrack = _currentTrack;
+      if (originalContext.isNotEmpty && activeTrack != null) {
+        final activeIdx = originalContext.indexWhere((t) =>
+            (t.uid.isNotEmpty && t.uid == activeTrack.uid) ||
+            (t.uri.isNotEmpty && t.uri == activeTrack.uri));
+        final List<ContextTrack> remainingContext;
+        if (activeIdx != -1 && activeIdx + 1 < originalContext.length) {
+          remainingContext = originalContext.sublist(activeIdx + 1);
+        } else {
+          final playedUids = _currentQueue.prevTracks.map((p) => p.uid).toSet();
+          remainingContext = originalContext.where((t) =>
+              t.uid != activeTrack.uid && !playedUids.contains(t.uid)).toList();
         }
-        if (req.hasRepeatingContext()) {
-          optBuilder.repeatingContext(req.repeatingContext.value);
-          updated = true;
-        }
-        if (req.hasRepeatingTrack()) {
-          optBuilder.repeatingTrack(req.repeatingTrack.value);
-          updated = true;
-        }
-      } catch (_) {
+        _currentQueue = _currentQueue.toBuilder()
+            .nextTracks([...userQueue, ...remainingContext])
+            .build();
+      } else {
+        final currentContext = QueueHelpers.getContextTracks(_currentQueue);
+        _currentQueue = _currentQueue.toBuilder()
+            .nextTracks([...userQueue, ...currentContext])
+            .build();
+      }
+    }
+
+    _emitQueueUpdate();
+    _emitPlayerState();
+  }
+
+  Uint8List _handleSetOptions(Uint8List payload) {
+    final optBuilder = _currentOptions.toBuilder();
+    bool updated = false;
+    bool? shuffleChanged;
+
+    try {
+      final req = proto.SetOptionsRequest.fromBuffer(payload);
+      if (req.hasShufflingContext()) {
+        optBuilder.shufflingContext(req.shufflingContext.value);
+        shuffleChanged = req.shufflingContext.value;
+        updated = true;
+      }
+      if (req.hasRepeatingContext()) {
+        optBuilder.repeatingContext(req.repeatingContext.value);
+        updated = true;
+      }
+      if (req.hasRepeatingTrack()) {
+        optBuilder.repeatingTrack(req.repeatingTrack.value);
+        updated = true;
+      }
+    } catch (_) {
+      if (payload.isNotEmpty) {
         try {
           final json = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
           if (json.containsKey('shuffling_context')) {
@@ -472,6 +575,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
                 ? (sc['value'] as bool)
                 : (sc as bool);
             optBuilder.shufflingContext(val);
+            shuffleChanged = val;
             updated = true;
           }
           if (json.containsKey('repeating_context')) {
@@ -492,9 +596,13 @@ class NativeEsperantoTransport implements EsperantoTransport {
           }
         } catch (_) {}
       }
+    }
 
-      if (updated) {
-        _currentOptions = optBuilder.build();
+    if (updated) {
+      _currentOptions = optBuilder.build();
+      if (shuffleChanged != null) {
+        _applyShuffling(shuffleChanged);
+      } else {
         _emitPlayerState();
       }
     }
@@ -502,12 +610,12 @@ class NativeEsperantoTransport implements EsperantoTransport {
   }
 
   Uint8List _handleSetShufflingContext(Uint8List payload) {
-    if (payload.isNotEmpty) {
-      bool? shuffling;
-      try {
-        final req = proto.SetShufflingContextRequest.fromBuffer(payload);
-        shuffling = req.shufflingContext;
-      } catch (_) {
+    bool shuffling = false;
+    try {
+      final req = proto.SetShufflingContextRequest.fromBuffer(payload);
+      shuffling = req.shufflingContext;
+    } catch (_) {
+      if (payload.isNotEmpty) {
         try {
           final json = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
           if (json.containsKey('shuffling_context')) {
@@ -518,36 +626,19 @@ class NativeEsperantoTransport implements EsperantoTransport {
           }
         } catch (_) {}
       }
-
-      if (shuffling != null) {
-        _currentOptions = _currentOptions
-            .toBuilder()
-            .shufflingContext(shuffling)
-            .build();
-
-        if (shuffling) {
-          final userQueue = QueueHelpers.getUserQueuedTracks(_currentQueue);
-          final contextTracks = List<ContextTrack>.from(QueueHelpers.getContextTracks(_currentQueue));
-          contextTracks.shuffle();
-          _currentQueue = _currentQueue.toBuilder()
-              .nextTracks([...userQueue, ...contextTracks])
-              .build();
-          _emitQueueUpdate();
-        }
-
-        _emitPlayerState();
-      }
     }
+
+    _applyShuffling(shuffling);
     return Uint8List(0);
   }
 
   Uint8List _handleSetRepeatingContext(Uint8List payload) {
-    if (payload.isNotEmpty) {
-      bool? repeating;
-      try {
-        final req = proto.SetRepeatingContextRequest.fromBuffer(payload);
-        repeating = req.repeatingContext;
-      } catch (_) {
+    bool repeating = false;
+    try {
+      final req = proto.SetRepeatingContextRequest.fromBuffer(payload);
+      repeating = req.repeatingContext;
+    } catch (_) {
+      if (payload.isNotEmpty) {
         try {
           final json = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
           if (json.containsKey('repeating_context')) {
@@ -558,25 +649,23 @@ class NativeEsperantoTransport implements EsperantoTransport {
           }
         } catch (_) {}
       }
-
-      if (repeating != null) {
-        _currentOptions = _currentOptions
-            .toBuilder()
-            .repeatingContext(repeating)
-            .build();
-        _emitPlayerState();
-      }
     }
+
+    _currentOptions = _currentOptions
+        .toBuilder()
+        .repeatingContext(repeating)
+        .build();
+    _emitPlayerState();
     return Uint8List(0);
   }
 
   Uint8List _handleSetRepeatingTrack(Uint8List payload) {
-    if (payload.isNotEmpty) {
-      bool? repeating;
-      try {
-        final req = proto.SetRepeatingTrackRequest.fromBuffer(payload);
-        repeating = req.repeatingTrack;
-      } catch (_) {
+    bool repeating = false;
+    try {
+      final req = proto.SetRepeatingTrackRequest.fromBuffer(payload);
+      repeating = req.repeatingTrack;
+    } catch (_) {
+      if (payload.isNotEmpty) {
         try {
           final json = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
           if (json.containsKey('repeating_track')) {
@@ -587,15 +676,13 @@ class NativeEsperantoTransport implements EsperantoTransport {
           }
         } catch (_) {}
       }
-
-      if (repeating != null) {
-        _currentOptions = _currentOptions
-            .toBuilder()
-            .repeatingTrack(repeating)
-            .build();
-        _emitPlayerState();
-      }
     }
+
+    _currentOptions = _currentOptions
+        .toBuilder()
+        .repeatingTrack(repeating)
+        .build();
+    _emitPlayerState();
     return Uint8List(0);
   }
 

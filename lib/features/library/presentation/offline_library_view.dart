@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
-import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
+import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
+import 'package:musify_mu/features/player/domain/models/context.dart';
+import 'package:musify_mu/features/player/domain/models/context_page.dart';
+import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 /// Offline library view -- shows local music files in a library layout.
@@ -181,16 +187,59 @@ class _OfflineLibraryViewState extends State<OfflineLibraryView> {
 
   void _playTrack(List<DomainTrack> tracks, int index) {
     if (index >= 0 && index < tracks.length) {
-      final track = tracks[index];
-      PlayerScreen.show(
-        context,
-        title: track.title,
-        artist: track.artist.isNotEmpty ? track.artist : 'Local Artist',
-        album: track.album ?? 'Local Music',
-        songId: track.songId ?? int.tryParse(track.id),
-      );
-    } else {
-      PlayerScreen.show(context);
+      final contextTracks = tracks.map((t) {
+        final uri = t.isLocal
+            ? (t.dataPath != null && t.dataPath!.isNotEmpty
+                ? 'spotify:local:${Uri.encodeComponent(t.dataPath!)}'
+                : 'spotify:local:${t.id}')
+            : 'spotify:track:${t.id}';
+        return ContextTrack.builder(uri)
+            .uid(t.id)
+            .metadata({
+              ContextTrackMetadata.keyTitle: t.title,
+              ContextTrackMetadata.keyArtistName:
+                  t.artist.isNotEmpty ? t.artist : 'Local Artist',
+              if (t.album != null) ContextTrackMetadata.keyAlbumTitle: t.album!,
+              if (t.duration != null)
+                ContextTrackMetadata.keyDuration: t.duration.toString(),
+              if (t.dataPath != null)
+                ContextTrackMetadata.keyLocalFilePath: t.dataPath!,
+              if (t.songId != null)
+                ContextTrackMetadata.keySongId: t.songId.toString(),
+              if (t.artUri != null) ContextTrackMetadata.keyImageUrl: t.artUri!,
+              ContextTrackMetadata.keyIsQueued: 'false',
+            })
+            .build();
+      }).toList(growable: false);
+
+      final activeTrack = contextTracks[index];
+
+      final contextPage = ContextPage.builder()
+          .tracks(contextTracks)
+          .build();
+
+      final playContext = Context.builder('spotify:internal:local-files')
+          .pages([contextPage])
+          .metadata({
+            'context_description': 'Local Files',
+          })
+          .build();
+
+      final options = PreparePlayOptions.builder()
+          .skipTo(SkipToTrack.builder()
+              .trackUid(activeTrack.uid)
+              .trackUri(activeTrack.uri)
+              .build())
+          .build();
+
+      final bloc =
+          getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null;
+      if (bloc != null) {
+        bloc.add(PlayContext(
+          context: playContext,
+          options: options,
+        ));
+      }
     }
   }
 }
