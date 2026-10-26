@@ -1,5 +1,6 @@
 library;
 
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
@@ -8,6 +9,8 @@ import '../../../core/color/eased_gradient.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
+import '../../../features/player/domain/commands/play_as_next_in_queue_command.dart';
+import '../../../features/player/domain/models/context_track.dart';
 import '../../player/presentation/widgets/spotify_scroll_physics.dart';
 import '../application/mobius/playlist_effect_handler.dart';
 import '../application/mobius/playlist_mobius_loop.dart';
@@ -17,16 +20,27 @@ import '../domain/models/sort_order.dart';
 import '../domain/repositories/playlist_repository.dart';
 import 'components/playlist_action_row.dart';
 import 'components/playlist_app_bar.dart';
+import 'components/playlist_curation_chips_row.dart';
 import 'components/playlist_empty_view.dart';
 import 'components/playlist_header_content.dart';
+import 'components/playlist_play_fab.dart';
 import 'components/playlist_section_header.dart';
 import 'components/playlist_sort_sheet.dart';
 import 'components/playlist_track_tile.dart';
 
-/// 1:1 replica of Spotify's Playlist screen coordinator (`playlist_all_songs_page.xml`, `b7r.java`, `ets0.java`).
-/// Implements collapsing Encore header with 0.70 parallax fade, continuous 21-step matte EasedGradient,
-/// SpotifyStretchOverscrollIndicator (for authentic upward and downward overscroll), fast scroller,
-/// action row with 56x56 play FAB, and sectioned track tiles.
+/// 1:1 replica of Spotify's Playlist screen coordinator
+/// (`header_layout.xml`, `playlist_all_songs_page.xml`, `b7r.java`, `yz40.java`, `uwt.java`, `PlayButtonBehavior.java`).
+///
+/// Features:
+/// 1. Top Search Bar: Find in playlist positioned at the top of header content
+/// 2. Album Artwork Motion: Scales down (1.0 -> 0.75) and fades out smoothly with scroll
+/// 3. Collapsing AppBar with dynamic fading dark translucent bubbles (`back_button_background.xml`)
+///    and outward sliding buttons (8dp slide, zero button fade, zero play button in top bar)
+/// 4. Action Row: Download, Share (Owner) / Heart (Viewer), Shuffle with active dot, and 56x56 layout slot
+/// 5. Floating PlayButtonBehavior FAB: 56x56 green FAB with 20dp shuffle badge that moves smoothly
+///    with the Action Row and pins at (topInset + kToolbarHeight - 28dp) directly overlapping the toolbar bottom
+/// 6. Permission-Governed Curation Action Chips: `+ Add`, `Edit`, `Name & details`, `Sort` for owners; `Sort` for viewers
+/// 7. Track Tiles: Wrapped with Dismissible swipe-to-queue (`ItemTouchHelper`), 48x48 art, 12dp download badge, explicit "E" badge, animated 3-bar green equalizer
 class PlaylistScreen extends StatefulWidget {
   final String playlistUri;
 
@@ -47,12 +61,15 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
 
+  final GlobalKey _actionRowKey = GlobalKey();
+  double _initialActionRowTop = 0.0;
+
   double _scrollOffset = 0.0;
   bool _isSearchActive = false;
   Color _dominantHeaderColor = const Color(0xFF535353); // Default Spotify encore_header_background_default
   String? _lastExtractedCoverUrl;
 
-  static const double _headerHeight = 320.0;
+  static const double _headerHeight = 360.0;
 
   @override
   void initState() {
@@ -115,6 +132,25 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           });
         }
       }).catchError((_) {});
+    } catch (_) {}
+  }
+
+  void _handleSwipeToQueue(PlaylistItem item) {
+    try {
+      final controlClient = getIt<ContextPlayerControlClient>();
+      controlClient.playAsNextInQueue(
+        PlayAsNextInQueueCommand.create([ContextTrack.create(item.uri)]),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added "${item.title}" to queue'),
+            duration: const Duration(milliseconds: 1500),
+            backgroundColor: const Color(0xFF282828),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (_) {}
   }
 
@@ -220,6 +256,30 @@ class _PlaylistScreenState extends State<PlaylistScreen>
     }
 
     final topInset = MediaQuery.of(context).padding.top;
+    final isOwner = state.playlist.metadata.canEdit;
+    final toolbarHeight = kToolbarHeight;
+    final pinnedFabTop = (topInset + toolbarHeight) - 28.0;
+
+    // Dynamically measure initial Action Row position for 1:1 PlayButtonBehavior docking
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final box = _actionRowKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        final pos = box.localToGlobal(Offset.zero);
+        final top = pos.dy + _scrollOffset;
+        if ((_initialActionRowTop - top).abs() > 0.5) {
+          setState(() {
+            _initialActionRowTop = top;
+          });
+        }
+      }
+    });
+
+    final baselineTop = _initialActionRowTop > 0
+        ? _initialActionRowTop
+        : (topInset + toolbarHeight + 430.0);
+    final currentActionRowY = baselineTop - _scrollOffset;
+    final fabTop = math.max(pinnedFabTop, currentActionRowY + 6.0);
 
     return Stack(
       children: [
@@ -237,7 +297,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
               controller: _scrollController,
               physics: const ClampingScrollPhysics(),
               slivers: [
-                // 1:1 Header Container with continuous 21-step matte EasedGradient (matching PlayerScreen and Spotify AppBarLayout)
+                // 1:1 Header Container with continuous 21-step matte EasedGradient
                 SliverToBoxAdapter(
                   child: Container(
                     decoration: BoxDecoration(
@@ -252,133 +312,65 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                         // Safe area spacing for top toolbar
                         SizedBox(height: topInset + kToolbarHeight),
 
-                        // 1:1 Header Content (Centered Cover Art, Title, Description, Owner Row, Telemetry)
+                        // 1. Top Search Bar, Artwork (Scaling), Title, Creator, Duration
                         PlaylistHeaderContent(
                           metadata: state.playlist.metadata,
                           trackCount: state.playlist.items.length,
+                          scrollOffset: _scrollOffset,
+                          searchController: _searchController,
+                          searchFocusNode: _searchFocusNode,
+                          onSearchChanged: _loop.onSearchChanged,
+                          onClearSearch: () => _loop.onSearchChanged(''),
+                          onAddCollaboratorTapped: () {},
                         ),
 
-                        // 1:1 Action Row: Follow, Download, Collaborators, More, Shuffle (dot), 56x56 Play FAB
+                        // 2. Action Row: Download, Share/Heart, Shuffle, and 56x56 Play FAB layout slot
                         PlaylistActionRow(
+                          key: _actionRowKey,
+                          isOwner: isOwner,
                           isFollowed: state.playlist.isFollowed,
                           isDownloaded: state.playlist.isDownloaded,
                           isShuffleEnabled: state.isShuffleEnabled,
                           isPlaying: state.isPlaying,
                           onFollowTapped: _loop.onFollowTapped,
                           onDownloadTapped: _loop.onDownloadTapped,
-                          onAddCollaboratorTapped: () {},
-                          onMoreOptionsTapped: () => _showPlaylistMoreMenu(state),
+                          onShareTapped: () => _showPlaylistMoreMenu(state),
                           onShuffleTapped: _loop.onShuffleTapped,
                           onPlayTapped: () => _loop.onPlayTapped(),
                         ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ),
 
-                // Search Input Bar (when active)
-                if (_isSearchActive)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF282828),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                        child: TextField(
-                          controller: _searchController,
-                          focusNode: _searchFocusNode,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
-                          decoration: InputDecoration(
-                            icon: const Icon(Icons.search, color: Color(0xFFB3B3B3), size: 20),
-                            hintText: 'Find in playlist',
-                            hintStyle: const TextStyle(color: Color(0xFF727272), fontSize: 14),
-                            border: InputBorder.none,
-                            suffixIcon: _searchController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(Icons.clear, color: Color(0xFFB3B3B3), size: 18),
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      _loop.onSearchChanged('');
-                                    },
-                                  )
-                                : null,
-                          ),
-                          onChanged: _loop.onSearchChanged,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Sort Selector Row (current sort order on left, song count on right)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                    child: Row(
-                      children: [
-                        InkWell(
-                          onTap: () {
+                        // 3. Permission-Governed Curation Actions Chips (`uwt.java`, `curation_actions_*`)
+                        PlaylistCurationChipsRow(
+                          canEdit: isOwner,
+                          onAddTapped: () {
+                            _searchFocusNode.requestFocus();
+                          },
+                          onEditTapped: () {
+                            _showPlaylistMoreMenu(state);
+                          },
+                          onDetailsTapped: () {
+                            _showPlaylistMoreMenu(state);
+                          },
+                          onSortTapped: () {
                             PlaylistSortSheet.show(
                               context,
                               currentOrder: state.sortOrder,
                               onOrderSelected: _loop.onSortChanged,
                             );
                           },
-                          borderRadius: BorderRadius.circular(4),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 4.0),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.sort,
-                                  color: Color(0xFFB3B3B3),
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  state.sortOrder.displayName,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                const Icon(
-                                  Icons.arrow_drop_down,
-                                  color: Color(0xFFB3B3B3),
-                                  size: 16,
-                                ),
-                              ],
-                            ),
-                          ),
+                          currentSortName: state.sortOrder.displayName,
                         ),
-                        const Spacer(),
-                        Text(
-                          '${state.displayItems.length} songs',
-                          style: const TextStyle(
-                            color: Color(0xFFB3B3B3),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        ),
+                        const SizedBox(height: 6),
                       ],
                     ),
                   ),
                 ),
 
-                // Empty View or Sectioned Track Tiles
+                // 4. Empty View or Sectioned Track Tiles
                 if (state.isEmpty)
                   SliverToBoxAdapter(
                     child: PlaylistEmptyView(
                       onAddSongsTapped: () {
-                        setState(() {
-                          _isSearchActive = true;
-                        });
                         _searchFocusNode.requestFocus();
                       },
                     ),
@@ -395,7 +387,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           ),
         ),
 
-        // 2. Pinned Collapsing AppBar at Top with 0.70 Parallax Fade and Mini Green Play Button
+        // 5. Pinned Collapsing AppBar at Top with Dynamic Bubble Fade and Sliding Action Buttons
         Positioned(
           top: 0,
           left: 0,
@@ -405,21 +397,37 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             scrollOffset: _scrollOffset,
             headerHeight: _headerHeight,
             dominantColor: _dominantHeaderColor,
-            isPlaying: state.isPlaying,
+            isSearchActive: _isSearchActive,
+            searchController: _searchController,
+            searchFocusNode: _searchFocusNode,
+            onSearchChanged: _loop.onSearchChanged,
             onBackTapped: () => Navigator.maybePop(context),
-            onPlayTapped: () => _loop.onPlayTapped(),
             onSearchTapped: () {
               setState(() {
-                _isSearchActive = !_isSearchActive;
+                _isSearchActive = true;
               });
-              if (_isSearchActive) {
-                _searchFocusNode.requestFocus();
-              } else {
-                _searchController.clear();
-                _loop.onSearchChanged('');
-              }
+              _searchFocusNode.requestFocus();
+            },
+            onSearchClosed: () {
+              setState(() {
+                _isSearchActive = false;
+              });
+              _searchController.clear();
+              _loop.onSearchChanged('');
             },
             onMoreTapped: () => _showPlaylistMoreMenu(state),
+          ),
+        ),
+
+        // 6. Floating 56x56 Play FAB with PlayButtonBehavior docking physics
+        // Matches ComposePlayButtonBehavior.java: pins at (topInset + kToolbarHeight) - 28dp
+        Positioned(
+          top: fabTop,
+          right: 16.0,
+          child: PlaylistPlayFab(
+            isPlaying: state.isPlaying,
+            isShuffleEnabled: state.isShuffleEnabled,
+            onPlayTapped: () => _loop.onPlayTapped(),
           ),
         ),
       ],
@@ -438,12 +446,13 @@ class _PlaylistScreenState extends State<PlaylistScreen>
               final isCurrent = item.uri == state.activeTrackUri;
 
               return PlaylistTrackTile(
-                key: ValueKey(item.uid),
+                key: ValueKey<String>('track_${item.uid.isNotEmpty ? item.uid : item.uri}'),
                 item: item,
                 isActiveTrack: isCurrent,
                 isPlaying: state.isPlaying,
                 onTap: () => _loop.onPlayTapped(trackUri: item.uri),
                 onMoreTapped: () => _showTrackOptionsMenu(item),
+                onSwipeToQueue: () => _handleSwipeToQueue(item),
               );
             },
             childCount: state.displayItems.length,
@@ -482,12 +491,13 @@ class _PlaylistScreenState extends State<PlaylistScreen>
               final isCurrent = item.uri == state.activeTrackUri;
 
               return PlaylistTrackTile(
-                key: ValueKey(item.uid),
+                key: ValueKey<String>('track_${item.uid.isNotEmpty ? item.uid : item.uri}'),
                 item: item,
                 isActiveTrack: isCurrent,
                 isPlaying: state.isPlaying,
                 onTap: () => _loop.onPlayTapped(trackUri: item.uri),
                 onMoreTapped: () => _showTrackOptionsMenu(item),
+                onSwipeToQueue: () => _handleSwipeToQueue(item),
               );
             },
             childCount: sectionItems.length,
@@ -500,7 +510,9 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   }
 
   void _showPlaylistMoreMenu(PlaylistLoadedState state) {
-    showModalBottomSheet(
+    final isOwner = state.playlist.metadata.canEdit;
+
+    showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF282828),
       shape: const RoundedRectangleBorder(
@@ -508,41 +520,34 @@ class _PlaylistScreenState extends State<PlaylistScreen>
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12.0),
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Drag Handle
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16.0),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF535353),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-
-              // Header Preview
+              // Header preview in sheet
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Row(
                   children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        width: 48,
+                        height: 48,
                         color: const Color(0xFF383838),
-                        borderRadius: BorderRadius.circular(4),
+                        child: state.playlist.pictureUrl.isNotEmpty
+                            ? Image.network(
+                                state.playlist.pictureUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => const Icon(
+                                  Icons.music_note,
+                                  color: Color(0xFFB3B3B3),
+                                ),
+                              )
+                            : const Icon(Icons.music_note, color: Color(0xFFB3B3B3)),
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: state.playlist.pictureUrl.isNotEmpty
-                          ? Image.network(state.playlist.pictureUrl, fit: BoxFit.cover)
-                          : const Icon(Icons.music_note, color: Colors.white54),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -559,9 +564,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            state.playlist.ownerName.isNotEmpty
-                                ? 'Playlist by ${state.playlist.ownerName}'
-                                : 'Spotify Playlist',
+                            'By ${state.playlist.metadata.ownerName.isNotEmpty ? state.playlist.metadata.ownerName : 'Spotify'}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -575,22 +578,27 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
               const Divider(color: Color(0xFF383838), height: 1),
 
-              // Actions
+              // Owner-only or shared options
+              if (isOwner) ...[
+                ListTile(
+                  leading: const Icon(Icons.edit_outlined, color: Colors.white),
+                  title: const Text('Edit playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
+                  onTap: () => Navigator.pop(ctx),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.person_add_outlined, color: Colors.white),
+                  title: const Text('Invite collaborators', style: TextStyle(color: Colors.white, fontSize: 15)),
+                  onTap: () => Navigator.pop(ctx),
+                ),
+              ],
               ListTile(
-                leading: Icon(
-                  state.playlist.isFollowed ? Icons.favorite : Icons.favorite_border,
-                  color: state.playlist.isFollowed ? const Color(0xFF1DB954) : Colors.white,
-                ),
-                title: Text(
-                  state.playlist.isFollowed ? 'Remove from library' : 'Save to library',
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                ),
+                leading: const Icon(Icons.download_outlined, color: Colors.white),
+                title: const Text('Download', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _loop.onFollowTapped();
+                  _loop.onDownloadTapped();
                 },
               ),
               ListTile(
@@ -598,16 +606,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 title: const Text('Share', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
               ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined, color: Colors.white),
-                title: const Text('Edit playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
-                onTap: () => Navigator.pop(ctx),
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.white),
-                title: const Text('Delete playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
-                onTap: () => Navigator.pop(ctx),
-              ),
+              if (isOwner)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Color(0xFFE91429)),
+                  title: const Text('Delete playlist', style: TextStyle(color: Color(0xFFE91429), fontSize: 15)),
+                  onTap: () => Navigator.pop(ctx),
+                ),
             ],
           ),
         ),
@@ -616,7 +620,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   }
 
   void _showTrackOptionsMenu(PlaylistItem item) {
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF282828),
       shape: const RoundedRectangleBorder(
@@ -624,41 +628,34 @@ class _PlaylistScreenState extends State<PlaylistScreen>
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12.0),
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Drag Handle
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16.0),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF535353),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-
-              // Track Preview
+              // Track preview header
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Row(
                   children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        width: 48,
+                        height: 48,
                         color: const Color(0xFF383838),
-                        borderRadius: BorderRadius.circular(4),
+                        child: item.coverUrl.isNotEmpty
+                            ? Image.network(
+                                item.coverUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => const Icon(
+                                  Icons.music_note,
+                                  color: Color(0xFFB3B3B3),
+                                ),
+                              )
+                            : const Icon(Icons.music_note, color: Color(0xFFB3B3B3)),
                       ),
-                      clipBehavior: Clip.antiAlias,
-                      child: item.coverUrl.isNotEmpty
-                          ? Image.network(item.coverUrl, fit: BoxFit.cover)
-                          : const Icon(Icons.music_note, color: Colors.white54),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -675,7 +672,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            item.subtitle,
+                            item.subtitle.isNotEmpty ? item.subtitle : 'Unknown Artist',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -697,6 +694,14 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 leading: const Icon(Icons.playlist_add, color: Colors.white),
                 title: const Text('Add to another playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music, color: Colors.white),
+                title: const Text('Add to queue', style: TextStyle(color: Colors.white, fontSize: 15)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _handleSwipeToQueue(item);
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.remove_circle_outline, color: Colors.white),

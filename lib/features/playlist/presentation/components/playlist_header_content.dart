@@ -3,20 +3,44 @@ library;
 import 'package:flutter/material.dart';
 import '../../domain/models/playlist_metadata.dart';
 
-/// 1:1 replica of Spotify's playlist image header content (`image_header_content.xml`, `lr40.java`, `kp71.java`).
-/// Displays centered album art with soft drop-shadow, bold typography, owner avatar, and metadata telemetry line.
+/// 1:1 replica of Spotify's playlist header content
+/// (`zh31.java` line 1314, `header_layout.xml`, `image_header_content.xml`).
+///
+/// Layout hierarchy:
+/// 1. Top full-width Find in playlist search bar (scrolls away first)
+/// 2. Centered album artwork with scroll scale-down and fade motion
+/// 3. Playlist title (left-aligned, 24sp, extra bold)
+/// 4. Owner avatar and name row with add collaborator (+) button
+/// 5. Metadata telemetry line (duration / song count)
 class PlaylistHeaderContent extends StatelessWidget {
   final PlaylistMetadata metadata;
   final int trackCount;
+  final double scrollOffset;
+  final TextEditingController searchController;
+  final FocusNode searchFocusNode;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onClearSearch;
+  final VoidCallback onAddCollaboratorTapped;
 
   const PlaylistHeaderContent({
     super.key,
     required this.metadata,
     required this.trackCount,
+    required this.scrollOffset,
+    required this.searchController,
+    required this.searchFocusNode,
+    required this.onSearchChanged,
+    required this.onClearSearch,
+    required this.onAddCollaboratorTapped,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Parallax & scale progress: from 0.0 (top) to 1.0 (scrolled 200dp)
+    final scrollProgress = (scrollOffset / 200.0).clamp(0.0, 1.0);
+    final artworkScale = (1.0 - (scrollProgress * 0.25)).clamp(0.75, 1.0);
+    final artworkOpacity = (1.0 - (scrollProgress * 0.85)).clamp(0.0, 1.0);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Column(
@@ -24,37 +48,117 @@ class PlaylistHeaderContent extends StatelessWidget {
         children: [
           const SizedBox(height: 8),
 
-          // 1. Centered Album Art / Mosaic with Encore Elevation & Shadow
-          Center(
-            child: Container(
-              width: 216,
-              height: 216,
-              decoration: BoxDecoration(
-                color: const Color(0xFF282828),
-                borderRadius: BorderRadius.circular(4),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x73000000),
-                    blurRadius: 28,
-                    spreadRadius: 2,
-                    offset: Offset(0, 14),
+          // 1. Top Search Bar: "Find in playlist" (`find_in_context_edit_text_playlist_hint`)
+          // Positioned at the very top of header content, scrolling offscreen first
+          Container(
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0x1AFFFFFF), // dark_base_background_tinted_base (10% white)
+              borderRadius: BorderRadius.circular(4), // find_in_context_background
+            ),
+            child: Row(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(left: 10.0, right: 8.0),
+                  child: Icon(
+                    Icons.search,
+                    color: Colors.white,
+                    size: 18,
                   ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: metadata.picture.isNotEmpty
-                  ? Image.network(
-                      metadata.picture,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          _buildPlaceholderCover(),
-                    )
-                  : _buildPlaceholderCover(),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: searchController,
+                    focusNode: searchFocusNode,
+                    cursorColor: const Color(0xFF1DB954), // text_cursor_green
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'Find in playlist',
+                      hintStyle: TextStyle(
+                        color: Color(0xFFB3B3B3),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.2,
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 10.0),
+                    ),
+                    onChanged: onSearchChanged,
+                  ),
+                ),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: searchController,
+                  builder: (context, value, _) {
+                    if (value.text.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return SizedBox(
+                      width: 36,
+                      height: 38,
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.clear,
+                          color: Color(0xFFB3B3B3),
+                          size: 16,
+                        ),
+                        onPressed: () {
+                          searchController.clear();
+                          onClearSearch();
+                        },
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Clear search',
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 20),
 
-          // 2. Playlist Title (Encore Headline / TitleMedium, 24sp, Extra Bold)
+          // 2. Centered Album Artwork with Scroll Scale-Down and Fade Motion
+          Center(
+            child: Transform.scale(
+              scale: artworkScale,
+              child: Opacity(
+                opacity: artworkOpacity,
+                child: Container(
+                  width: 216,
+                  height: 216,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282828),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x73000000),
+                        blurRadius: 28,
+                        spreadRadius: 2,
+                        offset: Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: metadata.picture.isNotEmpty
+                      ? Image.network(
+                          metadata.picture,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              _buildPlaceholderCover(),
+                        )
+                      : _buildPlaceholderCover(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 3. Playlist Title (Left-aligned, 24sp, Extra Bold)
           Text(
             metadata.name,
             maxLines: 2,
@@ -68,7 +172,7 @@ class PlaylistHeaderContent extends StatelessWidget {
             ),
           ),
 
-          // 3. Playlist Description (Encore BodySmall, 13sp subdued)
+          // 4. Description (Subdued)
           if (metadata.description.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
@@ -86,9 +190,32 @@ class PlaylistHeaderContent extends StatelessWidget {
           ],
           const SizedBox(height: 10),
 
-          // 4. Creator / Owner Avatar and Name Row
+          // 5. Owner Avatar, Collaborator (+) Icon, and Owner Name
           Row(
             children: [
+              // Add collaborator button (+)
+              InkWell(
+                onTap: onAddCollaboratorTapped,
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Color(0x33FFFFFF),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.add,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+
+              // Owner Avatar
               Container(
                 width: 24,
                 height: 24,
@@ -115,6 +242,8 @@ class PlaylistHeaderContent extends StatelessWidget {
                       ),
               ),
               const SizedBox(width: 8),
+
+              // Owner Name
               Text(
                 metadata.ownerName.isNotEmpty
                     ? metadata.ownerName
@@ -130,19 +259,29 @@ class PlaylistHeaderContent extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
-          // 5. Metadata Telemetry Line (saves • songs, duration)
-          Text(
-            _buildTelemetryString(),
-            style: const TextStyle(
-              color: Color(0xFFB3B3B3),
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-              letterSpacing: -0.1,
-            ),
+          // 6. Metadata Telemetry Line (Globe icon + duration / saves)
+          Row(
+            children: [
+              const Icon(
+                Icons.language,
+                color: Color(0xFFB3B3B3),
+                size: 14,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _buildTelemetryString(),
+                style: const TextStyle(
+                  color: Color(0xFFB3B3B3),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
         ],
       ),
     );
@@ -161,16 +300,16 @@ class PlaylistHeaderContent extends StatelessWidget {
   String _buildTelemetryString() {
     final parts = <String>[];
 
-    if (metadata.followersCount > 0) {
-      parts.add('${_formatCount(metadata.followersCount)} saves');
+    if (metadata.totalDurationMs > 0) {
+      parts.add(_formatDuration(metadata.totalDurationMs));
     }
 
-    final songsPart = '$trackCount ${trackCount == 1 ? 'song' : 'songs'}';
-    if (metadata.totalDurationMs > 0) {
-      final durationStr = _formatDuration(metadata.totalDurationMs);
-      parts.add('$songsPart, $durationStr');
-    } else if (trackCount > 0) {
-      parts.add(songsPart);
+    if (trackCount > 0) {
+      parts.add('$trackCount ${trackCount == 1 ? 'song' : 'songs'}');
+    }
+
+    if (metadata.followersCount > 0) {
+      parts.add('${_formatCount(metadata.followersCount)} saves');
     }
 
     return parts.join(' • ');

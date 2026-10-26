@@ -2,7 +2,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 
-/// 1:1 replica of Spotify's `w1y.java` track metadata model.
+/// 1:1 replica of Spotify's `w1y.java` and `amb0.java` track & episode metadata model.
 @immutable
 class TrackItemMetadata {
   final String title;
@@ -18,6 +18,14 @@ class TrackItemMetadata {
   final List<String> artistUris;
   final int offlineState;
 
+  // Podcast episode & show specific metadata fields (Spotify `amb0.java` / `qcb0.java`)
+  final bool isEpisode;
+  final bool isShow;
+  final String description;
+  final String publishDate;
+  final int playbackPositionMs;
+  final String showName;
+
   const TrackItemMetadata({
     required this.title,
     required this.uri,
@@ -31,9 +39,16 @@ class TrackItemMetadata {
     this.artists = const [],
     this.artistUris = const [],
     this.offlineState = 0,
+    this.isEpisode = false,
+    this.isShow = false,
+    this.description = '',
+    this.publishDate = '',
+    this.playbackPositionMs = 0,
+    this.showName = '',
   });
 
-  String get artistNamesString => artists.join(', ');
+  String get artistNamesString =>
+      artists.isNotEmpty ? artists.join(', ') : (showName.isNotEmpty ? showName : albumName);
 
   String get primaryCoverUrl =>
       albumCovers.isNotEmpty ? albumCovers.first : '';
@@ -54,7 +69,13 @@ class TrackItemMetadata {
           listEquals(albumCovers, other.albumCovers) &&
           listEquals(artists, other.artists) &&
           listEquals(artistUris, other.artistUris) &&
-          offlineState == other.offlineState);
+          offlineState == other.offlineState &&
+          isEpisode == other.isEpisode &&
+          isShow == other.isShow &&
+          description == other.description &&
+          publishDate == other.publishDate &&
+          playbackPositionMs == other.playbackPositionMs &&
+          showName == other.showName);
 
   @override
   int get hashCode => Object.hash(
@@ -70,9 +91,15 @@ class TrackItemMetadata {
         Object.hashAll(artists),
         Object.hashAll(artistUris),
         offlineState,
+        isEpisode,
+        isShow,
+        description,
+        publishDate,
+        playbackPositionMs,
+        showName,
       );
 
   @override
   String toString() =>
-      'TrackItemMetadata(title: $title, uri: $uri, artists: $artists, album: $albumName, durationMs: $durationMs)';
+      'TrackItemMetadata(title: $title, uri: $uri, artists: $artists, isEpisode: $isEpisode, durationMs: $durationMs)';
 }

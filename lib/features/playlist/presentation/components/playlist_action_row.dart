@@ -2,32 +2,37 @@ library;
 
 import 'package:flutter/material.dart';
 
-/// 1:1 replica of Spotify's Playlist Action Bar (`nk20.java`).
-/// Contains: Follow/Heart, Download, Collaborators, More options, Shuffle toggle (with active dot), and 56x56 Circular Play FAB.
+/// 1:1 replica of Spotify's Playlist Action Bar (`nk20.java` & `PlayButtonView.java`, `play_button_view.xml`).
+///
+/// Features:
+/// 1. Download circle arrow button with state transition
+/// 2. Permission-aware action: Share button for owners (`canEdit`), Follow/Heart for viewers
+/// 3. Shuffle toggle with green active indicator dot
+/// 4. 56x56 slot placeholder aligning with the floating PlayButtonBehavior FAB
 class PlaylistActionRow extends StatelessWidget {
+  final bool isOwner;
   final bool isFollowed;
   final bool isDownloaded;
   final bool isShuffleEnabled;
   final bool isPlaying;
   final VoidCallback onFollowTapped;
   final VoidCallback onDownloadTapped;
-  final VoidCallback onAddCollaboratorTapped;
-  final VoidCallback onMoreOptionsTapped;
+  final VoidCallback onShareTapped;
   final VoidCallback onShuffleTapped;
-  final VoidCallback onPlayTapped;
+  final VoidCallback? onPlayTapped;
 
   const PlaylistActionRow({
     super.key,
+    required this.isOwner,
     required this.isFollowed,
     required this.isDownloaded,
     required this.isShuffleEnabled,
     required this.isPlaying,
     required this.onFollowTapped,
     required this.onDownloadTapped,
-    required this.onAddCollaboratorTapped,
-    required this.onMoreOptionsTapped,
+    required this.onShareTapped,
     required this.onShuffleTapped,
-    required this.onPlayTapped,
+    this.onPlayTapped,
   });
 
   @override
@@ -36,75 +41,93 @@ class PlaylistActionRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
       child: Row(
         children: [
-          // 1. Follow / Heart Button
+          // 1. Offline Download Button (Circle with Down Arrow)
           SizedBox(
             width: 40,
             height: 40,
             child: IconButton(
-              icon: Icon(
-                isFollowed ? Icons.favorite : Icons.favorite_border,
-                color: isFollowed ? const Color(0xFF1DB954) : const Color(0xFFB3B3B3),
-                size: 26,
-              ),
-              onPressed: onFollowTapped,
-              tooltip: isFollowed ? 'Remove from library' : 'Save to library',
-              padding: EdgeInsets.zero,
-            ),
-          ),
-
-          // 2. Offline Download Button (Circle with Down Arrow)
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: IconButton(
-              icon: Icon(
-                isDownloaded
-                    ? Icons.arrow_circle_down
-                    : Icons.arrow_circle_down_outlined,
-                color: isDownloaded ? const Color(0xFF1DB954) : const Color(0xFFB3B3B3),
-                size: 26,
+              icon: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Icon(
+                  isDownloaded
+                      ? Icons.arrow_circle_down
+                      : Icons.arrow_circle_down_outlined,
+                  key: ValueKey<bool>(isDownloaded),
+                  color: isDownloaded
+                      ? const Color(0xFF1DB954)
+                      : const Color(0xFFB3B3B3),
+                  size: 26,
+                ),
               ),
               onPressed: onDownloadTapped,
-              tooltip: isDownloaded ? 'Downloaded' : 'Download for offline',
+              tooltip: isDownloaded
+                  ? 'Downloaded'
+                  : 'Download for offline',
               padding: EdgeInsets.zero,
             ),
           ),
+          const SizedBox(width: 8),
 
-          // 3. Add Collaborator Button
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: IconButton(
-              icon: const Icon(
-                Icons.person_add_alt_1_outlined,
-                color: Color(0xFFB3B3B3),
-                size: 24,
+          // 2. Permission-Aware Action: Share for Owner, Heart/Follow for Viewer
+          if (isOwner)
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: IconButton(
+                icon: const Icon(
+                  Icons.share_outlined,
+                  color: Color(0xFFB3B3B3),
+                  size: 24,
+                ),
+                onPressed: onShareTapped,
+                tooltip: 'Share playlist',
+                padding: EdgeInsets.zero,
               ),
-              onPressed: onAddCollaboratorTapped,
-              tooltip: 'Invite collaborators',
-              padding: EdgeInsets.zero,
-            ),
-          ),
-
-          // 4. Context More Options (3-dots)
-          SizedBox(
-            width: 40,
-            height: 40,
-            child: IconButton(
-              icon: const Icon(
-                Icons.more_vert,
-                color: Color(0xFFB3B3B3),
-                size: 24,
+            )
+          else
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(
+                  begin: 1.0,
+                  end: isFollowed ? 1.2 : 1.0,
+                ),
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutBack,
+                builder: (context, scale, child) {
+                  return Transform.scale(
+                    scale: scale,
+                    child: IconButton(
+                      icon: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        transitionBuilder: (child, anim) => ScaleTransition(
+                          scale: anim,
+                          child: child,
+                        ),
+                        child: Icon(
+                          isFollowed ? Icons.favorite : Icons.favorite_border,
+                          key: ValueKey<bool>(isFollowed),
+                          color: isFollowed
+                              ? const Color(0xFF1DB954)
+                              : const Color(0xFFB3B3B3),
+                          size: 26,
+                        ),
+                      ),
+                      onPressed: onFollowTapped,
+                      tooltip: isFollowed
+                          ? 'Remove from library'
+                          : 'Save to library',
+                      padding: EdgeInsets.zero,
+                    ),
+                  );
+                },
               ),
-              onPressed: onMoreOptionsTapped,
-              tooltip: 'Playlist options',
-              padding: EdgeInsets.zero,
             ),
-          ),
 
           const Spacer(),
 
-          // 5. Shuffle Toggle with Active Dot (Encore Shuffle Toggle)
+          // 3. Shuffle Toggle with Active Dot (Encore Shuffle Toggle)
           InkWell(
             onTap: onShuffleTapped,
             borderRadius: BorderRadius.circular(20),
@@ -114,16 +137,22 @@ class PlaylistActionRow extends StatelessWidget {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  Icon(
-                    Icons.shuffle,
-                    color: isShuffleEnabled
-                        ? const Color(0xFF1DB954)
-                        : const Color(0xFFB3B3B3),
-                    size: 26,
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Icon(
+                      Icons.shuffle,
+                      key: ValueKey<bool>(isShuffleEnabled),
+                      color: isShuffleEnabled
+                          ? const Color(0xFF1DB954)
+                          : const Color(0xFFB3B3B3),
+                      size: 26,
+                    ),
                   ),
-                  if (isShuffleEnabled)
-                    Positioned(
-                      bottom: 4,
+                  Positioned(
+                    bottom: 4,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: isShuffleEnabled ? 1.0 : 0.0,
                       child: Container(
                         width: 4,
                         height: 4,
@@ -133,32 +162,17 @@ class PlaylistActionRow extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
                 ],
               ),
             ),
           ),
           const SizedBox(width: 8),
 
-          // 6. Spotify Big Green Play FAB (56x56dp circular, NOT pill-shaped)
-          Material(
-            color: const Color(0xFF1DB954),
-            shape: const CircleBorder(),
-            elevation: 4,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onPlayTapped,
-              child: SizedBox(
-                width: 56,
-                height: 56,
-                child: Center(
-                  child: Icon(
-                    isPlaying ? Icons.pause : Icons.play_arrow,
-                    color: Colors.black,
-                    size: 30,
-                  ),
-                ),
-              ),
-            ),
+          // 4. 56x56 Layout Placeholder aligning with floating PlayButtonBehavior FAB
+          const SizedBox(
+            width: 56,
+            height: 56,
           ),
         ],
       ),

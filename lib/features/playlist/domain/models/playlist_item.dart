@@ -12,6 +12,13 @@ enum PlaylistSectionType {
   weAdded,
 }
 
+/// Spotify entity types represented inside playlists (`qcb0.java`).
+enum PlaylistItemType {
+  track,
+  episode,
+  show,
+}
+
 /// 1:1 replica of Spotify's `amb0.java` playlist item model.
 @immutable
 class PlaylistItem {
@@ -39,13 +46,34 @@ class PlaylistItem {
     this.sectionType = PlaylistSectionType.standard,
   });
 
+  /// Identifies entity type matching Spotify URI scheme and metadata (`qcb0.java`)
+  PlaylistItemType get itemType {
+    if (uri.startsWith('spotify:episode:') || (trackMetadata?.isEpisode ?? false)) {
+      return PlaylistItemType.episode;
+    }
+    if (uri.startsWith('spotify:show:') || (trackMetadata?.isShow ?? false)) {
+      return PlaylistItemType.show;
+    }
+    return PlaylistItemType.track;
+  }
+
+  bool get isEpisode => itemType == PlaylistItemType.episode;
+  bool get isShow => itemType == PlaylistItemType.show;
+  bool get isTrack => itemType == PlaylistItemType.track;
+
   String get title => trackMetadata?.title ?? '';
   String get subtitle => trackMetadata?.artistNamesString ?? '';
   String get albumName => trackMetadata?.albumName ?? '';
+  String get showName => trackMetadata?.showName.isNotEmpty == true
+      ? trackMetadata!.showName
+      : albumName;
   String get coverUrl => trackMetadata?.primaryCoverUrl ?? '';
   int get durationMs => trackMetadata?.durationMs ?? 0;
   bool get isPlayable => trackMetadata?.isPlayable ?? true;
   bool get isExplicit => trackMetadata?.isExplicit ?? false;
+  String get description => trackMetadata?.description ?? '';
+  String get publishDate => trackMetadata?.publishDate ?? '';
+  int get playbackPositionMs => trackMetadata?.playbackPositionMs ?? 0;
 
   PlaylistItem copyWith({
     String? uri,
@@ -105,5 +133,5 @@ class PlaylistItem {
 
   @override
   String toString() =>
-      'PlaylistItem(uri: $uri, uid: $uid, title: $title, row: $rowPosition, section: $sectionType)';
+      'PlaylistItem(uri: $uri, uid: $uid, type: $itemType, title: $title, subtitle: $subtitle)';
 }
