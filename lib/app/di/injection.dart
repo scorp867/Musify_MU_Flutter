@@ -16,7 +16,6 @@ import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/core/network/status/network_monitor_service.dart';
 import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
 import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
-import 'package:musify_mu/features/playlist_detail/application/playlist_detail_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
@@ -68,6 +67,11 @@ import 'package:musify_mu/features/player/data/esperanto/context_player_queue_cl
 import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
+import 'package:musify_mu/features/playlist/data/client/playlist_data_client.dart';
+import 'package:musify_mu/features/playlist/data/client/playlist_modification_client.dart';
+import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dart';
+import 'package:musify_mu/features/playlist/data/repositories/playlist_repository_impl.dart';
+import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -256,6 +260,12 @@ Future<void> setupInjection() async {
       cacheManager: getIt<AppCacheManager>(),
     ),
   );
+  getIt.registerLazySingleton<PlaylistRemoteSource>(
+    () => PlaylistRemoteSource(client: getIt<WebPlayerTransport>()),
+  );
+  getIt.registerLazySingleton<PlaylistDetailCache>(
+    () => PlaylistDetailCache(cacheManager: getIt<AppCacheManager>()),
+  );
   getIt.registerFactoryParam<LibraryRepository, String, void>(
     (userId, _) => LibraryRepositoryImpl(
       librarySource: LibraryRemoteSource(
@@ -264,15 +274,11 @@ Future<void> setupInjection() async {
         ctx: getIt<RuntimeContext>(),
         userId: userId,
       ),
-      playlistSource: PlaylistRemoteSource(
-        client: getIt<WebPlayerTransport>(),
-      ),
+      playlistSource: getIt<PlaylistRemoteSource>(),
       libraryCache: LibraryCache(
         cacheManager: getIt<AppCacheManager>(),
       ),
-      playlistCache: PlaylistDetailCache(
-        cacheManager: getIt<AppCacheManager>(),
-      ),
+      playlistCache: getIt<PlaylistDetailCache>(),
       metadataService: getIt<ExtendedMetadataService>(),
       userId: userId,
     ),
@@ -335,11 +341,6 @@ Future<void> setupInjection() async {
       networkMonitor: getIt<NetworkMonitorService>(),
     ),
   );
-  getIt.registerFactory<PlaylistDetailBloc>(
-    () => PlaylistDetailBloc(
-      colorService: getIt<ColorExtractionService>(),
-    ),
-  );
   getIt.registerFactory<NowPlayingScrollBloc>(
     () => NowPlayingScrollBloc(
       scrollSitaRepository: getIt<ScrollSitaRepository>(),
@@ -389,5 +390,31 @@ Future<void> setupInjection() async {
       playClient: getIt<ContextPlayerPlayClient>(),
     ),
     dispose: (bloc) => bloc.close(),
+  );
+
+  // --- Spotify Playlist Esperanto Clients & Repository ---
+  getIt.registerLazySingleton<PlaylistDataClient>(
+    () => PlaylistDataClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<PlaylistModificationClient>(
+    () => PlaylistModificationClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<PlaylistPlayClient>(
+    () => PlaylistPlayClient(getIt<EsperantoTransport>()),
+  );
+  getIt.registerLazySingleton<PlaylistRepository>(
+    () => PlaylistRepositoryImpl(
+      dataClient: getIt<PlaylistDataClient>(),
+      modificationClient: getIt<PlaylistModificationClient>(),
+      playClient: getIt<PlaylistPlayClient>(),
+      contextPlayerPlayClient: getIt<ContextPlayerPlayClient>(),
+      remoteSource: getIt.isRegistered<PlaylistRemoteSource>()
+          ? getIt<PlaylistRemoteSource>()
+          : null,
+      cache: getIt.isRegistered<PlaylistDetailCache>()
+          ? getIt<PlaylistDetailCache>()
+          : null,
+      currentUsername: '',
+    ),
   );
 }

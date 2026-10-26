@@ -1,7 +1,6 @@
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
@@ -10,8 +9,7 @@ import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
-import 'package:musify_mu/features/playlist_detail/application/playlist_detail_bloc.dart';
-import 'package:musify_mu/features/playlist_detail/presentation/playlist_detail_screen.dart';
+import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
 
 /// The Library tab view.
 class LibraryView extends StatefulWidget {
@@ -417,27 +415,9 @@ class _LibraryItemTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       onTap: () {
-        if (item.type != 'playlist') return;
-        Navigator.of(context).push(
+        Navigator.of(context, rootNavigator: true).push(
           MaterialPageRoute<void>(
-            builder: (_) {
-              return MultiBlocProvider(
-                providers: [
-                  BlocProvider<PlaylistDetailBloc>(
-                    create: (ctx) => PlaylistDetailBloc(
-                      colorService: ctx.read<ColorExtractionService>(),
-                    )..add(PlaylistDetailLoadRequested(item)),
-                  ),
-                  BlocProvider<LibraryBloc>.value(
-                    value: context.read<LibraryBloc>(),
-                  ),
-                  BlocProvider<AuthBloc>.value(
-                    value: context.read<AuthBloc>(),
-                  ),
-                ],
-                child: PlaylistDetailScreen(item: item),
-              );
-            },
+            builder: (_) => PlaylistScreen(playlistUri: item.uri),
           ),
         );
       },
