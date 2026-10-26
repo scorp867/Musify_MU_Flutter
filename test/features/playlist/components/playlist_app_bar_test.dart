@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 import 'package:musify_mu/features/playlist/presentation/components/playlist_app_bar.dart';
 
 void main() {
@@ -26,8 +27,12 @@ void main() {
         ),
       );
 
-      final backIcon = find.byIcon(Icons.arrow_back);
-      final moreIcon = find.byIcon(Icons.more_vert);
+      final backIcon = find.byWidgetPredicate(
+        (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.arrowLeftPath),
+      );
+      final moreIcon = find.byWidgetPredicate(
+        (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.moreAndroidPath),
+      );
 
       expect(backIcon, findsOneWidget);
       expect(moreIcon, findsOneWidget);

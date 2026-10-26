@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 
 /// 1:1 replica of Spotify's empty playlist state (`empty_view_playlist_all_songs.xml`).
 class PlaylistEmptyView extends StatelessWidget {
@@ -19,10 +20,9 @@ class PlaylistEmptyView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.queue_music,
+            SpotifyIcon.track(
               size: 56,
-              color: Color(0xFF535353),
+              color: const Color(0xFF535353),
             ),
             const SizedBox(height: 16),
             const Text(

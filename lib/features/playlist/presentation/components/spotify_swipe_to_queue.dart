@@ -2,6 +2,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 
 /// 1:1 replica of Spotify's Swipe-to-Queue interaction
 /// (`bqa1.java`, `vqa1.java`, `R.dimen.swipe_action_icon_size`).
@@ -143,8 +144,7 @@ class _SpotifySwipeToQueueState extends State<SpotifySwipeToQueue>
                                 padding: EdgeInsets.only(left: iconLeft),
                                 child: Opacity(
                                   opacity: progress,
-                                  child: const Icon(
-                                    Icons.playlist_add,
+                                  child: SpotifyIcon.addToQueue(
                                     color: Colors.white,
                                     size: _iconSize,
                                   ),

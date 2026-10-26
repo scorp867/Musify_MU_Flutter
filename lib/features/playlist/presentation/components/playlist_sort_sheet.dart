@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../domain/models/sort_order.dart';
 
 /// 1:1 replica of Spotify's Sort Order bottom sheet modal
@@ -109,10 +110,9 @@ class PlaylistSortSheet extends StatelessWidget {
                             child: FadeTransition(opacity: anim, child: child),
                           ),
                           child: isSelected
-                              ? const Icon(
-                                  Icons.check,
-                                  key: ValueKey('selected'),
-                                  color: Color(0xFF1DB954),
+                              ? SpotifyIcon.check(
+                                  key: const ValueKey('selected'),
+                                  color: const Color(0xFF1DB954),
                                   size: 24,
                                 )
                               : const SizedBox.shrink(key: ValueKey('unselected')),

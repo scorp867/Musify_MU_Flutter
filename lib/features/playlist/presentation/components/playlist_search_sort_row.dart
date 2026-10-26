@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 
 /// 1:1 replica of Spotify's search and sort adaptive layout
 /// (`search_and_sort_row_adaptive_layout.xml`, `FindInContextView.java`, `SortButtonView.java`).
@@ -49,10 +50,9 @@ class PlaylistSearchSortRow extends StatelessWidget {
               child: Row(
                 children: [
                   // Search Icon (encore_action_button_icon_size_small)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 10.0, right: 8.0),
-                    child: Icon(
-                      Icons.search,
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10.0, right: 8.0),
+                    child: SpotifyIcon.search(
                       color: Colors.white,
                       size: 18,
                     ),
@@ -97,9 +97,8 @@ class PlaylistSearchSortRow extends StatelessWidget {
                         width: 36,
                         height: 38,
                         child: IconButton(
-                          icon: const Icon(
-                            Icons.clear,
-                            color: Color(0xFFB3B3B3),
+                          icon: SpotifyIcon.clear(
+                            color: const Color(0xFFB3B3B3),
                             size: 16,
                           ),
                           onPressed: () {
@@ -144,8 +143,7 @@ class PlaylistSearchSortRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(
-                    Icons.unfold_more,
+                  SpotifyIcon.sort(
                     color: Colors.white,
                     size: 16,
                   ),

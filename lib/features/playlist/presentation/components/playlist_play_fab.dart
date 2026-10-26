@@ -1,13 +1,14 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 
 /// 1:1 replica of Spotify's Play Button View
 /// (`PlayButtonView.java`, `play_button_view.xml`, `PlayButtonBehavior.java`, `ComposePlayButtonBehavior.java`).
 ///
 /// Features:
 /// 1. 56x56 circular FAB (`button_play_and_pause`) with Spotify green background (`#1DB954`)
-/// 2. 30dp black Play / Pause icon with scale and fade crossfade transition
+/// 2. 26dp black Play / Pause icon with scale and fade crossfade transition
 /// 3. 20dp Shuffle Badge (`button_badge`) anchored to bottom-right corner, visible only when
 ///    shuffle is enabled and playback is paused (`PlayButtonView.java` line 305)
 /// 4. Tap compression animation (scales down to 0.92 on press, `Curves.easeOutCubic`)
@@ -70,12 +71,17 @@ class _PlaylistPlayFabState extends State<PlaylistPlayFab> {
                           child: child,
                         ),
                       ),
-                      child: Icon(
-                        widget.isPlaying ? Icons.pause : Icons.play_arrow,
-                        key: ValueKey<bool>(widget.isPlaying),
-                        color: Colors.black,
-                        size: 30,
-                      ),
+                      child: widget.isPlaying
+                          ? SpotifyIcon.pause(
+                              key: const ValueKey<bool>(true),
+                              color: Colors.black,
+                              size: 26,
+                            )
+                          : SpotifyIcon.play(
+                              key: const ValueKey<bool>(false),
+                              color: Colors.black,
+                              size: 26,
+                            ),
                     ),
                   ),
                 ),
@@ -100,10 +106,9 @@ class _PlaylistPlayFabState extends State<PlaylistPlayFab> {
                         width: 1.5,
                       ),
                     ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.shuffle,
-                        color: Color(0xFF1DB954), // encore_accent_color
+                    child: Center(
+                      child: SpotifyIcon.shuffle(
+                        color: const Color(0xFF1DB954), // encore_accent_color
                         size: 11, // encore_play_button_badge_size = 11dp
                       ),
                     ),

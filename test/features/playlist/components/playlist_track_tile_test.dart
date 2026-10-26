@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
 import 'package:musify_mu/features/playlist/domain/models/playlist_item.dart';
 import 'package:musify_mu/features/playlist/domain/models/track_item_metadata.dart';
 import 'package:musify_mu/features/playlist/presentation/components/playlist_track_tile.dart';
@@ -44,14 +45,29 @@ void main() {
       expect(find.text('Starboy'), findsOneWidget);
       expect(find.text('The Weeknd, Daft Punk'), findsOneWidget);
 
-      // Verify Explicit 'E' badge
-      expect(find.text('E'), findsOneWidget);
+      // Verify Explicit 'E' badge via Encore vector icon
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.explicitPath),
+        ),
+        findsOneWidget,
+      );
 
       // Verify Downloaded icon
-      expect(find.byIcon(Icons.arrow_circle_down), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.downloadedPath),
+        ),
+        findsOneWidget,
+      );
 
       // Verify More options button
-      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.moreAndroidPath),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Renders Podcast Episode with 64x64 art, 2-line title, show subtitle, actions', (
@@ -105,9 +121,24 @@ void main() {
       expect(find.textContaining('30 min'), findsOneWidget);
 
       // Verify Episode Quick Action Bar: Play arrow, add, download, more
-      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
-      expect(find.byIcon(Icons.add_circle_outline), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_circle_down_outlined), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.playPath),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.plusAltPath1),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is SpotifyIcon && w.paths.contains(SpotifyEncoreIcons.downloadPath1),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Renders Podcast Show with 64x64 art, show title, and Podcast subtitle', (

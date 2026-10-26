@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 
 /// 1:1 replica of Spotify's collapsing toolbar header
 /// (`header_layout.xml`, `back_button_background.xml`, `b7r.java`, `yz40.java`).
@@ -103,8 +104,7 @@ class PlaylistAppBar extends StatelessWidget {
             width: 48,
             height: 48,
             child: IconButton(
-              icon: const Icon(
-                Icons.arrow_back,
+              icon: SpotifyIcon.arrowLeft(
                 color: Colors.white,
                 size: 24,
               ),
@@ -122,10 +122,9 @@ class PlaylistAppBar extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.only(left: 10.0, right: 8.0),
-                    child: Icon(
-                      Icons.search,
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10.0, right: 8.0),
+                    child: SpotifyIcon.search(
                       color: Colors.white,
                       size: 18,
                     ),
@@ -163,9 +162,8 @@ class PlaylistAppBar extends StatelessWidget {
             width: 48,
             height: 48,
             child: IconButton(
-              icon: const Icon(
-                Icons.clear,
-                color: Color(0xFFB3B3B3),
+              icon: SpotifyIcon.clear(
+                color: const Color(0xFFB3B3B3),
                 size: 20,
               ),
               onPressed: () {
@@ -225,8 +223,7 @@ class PlaylistAppBar extends StatelessWidget {
                 color: const Color(0xFF000000).withValues(alpha: 0.30 * bubbleAlpha), // back_button_background.xml
               ),
               child: IconButton(
-                icon: const Icon(
-                  Icons.arrow_back,
+                icon: SpotifyIcon.arrowLeft(
                   color: Colors.white,
                   size: 22,
                 ),
@@ -248,8 +245,7 @@ class PlaylistAppBar extends StatelessWidget {
                 color: const Color(0xFF000000).withValues(alpha: 0.30 * bubbleAlpha),
               ),
               child: IconButton(
-                icon: const Icon(
-                  Icons.more_vert,
+                icon: SpotifyIcon.more(
                   color: Colors.white,
                   size: 22,
                 ),

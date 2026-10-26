@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../app/di/injection.dart';
 import '../../../core/color/color_extraction_service.dart';
 import '../../../core/color/eased_gradient.dart';
+import '../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
@@ -201,10 +202,9 @@ class _PlaylistScreenState extends State<PlaylistScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.error_outline,
+            SpotifyIcon.error(
               size: 48,
-              color: Color(0xFFB3B3B3),
+              color: const Color(0xFFB3B3B3),
             ),
             const SizedBox(height: 16),
             const Text(
@@ -341,6 +341,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
 
                         // 3. Permission-Governed Curation Actions Chips (`uwt.java`, `curation_actions_*`)
                         PlaylistCurationChipsRow(
+                          isEditorial: state.playlist.metadata.isEditorial,
                           canEdit: isOwner,
                           onAddTapped: () {
                             _searchFocusNode.requestFocus();
@@ -395,7 +396,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           child: PlaylistAppBar(
             title: state.playlist.name,
             scrollOffset: _scrollOffset,
-            headerHeight: _headerHeight,
+            headerHeight: state.playlist.metadata.isEditorial ? 440.0 : _headerHeight,
             dominantColor: _dominantHeaderColor,
             isSearchActive: _isSearchActive,
             searchController: _searchController,
@@ -539,12 +540,15 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                             ? Image.network(
                                 state.playlist.pictureUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => const Icon(
-                                  Icons.music_note,
-                                  color: Color(0xFFB3B3B3),
+                                errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
+                                  size: 24,
+                                  color: const Color(0xFFB3B3B3),
                                 ),
                               )
-                            : const Icon(Icons.music_note, color: Color(0xFFB3B3B3)),
+                            : SpotifyIcon.track(
+                                size: 24,
+                                color: const Color(0xFFB3B3B3),
+                              ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -583,18 +587,18 @@ class _PlaylistScreenState extends State<PlaylistScreen>
               // Owner-only or shared options
               if (isOwner) ...[
                 ListTile(
-                  leading: const Icon(Icons.edit_outlined, color: Colors.white),
+                  leading: SpotifyIcon.edit(size: 24, color: Colors.white),
                   title: const Text('Edit playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
                   onTap: () => Navigator.pop(ctx),
                 ),
                 ListTile(
-                  leading: const Icon(Icons.person_add_outlined, color: Colors.white),
+                  leading: SpotifyIcon.plusCircle(size: 24, color: Colors.white),
                   title: const Text('Invite collaborators', style: TextStyle(color: Colors.white, fontSize: 15)),
                   onTap: () => Navigator.pop(ctx),
                 ),
               ],
               ListTile(
-                leading: const Icon(Icons.download_outlined, color: Colors.white),
+                leading: SpotifyIcon.download(size: 24, color: Colors.white),
                 title: const Text('Download', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -602,13 +606,13 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.share_outlined, color: Colors.white),
+                leading: SpotifyIcon.share(size: 24, color: Colors.white),
                 title: const Text('Share', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
               ),
               if (isOwner)
                 ListTile(
-                  leading: const Icon(Icons.delete_outline, color: Color(0xFFE91429)),
+                  leading: SpotifyIcon.delete(size: 24, color: const Color(0xFFE91429)),
                   title: const Text('Delete playlist', style: TextStyle(color: Color(0xFFE91429), fontSize: 15)),
                   onTap: () => Navigator.pop(ctx),
                 ),
@@ -647,12 +651,15 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                             ? Image.network(
                                 item.coverUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => const Icon(
-                                  Icons.music_note,
-                                  color: Color(0xFFB3B3B3),
+                                errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
+                                  size: 24,
+                                  color: const Color(0xFFB3B3B3),
                                 ),
                               )
-                            : const Icon(Icons.music_note, color: Color(0xFFB3B3B3)),
+                            : SpotifyIcon.track(
+                                size: 24,
+                                color: const Color(0xFFB3B3B3),
+                              ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -691,12 +698,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
 
               // Track Actions
               ListTile(
-                leading: const Icon(Icons.playlist_add, color: Colors.white),
+                leading: SpotifyIcon.addToPlaylist(size: 24, color: Colors.white),
                 title: const Text('Add to another playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
               ),
               ListTile(
-                leading: const Icon(Icons.queue_music, color: Colors.white),
+                leading: SpotifyIcon.addToQueue(size: 24, color: Colors.white),
                 title: const Text('Add to queue', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -704,7 +711,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.remove_circle_outline, color: Colors.white),
+                leading: SpotifyIcon.minusCircle(size: 24, color: Colors.white),
                 title: const Text('Remove from this playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -712,17 +719,17 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.album_outlined, color: Colors.white),
+                leading: SpotifyIcon.album(size: 24, color: Colors.white),
                 title: const Text('View album', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
               ),
               ListTile(
-                leading: const Icon(Icons.person_outline, color: Colors.white),
+                leading: SpotifyIcon.user(size: 24, color: Colors.white),
                 title: const Text('View artist', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
               ),
               ListTile(
-                leading: const Icon(Icons.share_outlined, color: Colors.white),
+                leading: SpotifyIcon.share(size: 24, color: Colors.white),
                 title: const Text('Share', style: TextStyle(color: Colors.white, fontSize: 15)),
                 onTap: () => Navigator.pop(ctx),
               ),

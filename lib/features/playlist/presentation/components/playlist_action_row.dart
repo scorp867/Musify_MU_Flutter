@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 
 /// 1:1 replica of Spotify's Playlist Action Bar (`nk20.java` & `PlayButtonView.java`, `play_button_view.xml`).
 ///
@@ -48,16 +49,17 @@ class PlaylistActionRow extends StatelessWidget {
             child: IconButton(
               icon: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
-                child: Icon(
-                  isDownloaded
-                      ? Icons.arrow_circle_down
-                      : Icons.arrow_circle_down_outlined,
-                  key: ValueKey<bool>(isDownloaded),
-                  color: isDownloaded
-                      ? const Color(0xFF1DB954)
-                      : const Color(0xFFB3B3B3),
-                  size: 26,
-                ),
+                child: isDownloaded
+                    ? SpotifyIcon.downloaded(
+                        key: const ValueKey<bool>(true),
+                        color: const Color(0xFF1DB954),
+                        size: 24,
+                      )
+                    : SpotifyIcon.download(
+                        key: const ValueKey<bool>(false),
+                        color: const Color(0xFFB3B3B3),
+                        size: 24,
+                      ),
               ),
               onPressed: onDownloadTapped,
               tooltip: isDownloaded
@@ -74,9 +76,8 @@ class PlaylistActionRow extends StatelessWidget {
               width: 40,
               height: 40,
               child: IconButton(
-                icon: const Icon(
-                  Icons.share_outlined,
-                  color: Color(0xFFB3B3B3),
+                icon: SpotifyIcon.share(
+                  color: const Color(0xFFB3B3B3),
                   size: 24,
                 ),
                 onPressed: onShareTapped,
@@ -105,14 +106,17 @@ class PlaylistActionRow extends StatelessWidget {
                           scale: anim,
                           child: child,
                         ),
-                        child: Icon(
-                          isFollowed ? Icons.favorite : Icons.favorite_border,
-                          key: ValueKey<bool>(isFollowed),
-                          color: isFollowed
-                              ? const Color(0xFF1DB954)
-                              : const Color(0xFFB3B3B3),
-                          size: 26,
-                        ),
+                        child: isFollowed
+                            ? SpotifyIcon.heartActive(
+                                key: const ValueKey<bool>(true),
+                                color: const Color(0xFF1DB954),
+                                size: 24,
+                              )
+                            : SpotifyIcon.heart(
+                                key: const ValueKey<bool>(false),
+                                color: const Color(0xFFB3B3B3),
+                                size: 24,
+                              ),
                       ),
                       onPressed: onFollowTapped,
                       tooltip: isFollowed
@@ -139,13 +143,12 @@ class PlaylistActionRow extends StatelessWidget {
                 children: [
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 180),
-                    child: Icon(
-                      Icons.shuffle,
+                    child: SpotifyIcon.shuffle(
                       key: ValueKey<bool>(isShuffleEnabled),
                       color: isShuffleEnabled
                           ? const Color(0xFF1DB954)
                           : const Color(0xFFB3B3B3),
-                      size: 26,
+                      size: 24,
                     ),
                   ),
                   Positioned(

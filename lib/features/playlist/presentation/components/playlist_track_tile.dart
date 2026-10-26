@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../domain/models/playlist_item.dart';
 import 'spotify_swipe_to_queue.dart';
 
@@ -76,9 +77,19 @@ class PlaylistTrackTile extends StatelessWidget {
                       item.coverUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) =>
-                          _buildPlaceholderCover(Icons.music_note),
+                          _buildPlaceholderCover(
+                        SpotifyIcon.track(
+                          size: 24,
+                          color: const Color(0xFF535353),
+                        ),
+                      ),
                     )
-                  : _buildPlaceholderCover(Icons.music_note),
+                  : _buildPlaceholderCover(
+                      SpotifyIcon.track(
+                        size: 24,
+                        color: const Color(0xFF535353),
+                      ),
+                    ),
             ),
             const SizedBox(width: 12),
 
@@ -117,35 +128,24 @@ class PlaylistTrackTile extends StatelessWidget {
                     children: [
                       // Download Status Badge (p3u.Downloaded -> circular green arrow)
                       if (item.isDownloaded) ...[
-                        const Padding(
-                          padding: EdgeInsets.only(right: 5.0),
-                          child: Icon(
-                            Icons.arrow_circle_down,
-                            color: Color(0xFF1DB954),
+                        Padding(
+                          padding: const EdgeInsets.only(right: 5.0),
+                          child: SpotifyIcon.downloaded(
+                            color: const Color(0xFF1DB954),
                             size: 13,
                           ),
                         ),
                       ],
 
-                      // Explicit "E" Badge (s9l.Explicit -> Encore 9sp Bold, Gray background)
+                      // Explicit "E" Badge (s9l.Explicit -> ic_explicit.xml)
                       if (item.isExplicit) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                          decoration: BoxDecoration(
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6.0),
+                          child: SpotifyIcon.explicit(
                             color: const Color(0xFFB3B3B3),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                          child: const Text(
-                            'E',
-                            style: TextStyle(
-                              color: Colors.black,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                              height: 1.1,
-                            ),
+                            size: 12,
                           ),
                         ),
-                        const SizedBox(width: 6),
                       ],
 
                       // Subtitle / Artists String
@@ -176,9 +176,8 @@ class PlaylistTrackTile extends StatelessWidget {
               width: 44,
               height: 44,
               child: IconButton(
-                icon: const Icon(
-                  Icons.more_vert,
-                  color: Color(0xFFB3B3B3),
+                icon: SpotifyIcon.more(
+                  color: const Color(0xFFB3B3B3),
                   size: 20,
                 ),
                 onPressed: onMoreTapped,
@@ -232,9 +231,19 @@ class PlaylistTrackTile extends StatelessWidget {
                                 item.coverUrl,
                                 fit: BoxFit.cover,
                                 errorBuilder: (context, error, stackTrace) =>
-                                    _buildPlaceholderCover(Icons.podcasts),
+                                    _buildPlaceholderCover(
+                                  SpotifyIcon.podcasts(
+                                    size: 24,
+                                    color: const Color(0xFF535353),
+                                  ),
+                                ),
                               )
-                            : _buildPlaceholderCover(Icons.podcasts),
+                            : _buildPlaceholderCover(
+                                SpotifyIcon.podcasts(
+                                  size: 24,
+                                  color: const Color(0xFF535353),
+                                ),
+                              ),
                       ),
                       if (isActiveTrack)
                         Positioned.fill(
@@ -307,23 +316,13 @@ class PlaylistTrackTile extends StatelessWidget {
               children: [
                 // Explicit Badge
                 if (item.isExplicit) ...[
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6.0),
+                    child: SpotifyIcon.explicit(
                       color: const Color(0xFFB3B3B3),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: const Text(
-                      'E',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
-                        height: 1.1,
-                      ),
+                      size: 12,
                     ),
                   ),
-                  const SizedBox(width: 6),
                 ],
 
                 // Published Date & Duration telemetry
@@ -359,11 +358,15 @@ class PlaylistTrackTile extends StatelessWidget {
                       ),
                     ),
                     child: Center(
-                      child: Icon(
-                        isActiveTrack && isPlaying ? Icons.pause : Icons.play_arrow,
-                        color: isActiveTrack && isPlaying ? Colors.black : Colors.white,
-                        size: 18,
-                      ),
+                      child: isActiveTrack && isPlaying
+                          ? SpotifyIcon.pause(
+                              color: Colors.black,
+                              size: 14,
+                            )
+                          : SpotifyIcon.play(
+                              color: Colors.white,
+                              size: 14,
+                            ),
                     ),
                   ),
                 ),
@@ -374,9 +377,8 @@ class PlaylistTrackTile extends StatelessWidget {
                   width: 36,
                   height: 36,
                   child: IconButton(
-                    icon: const Icon(
-                      Icons.add_circle_outline,
-                      color: Color(0xFFB3B3B3),
+                    icon: SpotifyIcon.plusCircle(
+                      color: const Color(0xFFB3B3B3),
                       size: 22,
                     ),
                     onPressed: () {},
@@ -391,15 +393,15 @@ class PlaylistTrackTile extends StatelessWidget {
                   width: 36,
                   height: 36,
                   child: IconButton(
-                    icon: Icon(
-                      item.isDownloaded
-                          ? Icons.arrow_circle_down
-                          : Icons.arrow_circle_down_outlined,
-                      color: item.isDownloaded
-                          ? const Color(0xFF1DB954)
-                          : const Color(0xFFB3B3B3),
-                      size: 22,
-                    ),
+                    icon: item.isDownloaded
+                        ? SpotifyIcon.downloaded(
+                            color: const Color(0xFF1DB954),
+                            size: 22,
+                          )
+                        : SpotifyIcon.download(
+                            color: const Color(0xFFB3B3B3),
+                            size: 22,
+                          ),
                     onPressed: () {},
                     padding: EdgeInsets.zero,
                     tooltip: 'Download episode',
@@ -412,9 +414,8 @@ class PlaylistTrackTile extends StatelessWidget {
                   width: 36,
                   height: 36,
                   child: IconButton(
-                    icon: const Icon(
-                      Icons.more_vert,
-                      color: Color(0xFFB3B3B3),
+                    icon: SpotifyIcon.more(
+                      color: const Color(0xFFB3B3B3),
                       size: 20,
                     ),
                     onPressed: onMoreTapped,
@@ -472,9 +473,19 @@ class PlaylistTrackTile extends StatelessWidget {
                       item.coverUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) =>
-                          _buildPlaceholderCover(Icons.podcasts),
+                          _buildPlaceholderCover(
+                        SpotifyIcon.podcasts(
+                          size: 24,
+                          color: const Color(0xFF535353),
+                        ),
+                      ),
                     )
-                  : _buildPlaceholderCover(Icons.podcasts),
+                  : _buildPlaceholderCover(
+                      SpotifyIcon.podcasts(
+                        size: 24,
+                        color: const Color(0xFF535353),
+                      ),
+                    ),
             ),
             const SizedBox(width: 12),
 
@@ -529,9 +540,8 @@ class PlaylistTrackTile extends StatelessWidget {
               width: 44,
               height: 44,
               child: IconButton(
-                icon: const Icon(
-                  Icons.more_vert,
-                  color: Color(0xFFB3B3B3),
+                icon: SpotifyIcon.more(
+                  color: const Color(0xFFB3B3B3),
                   size: 20,
                 ),
                 onPressed: onMoreTapped,
@@ -566,16 +576,10 @@ class PlaylistTrackTile extends StatelessWidget {
     return parts.isNotEmpty ? parts.join(' • ') : 'Episode';
   }
 
-  Widget _buildPlaceholderCover(IconData icon) {
+  Widget _buildPlaceholderCover(Widget icon) {
     return Container(
       color: const Color(0xFF282828),
-      child: Center(
-        child: Icon(
-          icon,
-          size: 24,
-          color: const Color(0xFF535353),
-        ),
-      ),
+      child: Center(child: icon),
     );
   }
 }
