@@ -8,6 +8,7 @@ import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/features/browse/domain/models/browse_view_data.dart';
 
 /// The browse/search tab view -- renders category grid from Browsita data.
@@ -199,70 +200,77 @@ class _BrowseCard extends StatelessWidget {
         ? Color(item.backgroundColor!)
         : const Color(0xFF535353);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        color: bgColor,
-        child: Stack(
-          children: [
-            // Title
-            Positioned(
-              left: 12,
-              top: 12,
-              right: 60,
-              child: Text(
-                item.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  height: 1.2,
+    return GestureDetector(
+      onTap: () {
+        final target = item.targetUri.isNotEmpty ? item.targetUri : item.uri;
+        SpotifyUriNavigator.openUri(context, target);
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          color: bgColor,
+          child: Stack(
+            children: [
+              // Title
+              Positioned(
+                left: 12,
+                top: 12,
+                right: 60,
+                child: Text(
+                  item.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    height: 1.2,
+                  ),
                 ),
               ),
-            ),
 
-            // Image (bottom-right, rotated like Spotify)
-            if (item.imageUrl.isNotEmpty)
-              Positioned(
-                right: -8,
-                bottom: -4,
-                child: Transform.rotate(
-                  angle: 0.44, // ~25 degrees
-                  child: Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(-2, 2),
+              // Image (bottom-right, rotated like Spotify)
+              if (item.imageUrl.isNotEmpty)
+                Positioned(
+                  right: -8,
+                  bottom: -4,
+                  child: Transform.rotate(
+                    angle: 0.44, // ~25 degrees
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(-2, 2),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: AppNetworkImage(
+                          imageUrl: item.imageUrl,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 128,
+                          memCacheHeight: 128,
+                          errorWidget: (context, error, stack) =>
+                              const SizedBox.shrink(),
                         ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: AppNetworkImage(
-                        imageUrl: item.imageUrl,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 128,
-                        memCacheHeight: 128,
-                        errorWidget: (context, error, stack) =>
-                            const SizedBox.shrink(),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
+
 // ─── Browse header ───────────────────────────────────────────────────
 
 class _BrowseHeader extends StatelessWidget {
@@ -281,18 +289,18 @@ class _BrowseHeader extends StatelessWidget {
 
         // Trailing: user avatar (taps to open drawer, same as home)
         Widget avatar;
-        if (user?.avatarUrl != null) {
+        if (user?.avatarUrl case final avatarUrl?) {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(user!.avatarUrl!),
+            backgroundImage: NetworkImage(avatarUrl),
           );
-        } else if (user?.displayName != null) {
+        } else if (user?.displayName case final displayName?) {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1DB954),
             child: Text(
-              user!.displayName[0].toUpperCase(),
+              displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -402,10 +410,11 @@ class _BrowseGridShimmerState extends State<_BrowseGridShimmer>
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, _) {
-        final shimmerColor = ColorTween(
+        final tweenColor = ColorTween(
           begin: const Color(0xFF1E1E1E),
           end: const Color(0xFF2A2A2A),
-        ).evaluate(_controller)!;
+        ).evaluate(_controller);
+        final shimmerColor = tweenColor ?? const Color(0xFF1E1E1E);
 
         return SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

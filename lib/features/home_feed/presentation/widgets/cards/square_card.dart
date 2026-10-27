@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -21,58 +22,61 @@ class SquareCard extends StatelessWidget {
     final subtitle = item.getTrait<SimpleCardTrait>()?.subtitle ?? '';
     final imageUrl = item.cardImageUrl;
 
-    return SizedBox(
-      width: size,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Artwork
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: Container(
-              width: size,
-              height: size,
-              color: const Color(0xFF282828),
-              child: imageUrl != null
-                  ? AppNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      memCacheWidth: (size * 2).toInt(),
-                      memCacheHeight: (size * 2).toInt(),
-                      errorWidget: (_, _, _) => _placeholder(),
-                    )
-                  : _placeholder(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Title
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.white,
-              height: 1.2,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          // Subtitle (artist/description)
-          if (subtitle.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                subtitle,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade500,
-                  height: 1.3,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+    return GestureDetector(
+      onTap: () => SpotifyUriNavigator.openUri(context, item.uri),
+      child: SizedBox(
+        width: size,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Artwork
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Container(
+                width: size,
+                height: size,
+                color: const Color(0xFF282828),
+                child: imageUrl != null
+                    ? AppNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        memCacheWidth: (size * 2).toInt(),
+                        memCacheHeight: (size * 2).toInt(),
+                        errorWidget: (_, _, _) => _placeholder(),
+                      )
+                    : _placeholder(),
               ),
             ),
-        ],
+            const SizedBox(height: 8),
+            // Title
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+                height: 1.2,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            // Subtitle (artist/description)
+            if (subtitle.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                    height: 1.3,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

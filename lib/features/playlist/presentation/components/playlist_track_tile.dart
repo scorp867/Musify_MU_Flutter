@@ -2,6 +2,7 @@ library;
 
 import 'package:flutter/material.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
+import '../../../../core/widgets/app_network_image.dart';
 import '../../domain/models/playlist_item.dart';
 import 'spotify_swipe_to_queue.dart';
 
@@ -16,6 +17,9 @@ import 'spotify_swipe_to_queue.dart';
 ///    - Podcast Episode: 64x64 art with play overlay, 2-line title, show name, 2-line description excerpt,
 ///      publish date, progress bar if listened, and quick action bar (32dp play, add, download, more).
 ///    - Podcast Show: 64x64 art, 2-line show title, "Podcast • Publisher" subtitle, description, more button.
+/// 3. Performance Optimization:
+///    - Memory-bounded image decoding via [AppNetworkImage] (memCacheWidth/Height: 96 for track, 128 for podcast)
+///    - Cached bitmap recycling to prevent GPU stalls and eliminate scrolling jank.
 class PlaylistTrackTile extends StatelessWidget {
   final PlaylistItem item;
   final bool isActiveTrack;
@@ -73,10 +77,14 @@ class PlaylistTrackTile extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: item.coverUrl.isNotEmpty
-                  ? Image.network(
-                      item.coverUrl,
+                  ? AppNetworkImage(
+                      imageUrl: item.coverUrl,
+                      width: 48,
+                      height: 48,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
+                      memCacheWidth: 96,
+                      memCacheHeight: 96,
+                      errorWidget: (context, error, stackTrace) =>
                           _buildPlaceholderCover(
                         SpotifyIcon.track(
                           size: 24,
@@ -227,10 +235,14 @@ class PlaylistTrackTile extends StatelessWidget {
                     children: [
                       Positioned.fill(
                         child: item.coverUrl.isNotEmpty
-                            ? Image.network(
-                                item.coverUrl,
+                            ? AppNetworkImage(
+                                imageUrl: item.coverUrl,
+                                width: 64,
+                                height: 64,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
+                                memCacheWidth: 128,
+                                memCacheHeight: 128,
+                                errorWidget: (context, error, stackTrace) =>
                                     _buildPlaceholderCover(
                                   SpotifyIcon.podcasts(
                                     size: 24,
@@ -469,10 +481,14 @@ class PlaylistTrackTile extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: item.coverUrl.isNotEmpty
-                  ? Image.network(
-                      item.coverUrl,
+                  ? AppNetworkImage(
+                      imageUrl: item.coverUrl,
+                      width: 64,
+                      height: 64,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
+                      memCacheWidth: 128,
+                      memCacheHeight: 128,
+                      errorWidget: (context, error, stackTrace) =>
                           _buildPlaceholderCover(
                         SpotifyIcon.podcasts(
                           size: 24,

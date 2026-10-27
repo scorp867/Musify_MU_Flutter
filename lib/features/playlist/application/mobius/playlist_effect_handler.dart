@@ -3,6 +3,7 @@ library;
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_types.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_options_client.dart';
+import 'package:musify_mu/features/player/domain/commands/pause_command.dart';
 import 'package:musify_mu/features/player/domain/commands/resume_command.dart';
 import 'package:musify_mu/features/player/domain/commands/set_shuffling_context_command.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
@@ -49,6 +50,10 @@ class PlaylistMobiusEffectHandler
             skipToUri: trackUri,
             shuffle: shuffle,
           );
+          return null;
+
+        case PausePlaybackEffect():
+          await _controlClient.pause(PauseCommand.create());
           return null;
 
         case ToggleShuffleEffect(:final enable):

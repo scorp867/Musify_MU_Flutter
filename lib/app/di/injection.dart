@@ -70,6 +70,7 @@ import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_data_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_modification_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dart';
+import 'package:musify_mu/features/playlist/data/decorator/playlist_kodiak_decorator.dart';
 import 'package:musify_mu/features/playlist/data/repositories/playlist_repository_impl.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -358,14 +359,13 @@ Future<void> setupInjection() async {
   getIt.registerLazySingleton<EsperantoTransport>(
     () => NativeEsperantoTransport(getIt<MusifyNativeAudioEngine>()),
     dispose: (t) {
-      if (t is NativeEsperantoTransport) t.dispose();
+      if (t is NativeEsperantoTransport) {
+        t.dispose();
+      }
     },
   );
   getIt.registerLazySingleton<ContextPlayerComponent>(
     () => ContextPlayerComponent(getIt<EsperantoTransport>()),
-  );
-  getIt.registerLazySingleton<ContextPlayerQueueClient>(
-    () => getIt<ContextPlayerComponent>().queueClient,
   );
   getIt.registerLazySingleton<ContextPlayerControlClient>(
     () => getIt<ContextPlayerComponent>().controlsClient,
@@ -375,6 +375,9 @@ Future<void> setupInjection() async {
   );
   getIt.registerLazySingleton<ContextPlayerStateClient>(
     () => getIt<ContextPlayerComponent>().stateClient,
+  );
+  getIt.registerLazySingleton<ContextPlayerQueueClient>(
+    () => getIt<ContextPlayerComponent>().queueClient,
   );
   getIt.registerLazySingleton<ContextPlayerPlayClient>(
     () => getIt<ContextPlayerComponent>().playClient,
@@ -402,6 +405,11 @@ Future<void> setupInjection() async {
   getIt.registerLazySingleton<PlaylistPlayClient>(
     () => PlaylistPlayClient(getIt<EsperantoTransport>()),
   );
+  getIt.registerLazySingleton<PlaylistKodiakDecorator>(
+    () => PlaylistKodiakDecorator(
+      metadataService: getIt<ExtendedMetadataService>(),
+    ),
+  );
   getIt.registerLazySingleton<PlaylistRepository>(
     () => PlaylistRepositoryImpl(
       dataClient: getIt<PlaylistDataClient>(),
@@ -414,6 +422,7 @@ Future<void> setupInjection() async {
       cache: getIt.isRegistered<PlaylistDetailCache>()
           ? getIt<PlaylistDetailCache>()
           : null,
+      kodiakDecorator: getIt<PlaylistKodiakDecorator>(),
       currentUsername: '',
     ),
   );

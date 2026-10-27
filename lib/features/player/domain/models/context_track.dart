@@ -265,6 +265,11 @@ abstract class ContextTrackMetadata {
   static const String keyVideoRenderingEnabled = 'video_rendering_enabled';
   static const String keyVideoSecondsBeforeTrackStuck = 'video.seconds_before_track_stuck';
   static const String keyVisualizationPlaybackSpeed = 'visualization.playback_speed';
-  static const String keyVisualizationPositionAsOfTimestamp = 'visualization.position_as_of_timestamp';
+  static const String keyPreviewOggUrl = 'preview_ogg_url';
+  static const String keyCdnAacUrl = 'cdn_aac_url';
+  static const String keyLicenseServerUrl = 'license_server_url';
+  static const String keyDrmAuthHeader = 'drm_auth_header';
+  static const String keyHandoffPositionMs = 'handoff_position_ms';
   static const String repeatPlayInterruption = 'sas_repeat';
 }
+

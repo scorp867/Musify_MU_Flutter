@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 
@@ -61,7 +62,7 @@ class _QuickGridTile extends StatelessWidget {
     final imageUrl = item.shortcutImageUrl;
 
     return GestureDetector(
-      onTap: () {},
+      onTap: () => SpotifyUriNavigator.openUri(context, item.uri),
       child: Container(
         width: width,
         height: 56,

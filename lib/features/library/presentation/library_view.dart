@@ -9,7 +9,7 @@ import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
-import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 
 /// The Library tab view.
 class LibraryView extends StatefulWidget {
@@ -414,13 +414,7 @@ class _LibraryItemTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      onTap: () {
-        Navigator.of(context, rootNavigator: true).push(
-          MaterialPageRoute<void>(
-            builder: (_) => PlaylistScreen(playlistUri: item.uri),
-          ),
-        );
-      },
+      onTap: () => SpotifyUriNavigator.openUri(context, item.uri),
     );
   }
 

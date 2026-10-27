@@ -34,6 +34,13 @@ class TrackMeta {
       imageUrls['small'] ??
       '';
 
+  /// Thumbnail cover URL (small ~64px, falling back to medium then large).
+  String get thumbnailImageUrl =>
+      imageUrls['small'] ??
+      imageUrls['medium'] ??
+      imageUrls['large'] ??
+      '';
+
   /// Raw hex image ID of the largest cover (for mosaic URL construction).
   final String? largeImageHex;
 
@@ -154,6 +161,47 @@ class ExtendedMetadataService {
     dev.log(
       'ExtMetadataService: ${results.length} resolved '
       '(${uncached.length} fetched, ${uris.length - uncached.length} cached)',
+      name: 'Metadata',
+    );
+
+    return results;
+  }
+
+  /// Fetches metadata for all given URIs in a single network request without batching.
+  /// Direct 1:1 implementation matching Kodiak single-flight datastatement decoration.
+  Future<Map<String, TrackMeta>> fetchTracksSingleRequest(List<String> uris) async {
+    if (uris.isEmpty) return {};
+
+    await _ensureDiskLoaded();
+
+    final results = <String, TrackMeta>{};
+    final uncached = <String>[];
+
+    for (final uri in uris) {
+      final cached = _memCache.get(uri);
+      if (cached != null) {
+        results[uri] = cached;
+      } else {
+        uncached.add(uri);
+      }
+    }
+
+    if (uncached.isEmpty) return results;
+
+    // Fetch all uncached URIs in a single request without chunking
+    final fetched = await _fetchBatch(uncached);
+    for (final entry in fetched.entries) {
+      _memCache.put(entry.key, entry.value);
+      results[entry.key] = entry.value;
+    }
+
+    if (fetched.isNotEmpty) {
+      _diskCache.putAll(fetched);
+    }
+
+    dev.log(
+      'ExtMetadataService (single-request): ${results.length} resolved '
+      '(${uncached.length} fetched in 1 request, ${uris.length - uncached.length} cached)',
       name: 'Metadata',
     );
 

@@ -7,6 +7,7 @@ import '../../../app/di/injection.dart';
 import '../../../core/color/color_extraction_service.dart';
 import '../../../core/color/eased_gradient.dart';
 import '../../../core/ui/icons/spotify_encore_icons.dart';
+import '../../../core/ui/widgets/shell_bottom_spacer.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
@@ -17,7 +18,6 @@ import '../application/mobius/playlist_effect_handler.dart';
 import '../application/mobius/playlist_mobius_loop.dart';
 import '../domain/models/playlist_item.dart';
 import '../domain/models/playlist_screen_state.dart';
-import '../domain/models/sort_order.dart';
 import '../domain/repositories/playlist_repository.dart';
 import 'components/playlist_action_row.dart';
 import 'components/playlist_app_bar.dart';
@@ -42,6 +42,9 @@ import 'components/playlist_track_tile.dart';
 ///    with the Action Row and pins at (topInset + kToolbarHeight - 28dp) directly overlapping the toolbar bottom
 /// 6. Permission-Governed Curation Action Chips: `+ Add`, `Edit`, `Name & details`, `Sort` for owners; `Sort` for viewers
 /// 7. Track Tiles: Wrapped with Dismissible swipe-to-queue (`ItemTouchHelper`), 48x48 art, 12dp download badge, explicit "E" badge, animated 3-bar green equalizer
+/// 8. High-Performance Zero-Jank Rendering:
+///    - Isolated scroll listeners using [ValueNotifier<double>] to eliminate full-tree setState rebuilds
+///    - Memoized gradients and zero redundant Mobius loop dispatches during scroll ticks
 class PlaylistScreen extends StatefulWidget {
   final String playlistUri;
 
@@ -58,6 +61,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
     with TickerProviderStateMixin {
   late final PlaylistMobiusLoop _loop;
   late final ScrollController _scrollController;
+  late final ValueNotifier<double> _scrollOffsetNotifier;
   late final SpotifyStretchController _stretchController;
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
@@ -65,7 +69,6 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   final GlobalKey _actionRowKey = GlobalKey();
   double _initialActionRowTop = 0.0;
 
-  double _scrollOffset = 0.0;
   bool _isSearchActive = false;
   Color _dominantHeaderColor = const Color(0xFF535353); // Default Spotify encore_header_background_default
   String? _lastExtractedCoverUrl;
@@ -76,6 +79,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   void initState() {
     super.initState();
     _scrollController = ScrollController();
+    _scrollOffsetNotifier = ValueNotifier<double>(0.0);
     _stretchController = SpotifyStretchController(vsync: this);
     _searchController = TextEditingController();
     _searchFocusNode = FocusNode();
@@ -102,13 +106,8 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   }
 
   void _onScroll() {
-    final offset = _scrollController.hasClients ? _scrollController.offset : 0.0;
-    if (_scrollOffset != offset) {
-      setState(() {
-        _scrollOffset = offset;
-      });
-      final alpha = (offset / _headerHeight).clamp(0.0, 1.0);
-      _loop.onHeaderOffsetChanged(alpha);
+    if (_scrollController.hasClients) {
+      _scrollOffsetNotifier.value = _scrollController.offset;
     }
   }
 
@@ -139,8 +138,25 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   void _handleSwipeToQueue(PlaylistItem item) {
     try {
       final controlClient = getIt<ContextPlayerControlClient>();
+      final queuedTrack = ContextTrack.builder(item.uri)
+          .uid(item.uid.isNotEmpty ? item.uid : item.uri)
+          .metadata({
+            ContextTrackMetadata.keyTitle: item.title,
+            ContextTrackMetadata.keyArtistName: item.subtitle,
+            ContextTrackMetadata.keyAlbumTitle: item.albumName,
+            if (item.coverUrl.isNotEmpty) ContextTrackMetadata.keyImageUrl: item.coverUrl,
+            if (item.coverUrl.isNotEmpty) ContextTrackMetadata.keyImageLargeUrl: item.coverUrl,
+            if (item.coverUrl.isNotEmpty) ContextTrackMetadata.keyThumbnailImageUrl: item.coverUrl,
+            if (item.durationMs > 0) ContextTrackMetadata.keyDuration: item.durationMs.toString(),
+            ContextTrackMetadata.keyIsExplicit: item.isExplicit ? 'true' : 'false',
+            ContextTrackMetadata.keyEntityUri: item.uri,
+            ContextTrackMetadata.keyContextUri: widget.playlistUri,
+            ContextTrackMetadata.keyIsQueued: 'true',
+          })
+          .build();
+
       controlClient.playAsNextInQueue(
-        PlayAsNextInQueueCommand.create([ContextTrack.create(item.uri)]),
+        PlayAsNextInQueueCommand.create([queuedTrack]),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -159,6 +175,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _scrollOffsetNotifier.dispose();
     _stretchController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -228,7 +245,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () {
-                _loop.onSortChanged(ProvidedSortOrder.custom);
+                _loop.onRetryTapped();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
@@ -260,26 +277,25 @@ class _PlaylistScreenState extends State<PlaylistScreen>
     final toolbarHeight = kToolbarHeight;
     final pinnedFabTop = (topInset + toolbarHeight) - 28.0;
 
-    // Dynamically measure initial Action Row position for 1:1 PlayButtonBehavior docking
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final box = _actionRowKey.currentContext?.findRenderObject() as RenderBox?;
-      if (box != null && box.hasSize) {
-        final pos = box.localToGlobal(Offset.zero);
-        final top = pos.dy + _scrollOffset;
-        if ((_initialActionRowTop - top).abs() > 0.5) {
-          setState(() {
+    // Dynamically measure initial Action Row position once for 1:1 PlayButtonBehavior docking
+    if (_initialActionRowTop == 0.0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final box = _actionRowKey.currentContext?.findRenderObject() as RenderBox?;
+        if (box != null && box.hasSize) {
+          final pos = box.localToGlobal(Offset.zero);
+          final top = pos.dy + (_scrollController.hasClients ? _scrollController.offset : 0.0);
+          if (top > 0) {
             _initialActionRowTop = top;
-          });
+          }
         }
-      }
-    });
+      });
+    }
 
+    final effectiveHeaderHeight = state.playlist.metadata.isEditorial ? 440.0 : _headerHeight;
     final baselineTop = _initialActionRowTop > 0
         ? _initialActionRowTop
-        : (topInset + toolbarHeight + 430.0);
-    final currentActionRowY = baselineTop - _scrollOffset;
-    final fabTop = math.max(pinnedFabTop, currentActionRowY + 6.0);
+        : (topInset + toolbarHeight + effectiveHeaderHeight);
 
     return Stack(
       children: [
@@ -313,15 +329,21 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                         SizedBox(height: topInset + kToolbarHeight),
 
                         // 1. Top Search Bar, Artwork (Scaling), Title, Creator, Duration
-                        PlaylistHeaderContent(
-                          metadata: state.playlist.metadata,
-                          trackCount: state.playlist.items.length,
-                          scrollOffset: _scrollOffset,
-                          searchController: _searchController,
-                          searchFocusNode: _searchFocusNode,
-                          onSearchChanged: _loop.onSearchChanged,
-                          onClearSearch: () => _loop.onSearchChanged(''),
-                          onAddCollaboratorTapped: () {},
+                        // Wrapped in ValueListenableBuilder so only header content rebuilds with scroll
+                        ValueListenableBuilder<double>(
+                          valueListenable: _scrollOffsetNotifier,
+                          builder: (context, offset, _) {
+                            return PlaylistHeaderContent(
+                              metadata: state.playlist.metadata,
+                              trackCount: state.playlist.items.length,
+                              scrollOffset: offset,
+                              searchController: _searchController,
+                              searchFocusNode: _searchFocusNode,
+                              onSearchChanged: _loop.onSearchChanged,
+                              onClearSearch: () => _loop.onSearchChanged(''),
+                              onAddCollaboratorTapped: () {},
+                            );
+                          },
                         ),
 
                         // 2. Action Row: Download, Share/Heart, Shuffle, and 56x56 Play FAB layout slot
@@ -379,10 +401,8 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 else
                   ..._buildSectionedSlivers(state),
 
-                // Bottom safe padding for NowPlaying / Navigation Bar
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: 120),
-                ),
+                // Bottom safe padding for NowPlaying / Navigation Bar via Reusable Shell Spacer
+                const SliverShellBottomSpacer(),
               ],
             ),
           ),
@@ -393,43 +413,55 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           top: 0,
           left: 0,
           right: 0,
-          child: PlaylistAppBar(
-            title: state.playlist.name,
-            scrollOffset: _scrollOffset,
-            headerHeight: state.playlist.metadata.isEditorial ? 440.0 : _headerHeight,
-            dominantColor: _dominantHeaderColor,
-            isSearchActive: _isSearchActive,
-            searchController: _searchController,
-            searchFocusNode: _searchFocusNode,
-            onSearchChanged: _loop.onSearchChanged,
-            onBackTapped: () => Navigator.maybePop(context),
-            onSearchTapped: () {
-              setState(() {
-                _isSearchActive = true;
-              });
-              _searchFocusNode.requestFocus();
+          child: ValueListenableBuilder<double>(
+            valueListenable: _scrollOffsetNotifier,
+            builder: (context, offset, _) {
+              return PlaylistAppBar(
+                title: state.playlist.name,
+                scrollOffset: offset,
+                headerHeight: effectiveHeaderHeight,
+                dominantColor: _dominantHeaderColor,
+                isSearchActive: _isSearchActive,
+                searchController: _searchController,
+                searchFocusNode: _searchFocusNode,
+                onSearchChanged: _loop.onSearchChanged,
+                onBackTapped: () => Navigator.maybePop(context),
+                onSearchTapped: () {
+                  setState(() {
+                    _isSearchActive = true;
+                  });
+                  _searchFocusNode.requestFocus();
+                },
+                onSearchClosed: () {
+                  setState(() {
+                    _isSearchActive = false;
+                  });
+                  _searchController.clear();
+                  _loop.onSearchChanged('');
+                },
+                onMoreTapped: () => _showPlaylistMoreMenu(state),
+              );
             },
-            onSearchClosed: () {
-              setState(() {
-                _isSearchActive = false;
-              });
-              _searchController.clear();
-              _loop.onSearchChanged('');
-            },
-            onMoreTapped: () => _showPlaylistMoreMenu(state),
           ),
         ),
 
         // 6. Floating 56x56 Play FAB with PlayButtonBehavior docking physics
         // Matches ComposePlayButtonBehavior.java: pins at (topInset + kToolbarHeight) - 28dp
-        Positioned(
-          top: fabTop,
-          right: 16.0,
-          child: PlaylistPlayFab(
-            isPlaying: state.isPlaying,
-            isShuffleEnabled: state.isShuffleEnabled,
-            onPlayTapped: () => _loop.onPlayTapped(),
-          ),
+        ValueListenableBuilder<double>(
+          valueListenable: _scrollOffsetNotifier,
+          builder: (context, offset, _) {
+            final currentActionRowY = baselineTop - offset;
+            final fabTop = math.max(pinnedFabTop, currentActionRowY + 6.0);
+            return Positioned(
+              top: fabTop,
+              right: 16.0,
+              child: PlaylistPlayFab(
+                isPlaying: state.isPlaying,
+                isShuffleEnabled: state.isShuffleEnabled,
+                onPlayTapped: () => _loop.onPlayTapped(),
+              ),
+            );
+          },
         ),
       ],
     );
@@ -515,6 +547,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
 
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       backgroundColor: const Color(0xFF282828),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -626,6 +659,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
   void _showTrackOptionsMenu(PlaylistItem item) {
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       backgroundColor: const Color(0xFF282828),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),

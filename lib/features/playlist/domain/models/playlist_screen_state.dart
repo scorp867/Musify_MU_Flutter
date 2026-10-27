@@ -13,23 +13,55 @@ sealed class PlaylistScreenState {
 }
 
 /// Loading state while fetching initial playlist metadata and items.
+/// Preserves active playback context and state during screen re-entry.
 final class PlaylistLoadingState extends PlaylistScreenState {
   final String playlistUri;
+  final String? activeTrackUri;
+  final bool isPlaying;
+  final bool isShuffleEnabled;
 
-  const PlaylistLoadingState({required this.playlistUri});
+  const PlaylistLoadingState({
+    required this.playlistUri,
+    this.activeTrackUri,
+    this.isPlaying = false,
+    this.isShuffleEnabled = false,
+  });
+
+  PlaylistLoadingState copyWith({
+    String? playlistUri,
+    String? activeTrackUri,
+    bool? isPlaying,
+    bool? isShuffleEnabled,
+  }) {
+    return PlaylistLoadingState(
+      playlistUri: playlistUri ?? this.playlistUri,
+      activeTrackUri: activeTrackUri ?? this.activeTrackUri,
+      isPlaying: isPlaying ?? this.isPlaying,
+      isShuffleEnabled: isShuffleEnabled ?? this.isShuffleEnabled,
+    );
+  }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PlaylistLoadingState &&
           runtimeType == other.runtimeType &&
-          playlistUri == other.playlistUri);
+          playlistUri == other.playlistUri &&
+          activeTrackUri == other.activeTrackUri &&
+          isPlaying == other.isPlaying &&
+          isShuffleEnabled == other.isShuffleEnabled);
 
   @override
-  int get hashCode => playlistUri.hashCode;
+  int get hashCode => Object.hash(
+        playlistUri,
+        activeTrackUri,
+        isPlaying,
+        isShuffleEnabled,
+      );
 
   @override
-  String toString() => 'PlaylistLoadingState(uri: $playlistUri)';
+  String toString() =>
+      'PlaylistLoadingState(uri: $playlistUri, activeTrack: $activeTrackUri, isPlaying: $isPlaying)';
 }
 
 /// Error state when fetching or modifying the playlist fails.

@@ -23,6 +23,10 @@ final class PlaylistErrorEvent extends PlaylistEvent {
   const PlaylistErrorEvent(this.message);
 }
 
+final class PlaylistRetryTappedEvent extends PlaylistEvent {
+  const PlaylistRetryTappedEvent();
+}
+
 final class PlaylistPlayTappedEvent extends PlaylistEvent {
   final String? trackUri;
   const PlaylistPlayTappedEvent({this.trackUri});
@@ -96,6 +100,10 @@ final class PlayContextEffect extends PlaylistEffect {
   const PlayContextEffect(this.playlistUri, {this.trackUri, this.shuffle = false});
 }
 
+final class PausePlaybackEffect extends PlaylistEffect {
+  const PausePlaybackEffect();
+}
+
 final class ToggleShuffleEffect extends PlaylistEffect {
   final bool enable;
   const ToggleShuffleEffect(this.enable);
@@ -134,9 +142,21 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
       final items = _filterItems(playlist.items, '');
       final currentSort = state is PlaylistLoadedState ? state.sortOrder : playlist.sortOrder;
       final currentAlpha = state is PlaylistLoadedState ? state.headerAlpha : 0.0;
-      final activeTrack = state is PlaylistLoadedState ? state.activeTrackUri : null;
-      final isPlaying = state is PlaylistLoadedState ? state.isPlaying : false;
-      final isShuffle = state is PlaylistLoadedState ? state.isShuffleEnabled : false;
+      final activeTrack = switch (state) {
+        PlaylistLoadedState(:final activeTrackUri) => activeTrackUri,
+        PlaylistLoadingState(:final activeTrackUri) => activeTrackUri,
+        _ => null,
+      };
+      final isPlaying = switch (state) {
+        PlaylistLoadedState(:final isPlaying) => isPlaying,
+        PlaylistLoadingState(:final isPlaying) => isPlaying,
+        _ => false,
+      };
+      final isShuffle = switch (state) {
+        PlaylistLoadedState(:final isShuffleEnabled) => isShuffleEnabled,
+        PlaylistLoadingState(:final isShuffleEnabled) => isShuffleEnabled,
+        _ => false,
+      };
 
       return Next.next(
         PlaylistLoadedState(
@@ -158,15 +178,41 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
       };
       return Next.next(PlaylistErrorState(playlistUri: uri, message: message));
 
+    case PlaylistRetryTappedEvent():
+      final uri = switch (state) {
+        PlaylistLoadingState(:final playlistUri) => playlistUri,
+        PlaylistLoadedState(:final playlist) => playlist.uri,
+        PlaylistErrorState(:final playlistUri) => playlistUri,
+      };
+      return Next.next(
+        PlaylistLoadingState(playlistUri: uri),
+        {SubscribePlaylistEffect(uri, ProvidedSortOrder.custom)},
+      );
+
     case PlaylistPlayTappedEvent(:final trackUri):
       if (state is PlaylistLoadedState) {
-        return Next.dispatch({
-          PlayContextEffect(
-            state.playlist.uri,
-            trackUri: trackUri,
-            shuffle: state.isShuffleEnabled,
+        if (trackUri == null && state.isPlaying) {
+          return Next.next(
+            state.copyWith(isPlaying: false),
+            {const PausePlaybackEffect()},
+          );
+        }
+        final targetTrack = trackUri ??
+            (state.activeTrackUri ??
+                (state.displayItems.isNotEmpty ? state.displayItems.first.uri : null));
+        return Next.next(
+          state.copyWith(
+            activeTrackUri: targetTrack,
+            isPlaying: true,
           ),
-        });
+          {
+            PlayContextEffect(
+              state.playlist.uri,
+              trackUri: trackUri,
+              shuffle: state.isShuffleEnabled,
+            ),
+          },
+        );
       }
       return Next.noChange();
 
@@ -233,6 +279,14 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
         :final isShuffleEnabled,
       ):
       if (state is PlaylistLoadedState) {
+        return Next.next(
+          state.copyWith(
+            activeTrackUri: activeTrackUri,
+            isPlaying: isPlaying,
+            isShuffleEnabled: isShuffleEnabled,
+          ),
+        );
+      } else if (state is PlaylistLoadingState) {
         return Next.next(
           state.copyWith(
             activeTrackUri: activeTrackUri,

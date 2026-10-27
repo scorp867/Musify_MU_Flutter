@@ -1,3 +1,5 @@
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -31,6 +33,17 @@ class NativeEsperantoTransport implements EsperantoTransport {
   int _lastPolledPositionMs = 0;
   int _lastStateEmitTimeMs = 0;
 
+  /// Track whether playback is explicitly active from user intent.
+  bool _isExplicitlyPlaying = false;
+
+  /// The currently active context URI and metadata (e.g. spotify:playlist:...).
+  String _currentContextUri = '';
+  Map<String, String> _currentContextMetadata = const {};
+
+  /// Cached last emitted protobuf binary states for replay on new stream subscriptions.
+  Uint8List? _lastStateBytes;
+  Uint8List? _lastQueueBytes;
+
   /// The currently active track (set when Play is called).
   ContextTrack? _currentTrack;
 
@@ -56,6 +69,8 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
   NativeEsperantoTransport(this._engine) {
     _startPolling();
+    _emitQueueUpdate();
+    _emitPlayerState();
   }
 
   // -----------------------------------------------------------------------
@@ -77,10 +92,25 @@ class NativeEsperantoTransport implements EsperantoTransport {
     String method,
     Uint8List payload,
   ) {
-    if (method == 'GetState') return _stateController.stream;
-    if (method == 'GetQueue') return _queueController.stream;
+    if (method == 'GetState') {
+      return _createReplayingStream(_stateController.stream, () => _lastStateBytes);
+    }
+    if (method == 'GetQueue') {
+      return _createReplayingStream(_queueController.stream, () => _lastQueueBytes);
+    }
     if (method == 'GetError') return _errorController.stream;
     return const Stream<Uint8List>.empty();
+  }
+
+  Stream<Uint8List> _createReplayingStream(
+    Stream<Uint8List> source,
+    Uint8List? Function() getLatest,
+  ) async* {
+    final latest = getLatest();
+    if (latest != null) {
+      yield latest;
+    }
+    yield* source;
   }
 
   @override
@@ -176,12 +206,27 @@ class NativeEsperantoTransport implements EsperantoTransport {
               }
             }
           }
-          if (prep.hasOptions() && prep.options.hasSkipTo()) {
-            final st = prep.options.skipTo;
-            if (st.hasTrackUri() && st.trackUri.isNotEmpty) skipToUri = st.trackUri;
-            if (st.hasTrackUid() && st.trackUid.isNotEmpty) skipToUid = st.trackUid;
-            if (st.hasTrackIndex() && st.trackIndex.hasValue()) {
-              skipToIndex = st.trackIndex.value.toInt();
+          if (prep.hasOptions()) {
+            if (prep.options.hasSkipTo()) {
+              final st = prep.options.skipTo;
+              if (st.hasTrackUri() && st.trackUri.isNotEmpty) skipToUri = st.trackUri;
+              if (st.hasTrackUid() && st.trackUid.isNotEmpty) skipToUid = st.trackUid;
+              if (st.hasTrackIndex() && st.trackIndex.hasValue()) {
+                skipToIndex = st.trackIndex.value.toInt();
+              }
+            }
+            if (prep.options.hasPlayerOptionsOverride()) {
+              final override = prep.options.playerOptionsOverride;
+              if (override.hasShufflingContext()) {
+                _currentOptions = _currentOptions.toBuilder()
+                    .shufflingContext(override.shufflingContext.value)
+                    .build();
+              }
+              if (override.hasRepeatingContext()) {
+                _currentOptions = _currentOptions.toBuilder()
+                    .repeatingContext(override.repeatingContext.value)
+                    .build();
+              }
             }
           }
         }
@@ -234,10 +279,32 @@ class NativeEsperantoTransport implements EsperantoTransport {
                   }
                 }
               }
+              if (opts.containsKey('player_options_override')) {
+                final override = opts['player_options_override'] as Map<String, dynamic>;
+                if (override.containsKey('shuffling_context')) {
+                  final sh = override['shuffling_context'];
+                  final bool val = (sh is Map && sh.containsKey('value'))
+                      ? (sh['value'] as bool? ?? false)
+                      : (sh is bool ? sh : false);
+                  _currentOptions = _currentOptions.toBuilder().shufflingContext(val).build();
+                }
+                if (override.containsKey('repeating_context')) {
+                  final rep = override['repeating_context'];
+                  final bool val = (rep is Map && rep.containsKey('value'))
+                      ? (rep['value'] as bool? ?? false)
+                      : (rep is bool ? rep : false);
+                  _currentOptions = _currentOptions.toBuilder().repeatingContext(val).build();
+                }
+              }
             }
           }
         } catch (_) {}
       }
+    }
+
+    if (contextUri.isNotEmpty) {
+      _currentContextUri = contextUri;
+      _currentContextMetadata = contextMetadata;
     }
 
     if (contextTracks.isNotEmpty) {
@@ -293,43 +360,67 @@ class NativeEsperantoTransport implements EsperantoTransport {
   }
 
   void _playTrack(ContextTrack track) {
+    _isExplicitlyPlaying = true;
     _currentTrack = track;
 
-    // Extract local file path from metadata
-    final localPath = track.metadata[ContextTrackMetadata.keyLocalFilePath];
-
-    if (localPath != null && localPath.isNotEmpty) {
-      final status = _engine.loadLocal(localPath);
-      if (status != NativeEngineStatus.ok) {
-        _emitError('TRACK_UNAVAILABLE_OFFLINE', track.uri);
-        return;
-      }
-    } else {
-      _emitError('TRACK_UNAVAILABLE_OFFLINE', track.uri);
-      return;
-    }
-
-    // Update queue to reflect the new now-playing track
+    // Update queue to reflect the new now-playing track immediately
     _currentQueue = _currentQueue.toBuilder().track(track).build();
     _emitQueueUpdate();
 
-    // Emit initial buffering state
-    _emitPlayerState(isBuffering: true);
+    final localPath = track.metadata[ContextTrackMetadata.keyLocalFilePath];
+    final previewOgg = track.metadata[ContextTrackMetadata.keyPreviewOggUrl];
+    final cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
+    final licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
+    final authHeader = track.metadata[ContextTrackMetadata.keyDrmAuthHeader];
+    final handoffStr = track.metadata[ContextTrackMetadata.keyHandoffPositionMs];
+    final handoffMs = handoffStr != null ? (int.tryParse(handoffStr) ?? -1) : -1;
+
+    final primaryPath = (previewOgg != null && previewOgg.isNotEmpty)
+        ? previewOgg
+        : localPath;
+
+    if (primaryPath != null && primaryPath.isNotEmpty && cdnAac != null && cdnAac.isNotEmpty) {
+      // Dual-source mode: ultra-low TTFA preview -> Widevine DRM AAC CDN track
+      final status = _engine.loadDualSource(
+        primaryPath: primaryPath,
+        secondaryUrl: cdnAac,
+        licenseServerUrl: licenseUrl,
+        authHeader: authHeader,
+        handoffPositionMs: handoffMs,
+      );
+      if (status == NativeEngineStatus.ok) {
+        _engine.play();
+      } else {
+        _emitError('TRACK_UNAVAILABLE', track.uri);
+      }
+    } else if (localPath != null && localPath.isNotEmpty) {
+      final status = _engine.loadLocal(localPath);
+      if (status == NativeEngineStatus.ok) {
+        _engine.play();
+      } else {
+        _emitError('TRACK_UNAVAILABLE_OFFLINE', track.uri);
+      }
+    }
+
+    _emitPlayerState(isBuffering: false);
   }
 
   Uint8List _handlePause() {
+    _isExplicitlyPlaying = false;
     _engine.pause();
     _emitPlayerState();
     return Uint8List(0);
   }
 
   Uint8List _handleResume() {
+    _isExplicitlyPlaying = true;
     _engine.play();
     _emitPlayerState();
     return Uint8List(0);
   }
 
   Uint8List _handleStop() {
+    _isExplicitlyPlaying = false;
     _engine.pause();
     _emitPlayerState();
     return Uint8List(0);
@@ -376,10 +467,10 @@ class NativeEsperantoTransport implements EsperantoTransport {
     final nextTracks = _currentQueue.nextTracks;
     if (nextTracks.isNotEmpty) {
       int targetIndex = 0;
-      if (targetTrack != null) {
+      if (targetTrack case final target?) {
         final found = nextTracks.indexWhere(
-          (t) => (t.uid.isNotEmpty && t.uid == targetTrack!.uid) ||
-                 (t.uri.isNotEmpty && t.uri == targetTrack!.uri),
+          (t) => (t.uid.isNotEmpty && t.uid == target.uid) ||
+                 (t.uri.isNotEmpty && t.uri == target.uri),
         );
         if (found != -1) {
           targetIndex = found;
@@ -396,8 +487,10 @@ class NativeEsperantoTransport implements EsperantoTransport {
       // If _currentTrack was user-queued, it was consumed and does NOT go into prevTracks.
       // Only non-queued context tracks are pushed into prevTracks (playback history).
       final prevHistory = List<ContextTrack>.from(_currentQueue.prevTracks);
-      if (_currentTrack != null && !_currentTrack!.isQueued) {
-        prevHistory.insert(0, _currentTrack!);
+      if (_currentTrack case final currentTrack?) {
+        if (!currentTrack.isQueued) {
+          prevHistory.insert(0, currentTrack);
+        }
       }
 
       if (isTargetQueued) {
@@ -453,13 +546,13 @@ class NativeEsperantoTransport implements EsperantoTransport {
       final remainingPrev = prevTracks.sublist(1);
 
       List<ContextTrack> nextTracks;
-      if (_currentTrack != null) {
-        if (_currentTrack!.isQueued) {
-          nextTracks = [_currentTrack!, ..._currentQueue.nextTracks];
+      if (_currentTrack case final currentTrack?) {
+        if (currentTrack.isQueued) {
+          nextTracks = [currentTrack, ..._currentQueue.nextTracks];
         } else {
           final userQueued = _currentQueue.nextTracks.where((t) => t.isQueued).toList(growable: false);
           final contextTracks = _currentQueue.nextTracks.where((t) => !t.isQueued).toList(growable: false);
-          nextTracks = [...userQueued, _currentTrack!, ...contextTracks];
+          nextTracks = [...userQueued, currentTrack, ...contextTracks];
         }
       } else {
         nextTracks = _currentQueue.nextTracks;
@@ -790,6 +883,12 @@ class NativeEsperantoTransport implements EsperantoTransport {
           final newTracks = tracksList
               .map((t) => QueueProtoMappers.providedTrackToContextTrack(
                   t as Map<String, dynamic>))
+              .map((track) {
+                if (track.isQueued) return track;
+                final meta = Map<String, String>.from(track.metadata);
+                meta[ContextTrackMetadata.keyIsQueued] = 'true';
+                return track.toBuilder().metadata(meta).build();
+              })
               .toList();
 
           _currentQueue = QueueAddHandler.addTracks(
@@ -858,14 +957,19 @@ class NativeEsperantoTransport implements EsperantoTransport {
     final durationMs = _engine.durationMs;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
-    final bool playing = engineState == NativeEngineState.playing;
-    final bool paused = engineState == NativeEngineState.paused;
+    final bool playing = (engineState == NativeEngineState.playing) ||
+        (_isExplicitlyPlaying &&
+            engineState != NativeEngineState.paused &&
+            engineState != NativeEngineState.stopped);
+    final bool paused = !_isExplicitlyPlaying || engineState == NativeEngineState.paused;
     final bool buffering =
         isBuffering || engineState == NativeEngineState.prebuffering;
 
     // Build ContextPlayerState protobuf message directly
     final stateProto = proto.ContextPlayerState()
       ..timestamp = Int64(nowMs)
+      ..contextUri = _currentContextUri
+      ..contextUrl = _currentContextUri.isNotEmpty ? 'context://$_currentContextUri' : ''
       ..isPlaying = playing
       ..isPaused = paused
       ..isBuffering = buffering
@@ -880,9 +984,13 @@ class NativeEsperantoTransport implements EsperantoTransport {
         ..repeatingContext = _currentOptions.repeatingContext
         ..repeatingTrack = _currentOptions.repeatingTrack);
 
+    if (_currentContextMetadata.isNotEmpty) {
+      stateProto.contextMetadata.addAll(_currentContextMetadata);
+    }
+
     // Set track as ProvidedTrack (wrapping ContextTrack)
-    if (_currentTrack != null) {
-      stateProto.track = QueueProtoMappers.toProvidedTrackProto(_currentTrack!);
+    if (_currentTrack case final currentTrack?) {
+      stateProto.track = QueueProtoMappers.toProvidedTrackProto(currentTrack);
     }
 
     // Set prev/next tracks
@@ -897,12 +1005,16 @@ class NativeEsperantoTransport implements EsperantoTransport {
       );
     }
 
-    _stateController.add(Uint8List.fromList(stateProto.writeToBuffer()));
+    final bytes = Uint8List.fromList(stateProto.writeToBuffer());
+    _lastStateBytes = bytes;
+    _stateController.add(bytes);
   }
 
   void _emitQueueUpdate() {
     final queueProto = QueueProtoMappers.toQueueProto(_currentQueue);
-    _queueController.add(Uint8List.fromList(queueProto.writeToBuffer()));
+    final bytes = Uint8List.fromList(queueProto.writeToBuffer());
+    _lastQueueBytes = bytes;
+    _queueController.add(bytes);
   }
 
   void _emitError(String errorType, String trackUri) {

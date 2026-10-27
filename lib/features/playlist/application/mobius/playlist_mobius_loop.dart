@@ -69,6 +69,19 @@ class PlaylistMobiusLoop {
   PlaylistScreenState get currentState => _loop.currentModel;
 
   // UI Event Dispatchers
+  void onRetryTapped() {
+    _repoSub?.cancel();
+    _loop.dispatchEvent(const PlaylistRetryTappedEvent());
+    _repoSub = _repository.subscribe(playlistUri).listen(
+      (playlist) {
+        _loop.dispatchEvent(PlaylistLoadedEvent(playlist));
+      },
+      onError: (err) {
+        _loop.dispatchEvent(PlaylistErrorEvent(err.toString()));
+      },
+    );
+  }
+
   void onPlayTapped({String? trackUri}) {
     _loop.dispatchEvent(PlaylistPlayTappedEvent(trackUri: trackUri));
   }

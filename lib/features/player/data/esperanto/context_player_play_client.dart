@@ -100,6 +100,15 @@ class ContextPlayerPlayClient extends EsperantoClientBase {
         'initially_paused': options.initiallyPaused,
       if (options.systemInitiated != null)
         'system_initiated': options.systemInitiated,
+      if (options.playerOptionsOverride != null)
+        'player_options_override': {
+          if (options.playerOptionsOverride!.shufflingContext != null)
+            'shuffling_context': options.playerOptionsOverride!.shufflingContext,
+          if (options.playerOptionsOverride!.repeatingContext != null)
+            'repeating_context': options.playerOptionsOverride!.repeatingContext,
+          if (options.playerOptionsOverride!.repeatingTrack != null)
+            'repeating_track': options.playerOptionsOverride!.repeatingTrack,
+        },
     };
   }
 
