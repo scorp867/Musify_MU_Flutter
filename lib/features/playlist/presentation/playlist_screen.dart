@@ -152,6 +152,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             ContextTrackMetadata.keyEntityUri: item.uri,
             ContextTrackMetadata.keyContextUri: widget.playlistUri,
             ContextTrackMetadata.keyIsQueued: 'true',
+            if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
+              ContextTrackMetadata.keyFileId: meta.fileId,
+            if (item.trackMetadata case final meta? when meta.headUrl.isNotEmpty)
+              ContextTrackMetadata.keyHeadFileUrl: meta.headUrl,
+            if (item.trackMetadata case final meta? when meta.cdnUrl.isNotEmpty)
+              ContextTrackMetadata.keyCdnAacUrl: meta.cdnUrl,
           })
           .build();
 

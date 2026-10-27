@@ -5,6 +5,7 @@
 #include <thread>
 
 #include <media/NdkMediaCodec.h>
+#include <media/NdkMediaCrypto.h>
 #include <media/NdkMediaExtractor.h>
 #include <media/NdkMediaFormat.h>
 
@@ -14,19 +15,21 @@
 /// Native hardware/software audio decoder running on a dedicated high-priority thread.
 ///
 /// Reads compressed audio from AMediaExtractor, decodes via AMediaCodec configured
-/// for PCM output, converts int16→float (the standard Android decoder output format),
-/// up-mixes mono→stereo if needed, and pushes interleaved stereo float frames into
+/// for PCM output, converts int16->float (the standard Android decoder output format),
+/// up-mixes mono->stereo if needed, and pushes interleaved stereo float frames into
 /// the SPSC RingBuffer.
 ///
-/// Supports deterministic sample-accurate seeking via AMediaExtractor_seekTo +
-/// AMediaCodec_flush + ring buffer reset.
+/// Supports Widevine DRM playback via optional AMediaCrypto and bounded frame decoding
+/// for seamless dual-decoder handoff.
 class NativeDecoder {
 public:
     NativeDecoder(RingBuffer& ringBuffer,
                   AMediaExtractor* extractor,
                   const char* mimeType,
                   AMediaFormat* trackFormat,
-                  int32_t sourceChannelCount);
+                  int32_t sourceChannelCount,
+                  AMediaCrypto* crypto = nullptr,
+                  int64_t maxFramesToDecode = -1);
 
     ~NativeDecoder();
 
@@ -48,6 +51,11 @@ public:
     /// True after the decoder has consumed all input and flushed all output.
     bool isEndOfStream() const;
 
+    /// Total number of PCM frames successfully decoded and committed.
+    int64_t getDecodedFrames() const {
+        return mTotalFramesDecoded.load(std::memory_order_relaxed);
+    }
+
 private:
     void threadFunc();
     bool feedInputBuffer();
@@ -56,11 +64,13 @@ private:
 
     RingBuffer& mRingBuffer;
 
-    AMediaExtractor* mExtractor;    // Borrowed — owned by the data source
+    AMediaExtractor* mExtractor;    // Borrowed - owned by the data source
     AMediaCodec* mCodec{nullptr};
-    AMediaFormat* mTrackFormat;     // Borrowed — owned by the data source
+    AMediaFormat* mTrackFormat;     // Borrowed - owned by the data source
+    AMediaCrypto* mCrypto{nullptr};  // Borrowed or managed
     char mMimeType[128]{};
     int32_t mSourceChannelCount;
+    int64_t mMaxFramesToDecode{-1};
 
     bool mOutputIsFloat{false};
 
@@ -68,6 +78,7 @@ private:
     std::atomic<bool> mShouldStop{false};
     std::atomic<bool> mEndOfStream{false};
     std::atomic<bool> mInputEos{false};
+    std::atomic<int64_t> mTotalFramesDecoded{0};
 
     std::atomic<bool> mSeekRequested{false};
     std::atomic<int64_t> mSeekTargetUs{0};

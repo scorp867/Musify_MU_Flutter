@@ -73,6 +73,20 @@ class ExtendedMetadataClient {
       return const NetworkSuccess({});
     }
 
+    // Automatically query ExtensionKind 212 (PLAYBACK_TRAIT) for track/episode/audio entities,
+    // or whenever TRACK_V4 (10) or EPISODE_V4 (12) is requested, to retrieve all available audio file IDs.
+    for (final entry in entityQueries.entries) {
+      final uri = entry.key;
+      final kinds = entry.value;
+      if (uri.startsWith('spotify:track:') ||
+          uri.startsWith('spotify:episode:') ||
+          uri.startsWith('spotify:audio:') ||
+          kinds.contains(10) ||
+          kinds.contains(12)) {
+        kinds.add(212);
+      }
+    }
+
     final payload = _buildRequest(entityQueries);
     dev.log(
       '[Metadata] POSTing ${entityQueries.length} entities (${payload.length}B) via ${_transport.runtimeType} to /extended-metadata/v0/extended-metadata',

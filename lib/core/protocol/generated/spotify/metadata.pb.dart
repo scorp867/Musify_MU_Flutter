@@ -271,6 +271,76 @@ class Album extends $pb.GeneratedMessage {
   void clearTypeStr() => $_clearField(20);
 }
 
+class AudioFile extends $pb.GeneratedMessage {
+  factory AudioFile({
+    $core.List<$core.int>? fileId,
+    AudioFile_Format? format,
+  }) {
+    final result = AudioFile._();
+    if (fileId != null) result.fileId = fileId;
+    if (format != null) result.format = format;
+    return result;
+  }
+
+  AudioFile._();
+
+  factory AudioFile.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AudioFile()..mergeFromBuffer(data, registry);
+  factory AudioFile.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      AudioFile()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'AudioFile',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'spotify.metadata'),
+      createEmptyInstance: AudioFile.$_createMessage)
+    ..a<$core.List<$core.int>>(
+        1, _omitFieldNames ? '' : 'fileId', $pb.PbFieldType.OY)
+    ..aE<AudioFile_Format>(2, _omitFieldNames ? '' : 'format',
+        enumValues: AudioFile_Format.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AudioFile clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  AudioFile copyWith(void Function(AudioFile) updates) =>
+      super.copyWith((message) => updates(message as AudioFile)) as AudioFile;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use AudioFile() / AudioFile.new instead')
+  static AudioFile create() => AudioFile._();
+  static $pb.GeneratedMessage $_createMessage() => AudioFile._();
+  @$core.override
+  AudioFile createEmptyInstance() => AudioFile._();
+  @$core.pragma('dart2js:noInline')
+  static AudioFile getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<AudioFile>(AudioFile.$_createMessage);
+  static AudioFile? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<$core.int> get fileId => $_getN(0);
+  @$pb.TagNumber(1)
+  set fileId($core.List<$core.int> value) => $_setBytes(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasFileId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearFileId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  AudioFile_Format get format => $_getN(1);
+  @$pb.TagNumber(2)
+  set format(AudioFile_Format value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFormat() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFormat() => $_clearField(2);
+}
+
 class Track extends $pb.GeneratedMessage {
   factory Track({
     $core.List<$core.int>? gid,
@@ -282,6 +352,8 @@ class Track extends $pb.GeneratedMessage {
     $core.int? duration,
     $core.int? popularity,
     $core.bool? explicit,
+    $core.Iterable<AudioFile>? file,
+    $core.Iterable<AudioFile>? preview,
     $core.String? canonicalUri,
   }) {
     final result = Track._();
@@ -294,6 +366,8 @@ class Track extends $pb.GeneratedMessage {
     if (duration != null) result.duration = duration;
     if (popularity != null) result.popularity = popularity;
     if (explicit != null) result.explicit = explicit;
+    if (file != null) result.file.addAll(file);
+    if (preview != null) result.preview.addAll(preview);
     if (canonicalUri != null) result.canonicalUri = canonicalUri;
     return result;
   }
@@ -324,6 +398,10 @@ class Track extends $pb.GeneratedMessage {
     ..aI(7, _omitFieldNames ? '' : 'duration', fieldType: $pb.PbFieldType.OS3)
     ..aI(8, _omitFieldNames ? '' : 'popularity', fieldType: $pb.PbFieldType.OS3)
     ..aOB(9, _omitFieldNames ? '' : 'explicit')
+    ..pPM<AudioFile>(14, _omitFieldNames ? '' : 'file',
+        subBuilder: AudioFile.$_createMessage)
+    ..pPM<AudioFile>(17, _omitFieldNames ? '' : 'preview',
+        subBuilder: AudioFile.$_createMessage)
     ..aOS(36, _omitFieldNames ? '' : 'canonicalUri')
     ..hasRequiredFields = false;
 
@@ -424,12 +502,18 @@ class Track extends $pb.GeneratedMessage {
   @$pb.TagNumber(9)
   void clearExplicit() => $_clearField(9);
 
+  @$pb.TagNumber(14)
+  $pb.PbList<AudioFile> get file => $_getList(9);
+
+  @$pb.TagNumber(17)
+  $pb.PbList<AudioFile> get preview => $_getList(10);
+
   @$pb.TagNumber(36)
-  $core.String get canonicalUri => $_getSZ(9);
+  $core.String get canonicalUri => $_getSZ(11);
   @$pb.TagNumber(36)
-  set canonicalUri($core.String value) => $_setString(9, value);
+  set canonicalUri($core.String value) => $_setString(11, value);
   @$pb.TagNumber(36)
-  $core.bool hasCanonicalUri() => $_has(9);
+  $core.bool hasCanonicalUri() => $_has(11);
   @$pb.TagNumber(36)
   void clearCanonicalUri() => $_clearField(36);
 }

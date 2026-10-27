@@ -405,6 +405,8 @@ class ExtensionKind extends $pb.ProtobufEnum {
       ExtensionKind._(194, _omitEnumNames ? '' : 'THREE_OH_THREE_PLAY_TRAIT');
   static const ExtensionKind ARTIST_WRAPPED_2024_VIDEO =
       ExtensionKind._(195, _omitEnumNames ? '' : 'ARTIST_WRAPPED_2024_VIDEO');
+  static const ExtensionKind PLAYBACK_TRAIT =
+      ExtensionKind._(212, _omitEnumNames ? '' : 'PLAYBACK_TRAIT');
 
   static const $core.List<ExtensionKind> values = <ExtensionKind>[
     UNKNOWN_EXTENSION,
@@ -602,10 +604,11 @@ class ExtensionKind extends $pb.ProtobufEnum {
     AUDIOBOOK_COMPANION_CONTENT,
     THREE_OH_THREE_PLAY_TRAIT,
     ARTIST_WRAPPED_2024_VIDEO,
+    PLAYBACK_TRAIT,
   ];
 
   static final $core.List<ExtensionKind?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 195);
+      $pb.ProtobufEnum.$_initByValueList(values, 212);
   static ExtensionKind? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

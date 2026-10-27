@@ -19,11 +19,15 @@ NativeDecoder::NativeDecoder(RingBuffer& ringBuffer,
                              AMediaExtractor* extractor,
                              const char* mimeType,
                              AMediaFormat* trackFormat,
-                             int32_t sourceChannelCount)
+                             int32_t sourceChannelCount,
+                             AMediaCrypto* crypto,
+                             int64_t maxFramesToDecode)
     : mRingBuffer(ringBuffer)
     , mExtractor(extractor)
     , mTrackFormat(trackFormat)
-    , mSourceChannelCount(sourceChannelCount > 0 ? sourceChannelCount : 2) {
+    , mCrypto(crypto)
+    , mSourceChannelCount(sourceChannelCount > 0 ? sourceChannelCount : 2)
+    , mMaxFramesToDecode(maxFramesToDecode) {
     std::strncpy(mMimeType, mimeType, sizeof(mMimeType) - 1);
     mMimeType[sizeof(mMimeType) - 1] = '\0';
 }
@@ -73,11 +77,11 @@ EngineStatus NativeDecoder::configure() {
     }
 
     media_status_t status = AMediaCodec_configure(
-        mCodec, configFormat, nullptr, nullptr, 0);
+        mCodec, configFormat, nullptr, mCrypto, 0);
     AMediaFormat_delete(configFormat);
 
     if (status != AMEDIA_OK) {
-        LOGE("AMediaCodec_configure failed: %d", static_cast<int>(status));
+        LOGE("AMediaCodec_configure failed: %d (crypto=%p)", static_cast<int>(status), mCrypto);
         AMediaCodec_delete(mCodec);
         mCodec = nullptr;
         return EngineStatus::ErrorCodec;
@@ -98,21 +102,28 @@ EngineStatus NativeDecoder::configure() {
         int32_t pcmEncoding = 2;
         if (AMediaFormat_getInt32(outputFormat, "pcm-encoding", &pcmEncoding)) {
             mOutputIsFloat = (pcmEncoding == 4);
+        } else {
+            mOutputIsFloat = false;
         }
+
         int32_t outChannels = 0;
         if (AMediaFormat_getInt32(outputFormat, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &outChannels) && outChannels > 0) {
             mSourceChannelCount = outChannels;
         }
-        LOGI("Initial codec output format: cc=%d pcmEncoding=%d isFloat=%d",
-             mSourceChannelCount, pcmEncoding, mOutputIsFloat ? 1 : 0);
+
         AMediaFormat_delete(outputFormat);
     }
 
+    LOGI("AMediaCodec configured: mime=%s sr=%d cc=%d isFloat=%d crypto=%p",
+         mMimeType, sr, mSourceChannelCount, mOutputIsFloat ? 1 : 0, mCrypto);
     return EngineStatus::Ok;
 }
 
 EngineStatus NativeDecoder::start() {
-    if (!mCodec) return EngineStatus::ErrorInvalidState;
+    if (!mCodec) {
+        LOGE("NativeDecoder::start called before configure()");
+        return EngineStatus::ErrorInvalidState;
+    }
 
     mShouldStop.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
@@ -170,13 +181,25 @@ void NativeDecoder::threadFunc() {
         didWork |= drainOutputBuffer();
 
         if (!didWork) {
-            // Buffer full or codec busy — yield briefly without spinning.
+            // Buffer full or codec busy - yield briefly without spinning.
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 }
 
 bool NativeDecoder::feedInputBuffer() {
+    if (mMaxFramesToDecode > 0 && mTotalFramesDecoded.load(std::memory_order_relaxed) >= mMaxFramesToDecode) {
+        // Target handoff boundary reached on decoded frames - queue EOS.
+        ssize_t inputIdx = AMediaCodec_dequeueInputBuffer(mCodec, kCodecTimeoutUs);
+        if (inputIdx >= 0) {
+            AMediaCodec_queueInputBuffer(
+                mCodec, static_cast<size_t>(inputIdx),
+                0, 0, 0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
+            mInputEos.store(true, std::memory_order_release);
+        }
+        return true;
+    }
+
     ssize_t inputIdx = AMediaCodec_dequeueInputBuffer(mCodec, kCodecTimeoutUs);
     if (inputIdx < 0) return false;
 
@@ -190,9 +213,17 @@ bool NativeDecoder::feedInputBuffer() {
 
     if (sampleSize > 0) {
         int64_t pts = AMediaExtractor_getSampleTime(mExtractor);
-        AMediaCodec_queueInputBuffer(
-            mCodec, static_cast<size_t>(inputIdx),
-            0, static_cast<size_t>(sampleSize), static_cast<uint64_t>(pts), 0);
+        AMediaCodecCryptoInfo* cryptoInfo = AMediaExtractor_getSampleCryptoInfo(mExtractor);
+        if (cryptoInfo) {
+            AMediaCodec_queueSecureInputBuffer(
+                mCodec, static_cast<size_t>(inputIdx),
+                0, cryptoInfo, static_cast<uint64_t>(pts), 0);
+            AMediaCodecCryptoInfo_delete(cryptoInfo);
+        } else {
+            AMediaCodec_queueInputBuffer(
+                mCodec, static_cast<size_t>(inputIdx),
+                0, static_cast<size_t>(sampleSize), static_cast<uint64_t>(pts), 0);
+        }
         AMediaExtractor_advance(mExtractor);
     } else {
         // End of input stream.
@@ -246,7 +277,19 @@ bool NativeDecoder::drainOutputBuffer() {
             const size_t bytesPerSample = mOutputIsFloat ? sizeof(float) : sizeof(int16_t);
             const size_t totalSamples = static_cast<size_t>(info.size) / bytesPerSample;
             const size_t channelCount = static_cast<size_t>(mSourceChannelCount > 0 ? mSourceChannelCount : 2);
-            const size_t totalFrames = totalSamples / channelCount;
+            size_t totalFrames = totalSamples / channelCount;
+
+            // If bounded frame decoding is enabled, clamp total frames
+            if (mMaxFramesToDecode > 0) {
+                int64_t currentDecoded = mTotalFramesDecoded.load(std::memory_order_relaxed);
+                int64_t remainingAllowed = mMaxFramesToDecode - currentDecoded;
+                if (remainingAllowed <= 0) {
+                    totalFrames = 0;
+                    mEndOfStream.store(true, std::memory_order_release);
+                } else if (static_cast<int64_t>(totalFrames) > remainingAllowed) {
+                    totalFrames = static_cast<size_t>(remainingAllowed);
+                }
+            }
 
             size_t framesRemaining = totalFrames;
             size_t frameOffset = 0;
@@ -326,6 +369,7 @@ bool NativeDecoder::drainOutputBuffer() {
                     }
                 }
 
+                mTotalFramesDecoded.fetch_add(written, std::memory_order_relaxed);
                 frameOffset += chunkFrames;
                 framesRemaining -= chunkFrames;
             }
@@ -335,6 +379,8 @@ bool NativeDecoder::drainOutputBuffer() {
     AMediaCodec_releaseOutputBuffer(mCodec, static_cast<size_t>(outputIdx), false);
 
     if (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) {
+        mEndOfStream.store(true, std::memory_order_release);
+    } else if (mMaxFramesToDecode > 0 && mTotalFramesDecoded.load(std::memory_order_relaxed) >= mMaxFramesToDecode) {
         mEndOfStream.store(true, std::memory_order_release);
     }
 

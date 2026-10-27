@@ -4,7 +4,6 @@ import 'package:musify_mu/features/player/application/queue/mobius/mobius_types.
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_options_client.dart';
 import 'package:musify_mu/features/player/domain/commands/pause_command.dart';
-import 'package:musify_mu/features/player/domain/commands/resume_command.dart';
 import 'package:musify_mu/features/player/domain/commands/set_shuffling_context_command.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
 import 'playlist_mobius_types.dart';
@@ -36,15 +35,6 @@ class PlaylistMobiusEffectHandler
           return PlaylistLoadedEvent(playlist);
 
         case PlayContextEffect(:final playlistUri, :final trackUri, :final shuffle):
-          if (trackUri == null && playlistUri.isNotEmpty) {
-            // Resume if currently paused on this playlist context
-            try {
-              await _controlClient.resume(const ResumeCommand());
-              return null;
-            } catch (_) {
-              // Fallthrough to play context
-            }
-          }
           await _repository.playPlaylist(
             playlistUri: playlistUri,
             skipToUri: trackUri,

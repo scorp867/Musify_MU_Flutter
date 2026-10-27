@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <vector>
 
 #include <media/NdkMediaExtractor.h>
 #include <media/NdkMediaFormat.h>
@@ -70,7 +71,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// Local file data source — Active implementation for device audio playback.
+// Local file data source - Active implementation for device audio playback.
 // Uses AMediaExtractor with a POSIX file descriptor.
 // ---------------------------------------------------------------------------
 
@@ -106,9 +107,50 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Encrypted stream data source — Plug-and-play interface for online streaming.
-// Wraps AMediaDataSource with an IStreamCipher hook for AES-128-CTR decryption.
-// Currently returns ErrorIO; implementation will be activated for online streams.
+// HTTP/HTTPS CDN Data Source - Reads remote AAC/MP4 streams and parses PSSH.
+// ---------------------------------------------------------------------------
+
+class HttpMediaDataSource final : public IAudioDataSource {
+public:
+    explicit HttpMediaDataSource(const char* url, const char* authHeader = nullptr);
+    ~HttpMediaDataSource() override;
+
+    HttpMediaDataSource(const HttpMediaDataSource&) = delete;
+    HttpMediaDataSource& operator=(const HttpMediaDataSource&) = delete;
+
+    EngineStatus open() override;
+    AMediaExtractor* getExtractor() const override;
+    size_t getSelectedTrack() const override;
+    int32_t getSampleRate() const override;
+    int32_t getChannelCount() const override;
+    int64_t getDurationUs() const override;
+    const char* getMimeType() const override;
+    AMediaFormat* getTrackFormat() const override;
+    void close() override;
+
+    /// Extract Widevine PSSH byte array if present in container.
+    bool hasWidevinePssh() const { return mHasPssh; }
+    const std::vector<uint8_t>& getPsshBytes() const { return mPsshData; }
+
+private:
+    EngineStatus selectAudioTrack();
+    void extractWidevinePssh();
+
+    char mUrl[4096]{};
+    char mAuthHeader[1024]{};
+    AMediaExtractor* mExtractor{nullptr};
+    AMediaFormat* mFormat{nullptr};
+    size_t mTrackIndex{0};
+    int32_t mSampleRate{0};
+    int32_t mChannelCount{0};
+    int64_t mDurationUs{0};
+    char mMimeType[128]{};
+    bool mHasPssh{false};
+    std::vector<uint8_t> mPsshData;
+};
+
+// ---------------------------------------------------------------------------
+// Encrypted stream data source - Plug-and-play interface for chunk streaming.
 // ---------------------------------------------------------------------------
 
 class IStreamCipher {

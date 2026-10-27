@@ -22,3 +22,4 @@ export 'traits/track_meta_trait.dart';
 export 'traits/episode_meta_trait.dart';
 export 'traits/on_platform_reputation_trait.dart';
 export 'traits/credits_trait.dart';
+export 'traits/playback_trait.dart';

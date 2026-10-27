@@ -357,7 +357,10 @@ Future<void> setupInjection() async {
 
   // --- Spotify Esperanto Transport & ContextPlayer Factory Component (p.t0m) ---
   getIt.registerLazySingleton<EsperantoTransport>(
-    () => NativeEsperantoTransport(getIt<MusifyNativeAudioEngine>()),
+    () => NativeEsperantoTransport(
+      getIt<MusifyNativeAudioEngine>(),
+      metadataService: getIt<ExtendedMetadataService>(),
+    ),
     dispose: (t) {
       if (t is NativeEsperantoTransport) {
         t.dispose();

@@ -9,6 +9,8 @@ class TrackMetaTrait extends Trait {
   final Map<String, String> imageUrls;
   final String? largeImageHex;
   final int durationMs;
+  final String fileId;
+  final String headUrl;
 
   String get imageUrl =>
       imageUrls['large'] ??
@@ -24,6 +26,8 @@ class TrackMetaTrait extends Trait {
     this.imageUrls = const {},
     this.largeImageHex,
     this.durationMs = 0,
+    this.fileId = '',
+    this.headUrl = '',
   });
 
   @override
@@ -35,6 +39,8 @@ class TrackMetaTrait extends Trait {
     'imageUrls': imageUrls,
     if (largeImageHex != null) 'largeImageHex': largeImageHex,
     'durationMs': durationMs,
+    if (fileId.isNotEmpty) 'fileId': fileId,
+    if (headUrl.isNotEmpty) 'headUrl': headUrl,
   };
 
   factory TrackMetaTrait.fromJson(Map<String, dynamic> json) => TrackMetaTrait(
@@ -45,5 +51,7 @@ class TrackMetaTrait extends Trait {
     imageUrls: Map<String, String>.from(json['imageUrls'] ?? const {}),
     largeImageHex: json['largeImageHex'],
     durationMs: json['durationMs'] ?? 0,
+    fileId: json['fileId'] ?? '',
+    headUrl: json['headUrl'] ?? '',
   );
 }

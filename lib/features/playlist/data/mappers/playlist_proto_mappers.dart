@@ -11,6 +11,7 @@ import '../../domain/models/playlist_item.dart';
 import '../../domain/models/playlist_metadata.dart';
 import '../../domain/models/sort_order.dart';
 import '../../domain/models/track_item_metadata.dart';
+import '../../../player/data/services/spotify_head_resolver.dart';
 
 /// 1:1 Proto mapper translating Spotify's protobuf wire structures
 /// (PlaylistResponse, SelectedListContent, Item) into domain PlaylistEntity & PlaylistItem.
@@ -203,6 +204,17 @@ class PlaylistProtoMappers {
 
     final isPlayable = formatMap['is_playable'] != 'false';
 
+    final rawFileId = formatMap['file_id'] ??
+        formatMap['audio.file_id'] ??
+        formatMap['track_file_id'] ??
+        (itemAttrs != null && itemAttrs.hasItemId() && itemAttrs.itemId.isNotEmpty
+            ? SpotifyHeadResolver.instance.normalizeFileId(itemAttrs.itemId)
+            : '');
+    final fileId = SpotifyHeadResolver.instance.normalizeFileId(rawFileId);
+    final headUrl = fileId.isNotEmpty
+        ? SpotifyHeadResolver.instance.buildHeadUrl(fileId)
+        : (formatMap['head_file_url'] ?? formatMap['head_url'] ?? '');
+
     // Section classification: matches Spotify's "You added" vs "Includes" vs "We added"
     PlaylistSectionType sectionType = PlaylistSectionType.standard;
     if (addedBy.isNotEmpty && currentUsername.isNotEmpty) {
@@ -224,6 +236,8 @@ class PlaylistProtoMappers {
       albumName: albumName,
       albumCovers: cover.isNotEmpty ? [cover] : const [],
       artists: artistName.isNotEmpty ? [artistName] : const [],
+      fileId: fileId,
+      headUrl: headUrl,
     );
 
     return PlaylistItem(

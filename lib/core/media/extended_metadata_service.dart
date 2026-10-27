@@ -46,6 +46,15 @@ class TrackMeta {
 
   final int durationMs;
 
+  /// 40-character hex file ID resolved from Spotify's extended-metadata.
+  final String fileId;
+
+  /// Canonical CDN URL for the 128 KB head file.
+  final String headUrl;
+
+  /// Direct pass-through CDN URL (from PlaybackTrait or pass-through stream).
+  final String cdnUrl;
+
   const TrackMeta({
     required this.uri,
     this.title = '',
@@ -54,6 +63,9 @@ class TrackMeta {
     this.imageUrls = const {},
     this.largeImageHex,
     this.durationMs = 0,
+    this.fileId = '',
+    this.headUrl = '',
+    this.cdnUrl = '',
   });
 }
 
@@ -67,7 +79,7 @@ class TrackMeta {
 ///   - Library: playlist mosaic covers (first 4 track images)
 ///   - Playlist detail: full track list with metadata
 ///   - Now Playing / Queue: track info display
-///   - Playback: duration, title, artist
+///   - Playback: duration, title, artist, fileId, headUrl, cdnUrl
 class ExtendedMetadataService {
   final ExtendedMetadataClient _metadataClient;
 
@@ -117,6 +129,17 @@ class ExtendedMetadataService {
   /// Returns cached metadata for a URI, or null if not cached.
   TrackMeta? getCached(String uri) => _memCache.get(uri);
 
+  /// Resolves metadata for a single track URI (cache first, then network).
+  Future<TrackMeta?> resolve(String uri) async {
+    await _ensureDiskLoaded();
+    final cached = _memCache.get(uri);
+    if (cached != null && (cached.fileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
+      return cached;
+    }
+    final map = await fetchTracks([uri]);
+    return map[uri];
+  }
+
   /// Fetches metadata for the given URIs.
   /// Returns only URIs that were successfully resolved.
   /// Cached results are returned immediately; only uncached URIs hit the network.
@@ -130,7 +153,7 @@ class ExtendedMetadataService {
 
     for (final uri in uris) {
       final cached = _memCache.get(uri);
-      if (cached != null) {
+      if (cached != null && (cached.fileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
         results[uri] = cached;
       } else {
         uncached.add(uri);
@@ -179,7 +202,7 @@ class ExtendedMetadataService {
 
     for (final uri in uris) {
       final cached = _memCache.get(uri);
-      if (cached != null) {
+      if (cached != null && (cached.fileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
         results[uri] = cached;
       } else {
         uncached.add(uri);
@@ -227,29 +250,48 @@ class ExtendedMetadataService {
     return unique.map((u) => map[u]).whereType<TrackMeta>().toList();
   }
 
-  // ─── Network ──────────────────────────────────────────────────────
+  // Network
 
   Future<Map<String, TrackMeta>> _fetchBatch(List<String> uris) async {
     try {
-      final keys = uris.map((u) {
+      final keys = <CellKey>{};
+      for (final u in uris) {
         if (u.startsWith('spotify:episode:')) {
-          return CellKey(const TableKey<EpisodeMetaTrait>(), u);
+          keys.add(CellKey(const TableKey<EpisodeMetaTrait>(), u));
+        } else {
+          keys.add(CellKey(const TableKey<TrackMetaTrait>(), u));
         }
-        return CellKey(const TableKey<TrackMetaTrait>(), u);
-      }).toSet();
+        keys.add(CellKey(const TableKey<PlaybackTrait>(), u));
+      }
       final cells = await _metadataClient.fetchCells(keys);
       final results = <String, TrackMeta>{};
-      for (final entry in cells.entries) {
-        final trait = entry.value;
-        if (trait is TrackMetaTrait) {
-          results[entry.key.entityUri] = TrackMeta(
-            uri: entry.key.entityUri,
-            title: trait.title,
-            subtitle: trait.subtitle,
-            albumName: trait.albumName,
-            imageUrls: trait.imageUrls,
-            largeImageHex: trait.largeImageHex,
-            durationMs: trait.durationMs,
+      for (final uri in uris) {
+        final rawTrait = cells[CellKey(const TableKey<TrackMetaTrait>(), uri)] ??
+            cells[CellKey(const TableKey<EpisodeMetaTrait>(), uri)];
+        final playbackTrait = cells[CellKey(const TableKey<PlaybackTrait>(), uri)];
+        if (rawTrait is TrackMetaTrait) {
+          final playback = playbackTrait is PlaybackTrait ? playbackTrait : null;
+          final fileId = (playback != null && playback.primaryFileIdHex.isNotEmpty)
+              ? playback.primaryFileIdHex
+              : rawTrait.fileId;
+          final headUrl = (playback != null && playback.headUrl.isNotEmpty)
+              ? playback.headUrl
+              : rawTrait.headUrl;
+          final cdnUrl = (playback != null && playback.passThroughCdnUrl.isNotEmpty)
+              ? playback.passThroughCdnUrl
+              : '';
+
+          results[uri] = TrackMeta(
+            uri: uri,
+            title: rawTrait.title,
+            subtitle: rawTrait.subtitle,
+            albumName: rawTrait.albumName,
+            imageUrls: rawTrait.imageUrls,
+            largeImageHex: rawTrait.largeImageHex,
+            durationMs: rawTrait.durationMs,
+            fileId: fileId,
+            headUrl: headUrl,
+            cdnUrl: cdnUrl,
           );
         }
       }
@@ -269,7 +311,7 @@ class ExtendedMetadataService {
 /// Disk persistence for TrackMeta.
 ///
 /// Uses a single JSONL file (one JSON object per line) for fast append-only writes.
-/// Format: {"u":"spotify:track:xxx","t":"Title","s":"Artist","a":"Album","i":{"small":"url","medium":"url","large":"url"},"h":"hexId","d":12345}
+/// Format: {"u":"spotify:track:xxx","t":"Title","s":"Artist","a":"Album","i":{...},"h":"hexId","d":12345,"f":"fileId","hu":"headUrl","c":"cdnUrl"}
 class _TrackMetaDiskCache {
   static const _policy = CachePolicy.durable;
   static const _fileName = 'track_meta.jsonl';
@@ -379,6 +421,9 @@ class _TrackMetaDiskCache {
         'i': meta.imageUrls,
         if (meta.largeImageHex != null) 'h': meta.largeImageHex,
         'd': meta.durationMs,
+        if (meta.fileId.isNotEmpty) 'f': meta.fileId,
+        if (meta.headUrl.isNotEmpty) 'hu': meta.headUrl,
+        if (meta.cdnUrl.isNotEmpty) 'c': meta.cdnUrl,
         'ts': ts,
       };
 
@@ -396,6 +441,9 @@ class _TrackMetaDiskCache {
           {},
       largeImageHex: j['h'] as String?,
       durationMs: j['d'] as int? ?? 0,
+      fileId: j['f'] as String? ?? '',
+      headUrl: j['hu'] as String? ?? '',
+      cdnUrl: j['c'] as String? ?? '',
     );
   }
 }

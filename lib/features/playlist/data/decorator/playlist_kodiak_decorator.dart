@@ -24,6 +24,11 @@ const playlistTrackDataStatement = DataStatement([
     traitType: TrackMetaTrait,
   ),
   DataRequirement(
+    extensionKindValue: 212,
+    priority: DataPriority.required,
+    traitType: PlaybackTrait,
+  ),
+  DataRequirement(
     extensionKindValue: 12,
     priority: DataPriority.optional,
     traitType: EpisodeMetaTrait,
@@ -45,7 +50,7 @@ const playlistTrackDataStatement = DataStatement([
   ),
 ]);
 
-/// Decorates playlist items with rich metadata (titles, artists, album, covers, duration)
+/// Decorates playlist items with rich metadata (titles, artists, album, covers, duration, fileId, headUrl, cdnUrl)
 /// via Spotify's Extended Metadata endpoint using a single flight request (no batching).
 class PlaylistKodiakDecorator {
   final ExtendedMetadataService _metadataService;
@@ -119,6 +124,16 @@ class PlaylistKodiakDecorator {
           derivedFirstCover = albumCovers.first;
         }
 
+        final fileId = meta.fileId.isNotEmpty
+            ? meta.fileId
+            : (existingMeta?.fileId ?? '');
+        final headUrl = meta.headUrl.isNotEmpty
+            ? meta.headUrl
+            : (existingMeta?.headUrl ?? '');
+        final cdnUrl = meta.cdnUrl.isNotEmpty
+            ? meta.cdnUrl
+            : (existingMeta?.cdnUrl ?? '');
+
         final enrichedMetadata = TrackItemMetadata(
           title: title,
           uri: item.uri,
@@ -128,6 +143,9 @@ class PlaylistKodiakDecorator {
           albumName: albumName,
           albumCovers: albumCovers,
           artists: artists,
+          fileId: fileId,
+          headUrl: headUrl,
+          cdnUrl: cdnUrl,
         );
 
         calculatedTotalDurationMs += durationMs;

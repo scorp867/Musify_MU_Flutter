@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package spotify.contentagnostic.v2;
+
+option optimize_for = CODE_SIZE;
+
+// =========================================================================
+// PlaybackTrait (ExtensionKind 212)
+// Provides full audio & video playback mappings, hosted files & pass-through CDNs
+// 1:1 replica of com.spotify.contentagnostic.v2.PlaybackTrait
+// =========================================================================
+
+message Duration {
+    int64 seconds = 1;
+    int32 nanos = 2;
+}
+
+message NormalizationParams {
+    float loudness_db = 1;
+    float true_peak_db = 2;
+}
+
+message AudioFile {
+    bytes file_id = 1;
+    int32 average_bitrate = 3;
+}
+
+message AudioHosted {
+    repeated AudioFile files = 1;
+    bytes audio_id = 2;
+    NormalizationParams file_norm = 3;
+    NormalizationParams group_norm = 4;
+}
+
+message FlatFile {
+    string cdn_url = 1;
+}
+
+message AudioPassThrough {
+    FlatFile flat_file = 1;
+}
+
+message PlaybackOffsets {
+    Duration start = 1;
+    Duration end = 2;
+}
+
+message AudioPlayback {
+    AudioPassThrough pass_through = 1;
+    AudioHosted hosted = 2;
+    string reporting_uri = 3;
+    PlaybackOffsets offsets = 4;
+}
+
+message AudioMapEntry {
+    int32 key = 1;
+    AudioPlayback value = 2;
+}
+
+message VideoHosted {
+    bytes video_id = 1;
+}
+
+message VideoPlayback {
+    VideoHosted hosted = 1;
+    string reporting_uri = 2;
+    PlaybackOffsets offsets = 3;
+}
+
+message VideoMapEntry {
+    int32 key = 1;
+    VideoPlayback value = 2;
+}
+
+message PlaybackTrait {
+    repeated AudioMapEntry audio = 1;
+    repeated VideoMapEntry video = 2;
+}

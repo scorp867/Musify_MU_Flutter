@@ -324,6 +324,15 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           if (trackMeta.artistUris.isNotEmpty) {
             metadata[ContextTrackMetadata.keyArtistUri] = trackMeta.artistUris.first;
           }
+          if (trackMeta.fileId.isNotEmpty) {
+            metadata[ContextTrackMetadata.keyFileId] = trackMeta.fileId;
+          }
+          if (trackMeta.headUrl.isNotEmpty) {
+            metadata[ContextTrackMetadata.keyHeadFileUrl] = trackMeta.headUrl;
+          }
+          if (trackMeta.cdnUrl.isNotEmpty) {
+            metadata[ContextTrackMetadata.keyCdnAacUrl] = trackMeta.cdnUrl;
+          }
         }
         return ContextTrack.builder(item.uri)
             .uid(item.uid)

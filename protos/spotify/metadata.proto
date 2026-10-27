@@ -1,5 +1,5 @@
-// Spotify Metadata protobuf — trimmed to what we need for extended-metadata.
-// Source: Spotify 1.2.52.442 (windows)
+// Spotify Metadata protobuf - extended for audio file and preview extraction.
+// Source: Spotify 1.2.52.442 (windows) & Android liborbit-jni-spotify
 
 syntax = "proto2";
 
@@ -36,6 +36,30 @@ message Album {
     optional string type_str = 20;
 }
 
+message AudioFile {
+    enum Format {
+        OGG_VORBIS_96 = 0;
+        OGG_VORBIS_160 = 1;
+        OGG_VORBIS_320 = 2;
+        MP3_256 = 3;
+        MP3_320 = 4;
+        MP3_160 = 5;
+        MP3_96 = 6;
+        MP3_160_ENC = 7;
+        MP4_128 = 8;
+        MP4_192 = 9;
+        MP4_256 = 10;
+        MP4_320 = 11;
+        MP4_96 = 12;
+        MP4_BAM = 13;
+        FLAC_FLAC = 16;
+        XHE_AAC_24 = 22;
+    }
+
+    optional bytes file_id = 1;
+    optional Format format = 2;
+}
+
 message Track {
     optional bytes gid = 1;
     optional string name = 2;
@@ -46,6 +70,8 @@ message Track {
     optional sint32 duration = 7;
     optional sint32 popularity = 8;
     optional bool explicit = 9;
+    repeated AudioFile file = 14;
+    repeated AudioFile preview = 17;
     optional string canonical_uri = 36;
 }
 
