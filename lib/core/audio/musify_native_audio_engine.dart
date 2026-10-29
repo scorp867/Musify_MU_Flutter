@@ -133,14 +133,17 @@ class MusifyNativeAudioEngine implements Finalizable {
   /// via Android AMediaCodec without any audio glitch or container mismatch.
   NativeEngineStatus loadTrackWithHead({
     required String fileIdHex,
-    required String fullTrackUrl,
+    String? fullTrackUrl,
     String? cacheDir,
     String? licenseServerUrl,
     String? authHeader,
+    int trackDurationMs = -1,
   }) {
     _ensureAlive();
     final fileIdPtr = fileIdHex.toNativeUtf8();
-    final urlPtr = fullTrackUrl.toNativeUtf8();
+    final urlPtr = (fullTrackUrl != null && fullTrackUrl.isNotEmpty)
+        ? fullTrackUrl.toNativeUtf8()
+        : nullptr;
     final cachePtr = (cacheDir != null && cacheDir.isNotEmpty)
         ? cacheDir.toNativeUtf8()
         : nullptr;
@@ -155,16 +158,50 @@ class MusifyNativeAudioEngine implements Finalizable {
       final code = _ffi.loadTrackWithHead(
         _handle,
         fileIdPtr.cast(),
-        urlPtr.cast(),
+        urlPtr != nullptr ? urlPtr.cast() : nullptr,
         cachePtr != nullptr ? cachePtr.cast() : nullptr,
         licensePtr != nullptr ? licensePtr.cast() : nullptr,
         authPtr != nullptr ? authPtr.cast() : nullptr,
+        trackDurationMs,
       );
       return NativeEngineStatus.fromInt(code);
     } finally {
       calloc.free(fileIdPtr);
-      calloc.free(urlPtr);
+      if (urlPtr != nullptr) calloc.free(urlPtr);
       if (cachePtr != nullptr) calloc.free(cachePtr);
+      if (licensePtr != nullptr) calloc.free(licensePtr);
+      if (authPtr != nullptr) calloc.free(authPtr);
+    }
+  }
+
+  /// Asynchronously attaches or starts the secondary full-track stream
+  /// while the primary head stream is already playing.
+  NativeEngineStatus attachSecondaryStream({
+    required String secondaryUrl,
+    String? licenseServerUrl,
+    String? authHeader,
+    int handoffPositionMs = -1,
+  }) {
+    _ensureAlive();
+    final urlPtr = secondaryUrl.toNativeUtf8();
+    final licensePtr = (licenseServerUrl != null && licenseServerUrl.isNotEmpty)
+        ? licenseServerUrl.toNativeUtf8()
+        : nullptr;
+    final authPtr = (authHeader != null && authHeader.isNotEmpty)
+        ? authHeader.toNativeUtf8()
+        : nullptr;
+
+    try {
+      final code = _ffi.attachSecondaryStream(
+        _handle,
+        urlPtr.cast(),
+        licensePtr != nullptr ? licensePtr.cast() : nullptr,
+        authPtr != nullptr ? authPtr.cast() : nullptr,
+        handoffPositionMs,
+      );
+      return NativeEngineStatus.fromInt(code);
+    } finally {
+      calloc.free(urlPtr);
       if (licensePtr != nullptr) calloc.free(licensePtr);
       if (authPtr != nullptr) calloc.free(authPtr);
     }

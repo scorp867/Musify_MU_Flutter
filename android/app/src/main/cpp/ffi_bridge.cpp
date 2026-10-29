@@ -48,16 +48,32 @@ MUSIFY_EXPORT int32_t musify_engine_load_dual_source(
         handoffPositionMs));
 }
 
+MUSIFY_EXPORT int32_t musify_engine_attach_secondary_stream(
+        void* handle,
+        const char* secondaryUrl,
+        const char* licenseServerUrl,
+        const char* authHeader,
+        int64_t handoffPositionMs) {
+    if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
+    auto* engine = static_cast<AudioEngine*>(handle);
+    return static_cast<int32_t>(engine->attachSecondaryStream(
+        secondaryUrl,
+        licenseServerUrl,
+        authHeader,
+        handoffPositionMs));
+}
+
 MUSIFY_EXPORT int32_t musify_engine_load_track_with_head(
         void* handle,
         const char* fileIdHex,
         const char* fullTrackUrl,
         const char* cacheDir,
         const char* licenseServerUrl,
-        const char* authHeader) {
+        const char* authHeader,
+        int64_t trackDurationMs) {
     if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
     auto* engine = static_cast<AudioEngine*>(handle);
-    return static_cast<int32_t>(engine->loadTrackWithHead(fileIdHex, fullTrackUrl, cacheDir, licenseServerUrl, authHeader));
+    return static_cast<int32_t>(engine->loadTrackWithHead(fileIdHex, fullTrackUrl, cacheDir, licenseServerUrl, authHeader, trackDurationMs));
 }
 
 MUSIFY_EXPORT void musify_engine_prefetch_head(

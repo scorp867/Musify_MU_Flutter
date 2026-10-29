@@ -65,6 +65,8 @@ import 'package:musify_mu/features/player/data/esperanto/context_player_options_
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_queue_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
+import 'package:musify_mu/features/player/data/services/spotify_license_resolver.dart';
+import 'package:musify_mu/features/player/data/services/spotify_storage_resolver.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_data_client.dart';
@@ -191,7 +193,7 @@ Future<void> setupInjection() async {
   );
   getIt.registerLazySingleton<ExtendedMetadataClient>(
     () => ExtendedMetadataClient(
-      transport: getIt<AndroidTransport>(),
+      transport: getIt<WebPlayerTransport>(),
       ctx: getIt<RuntimeContext>(),
       registry: getIt<ExtendedMetadataPluginRegistry>(),
     ),
@@ -355,11 +357,27 @@ Future<void> setupInjection() async {
     dispose: (engine) => engine.dispose(),
   );
 
+  // --- Spotify Storage & License Resolvers ---
+  getIt.registerLazySingleton<SpotifyStorageResolver>(
+    () => SpotifyStorageResolver(
+      transport: getIt<WebPlayerTransport>(),
+      tokenStore: getIt<SpotifyTokenStore>(),
+    ),
+  );
+  getIt.registerLazySingleton<SpotifyLicenseResolver>(
+    () => SpotifyLicenseResolver(
+      transport: getIt<WebPlayerTransport>(),
+    ),
+  );
+
   // --- Spotify Esperanto Transport & ContextPlayer Factory Component (p.t0m) ---
   getIt.registerLazySingleton<EsperantoTransport>(
     () => NativeEsperantoTransport(
       getIt<MusifyNativeAudioEngine>(),
       metadataService: getIt<ExtendedMetadataService>(),
+      storageResolver: getIt<SpotifyStorageResolver>(),
+      licenseResolver: getIt<SpotifyLicenseResolver>(),
+      authSessionProvider: getIt<AuthSessionProvider>(),
     ),
     dispose: (t) {
       if (t is NativeEsperantoTransport) {

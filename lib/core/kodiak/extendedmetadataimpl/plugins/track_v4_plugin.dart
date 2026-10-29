@@ -36,6 +36,7 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
     final trackUri = track.hasGid()
         ? 'spotify:track:${track.gid.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}'
         : '';
+    final canonicalUri = track.hasCanonicalUri() ? track.canonicalUri : '';
 
     final imageUrls = <String, String>{};
     String? largeImageHex;
@@ -87,6 +88,46 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
       }
     }
 
+    // Relinked track fallback: If primary file list is empty (common for region-restricted
+    // or market-relinked tracks), extract audio files from alternative tracks in field 13.
+    if (fullTrackFiles.isEmpty && track.unknownFields.hasField(13)) {
+      final altField = track.unknownFields.getField(13);
+      if (altField != null) {
+        for (final altBytes in altField.lengthDelimited) {
+          try {
+            final altTrack = meta_pb.Track.fromBuffer(altBytes);
+            if (altTrack.file.isNotEmpty) {
+              for (final file in altTrack.file) {
+                if (file.hasFileId() && file.hasFormat()) {
+                  final mapped = SpotifyAudioFileMapper.mapFromRaw(
+                    fileIdBytes: file.fileId,
+                    formatNumber: file.format.value,
+                  );
+                  parsedAudioEntries.add((
+                    format: file.format,
+                    rawBytes: file.fileId,
+                    mapped: mapped,
+                  ));
+                  if (mapped case final validMapped?) {
+                    fullTrackFiles.add(validMapped);
+                  }
+                }
+              }
+              if (fullTrackFiles.isNotEmpty) {
+                dev.log(
+                  'TrackV4Plugin: Relinked track extracted ${fullTrackFiles.length} files from alternative track (canonical: $canonicalUri)',
+                  name: 'Metadata.Relink',
+                );
+                break;
+              }
+            }
+          } catch (e) {
+            dev.log('TrackV4Plugin: Error parsing alternative track: $e', name: 'Metadata.Relink');
+          }
+        }
+      }
+    }
+
     final List<SpotifyAudioFile> previewFiles = <SpotifyAudioFile>[];
     final List<({meta_pb.AudioFile_Format format, List<int> rawBytes, SpotifyAudioFile? mapped})> parsedPreviewEntries = [];
 
@@ -130,6 +171,14 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
       headUrl = '';
     }
 
+    final String aacFileId;
+    if (selectedTrack case final validTrack? when !validTrack.format.isVorbis && validTrack.fileIdHex.isNotEmpty) {
+      aacFileId = validTrack.fileIdHex;
+    } else {
+      final anyAac = fullTrackFiles.where((f) => !f.format.isVorbis && f.fileIdHex.isNotEmpty).firstOrNull;
+      aacFileId = anyAac?.fileIdHex ?? '';
+    }
+
     // Clean, formatted per-track logging displaying all received formats and head selection
     _logTrackMetadata(
       trackTitle: title,
@@ -151,7 +200,9 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
       largeImageHex: largeImageHex,
       durationMs: duration,
       fileId: fileId,
+      aacFileId: aacFileId,
       headUrl: headUrl,
+      canonicalUri: canonicalUri,
     );
   }
 

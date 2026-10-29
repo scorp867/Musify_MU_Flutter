@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <thread>
 
+#include <jni.h>
+
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaCrypto.h>
 #include <media/NdkMediaExtractor.h>
@@ -29,7 +31,9 @@ public:
                   AMediaFormat* trackFormat,
                   int32_t sourceChannelCount,
                   AMediaCrypto* crypto = nullptr,
-                  int64_t maxFramesToDecode = -1);
+                  int64_t maxFramesToDecode = -1,
+                  JavaVM* javaVm = nullptr,
+                  int64_t discardPriorToUs = -1);
 
     ~NativeDecoder();
 
@@ -56,6 +60,16 @@ public:
         return mTotalFramesDecoded.load(std::memory_order_relaxed);
     }
 
+    /// True if decoder thread is actively running.
+    bool isRunning() const {
+        return mThread.joinable() && !mShouldStop.load(std::memory_order_relaxed);
+    }
+
+    void setDiscardPriorToUs(int64_t us) {
+        mDiscardPriorToUs.store(us, std::memory_order_release);
+        if (us > 0) mNeedsMicroFadeIn.store(true, std::memory_order_release);
+    }
+
 private:
     void threadFunc();
     bool feedInputBuffer();
@@ -70,7 +84,9 @@ private:
     AMediaCrypto* mCrypto{nullptr};  // Borrowed or managed
     char mMimeType[128]{};
     int32_t mSourceChannelCount;
+    int32_t mSampleRate{44100};
     int64_t mMaxFramesToDecode{-1};
+    JavaVM* mJavaVm{nullptr};
 
     bool mOutputIsFloat{false};
 
@@ -79,6 +95,8 @@ private:
     std::atomic<bool> mEndOfStream{false};
     std::atomic<bool> mInputEos{false};
     std::atomic<int64_t> mTotalFramesDecoded{0};
+    std::atomic<int64_t> mDiscardPriorToUs{-1};
+    std::atomic<bool> mNeedsMicroFadeIn{false};
 
     std::atomic<bool> mSeekRequested{false};
     std::atomic<int64_t> mSeekTargetUs{0};

@@ -84,13 +84,8 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
               endOffsetMs: endMs,
             ));
 
-            // Map channel format to corresponding Vorbis format:
-            // 1 (STEREO) -> OGG_VORBIS_160, 2 (SPATIAL) -> OGG_VORBIS_320, 0 (UNSPECIFIED) -> OGG_VORBIS_96
-            final mappedFormat = formatNumber == 1
-                ? SpotifyAudioFormat.oggVorbis160
-                : (formatNumber == 2
-                    ? SpotifyAudioFormat.oggVorbis320
-                    : SpotifyAudioFormat.oggVorbis96);
+            // AudioHosted.audioId represents the primary encrypted AAC/MP4 full track stream
+            final mappedFormat = SpotifyAudioFormat.mp4128;
 
             final mapped = SpotifyAudioFileMapper.fromHex(
               fileIdHex: fileIdHex,
@@ -188,6 +183,14 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
       headUrl = '';
     }
 
+    final String aacFileIdHex;
+    if (selectedTrack case final validTrack? when !validTrack.format.isVorbis && validTrack.fileIdHex.isNotEmpty) {
+      aacFileIdHex = validTrack.fileIdHex;
+    } else {
+      final anyAac = audioFiles.where((f) => !f.format.isVorbis && f.fileIdHex.isNotEmpty).firstOrNull;
+      aacFileIdHex = anyAac?.fileIdHex ?? '';
+    }
+
     // Clean, formatted per-track logging for PlaybackTrait
     _logPlaybackTraitSummary(
       hostedEntries: hostedEntries,
@@ -200,6 +203,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
     return PlaybackTrait(
       audioTracks: List.unmodifiable(audioTracks),
       primaryFileIdHex: primaryFileIdHex,
+      aacFileIdHex: aacFileIdHex,
       headUrl: headUrl,
       passThroughCdnUrl: passThroughCdnUrl,
     );

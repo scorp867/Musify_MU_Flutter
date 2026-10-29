@@ -133,6 +133,12 @@ class PlaylistKodiakDecorator {
         final cdnUrl = meta.cdnUrl.isNotEmpty
             ? meta.cdnUrl
             : (existingMeta?.cdnUrl ?? '');
+        final aacFileId = meta.aacFileId.isNotEmpty
+            ? meta.aacFileId
+            : (existingMeta?.aacFileId ?? '');
+        final canonicalUri = existingMeta?.canonicalUri.isNotEmpty == true
+            ? existingMeta!.canonicalUri
+            : '';
 
         final enrichedMetadata = TrackItemMetadata(
           title: title,
@@ -144,8 +150,10 @@ class PlaylistKodiakDecorator {
           albumCovers: albumCovers,
           artists: artists,
           fileId: fileId,
+          aacFileId: aacFileId,
           headUrl: headUrl,
           cdnUrl: cdnUrl,
+          canonicalUri: canonicalUri,
         );
 
         calculatedTotalDurationMs += durationMs;

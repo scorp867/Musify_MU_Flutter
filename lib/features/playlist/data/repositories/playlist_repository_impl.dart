@@ -327,6 +327,9 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           if (trackMeta.fileId.isNotEmpty) {
             metadata[ContextTrackMetadata.keyFileId] = trackMeta.fileId;
           }
+          if (trackMeta.aacFileId.isNotEmpty) {
+            metadata[ContextTrackMetadata.keyAacFileId] = trackMeta.aacFileId;
+          }
           if (trackMeta.headUrl.isNotEmpty) {
             metadata[ContextTrackMetadata.keyHeadFileUrl] = trackMeta.headUrl;
           }

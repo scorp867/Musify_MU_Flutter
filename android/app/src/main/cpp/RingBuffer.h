@@ -7,15 +7,17 @@
 
 /// Lock-free Single-Producer Single-Consumer ring buffer for interleaved stereo float PCM.
 ///
-/// Capacity is 2.0 seconds of stereo audio at 48 kHz, rounded to the next power of two
-/// (131,072 stereo frames = 262,144 floats). Index wrapping uses bitwise AND.
+/// Capacity is expanded to ~11.9 seconds of stereo audio at 44.1 kHz (524,288 stereo frames = 1,048,576 floats),
+/// allowing chunk 0 Vorbis audio to be fully decoded into the jitter buffer upfront without blocking or stalling,
+/// enabling seamless, zero-cutout background secondary stream handoff.
+/// Index wrapping uses bitwise AND.
 ///
 /// Cache-line isolation (alignas(64)) on atomic indices prevents false sharing on ARM64.
 /// Shadow cursor caching minimises atomic acquire loads on the hot path.
 class RingBuffer {
 public:
     static constexpr size_t kChannelCount       = 2;
-    static constexpr size_t kCapacityFrames     = 131072;   // 2^17
+    static constexpr size_t kCapacityFrames     = 524288;   // 2^19 (~11.88s at 44.1kHz, 10.92s at 48kHz)
     static constexpr size_t kCapacitySamples    = kCapacityFrames * kChannelCount;
     static constexpr size_t kMask               = kCapacityFrames - 1;
 

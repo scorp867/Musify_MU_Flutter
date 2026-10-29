@@ -51,6 +51,29 @@ enum SpotifyAudioFormat {
     };
   }
 
+  /// Maps Protobuf AudioFile_Format enum values from metadata.proto.
+  static SpotifyAudioFormat? fromProtobufFormat(int value) {
+    return switch (value) {
+      0 => SpotifyAudioFormat.oggVorbis96,
+      1 => SpotifyAudioFormat.oggVorbis160,
+      2 => SpotifyAudioFormat.oggVorbis320,
+      3 => SpotifyAudioFormat.mp3256,
+      4 => SpotifyAudioFormat.mp3320,
+      5 => SpotifyAudioFormat.mp3160,
+      6 => SpotifyAudioFormat.mp396,
+      7 => SpotifyAudioFormat.mp3160Enc,
+      8 => SpotifyAudioFormat.mp4128,
+      9 => SpotifyAudioFormat.mp4128,
+      10 => SpotifyAudioFormat.mp4256,
+      11 => SpotifyAudioFormat.mp4256,
+      12 => SpotifyAudioFormat.aac48,
+      13 => SpotifyAudioFormat.mp4128Dual,
+      16 => SpotifyAudioFormat.flacFlac,
+      22 => SpotifyAudioFormat.aac24,
+      _ => fromNumber(value),
+    };
+  }
+
   /// 1:1 replica of `getNumber()`.
   int getNumber() => number;
 

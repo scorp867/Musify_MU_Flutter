@@ -192,37 +192,65 @@ class SpotifyHeadResolver {
             name: 'Player.Head',
           );
           final uri = Uri.parse(remoteUrl);
-          final response = await client.get(
-            uri,
-            headers: const {
+          final request = http.Request('GET', uri)
+            ..headers.addAll(const {
               'Accept-Encoding': 'identity',
               'User-Agent': 'Spotify/8.9.90 Android/34',
-            },
-          ).timeout(timeout);
+            });
+          final streamedResponse = await client.send(request).timeout(timeout);
 
-          final contentLengthHeader = response.headers['content-length'];
-          final expectedLength = contentLengthHeader != null
-              ? int.tryParse(contentLengthHeader)
-              : null;
-          final bodyLen = response.bodyBytes.length;
-          final bool isValid = (expectedLength != null && expectedLength > 0)
-              ? bodyLen == expectedLength
-              : bodyLen >= minHeadFileSizeBytes;
+          if (streamedResponse.statusCode == 200) {
+            final contentLengthHeader =
+                streamedResponse.headers['content-length'];
+            final expectedLength = contentLengthHeader != null
+                ? int.tryParse(contentLengthHeader)
+                : null;
 
-          if (response.statusCode == 200 && isValid) {
             final dir = await getHeadsCacheDirectory();
-            final file = File('${dir.path}/$cleanId.ogg');
-            await file.writeAsBytes(response.bodyBytes, flush: true);
-            dev.log(
-              '[SpotifyHeadResolver] Download complete for $cleanId: '
-              'size=$bodyLen bytes, expected=$expectedLength, savedPath=${file.path}',
-              name: 'Player.Head',
-            );
-            return file.path;
+            final finalFile = File('${dir.path}/$cleanId.ogg');
+            final partFile = File('${dir.path}/$cleanId.ogg.part');
+
+            final sink = partFile.openWrite(mode: FileMode.writeOnly);
+            int totalBytes = 0;
+            try {
+              await for (final chunk in streamedResponse.stream) {
+                sink.add(chunk);
+                await sink.flush();
+                totalBytes += chunk.length;
+              }
+            } finally {
+              await sink.close();
+            }
+
+            final bool isValid = (expectedLength != null && expectedLength > 0)
+                ? totalBytes == expectedLength
+                : totalBytes >= minHeadFileSizeBytes;
+
+            if (isValid) {
+              if (await finalFile.exists()) {
+                await finalFile.delete();
+              }
+              await partFile.rename(finalFile.path);
+              dev.log(
+                '[SpotifyHeadResolver] Download complete for $cleanId: '
+                'size=$totalBytes bytes, expected=$expectedLength, savedPath=${finalFile.path}',
+                name: 'Player.Head',
+              );
+              return finalFile.path;
+            } else {
+              if (await partFile.exists()) {
+                await partFile.delete();
+              }
+              dev.log(
+                '[SpotifyHeadResolver] Download invalid for $cleanId: '
+                'size=$totalBytes, expected=$expectedLength',
+                name: 'Player.Head',
+              );
+            }
           } else {
             dev.log(
-              '[SpotifyHeadResolver] Download failed or invalid for $cleanId: '
-              'status=${response.statusCode}, size=$bodyLen, expected=$expectedLength',
+              '[SpotifyHeadResolver] Download failed for $cleanId: '
+              'status=${streamedResponse.statusCode}',
               name: 'Player.Head',
             );
           }

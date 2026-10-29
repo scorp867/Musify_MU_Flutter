@@ -107,6 +107,50 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Progressive File Data Source - Reads from an actively streaming disk cache
+// file using AMediaDataSource to start playback (< 30ms TTFA) as bytes arrive.
+// ---------------------------------------------------------------------------
+
+class ProgressiveFileDataSource final : public IAudioDataSource {
+public:
+    explicit ProgressiveFileDataSource(const char* filePath, int64_t expectedTotalSize = 131072);
+    ~ProgressiveFileDataSource() override;
+
+    ProgressiveFileDataSource(const ProgressiveFileDataSource&) = delete;
+    ProgressiveFileDataSource& operator=(const ProgressiveFileDataSource&) = delete;
+
+    EngineStatus open() override;
+    AMediaExtractor* getExtractor() const override;
+    size_t getSelectedTrack() const override;
+    int32_t getSampleRate() const override;
+    int32_t getChannelCount() const override;
+    int64_t getDurationUs() const override;
+    const char* getMimeType() const override;
+    AMediaFormat* getTrackFormat() const override;
+    void close() override;
+
+    ssize_t readAt(off64_t offset, void* buffer, size_t size);
+    off64_t getSize();
+
+private:
+    EngineStatus selectAudioTrack();
+
+    char mFilePath[4096]{};
+    int mFd{-1};
+    int64_t mExpectedTotalSize{131072};
+    off64_t mStreamOffset{0};
+
+    AMediaExtractor* mExtractor{nullptr};
+    AMediaDataSource* mNdkDataSource{nullptr};
+    AMediaFormat* mFormat{nullptr};
+    size_t mTrackIndex{0};
+    int32_t mSampleRate{0};
+    int32_t mChannelCount{0};
+    int64_t mDurationUs{0};
+    char mMimeType[128]{};
+};
+
+// ---------------------------------------------------------------------------
 // HTTP/HTTPS CDN Data Source - Reads remote AAC/MP4 streams and parses PSSH.
 // ---------------------------------------------------------------------------
 
@@ -131,6 +175,11 @@ public:
     /// Extract Widevine PSSH byte array if present in container.
     bool hasWidevinePssh() const { return mHasPssh; }
     const std::vector<uint8_t>& getPsshBytes() const { return mPsshData; }
+    const char* getUrl() const { return mUrl; }
+
+    void buildWidevinePsshBox(const uint8_t* kidBytes, size_t kidLen,
+                              const uint8_t* contentIdBytes = nullptr, size_t contentIdLen = 0,
+                              uint32_t protectionScheme = 0x63626373);
 
 private:
     EngineStatus selectAudioTrack();

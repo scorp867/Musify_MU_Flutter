@@ -67,14 +67,20 @@ class PlayerQueueState {
 
   /// Total duration of the current track in milliseconds
   int get durationMs {
-    final ps = playerState;
-    if (ps?.duration != null && ps!.duration! > 0) {
-      return ps.duration!;
-    }
     final rawDuration = nowPlaying?.metadata[ContextTrackMetadata.keyDuration];
     if (rawDuration != null && rawDuration.isNotEmpty) {
       final parsed = int.tryParse(rawDuration);
       if (parsed != null && parsed > 0) return parsed;
+    }
+    final ps = playerState;
+    final psDur = ps?.duration;
+    if (psDur != null && psDur > 0) {
+      // If we only have head audio without full CDN stream, don't report the 6-second head chunk
+      final cdnAac = nowPlaying?.metadata[ContextTrackMetadata.keyCdnAacUrl];
+      if ((cdnAac == null || cdnAac.isEmpty) && psDur <= 15000) {
+        return 0;
+      }
+      return psDur;
     }
     return 0;
   }

@@ -49,6 +49,9 @@ class TrackMeta {
   /// 40-character hex file ID resolved from Spotify's extended-metadata.
   final String fileId;
 
+  /// 40-character AAC/MP4 hex file ID for full-track storage-resolve.
+  final String aacFileId;
+
   /// Canonical CDN URL for the 128 KB head file.
   final String headUrl;
 
@@ -64,6 +67,7 @@ class TrackMeta {
     this.largeImageHex,
     this.durationMs = 0,
     this.fileId = '',
+    this.aacFileId = '',
     this.headUrl = '',
     this.cdnUrl = '',
   });
@@ -271,15 +275,71 @@ class ExtendedMetadataService {
         final playbackTrait = cells[CellKey(const TableKey<PlaybackTrait>(), uri)];
         if (rawTrait is TrackMetaTrait) {
           final playback = playbackTrait is PlaybackTrait ? playbackTrait : null;
-          final fileId = (playback != null && playback.primaryFileIdHex.isNotEmpty)
-              ? playback.primaryFileIdHex
-              : rawTrait.fileId;
-          final headUrl = (playback != null && playback.headUrl.isNotEmpty)
-              ? playback.headUrl
-              : rawTrait.headUrl;
+          final headUrl = rawTrait.headUrl.isNotEmpty
+              ? rawTrait.headUrl
+              : (playback != null && playback.headUrl.isNotEmpty ? playback.headUrl : '');
+          final fileId = rawTrait.fileId.isNotEmpty
+              ? rawTrait.fileId
+              : ((playback != null && playback.primaryFileIdHex.isNotEmpty)
+                  ? playback.primaryFileIdHex
+                  : '');
+          final aacFileId = (playback != null && playback.aacFileIdHex.isNotEmpty)
+              ? playback.aacFileIdHex
+              : (rawTrait.aacFileId.isNotEmpty ? rawTrait.aacFileId : fileId);
           final cdnUrl = (playback != null && playback.passThroughCdnUrl.isNotEmpty)
               ? playback.passThroughCdnUrl
               : '';
+
+          if (rawTrait.canonicalUri.isNotEmpty && rawTrait.canonicalUri != uri) {
+            try {
+              final canonicalTrackKey = CellKey(const TableKey<TrackMetaTrait>(), rawTrait.canonicalUri);
+              final canonicalPlaybackKey = CellKey(const TableKey<PlaybackTrait>(), rawTrait.canonicalUri);
+              final canonicalCells = await _metadataClient.fetchCells({canonicalTrackKey, canonicalPlaybackKey});
+              final canonicalRaw = canonicalCells[canonicalTrackKey];
+              final canonicalPlayback = canonicalCells[canonicalPlaybackKey];
+
+              if (canonicalRaw is TrackMetaTrait) {
+                final canonicalPlaybackTrait = canonicalPlayback is PlaybackTrait ? canonicalPlayback : null;
+                final resolvedHeadUrl = canonicalRaw.headUrl.isNotEmpty
+                    ? canonicalRaw.headUrl
+                    : (headUrl.isNotEmpty
+                        ? headUrl
+                        : (canonicalPlaybackTrait != null && canonicalPlaybackTrait.headUrl.isNotEmpty
+                            ? canonicalPlaybackTrait.headUrl
+                            : ''));
+                final resolvedFileId = canonicalRaw.fileId.isNotEmpty
+                    ? canonicalRaw.fileId
+                    : (fileId.isNotEmpty
+                        ? fileId
+                        : (canonicalPlaybackTrait != null && canonicalPlaybackTrait.primaryFileIdHex.isNotEmpty
+                            ? canonicalPlaybackTrait.primaryFileIdHex
+                            : ''));
+                final resolvedAacFileId = (canonicalPlaybackTrait != null && canonicalPlaybackTrait.aacFileIdHex.isNotEmpty)
+                    ? canonicalPlaybackTrait.aacFileIdHex
+                    : (canonicalRaw.aacFileId.isNotEmpty ? canonicalRaw.aacFileId : aacFileId);
+                final resolvedCdnUrl = (canonicalPlaybackTrait != null && canonicalPlaybackTrait.passThroughCdnUrl.isNotEmpty)
+                    ? canonicalPlaybackTrait.passThroughCdnUrl
+                    : cdnUrl;
+
+                results[uri] = TrackMeta(
+                  uri: uri,
+                  title: canonicalRaw.title.isNotEmpty ? canonicalRaw.title : rawTrait.title,
+                  subtitle: canonicalRaw.subtitle.isNotEmpty ? canonicalRaw.subtitle : rawTrait.subtitle,
+                  albumName: canonicalRaw.albumName.isNotEmpty ? canonicalRaw.albumName : rawTrait.albumName,
+                  imageUrls: canonicalRaw.imageUrls.isNotEmpty ? canonicalRaw.imageUrls : rawTrait.imageUrls,
+                  largeImageHex: canonicalRaw.largeImageHex ?? rawTrait.largeImageHex,
+                  durationMs: canonicalRaw.durationMs > 0 ? canonicalRaw.durationMs : rawTrait.durationMs,
+                  fileId: resolvedFileId,
+                  aacFileId: resolvedAacFileId,
+                  headUrl: resolvedHeadUrl,
+                  cdnUrl: resolvedCdnUrl,
+                );
+                continue;
+              }
+            } catch (e) {
+              dev.log('ExtendedMetadataService: Error resolving canonical track ${rawTrait.canonicalUri}: $e', name: 'Metadata.Relink');
+            }
+          }
 
           results[uri] = TrackMeta(
             uri: uri,
@@ -290,6 +350,7 @@ class ExtendedMetadataService {
             largeImageHex: rawTrait.largeImageHex,
             durationMs: rawTrait.durationMs,
             fileId: fileId,
+            aacFileId: aacFileId,
             headUrl: headUrl,
             cdnUrl: cdnUrl,
           );
@@ -422,6 +483,7 @@ class _TrackMetaDiskCache {
         if (meta.largeImageHex != null) 'h': meta.largeImageHex,
         'd': meta.durationMs,
         if (meta.fileId.isNotEmpty) 'f': meta.fileId,
+        if (meta.aacFileId.isNotEmpty) 'af': meta.aacFileId,
         if (meta.headUrl.isNotEmpty) 'hu': meta.headUrl,
         if (meta.cdnUrl.isNotEmpty) 'c': meta.cdnUrl,
         'ts': ts,
@@ -442,6 +504,7 @@ class _TrackMetaDiskCache {
       largeImageHex: j['h'] as String?,
       durationMs: j['d'] as int? ?? 0,
       fileId: j['f'] as String? ?? '',
+      aacFileId: j['af'] as String? ?? '',
       headUrl: j['hu'] as String? ?? '',
       cdnUrl: j['c'] as String? ?? '',
     );

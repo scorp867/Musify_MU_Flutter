@@ -154,6 +154,8 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             ContextTrackMetadata.keyIsQueued: 'true',
             if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
               ContextTrackMetadata.keyFileId: meta.fileId,
+            if (item.trackMetadata case final meta? when meta.aacFileId.isNotEmpty)
+              ContextTrackMetadata.keyAacFileId: meta.aacFileId,
             if (item.trackMetadata case final meta? when meta.headUrl.isNotEmpty)
               ContextTrackMetadata.keyHeadFileUrl: meta.headUrl,
             if (item.trackMetadata case final meta? when meta.cdnUrl.isNotEmpty)

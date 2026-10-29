@@ -1,12 +1,10 @@
 import 'dart:developer' as dev;
-import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/batched_extension_response_parser.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/kodiak_cell_mapper.dart';
-import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/core/network/priority/network_priority.dart';
 import 'package:musify_mu/core/network/result/network_result.dart';
@@ -18,9 +16,6 @@ import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 /// Low-level network client for Spotify Extended Metadata endpoint.
 /// Direct 1:1 equivalent to Spotify Android's `p.l1w` (`ExtendedMetadataClientImpl`).
 class ExtendedMetadataClient {
-  /// Payloads larger than 32 KB are offloaded to a background isolate to prevent UI frame drops.
-  /// Smaller payloads (< 32 KB) decode synchronously in < 0.3 ms to avoid isolate thread scheduling overhead.
-  static const int _isolateOffloadThresholdBytes = 32 * 1024;
 
   final SpotifyTransport _transport;
   final RuntimeContext _ctx;
@@ -36,21 +31,9 @@ class ExtendedMetadataClient {
 
   ExtendedMetadataPluginRegistry get registry => _registry;
 
-  /// Pure static worker function for isolate execution.
-  /// Does NOT capture any instance state or references to [ExtendedMetadataClient].
-  static Map<String, Map<Type, Trait>> _parseInIsolateWorker(Uint8List bytes) {
-    final registry = ExtendedMetadataPluginRegistry(
-      createDefaultExtendedMetadataPlugins(),
-    );
-    return BatchedExtensionResponseParser.parse(bytes, registry);
-  }
-
-  /// Decodes protobuf payloads adaptively based on byte size.
+  /// Decodes protobuf payloads deterministically preserving Type equivalence in release AOT mode.
   Future<Map<String, Map<Type, Trait>>> _parsePayload(Uint8List bytes) async {
-    if (bytes.length < _isolateOffloadThresholdBytes) {
-      return BatchedExtensionResponseParser.parse(bytes, _registry);
-    }
-    return await Isolate.run(() => _parseInIsolateWorker(bytes));
+    return BatchedExtensionResponseParser.parse(bytes, _registry);
   }
 
   /// Fetches traits for the given set of cell keys, returning typed [NetworkResult].

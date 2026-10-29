@@ -35,6 +35,17 @@ class MusifyFfiBindings {
                     Int64)>>('musify_engine_load_dual_source')
         .asFunction(isLeaf: true);
 
+    _attachSecondaryStream = lib
+        .lookup<
+            NativeFunction<
+                Int32 Function(
+                    Pointer<Void>,
+                    Pointer<Utf8>,
+                    Pointer<Utf8>,
+                    Pointer<Utf8>,
+                    Int64)>>('musify_engine_attach_secondary_stream')
+        .asFunction(isLeaf: true);
+
     _loadTrackWithHead = lib
         .lookup<
             NativeFunction<
@@ -44,7 +55,8 @@ class MusifyFfiBindings {
                     Pointer<Utf8>,
                     Pointer<Utf8>,
                     Pointer<Utf8>,
-                    Pointer<Utf8>)>>('musify_engine_load_track_with_head')
+                    Pointer<Utf8>,
+                    Int64)>>('musify_engine_load_track_with_head')
         .asFunction(isLeaf: true);
 
     _prefetchHead = lib
@@ -144,8 +156,15 @@ class MusifyFfiBindings {
       Pointer<Utf8>,
       Pointer<Utf8>,
       Pointer<Utf8>,
+      int) _attachSecondaryStream;
+  late final int Function(
+      Pointer<Void>,
       Pointer<Utf8>,
-      Pointer<Utf8>) _loadTrackWithHead;
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      Pointer<Utf8>,
+      int) _loadTrackWithHead;
   late final void Function(
       Pointer<Void>,
       Pointer<Utf8>,
@@ -186,6 +205,20 @@ class MusifyFfiBindings {
         authHeader,
         handoffPositionMs,
       );
+  int attachSecondaryStream(
+    Pointer<Void> h,
+    Pointer<Utf8> secondaryUrl,
+    Pointer<Utf8> licenseServerUrl,
+    Pointer<Utf8> authHeader,
+    int handoffPositionMs,
+  ) =>
+      _attachSecondaryStream(
+        h,
+        secondaryUrl,
+        licenseServerUrl,
+        authHeader,
+        handoffPositionMs,
+      );
   int loadTrackWithHead(
     Pointer<Void> h,
     Pointer<Utf8> fileIdHex,
@@ -193,6 +226,7 @@ class MusifyFfiBindings {
     Pointer<Utf8> cacheDir,
     Pointer<Utf8> licenseServerUrl,
     Pointer<Utf8> authHeader,
+    int trackDurationMs,
   ) =>
       _loadTrackWithHead(
         h,
@@ -201,6 +235,7 @@ class MusifyFfiBindings {
         cacheDir,
         licenseServerUrl,
         authHeader,
+        trackDurationMs,
       );
   void prefetchHead(
     Pointer<Void> h,

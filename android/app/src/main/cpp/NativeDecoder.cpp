@@ -1,8 +1,10 @@
 #include "NativeDecoder.h"
+#include "JniHelper.h"
 
 #include <cstring>
 #include <algorithm>
 #include <chrono>
+#include <vector>
 
 #include <android/log.h>
 #include <sys/resource.h>
@@ -21,15 +23,24 @@ NativeDecoder::NativeDecoder(RingBuffer& ringBuffer,
                              AMediaFormat* trackFormat,
                              int32_t sourceChannelCount,
                              AMediaCrypto* crypto,
-                             int64_t maxFramesToDecode)
+                             int64_t maxFramesToDecode,
+                             JavaVM* javaVm,
+                             int64_t discardPriorToUs)
     : mRingBuffer(ringBuffer)
     , mExtractor(extractor)
     , mTrackFormat(trackFormat)
     , mCrypto(crypto)
     , mSourceChannelCount(sourceChannelCount > 0 ? sourceChannelCount : 2)
-    , mMaxFramesToDecode(maxFramesToDecode) {
-    std::strncpy(mMimeType, mimeType, sizeof(mMimeType) - 1);
-    mMimeType[sizeof(mMimeType) - 1] = '\0';
+    , mMaxFramesToDecode(maxFramesToDecode)
+    , mJavaVm(javaVm)
+    , mDiscardPriorToUs(discardPriorToUs)
+    , mNeedsMicroFadeIn(discardPriorToUs > 0) {
+    if (mimeType) {
+        std::strncpy(mMimeType, mimeType, sizeof(mMimeType) - 1);
+        mMimeType[sizeof(mMimeType) - 1] = '\0';
+    } else {
+        mMimeType[0] = '\0';
+    }
 }
 
 NativeDecoder::~NativeDecoder() {
@@ -52,6 +63,7 @@ EngineStatus NativeDecoder::configure() {
     }
     int32_t sr = 0;
     if (AMediaFormat_getInt32(mTrackFormat, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr)) {
+        mSampleRate = sr;
         AMediaFormat_setInt32(configFormat, AMEDIAFORMAT_KEY_SAMPLE_RATE, sr);
     }
     int32_t cc = 0;
@@ -125,6 +137,11 @@ EngineStatus NativeDecoder::start() {
         return EngineStatus::ErrorInvalidState;
     }
 
+    if (mThread.joinable()) {
+        mShouldStop.store(true, std::memory_order_release);
+        mThread.join();
+    }
+
     mShouldStop.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
     mInputEos.store(false, std::memory_order_release);
@@ -160,6 +177,9 @@ bool NativeDecoder::isEndOfStream() const {
 
 void NativeDecoder::threadFunc() {
     setpriority(PRIO_PROCESS, 0, kAudioThreadPriority);
+
+    // CRITICAL: Attach this decoding thread to JavaVM so AMediaExtractor remote HTTP streaming functions correctly
+    JniThreadAttacher jniAttacher(mJavaVm, "MusifyDecoderWorker");
 
     while (!mShouldStop.load(std::memory_order_acquire)) {
         if (mSeekRequested.load(std::memory_order_acquire)) {
@@ -213,19 +233,106 @@ bool NativeDecoder::feedInputBuffer() {
 
     if (sampleSize > 0) {
         int64_t pts = AMediaExtractor_getSampleTime(mExtractor);
+        uint64_t safePts = static_cast<uint64_t>(std::max<int64_t>(0, pts));
         AMediaCodecCryptoInfo* cryptoInfo = AMediaExtractor_getSampleCryptoInfo(mExtractor);
         if (cryptoInfo) {
-            AMediaCodec_queueSecureInputBuffer(
+            cryptoinfo_mode_t m = AMediaCodecCryptoInfo_getMode(cryptoInfo);
+            AMediaCodecCryptoInfo* targetCryptoInfo = cryptoInfo;
+            AMediaCodecCryptoInfo* allocatedFixedCryptoInfo = nullptr;
+
+            // CRITICAL AOSP NDK FIX:
+            // In Android Stagefright's internal MetaDataBase.h, kCryptoModeAesCbc = 2.
+            // But in NdkMediaCodec.h cryptoinfo_mode_t (and Stagefright CryptoPlugin::Mode):
+            //   0 = CLEAR, 1 = AES_CTR, 2 = AES_WV (legacy Widevine mode), 3 = AES_CBC.
+            // NdkMediaExtractor blindly casts kCryptoModeAesCbc (2) to cryptoinfo_mode_t (2 = AES_WV).
+            // When passed to AMediaCodec_queueSecureInputBuffer, NDK passes Mode 2 (kMode_AES_WV)
+            // to CCodecBufferChannel and Widevine OEMCrypto HAL. Widevine rejects kMode_AES_WV
+            // on cbcs streams with result = -22 (-EINVAL).
+            // When mode is AMEDIACODECRYPTOINFO_MODE_AES_WV (2), we reconstruct the crypto info
+            // with AMEDIACODECRYPTOINFO_MODE_AES_CBC (3) and apply the track pattern.
+            if (m == AMEDIACODECRYPTOINFO_MODE_AES_WV) {
+                size_t numSub = AMediaCodecCryptoInfo_getNumSubSamples(cryptoInfo);
+                if (numSub > 0) {
+                    uint8_t k[16]{};
+                    uint8_t iv[16]{};
+                    AMediaCodecCryptoInfo_getKey(cryptoInfo, k);
+                    AMediaCodecCryptoInfo_getIV(cryptoInfo, iv);
+                    std::vector<size_t> clearBytes(numSub);
+                    std::vector<size_t> encBytes(numSub);
+                    AMediaCodecCryptoInfo_getClearBytes(cryptoInfo, clearBytes.data());
+                    AMediaCodecCryptoInfo_getEncryptedBytes(cryptoInfo, encBytes.data());
+
+                    allocatedFixedCryptoInfo = AMediaCodecCryptoInfo_new(
+                        static_cast<int>(numSub),
+                        k,
+                        iv,
+                        AMEDIACODECRYPTOINFO_MODE_AES_CBC,
+                        clearBytes.data(),
+                        encBytes.data()
+                    );
+
+                    if (allocatedFixedCryptoInfo) {
+                        int32_t encBlocks = 0;
+                        int32_t skipBlocks = 0;
+                        if (mTrackFormat) {
+                            AMediaFormat_getInt32(mTrackFormat, "crypto-encrypted-byte-block", &encBlocks);
+                            AMediaFormat_getInt32(mTrackFormat, "crypto-skip-byte-block", &skipBlocks);
+                        }
+                        if (encBlocks > 0 || skipBlocks > 0) {
+                            cryptoinfo_pattern_t pattern{encBlocks, skipBlocks};
+                            AMediaCodecCryptoInfo_setPattern(allocatedFixedCryptoInfo, &pattern);
+                        }
+                        targetCryptoInfo = allocatedFixedCryptoInfo;
+                    }
+                }
+            }
+
+            static std::atomic<int> sSecureLogCount{0};
+            if (sSecureLogCount.fetch_add(1, std::memory_order_relaxed) < 3) {
+                uint8_t k[16]{};
+                uint8_t iv[16]{};
+                AMediaCodecCryptoInfo_getKey(targetCryptoInfo, k);
+                AMediaCodecCryptoInfo_getIV(targetCryptoInfo, iv);
+                cryptoinfo_mode_t logMode = AMediaCodecCryptoInfo_getMode(targetCryptoInfo);
+                size_t subCount = AMediaCodecCryptoInfo_getNumSubSamples(targetCryptoInfo);
+                LOGI("Queue secure sample: pts=%lld size=%zd origMode=%d effectiveMode=%d numSub=%zu kid=%02x%02x%02x%02x... iv=%02x%02x%02x%02x...",
+                     static_cast<long long>(pts), sampleSize, static_cast<int>(m), static_cast<int>(logMode), subCount,
+                     k[0], k[1], k[2], k[3], iv[0], iv[1], iv[2], iv[3]);
+            }
+
+            media_status_t qStatus = AMediaCodec_queueSecureInputBuffer(
                 mCodec, static_cast<size_t>(inputIdx),
-                0, cryptoInfo, static_cast<uint64_t>(pts), 0);
+                0, targetCryptoInfo, safePts, 0);
+
+            if (qStatus != AMEDIA_OK) {
+                uint8_t k[16]{};
+                uint8_t iv[16]{};
+                AMediaCodecCryptoInfo_getKey(targetCryptoInfo, k);
+                AMediaCodecCryptoInfo_getIV(targetCryptoInfo, iv);
+                cryptoinfo_mode_t logMode = AMediaCodecCryptoInfo_getMode(targetCryptoInfo);
+                size_t subCount = AMediaCodecCryptoInfo_getNumSubSamples(targetCryptoInfo);
+                LOGE("AMediaCodec_queueSecureInputBuffer failed: %d (pts=%lld, size=%zd, mode=%d, numSub=%zu, kid=%02x%02x%02x%02x..., iv=%02x%02x%02x%02x...)",
+                     static_cast<int>(qStatus), static_cast<long long>(pts), sampleSize,
+                     static_cast<int>(logMode), subCount,
+                     k[0], k[1], k[2], k[3], iv[0], iv[1], iv[2], iv[3]);
+            }
+
+            if (allocatedFixedCryptoInfo) {
+                AMediaCodecCryptoInfo_delete(allocatedFixedCryptoInfo);
+            }
             AMediaCodecCryptoInfo_delete(cryptoInfo);
         } else {
-            AMediaCodec_queueInputBuffer(
+            media_status_t qStatus = AMediaCodec_queueInputBuffer(
                 mCodec, static_cast<size_t>(inputIdx),
-                0, static_cast<size_t>(sampleSize), static_cast<uint64_t>(pts), 0);
+                0, static_cast<size_t>(sampleSize), safePts, 0);
+            if (qStatus != AMEDIA_OK) {
+                LOGE("AMediaCodec_queueInputBuffer failed: %d (pts=%lld, size=%zd)",
+                     static_cast<int>(qStatus), static_cast<long long>(pts), sampleSize);
+            }
         }
         AMediaExtractor_advance(mExtractor);
     } else {
+        LOGI("NativeDecoder input reached EOS or completed (sampleSize=%zd)", sampleSize);
         // End of input stream.
         AMediaCodec_queueInputBuffer(
             mCodec, static_cast<size_t>(inputIdx),
@@ -256,10 +363,12 @@ bool NativeDecoder::drainOutputBuffer() {
             }
 
             int32_t sr = 0;
-            AMediaFormat_getInt32(newFormat, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr);
+            if (AMediaFormat_getInt32(newFormat, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr) && sr > 0) {
+                mSampleRate = sr;
+            }
 
             LOGI("Output format changed: sr=%d cc=%d pcmEncoding=%d isFloat=%d",
-                 sr, mSourceChannelCount, pcmEncoding, mOutputIsFloat ? 1 : 0);
+                 mSampleRate, mSourceChannelCount, pcmEncoding, mOutputIsFloat ? 1 : 0);
 
             AMediaFormat_delete(newFormat);
         }
@@ -279,6 +388,31 @@ bool NativeDecoder::drainOutputBuffer() {
             const size_t channelCount = static_cast<size_t>(mSourceChannelCount > 0 ? mSourceChannelCount : 2);
             size_t totalFrames = totalSamples / channelCount;
 
+            // Sample-accurate pre-roll discard for seamless dual-source handoff
+            const int64_t discardUs = mDiscardPriorToUs.load(std::memory_order_relaxed);
+            size_t discardLeadingFrames = 0;
+            if (discardUs > 0 && mSampleRate > 0) {
+                const int64_t ptsUs = info.presentationTimeUs;
+                const int64_t bufferDurUs = (static_cast<int64_t>(totalFrames) * 1000000LL) / mSampleRate;
+                if (ptsUs + bufferDurUs <= discardUs) {
+                    // Whole buffer is pre-roll prior to handoff boundary - release without committing to RingBuffer
+                    AMediaCodec_releaseOutputBuffer(mCodec, static_cast<size_t>(outputIdx), false);
+                    return true;
+                } else if (ptsUs < discardUs) {
+                    // Buffer spans the handoff boundary: skip leading frames up to exact discardUs timestamp
+                    const int64_t framesToSkip = ((discardUs - ptsUs) * mSampleRate) / 1000000LL;
+                    if (framesToSkip > 0 && static_cast<size_t>(framesToSkip) < totalFrames) {
+                        discardLeadingFrames = static_cast<size_t>(framesToSkip);
+                        totalFrames -= discardLeadingFrames;
+                        LOGI("Trimming %zu pre-roll frames from boundary buffer (pts=%lld us, discard=%lld us)",
+                             discardLeadingFrames, static_cast<long long>(ptsUs), static_cast<long long>(discardUs));
+                    }
+                    mDiscardPriorToUs.store(-1, std::memory_order_relaxed);
+                } else {
+                    mDiscardPriorToUs.store(-1, std::memory_order_relaxed);
+                }
+            }
+
             // If bounded frame decoding is enabled, clamp total frames
             if (mMaxFramesToDecode > 0) {
                 int64_t currentDecoded = mTotalFramesDecoded.load(std::memory_order_relaxed);
@@ -292,7 +426,7 @@ bool NativeDecoder::drainOutputBuffer() {
             }
 
             size_t framesRemaining = totalFrames;
-            size_t frameOffset = 0;
+            size_t frameOffset = discardLeadingFrames;
 
             while (framesRemaining > 0 && !mShouldStop.load(std::memory_order_relaxed)) {
                 if (mSeekRequested.load(std::memory_order_relaxed)) {
@@ -313,7 +447,18 @@ bool NativeDecoder::drainOutputBuffer() {
                         }
                         stereoSrc = mConversionBuffer;
                     } else if (channelCount == 2) {
-                        stereoSrc = floatBuf + (frameOffset * 2);
+                        if (mNeedsMicroFadeIn.exchange(false, std::memory_order_relaxed)) {
+                            std::memcpy(mConversionBuffer, floatBuf + (frameOffset * 2), chunkFrames * RingBuffer::kChannelCount * sizeof(float));
+                            const size_t ramp = std::min<size_t>(32, chunkFrames);
+                            for (size_t i = 0; i < ramp; ++i) {
+                                const float gain = static_cast<float>(i + 1) / static_cast<float>(ramp);
+                                mConversionBuffer[i * 2]     *= gain;
+                                mConversionBuffer[i * 2 + 1] *= gain;
+                            }
+                            stereoSrc = mConversionBuffer;
+                        } else {
+                            stereoSrc = floatBuf + (frameOffset * 2);
+                        }
                     } else {
                         // Multi-channel downmix -> Stereo (L, R)
                         for (size_t i = 0; i < chunkFrames; ++i) {
@@ -352,6 +497,15 @@ bool NativeDecoder::drainOutputBuffer() {
                             mConversionBuffer[i * 2 + 1] = static_cast<float>(i16Buf[sampleIdx + 1]) * kInv32768;
                         }
                         stereoSrc = mConversionBuffer;
+                    }
+
+                    if (mNeedsMicroFadeIn.exchange(false, std::memory_order_relaxed)) {
+                        const size_t ramp = std::min<size_t>(32, chunkFrames);
+                        for (size_t i = 0; i < ramp; ++i) {
+                            const float gain = static_cast<float>(i + 1) / static_cast<float>(ramp);
+                            mConversionBuffer[i * 2]     *= gain;
+                            mConversionBuffer[i * 2 + 1] *= gain;
+                        }
                     }
                 }
 
@@ -394,7 +548,10 @@ void NativeDecoder::executeSeek() {
     AMediaExtractor_seekTo(mExtractor, targetUs, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
     AMediaCodec_flush(mCodec);
 
-    mRingBuffer.reset();
+    // Note: Do NOT reset mRingBuffer here! Ring buffer resetting during seeking
+    // is reserved for user-initiated seeks in AudioEngine::seekMs().
+    // During seamless dual-source handoff, mRingBuffer holds the head chunk audio
+    // currently being heard by the user, and secondary frames append seamlessly.
     mInputEos.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
 }

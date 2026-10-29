@@ -211,6 +211,11 @@ class PlaylistProtoMappers {
             ? SpotifyHeadResolver.instance.normalizeFileId(itemAttrs.itemId)
             : '');
     final fileId = SpotifyHeadResolver.instance.normalizeFileId(rawFileId);
+    final rawAacFileId = formatMap['aac_file_id'] ??
+        formatMap['audio.aac_file_id'] ??
+        '';
+    final aacFileId = SpotifyHeadResolver.instance.normalizeFileId(rawAacFileId);
+    final canonicalUri = formatMap['canonical_uri'] ?? formatMap['linked_from_uri'] ?? '';
     final headUrl = fileId.isNotEmpty
         ? SpotifyHeadResolver.instance.buildHeadUrl(fileId)
         : (formatMap['head_file_url'] ?? formatMap['head_url'] ?? '');
@@ -237,7 +242,9 @@ class PlaylistProtoMappers {
       albumCovers: cover.isNotEmpty ? [cover] : const [],
       artists: artistName.isNotEmpty ? [artistName] : const [],
       fileId: fileId,
+      aacFileId: aacFileId,
       headUrl: headUrl,
+      canonicalUri: canonicalUri,
     );
 
     return PlaylistItem(

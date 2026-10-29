@@ -18,8 +18,10 @@ class TrackItemMetadata {
   final List<String> artistUris;
   final int offlineState;
   final String fileId;
+  final String aacFileId;
   final String headUrl;
   final String cdnUrl;
+  final String canonicalUri;
 
   // Podcast episode & show specific metadata fields (Spotify `amb0.java` / `qcb0.java`)
   final bool isEpisode;
@@ -43,8 +45,10 @@ class TrackItemMetadata {
     this.artistUris = const [],
     this.offlineState = 0,
     this.fileId = '',
+    this.aacFileId = '',
     this.headUrl = '',
     this.cdnUrl = '',
+    this.canonicalUri = '',
     this.isEpisode = false,
     this.isShow = false,
     this.description = '',
@@ -77,8 +81,10 @@ class TrackItemMetadata {
           listEquals(artistUris, other.artistUris) &&
           offlineState == other.offlineState &&
           fileId == other.fileId &&
+          aacFileId == other.aacFileId &&
           headUrl == other.headUrl &&
           cdnUrl == other.cdnUrl &&
+          canonicalUri == other.canonicalUri &&
           isEpisode == other.isEpisode &&
           isShow == other.isShow &&
           description == other.description &&
@@ -101,8 +107,10 @@ class TrackItemMetadata {
         Object.hashAll(artistUris),
         offlineState,
         fileId,
+        aacFileId,
         headUrl,
         cdnUrl,
+        canonicalUri,
         isEpisode,
         isShow,
         description,
@@ -113,5 +121,5 @@ class TrackItemMetadata {
 
   @override
   String toString() =>
-      'TrackItemMetadata(title: $title, uri: $uri, artists: $artists, isEpisode: $isEpisode, durationMs: $durationMs, cdnUrl: $cdnUrl)';
+      'TrackItemMetadata(title: $title, uri: $uri, artists: $artists, isEpisode: $isEpisode, durationMs: $durationMs, cdnUrl: $cdnUrl, aacFileId: $aacFileId, canonicalUri: $canonicalUri)';
 }

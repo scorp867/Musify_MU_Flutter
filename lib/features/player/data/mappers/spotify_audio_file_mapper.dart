@@ -25,7 +25,9 @@ abstract final class SpotifyAudioFileMapper {
       return null;
     }
 
-    final SpotifyAudioFormat? format = SpotifyAudioFormat.fromNumber(formatNumber);
+    final SpotifyAudioFormat? format =
+        SpotifyAudioFormat.fromProtobufFormat(formatNumber) ??
+        SpotifyAudioFormat.fromNumber(formatNumber);
     if (format == null) {
       return null;
     }

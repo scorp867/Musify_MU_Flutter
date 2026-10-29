@@ -50,7 +50,8 @@ public:
                                    const char* fullTrackUrl,
                                    const char* cacheDir,
                                    const char* licenseServerUrl = nullptr,
-                                   const char* authHeader = nullptr);
+                                   const char* authHeader = nullptr,
+                                   int64_t trackDurationMs = -1);
 
     /// Asynchronously prefetch the 128 KiB chunk 0 head file into local storage.
     void prefetchHead(const char* fileIdHex, const char* cacheDir);
@@ -62,6 +63,18 @@ public:
                                 const char* licenseServerUrl,
                                 const char* authHeader,
                                 int64_t handoffPositionMs);
+
+    EngineStatus loadDualSource(std::unique_ptr<IAudioDataSource> primarySource,
+                                const char* secondaryUrl,
+                                const char* licenseServerUrl,
+                                const char* authHeader,
+                                int64_t handoffPositionMs);
+
+    /// Asynchronously attaches or starts the secondary full-track stream while primary is already playing.
+    EngineStatus attachSecondaryStream(const char* secondaryUrl,
+                                       const char* licenseServerUrl,
+                                       const char* authHeader,
+                                       int64_t handoffPositionMs = -1);
 
     /// Set DRM session ID directly from Dart/Kotlin if negotiated externally.
     EngineStatus setDrmSessionId(const uint8_t* sessionId, int32_t sessionLen);
@@ -140,6 +153,7 @@ private:
     AMediaCrypto* mSecondaryCrypto{nullptr};
 
     std::atomic<bool> mIsDualSource{false};
+    std::atomic<bool> mSecondaryPending{false};
     std::atomic<bool> mSecondaryReady{false};
     std::atomic<bool> mSecondaryFailed{false};
     std::atomic<bool> mHandoffCompleted{false};

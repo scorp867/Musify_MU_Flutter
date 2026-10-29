@@ -18,6 +18,9 @@ import '../../../../core/media/extended_metadata_service.dart';
 import 'esperanto_transport.dart';
 import 'proto/spotify_esperanto_proto.dart' as proto;
 import '../services/spotify_head_resolver.dart';
+import '../services/spotify_license_resolver.dart';
+import '../services/spotify_storage_resolver.dart';
+import '../../../../core/network/spotify/auth/auth_session_provider.dart';
 import 'queue_proto_mappers.dart';
 
 /// Active Esperanto transport implementation backed by the native C++ audio engine.
@@ -31,6 +34,9 @@ import 'queue_proto_mappers.dart';
 class NativeEsperantoTransport implements EsperantoTransport {
   final MusifyNativeAudioEngine _engine;
   final ExtendedMetadataService? _metadataService;
+  final SpotifyStorageResolver? _storageResolver;
+  final SpotifyLicenseResolver? _licenseResolver;
+  final AuthSessionProvider? _authSessionProvider;
 
   /// Internal state tracking for change-detection on polling.
   NativeEngineState _lastPolledState = NativeEngineState.idle;
@@ -71,10 +77,24 @@ class NativeEsperantoTransport implements EsperantoTransport {
   /// Polling timer for engine state transitions and EOS detection.
   Timer? _pollTimer;
 
+  /// Debounce timer for secondary stream and DRM resolution on track change.
+  Timer? _secondaryStreamDebounceTimer;
+
+  void _cancelSecondaryStreamDebounce() {
+    _secondaryStreamDebounceTimer?.cancel();
+    _secondaryStreamDebounceTimer = null;
+  }
+
   NativeEsperantoTransport(
     this._engine, {
     ExtendedMetadataService? metadataService,
-  }) : _metadataService = metadataService {
+    SpotifyStorageResolver? storageResolver,
+    SpotifyLicenseResolver? licenseResolver,
+    AuthSessionProvider? authSessionProvider,
+  })  : _metadataService = metadataService,
+        _storageResolver = storageResolver,
+        _licenseResolver = licenseResolver,
+        _authSessionProvider = authSessionProvider {
     _startPolling();
     _emitQueueUpdate();
     _emitPlayerState();
@@ -367,6 +387,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
   }
 
   Future<void> _playTrack(ContextTrack track) async {
+    _cancelSecondaryStreamDebounce();
     _isExplicitlyPlaying = true;
     _currentTrack = track;
 
@@ -379,11 +400,16 @@ class NativeEsperantoTransport implements EsperantoTransport {
     String? fileId = track.metadata[ContextTrackMetadata.keyFileId] ??
         track.metadata['file_id'] ??
         track.metadata['audio.file_id'];
+    String? aacFileId = track.metadata[ContextTrackMetadata.keyAacFileId] ??
+        track.metadata['aac_file_id'];
     var headUrl = track.metadata[ContextTrackMetadata.keyHeadFileUrl] ??
         track.metadata['head_url'];
 
+    final durationMeta = track.metadata[ContextTrackMetadata.keyDuration];
+    final bool hasDuration = durationMeta != null && durationMeta.isNotEmpty;
     // Stage 2: JIT Resolution on Cache Miss (Spotify openTrackPlayer at offset 0x194978 & padme 0x24ac9f)
-    if ((fileId == null || fileId.isEmpty) && track.uri.startsWith('spotify:track:')) {
+    if ((fileId == null || fileId.isEmpty || aacFileId == null || aacFileId.isEmpty || !hasDuration) &&
+        track.uri.startsWith('spotify:track:')) {
       final metadataService = _metadataService;
       if (metadataService != null) {
         try {
@@ -391,15 +417,24 @@ class NativeEsperantoTransport implements EsperantoTransport {
           if (meta case final validMeta? when (validMeta.fileId.isNotEmpty || validMeta.cdnUrl.isNotEmpty)) {
             fileId = validMeta.fileId;
             headUrl = validMeta.headUrl;
+            if (validMeta.aacFileId.isNotEmpty) {
+              aacFileId = validMeta.aacFileId;
+            }
             final updatedMeta = Map<String, String>.from(track.metadata);
             if (validMeta.fileId.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyFileId] = validMeta.fileId;
+            }
+            if (validMeta.aacFileId.isNotEmpty) {
+              updatedMeta[ContextTrackMetadata.keyAacFileId] = validMeta.aacFileId;
             }
             if (validMeta.headUrl.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyHeadFileUrl] = validMeta.headUrl;
             }
             if (validMeta.cdnUrl.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyCdnAacUrl] = validMeta.cdnUrl;
+            }
+            if (validMeta.durationMs > 0) {
+              updatedMeta[ContextTrackMetadata.keyDuration] = validMeta.durationMs.toString();
             }
             track = track.toBuilder().metadata(updatedMeta).build();
             _currentTrack = track;
@@ -418,7 +453,22 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
     final cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
     final licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
-    final authHeader = track.metadata[ContextTrackMetadata.keyDrmAuthHeader];
+    var authHeader = track.metadata[ContextTrackMetadata.keyDrmAuthHeader];
+    if (authHeader == null || authHeader.isEmpty) {
+      final token = await _authSessionProvider?.getAccessToken();
+      final clientToken = await _authSessionProvider?.getClientToken();
+      final authHeaderBuffer = StringBuffer();
+      if (token != null && token.isNotEmpty) {
+        authHeaderBuffer.write('Bearer $token');
+      }
+      if (clientToken != null && clientToken.isNotEmpty) {
+        if (authHeaderBuffer.isNotEmpty) authHeaderBuffer.write('\n');
+        authHeaderBuffer.write('client-token: $clientToken');
+      }
+      if (authHeaderBuffer.isNotEmpty) {
+        authHeader = authHeaderBuffer.toString();
+      }
+    }
     final handoffStr = track.metadata[ContextTrackMetadata.keyHandoffPositionMs];
     int handoffMs = -1;
     if (handoffStr case final str?) {
@@ -441,6 +491,15 @@ class NativeEsperantoTransport implements EsperantoTransport {
       name: 'NativePlayer',
     );
 
+    int trackDurationMs = -1;
+    final metaDurationStr = track.metadata[ContextTrackMetadata.keyDuration];
+    if (metaDurationStr != null && metaDurationStr.isNotEmpty) {
+      final parsed = int.tryParse(metaDurationStr);
+      if (parsed != null && parsed > 0) {
+        trackDurationMs = parsed;
+      }
+    }
+
     // Option 1: Fast Vorbis Head File + Full Track dual-decoder pipeline (< 30ms TTFA)
     if (fileId != null && fileId.isNotEmpty && headUrl != null && headUrl.isNotEmpty) {
       String fullTrackUrl = '';
@@ -448,7 +507,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
         fullTrackUrl = validAac;
       }
       dev.log(
-        'NativeEsperantoTransport: calling loadTrackWithHead fileId=$fileId, fullUrl=$fullTrackUrl, cacheDir=$headsCacheParentDir',
+        'NativeEsperantoTransport: calling loadTrackWithHead fileId=$fileId, fullUrl=$fullTrackUrl, cacheDir=$headsCacheParentDir, trackDurationMs=$trackDurationMs',
         name: 'NativePlayer',
       );
       var status = _engine.loadTrackWithHead(
@@ -457,6 +516,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
         cacheDir: headsCacheParentDir,
         licenseServerUrl: licenseUrl,
         authHeader: authHeader,
+        trackDurationMs: trackDurationMs,
       );
       dev.log(
         'NativeEsperantoTransport: loadTrackWithHead returned $status',
@@ -464,6 +524,14 @@ class NativeEsperantoTransport implements EsperantoTransport {
       );
       if (status == NativeEngineStatus.ok) {
         _engine.play();
+        if (fullTrackUrl.isEmpty) {
+          _cancelSecondaryStreamDebounce();
+          _secondaryStreamDebounceTimer = Timer(const Duration(milliseconds: 350), () {
+            if (_currentTrack?.uri == track.uri) {
+              _resolveAndAttachSecondaryStream(track, aacFileId);
+            }
+          });
+        }
       } else {
         dev.log(
           'NativeEsperantoTransport: loadTrackWithHead failed ($status), attempting graceful streaming bypass',
@@ -545,7 +613,131 @@ class NativeEsperantoTransport implements EsperantoTransport {
     _emitPlayerState(isBuffering: false);
   }
 
+  void _resolveAndAttachSecondaryStream(ContextTrack track, String? aacFileId) {
+    unawaited(() async {
+      try {
+        String? targetAacId = aacFileId;
+        int trackDurationMs = -1;
+
+        final existingDurationStr = track.metadata[ContextTrackMetadata.keyDuration];
+        if (existingDurationStr != null && existingDurationStr.isNotEmpty) {
+          final parsed = int.tryParse(existingDurationStr);
+          if (parsed != null && parsed > 0) {
+            trackDurationMs = parsed;
+          }
+        }
+
+        final canonicalUri = track.metadata['canonical_uri'] ??
+            track.metadata[ContextTrackMetadata.keyPointerUri];
+
+        if (targetAacId == null || targetAacId.isEmpty || trackDurationMs <= 0) {
+          final resolveUri = (canonicalUri != null && canonicalUri.isNotEmpty) ? canonicalUri : track.uri;
+          final meta = await _metadataService?.resolve(resolveUri);
+          if (meta != null) {
+            if (targetAacId == null || targetAacId.isEmpty) {
+              targetAacId = meta.aacFileId;
+            }
+            if (trackDurationMs <= 0 && meta.durationMs > 0) {
+              trackDurationMs = meta.durationMs;
+            }
+          }
+        }
+
+        if (targetAacId == null || targetAacId.isEmpty) {
+          dev.log(
+            'NativePlayer: No AAC file ID available for secondary stream resolution (${track.uri})',
+            name: 'NativePlayer',
+          );
+          return;
+        }
+
+        // Fetch storage resolve CDN URL, Melody license URL, and auth tokens concurrently
+        final results = await Future.wait([
+          _storageResolver?.resolveCdnUrl(targetAacId) ?? Future<String?>.value(null),
+          _licenseResolver?.resolveLicenseUrl() ?? Future<String>.value(''),
+          _authSessionProvider?.getAccessToken() ?? Future<String?>.value(null),
+          _authSessionProvider?.getClientToken() ?? Future<String?>.value(null),
+        ]);
+
+        final cdnUrl = results[0];
+        if (cdnUrl == null || cdnUrl.isEmpty) {
+          dev.log(
+            'NativePlayer: storage-resolve failed for AAC $targetAacId, playback will pause at chunk 0 boundary',
+            name: 'NativePlayer',
+          );
+          return;
+        }
+
+        final licenseUrl = results[1];
+        final token = results[2];
+        final clientToken = results[3];
+
+        final authHeaderBuffer = StringBuffer();
+        if (token != null && token.isNotEmpty) {
+          authHeaderBuffer.write('Bearer $token');
+        }
+        if (clientToken != null && clientToken.isNotEmpty) {
+          if (authHeaderBuffer.isNotEmpty) authHeaderBuffer.write('\n');
+          authHeaderBuffer.write('client-token: $clientToken');
+        }
+        final authHeader = authHeaderBuffer.isNotEmpty ? authHeaderBuffer.toString() : null;
+
+        // Ensure user hasn't switched away while resolving
+        if (_currentTrack?.uri != track.uri) {
+          dev.log(
+            'NativePlayer: Track changed while resolving secondary stream (${track.uri} -> ${_currentTrack?.uri}), discarding',
+            name: 'NativePlayer',
+          );
+          return;
+        }
+
+        dev.log(
+          'NativePlayer: Attaching secondary stream: url=$cdnUrl, license=$licenseUrl (hasToken=${token != null}, hasClientToken=${clientToken != null})',
+          name: 'NativePlayer',
+        );
+
+        final attachStatus = _engine.attachSecondaryStream(
+          secondaryUrl: cdnUrl,
+          licenseServerUrl: licenseUrl,
+          authHeader: authHeader,
+          handoffPositionMs: -1,
+        );
+
+        dev.log(
+          'NativePlayer: attachSecondaryStream returned $attachStatus',
+          name: 'NativePlayer',
+        );
+
+        if (attachStatus == NativeEngineStatus.ok && _currentTrack != null) {
+          final updatedMeta = Map<String, String>.from(_currentTrack!.metadata);
+          updatedMeta[ContextTrackMetadata.keyCdnAacUrl] = cdnUrl;
+          if (licenseUrl != null && licenseUrl.isNotEmpty) {
+            updatedMeta[ContextTrackMetadata.keyLicenseServerUrl] = licenseUrl;
+          }
+          if (authHeader != null && authHeader.isNotEmpty) {
+            updatedMeta[ContextTrackMetadata.keyDrmAuthHeader] = authHeader;
+          }
+          if (trackDurationMs > 0) {
+            updatedMeta[ContextTrackMetadata.keyDuration] = trackDurationMs.toString();
+          }
+          _currentTrack = _currentTrack!.toBuilder().metadata(updatedMeta).build();
+          _currentQueue = _currentQueue.toBuilder().track(_currentTrack!).build();
+          _emitQueueUpdate();
+          _emitPlayerState();
+        }
+      } catch (e, st) {
+        dev.log(
+          'NativePlayer: Error in _resolveAndAttachSecondaryStream: $e',
+          name: 'NativePlayer',
+          error: e,
+          stackTrace: st,
+        );
+      }
+    }());
+  }
+
   Uint8List _handlePause() {
+    _cancelSecondaryStreamDebounce();
     _isExplicitlyPlaying = false;
     _engine.pause();
     _emitPlayerState();
@@ -560,6 +752,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
   }
 
   Uint8List _handleStop() {
+    _cancelSecondaryStreamDebounce();
     _isExplicitlyPlaying = false;
     _engine.pause();
     _emitPlayerState();
@@ -1094,7 +1287,22 @@ class NativeEsperantoTransport implements EsperantoTransport {
   void _emitPlayerState({bool isBuffering = false}) {
     final engineState = _engine.state;
     final positionMs = _engine.positionMs;
-    final durationMs = _engine.durationMs;
+    int durationMs = _engine.durationMs;
+
+    // Resolve track duration: prioritize track metadata duration
+    if (_currentTrack?.metadata[ContextTrackMetadata.keyDuration] case final durationStr?
+        when durationStr.isNotEmpty) {
+      final parsed = int.tryParse(durationStr);
+      if (parsed != null && parsed > 0) {
+        durationMs = parsed;
+      }
+    }
+
+    // Default to 0 (Duration.zero) only if duration could not be determined from metadata or engine
+    if (durationMs < 0) {
+      durationMs = 0;
+    }
+
     final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     final bool playing = (engineState == NativeEngineState.playing) ||
@@ -1195,6 +1403,10 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
       _emitPlayerState();
 
+      if (wasPlaying && currentState == NativeEngineState.paused) {
+        _isExplicitlyPlaying = false;
+      }
+
       // Detect End-Of-Stream track completion:
       // Engine transitioned from playing to stopped (completed).
       if (wasPlaying && currentState == NativeEngineState.stopped) {
@@ -1220,6 +1432,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
   // -----------------------------------------------------------------------
 
   void dispose() {
+    _cancelSecondaryStreamDebounce();
     _pollTimer?.cancel();
     _pollTimer = null;
     _stateController.close();

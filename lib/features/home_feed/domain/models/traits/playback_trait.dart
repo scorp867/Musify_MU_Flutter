@@ -60,22 +60,28 @@ class PlaybackAudioTrack {
 class PlaybackTrait extends Trait {
   final List<PlaybackAudioTrack> audioTracks;
   final String primaryFileIdHex;
+  final String aacFileIdHex;
   final String headUrl;
   final String passThroughCdnUrl;
 
   const PlaybackTrait({
     this.audioTracks = const [],
     this.primaryFileIdHex = '',
+    this.aacFileIdHex = '',
     this.headUrl = '',
     this.passThroughCdnUrl = '',
   });
 
-  bool get hasAudio => primaryFileIdHex.isNotEmpty || passThroughCdnUrl.isNotEmpty;
+  bool get hasAudio =>
+      primaryFileIdHex.isNotEmpty ||
+      aacFileIdHex.isNotEmpty ||
+      passThroughCdnUrl.isNotEmpty;
 
   @override
   Map<String, dynamic> toJson() => {
     'audioTracks': audioTracks.map((t) => t.toJson()).toList(),
     'primaryFileIdHex': primaryFileIdHex,
+    'aacFileIdHex': aacFileIdHex,
     'headUrl': headUrl,
     'passThroughCdnUrl': passThroughCdnUrl,
   };
@@ -92,12 +98,14 @@ class PlaybackTrait extends Trait {
     }
 
     final primaryVal = json['primaryFileIdHex'];
+    final aacVal = json['aacFileIdHex'];
     final headVal = json['headUrl'];
     final cdnVal = json['passThroughCdnUrl'];
 
     return PlaybackTrait(
       audioTracks: List.unmodifiable(tracks),
       primaryFileIdHex: primaryVal is String ? primaryVal : '',
+      aacFileIdHex: aacVal is String ? aacVal : '',
       headUrl: headVal is String ? headVal : '',
       passThroughCdnUrl: cdnVal is String ? cdnVal : '',
     );
