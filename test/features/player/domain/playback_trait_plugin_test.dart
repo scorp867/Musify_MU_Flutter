@@ -82,6 +82,57 @@ void main() {
       );
     });
 
+    test('accurately classifies multi-stream hosted files by bitrate without formatNumber shadowing', () {
+      // 16-byte HLS master audio ID
+      final audioIdBytes = List<int>.generate(16, (i) => 0xaa);
+      // 20-byte file IDs
+      final mp4_256Bytes = List<int>.filled(20, 0x1c);
+      final vorbis_320Bytes = List<int>.filled(20, 0x5f);
+      final mp4_128Bytes = List<int>.filled(20, 0x3b);
+      final vorbis_160Bytes = List<int>.filled(20, 0x49);
+      final vorbis_96Bytes = List<int>.filled(20, 0x62);
+      final aac_24Bytes = List<int>.filled(20, 0xb7);
+      final flacBytes = List<int>.filled(20, 0x92);
+
+      final expectedVorbis160Hex = SpotifyHexUtils.formatFileId(vorbis_160Bytes);
+      final expectedMp4128Hex = SpotifyHexUtils.formatFileId(mp4_128Bytes);
+
+      final proto = pb.PlaybackTrait()
+        ..audio.add(
+          pb.AudioMapEntry()
+            ..key = 1 // layout: STEREO
+            ..value = (pb.AudioPlayback()
+              ..reportingUri = 'spotify:play:report:456'
+              ..hosted = (pb.AudioHosted()
+                ..audioId = audioIdBytes
+                ..files.addAll([
+                  pb.AudioFile()..fileId = mp4_256Bytes..averageBitrate = 257624,
+                  pb.AudioFile()..fileId = vorbis_320Bytes..averageBitrate = 361431,
+                  pb.AudioFile()..fileId = mp4_128Bytes..averageBitrate = 132398,
+                  pb.AudioFile()..fileId = flacBytes..averageBitrate = 1614849,
+                  pb.AudioFile()..fileId = aac_24Bytes..averageBitrate = 24317,
+                  pb.AudioFile()..fileId = vorbis_160Bytes..averageBitrate = 161679,
+                  pb.AudioFile()..fileId = vorbis_96Bytes..averageBitrate = 96917,
+                ]))),
+        );
+
+      final trait = plugin.parse(proto.writeToBuffer());
+
+      expect(trait.hasAudio, isTrue);
+      // Vorbis 160 must be picked for Chunk 0 Head (NOT mp4_256!)
+      expect(trait.primaryFileIdHex, equals(expectedVorbis160Hex));
+      expect(
+        trait.headUrl,
+        equals(SpotifyHeadResolver.instance.buildHeadUrl(expectedVorbis160Hex)),
+      );
+
+      // MP4_128 must be picked for Full Track AAC (NOT empty and NOT Vorbis!)
+      expect(trait.aacFileIdHex, equals(expectedMp4128Hex));
+
+      // 1 audio_id + 7 files = 8 audioTracks
+      expect(trait.audioTracks.length, equals(8));
+    });
+
     test('parses pass-through CDN stream when hosted is absent', () {
       const cdnUrl = 'https://audio4-fa.scdn.co/stream/dummy.aac';
 

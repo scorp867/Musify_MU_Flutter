@@ -12,6 +12,7 @@
 
 import 'dart:core' as $core;
 
+import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
 
 import 'metadata.pbenum.dart';
@@ -353,7 +354,9 @@ class Track extends $pb.GeneratedMessage {
     $core.int? popularity,
     $core.bool? explicit,
     $core.Iterable<AudioFile>? file,
+    $core.Iterable<Track>? alternative,
     $core.Iterable<AudioFile>? preview,
+    $fixnum.Int64? earliestLiveTimestamp,
     $core.String? canonicalUri,
   }) {
     final result = Track._();
@@ -367,7 +370,10 @@ class Track extends $pb.GeneratedMessage {
     if (popularity != null) result.popularity = popularity;
     if (explicit != null) result.explicit = explicit;
     if (file != null) result.file.addAll(file);
+    if (alternative != null) result.alternative.addAll(alternative);
     if (preview != null) result.preview.addAll(preview);
+    if (earliestLiveTimestamp != null)
+      result.earliestLiveTimestamp = earliestLiveTimestamp;
     if (canonicalUri != null) result.canonicalUri = canonicalUri;
     return result;
   }
@@ -398,10 +404,13 @@ class Track extends $pb.GeneratedMessage {
     ..aI(7, _omitFieldNames ? '' : 'duration', fieldType: $pb.PbFieldType.OS3)
     ..aI(8, _omitFieldNames ? '' : 'popularity', fieldType: $pb.PbFieldType.OS3)
     ..aOB(9, _omitFieldNames ? '' : 'explicit')
-    ..pPM<AudioFile>(14, _omitFieldNames ? '' : 'file',
+    ..pPM<AudioFile>(12, _omitFieldNames ? '' : 'file',
         subBuilder: AudioFile.$_createMessage)
-    ..pPM<AudioFile>(17, _omitFieldNames ? '' : 'preview',
+    ..pPM<Track>(13, _omitFieldNames ? '' : 'alternative',
+        subBuilder: Track.$_createMessage)
+    ..pPM<AudioFile>(15, _omitFieldNames ? '' : 'preview',
         subBuilder: AudioFile.$_createMessage)
+    ..aInt64(17, _omitFieldNames ? '' : 'earliestLiveTimestamp')
     ..aOS(36, _omitFieldNames ? '' : 'canonicalUri')
     ..hasRequiredFields = false;
 
@@ -502,18 +511,30 @@ class Track extends $pb.GeneratedMessage {
   @$pb.TagNumber(9)
   void clearExplicit() => $_clearField(9);
 
-  @$pb.TagNumber(14)
+  @$pb.TagNumber(12)
   $pb.PbList<AudioFile> get file => $_getList(9);
 
+  @$pb.TagNumber(13)
+  $pb.PbList<Track> get alternative => $_getList(10);
+
+  @$pb.TagNumber(15)
+  $pb.PbList<AudioFile> get preview => $_getList(11);
+
   @$pb.TagNumber(17)
-  $pb.PbList<AudioFile> get preview => $_getList(10);
+  $fixnum.Int64 get earliestLiveTimestamp => $_getI64(12);
+  @$pb.TagNumber(17)
+  set earliestLiveTimestamp($fixnum.Int64 value) => $_setInt64(12, value);
+  @$pb.TagNumber(17)
+  $core.bool hasEarliestLiveTimestamp() => $_has(12);
+  @$pb.TagNumber(17)
+  void clearEarliestLiveTimestamp() => $_clearField(17);
 
   @$pb.TagNumber(36)
-  $core.String get canonicalUri => $_getSZ(11);
+  $core.String get canonicalUri => $_getSZ(13);
   @$pb.TagNumber(36)
-  set canonicalUri($core.String value) => $_setString(11, value);
+  set canonicalUri($core.String value) => $_setString(13, value);
   @$pb.TagNumber(36)
-  $core.bool hasCanonicalUri() => $_has(11);
+  $core.bool hasCanonicalUri() => $_has(13);
   @$pb.TagNumber(36)
   void clearCanonicalUri() => $_clearField(36);
 }

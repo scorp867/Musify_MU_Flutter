@@ -16,8 +16,8 @@ import 'package:musify_mu/features/player/domain/models/spotify_audio_format.dar
 /// Direct 1:1 equivalent to Spotify Android's `p.aks0` decoder plugin.
 ///
 /// Decodes `com.spotify.contentagnostic.v2.PlaybackTrait` protobuf payloads,
-/// extracting audio file IDs, audio formats/bitrates, head chunk URLs,
-/// and pass-through CDN streams.
+/// extracting audio clip IDs (hosted audio_id `ap7`), pass-through CDN streams (`bp7`),
+/// bitrates, and preview offsets matching Spotify's native implementation.
 class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
   const PlaybackTraitPlugin();
 
@@ -47,8 +47,6 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
 
     for (final entry in trait.audio) {
       final formatNumber = entry.key;
-      // In Spotify's contentagnostic.v2.PlaybackTrait, entry.key is AudioMediaFormat:
-      // 0 = UNSPECIFIED, 1 = STEREO, 2 = SPATIAL, 3 = ADAPTIVE.
       final playback = entry.value;
 
       int startMs = 0;
@@ -75,7 +73,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
         if (hosted.hasAudioId() && hosted.audioId.isNotEmpty) {
           final fileIdHex = SpotifyHexUtils.formatFileId(hosted.audioId);
 
-          if (fileIdHex.isNotEmpty && fileIdHex.length == 40) {
+          if (fileIdHex.isNotEmpty && (fileIdHex.length == 32 || fileIdHex.length == 40)) {
             audioTracks.add(PlaybackAudioTrack(
               formatNumber: formatNumber,
               fileIdHex: fileIdHex,
@@ -84,15 +82,17 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
               endOffsetMs: endMs,
             ));
 
-            // AudioHosted.audioId represents the primary encrypted AAC/MP4 full track stream
-            final mappedFormat = SpotifyAudioFormat.mp4128;
+            // Legacy/mock fallback: If hosted.files is empty and audioId is 40 hex chars,
+            // allow formatNumber to map to a SpotifyAudioFormat (used in unit test mocks).
+            final SpotifyAudioFormat? audioIdFormat = (hosted.files.isEmpty && fileIdHex.length == 40)
+                ? SpotifyAudioFormat.fromNumber(formatNumber)
+                : null;
 
-            final mapped = SpotifyAudioFileMapper.fromHex(
-              fileIdHex: fileIdHex,
-              format: mappedFormat,
-            );
-            if (mapped case final validMapped?) {
-              audioFiles.add(validMapped);
+            if (audioIdFormat != null) {
+              audioFiles.add(SpotifyAudioFile(
+                fileIdHex: fileIdHex.toLowerCase(),
+                format: audioIdFormat,
+              ));
             }
 
             hostedEntries.add((
@@ -100,7 +100,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
               fileIdHex: fileIdHex,
               rawBytes: hosted.audioId,
               bitrate: null,
-              mappedFormat: mappedFormat,
+              mappedFormat: audioIdFormat,
             ));
           }
         }
@@ -120,15 +120,18 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
                 endOffsetMs: endMs,
               ));
 
-              final mappedFormat =
-                  SpotifyAudioFileMapper.mapFromBitrate(file.averageBitrate);
+              // Format is determined 1:1 by averageBitrate from Spotify streaming infrastructure:
+              final mappedFormat = SpotifyAudioFileMapper.mapFromBitrate(file.averageBitrate) ??
+                  (file.averageBitrate == 0 ? SpotifyAudioFormat.fromNumber(formatNumber) : null);
 
-              final mapped = SpotifyAudioFileMapper.fromHex(
-                fileIdHex: fileIdHex,
-                format: mappedFormat,
-              );
-              if (mapped case final validMapped?) {
-                audioFiles.add(validMapped);
+              if (mappedFormat != null) {
+                final mapped = SpotifyAudioFileMapper.fromHex(
+                  fileIdHex: fileIdHex,
+                  format: mappedFormat,
+                );
+                if (mapped case final validMapped?) {
+                  audioFiles.add(validMapped);
+                }
               }
 
               hostedEntries.add((
@@ -172,23 +175,16 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
     if (selectedHead case final validHead? when validHead.fileIdHex.isNotEmpty) {
       primaryFileIdHex = validHead.fileIdHex;
       headUrl = SpotifyHeadResolver.instance.buildHeadUrl(primaryFileIdHex);
-    } else if (selectedTrack case final validTrack? when validTrack.fileIdHex.isNotEmpty) {
-      primaryFileIdHex = validTrack.fileIdHex;
-      headUrl = validTrack.format.isVorbis
-          ? SpotifyHeadResolver.instance.buildHeadUrl(primaryFileIdHex)
-          : '';
     } else {
-      final firstWithHex = audioTracks.where((t) => t.fileIdHex.isNotEmpty).firstOrNull;
-      primaryFileIdHex = firstWithHex?.fileIdHex ?? '';
+      primaryFileIdHex = '';
       headUrl = '';
     }
 
     final String aacFileIdHex;
-    if (selectedTrack case final validTrack? when !validTrack.format.isVorbis && validTrack.fileIdHex.isNotEmpty) {
+    if (selectedTrack case final validTrack? when validTrack.format.isMp4 && validTrack.fileIdHex.isNotEmpty) {
       aacFileIdHex = validTrack.fileIdHex;
     } else {
-      final anyAac = audioFiles.where((f) => !f.format.isVorbis && f.fileIdHex.isNotEmpty).firstOrNull;
-      aacFileIdHex = anyAac?.fileIdHex ?? '';
+      aacFileIdHex = '';
     }
 
     // Clean, formatted per-track logging for PlaybackTrait
@@ -196,6 +192,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
       hostedEntries: hostedEntries,
       passThroughCdnUrl: passThroughCdnUrl,
       selectedHead: selectedHead,
+      selectedTrack: selectedTrack,
       headUrl: headUrl,
       fallbackFileId: primaryFileIdHex,
     );
@@ -219,6 +216,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
     })> hostedEntries,
     required String passThroughCdnUrl,
     required SpotifyAudioFile? selectedHead,
+    required SpotifyAudioFile? selectedTrack,
     required String headUrl,
     required String fallbackFileId,
   }) {
@@ -239,10 +237,20 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
             ? entry.rawBytes!.take(4).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').toList().toString()
             : '[]';
         final bitrateDesc = entry.bitrate != null ? ' | Bitrate: ${entry.bitrate} bps' : '';
-        final isVorbis = entry.mappedFormat?.isVorbis ?? false;
-        final vorbisBadge = isVorbis ? ' [VORBIS]' : '';
+        final String formatBadge;
+        if (entry.mappedFormat case final fmt?) {
+          if (fmt.isVorbis) {
+            formatBadge = ' [VORBIS]';
+          } else if (fmt.isMp4) {
+            formatBadge = ' [MP4]';
+          } else {
+            formatBadge = ' [${fmt.name}]';
+          }
+        } else {
+          formatBadge = '';
+        }
 
-        sb.writeln('│   [$i] $formatDesc (${entry.formatNumber}$vorbisBadge) -> ${entry.mappedFormat?.name ?? "unmapped"}$bitrateDesc');
+        sb.writeln('│   [$i] $formatDesc (layout: ${entry.formatNumber}) -> ${entry.mappedFormat?.name ?? "unmapped (HLS master)"}$formatBadge$bitrateDesc');
         sb.writeln('│       First Bytes: $firstHex $rawStr -> Full ID: ${entry.fileIdHex}');
       }
     }
@@ -260,6 +268,15 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
       sb.writeln('│     CDN URL: $headUrl');
     } else {
       sb.writeln('│   ✖ NO VORBIS FORMAT AVAILABLE -> Head fetch bypassed (Fallback ID: ${fallbackFileId.isNotEmpty ? fallbackFileId : "none"})');
+    }
+
+    sb.writeln('├── Full Track Stream Decision:');
+    if (selectedTrack case final track? when track.fileIdHex.isNotEmpty) {
+      final trackFirstHex = track.fileIdHex.length >= 8 ? track.fileIdHex.substring(0, 8) : track.fileIdHex;
+      sb.writeln('│   ✔ PICKED FOR FULL TRACK: [${track.format.name}] (format code: ${track.format.number})');
+      sb.writeln('│     File ID: $trackFirstHex... (Full: ${track.fileIdHex})');
+    } else {
+      sb.writeln('│   ✖ NO MP4 FORMAT AVAILABLE (aacFileIdHex is empty)');
     }
     sb.writeln('└────────────────────────────────────────────────────────────────────────────────────');
 

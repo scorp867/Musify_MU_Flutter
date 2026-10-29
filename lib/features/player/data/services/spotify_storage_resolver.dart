@@ -20,16 +20,21 @@ class SpotifyStorageResolver {
   })  : _transport = transport,
         _tokenStore = tokenStore;
 
-  /// Resolves the signed full-track CDN URL for a given AAC/MP4 [fileIdHex].
+  /// Resolves the signed full-track CDN URL for a given [fileIdHex] and optional [formatNumber].
   ///
+  /// Defaults to format 10 (MP4_128 AAC).
   /// Returns null on failure or error. Per project invariant, does not blindly retry.
-  Future<String?> resolveCdnUrl(String fileIdHex) async {
+  Future<String?> resolveCdnUrl(
+    String fileIdHex, {
+    int formatNumber = 10,
+  }) async {
     final cleanFileId = fileIdHex.trim().toLowerCase();
     if (cleanFileId.isEmpty || cleanFileId.length != 40) {
       return null;
     }
 
-    if (_cache[cleanFileId] case final cached? when cached.isNotEmpty) {
+    final cacheKey = '$formatNumber:$cleanFileId';
+    if (_cache[cacheKey] case final cached? when cached.isNotEmpty) {
       return cached;
     }
 
@@ -43,10 +48,10 @@ class SpotifyStorageResolver {
       }
 
       final path =
-          'storage-resolve/v2/files/audio/interactive/10/$cleanFileId?version=10000000&product=9&platform=39&alt=json';
+          'storage-resolve/v2/files/audio/interactive/$formatNumber/$cleanFileId?version=10000000&product=9&platform=39&alt=json';
 
       dev.log(
-        'StorageResolver: Requesting storage-resolve for $cleanFileId',
+        'StorageResolver: Requesting storage-resolve for format $formatNumber, fileId $cleanFileId',
         name: 'StorageResolver',
       );
 
@@ -77,7 +82,7 @@ class SpotifyStorageResolver {
               'StorageResolver: Resolved CDN URL for $cleanFileId: ${firstUrl.substring(0, firstUrl.length.clamp(0, 60))}...',
               name: 'StorageResolver',
             );
-            _cache[cleanFileId] = firstUrl;
+            _cache[cacheKey] = firstUrl;
             return firstUrl;
           }
         }

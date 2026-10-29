@@ -64,32 +64,29 @@ abstract final class SpotifyAudioFileMapper {
   /// - ~256 kbps (250,000 - 280,000 bps) -> MP4_256 (AAC in MP4, full track stream, no head file)
   /// - ~320 kbps (300,000 - 500,000 bps) -> OGG_VORBIS_320 (VBR Vorbis, high-bitrate head file)
   /// - > 700,000 bps -> FLAC_FLAC (Lossless)
-  static SpotifyAudioFormat mapFromBitrate(int averageBitrate) {
+  static SpotifyAudioFormat? mapFromBitrate(int averageBitrate) {
+    if (averageBitrate >= 20000 && averageBitrate <= 40000) {
+      return SpotifyAudioFormat.aac24;
+    }
+    if (averageBitrate >= 90000 && averageBitrate <= 115000) {
+      return SpotifyAudioFormat.oggVorbis96;
+    }
+    if (averageBitrate > 115000 && averageBitrate < 145000) {
+      return SpotifyAudioFormat.mp4128;
+    }
     if (averageBitrate >= 145000 && averageBitrate <= 195000) {
       return SpotifyAudioFormat.oggVorbis160;
     }
-    if (averageBitrate >= 300000 && averageBitrate <= 500000) {
-      return SpotifyAudioFormat.oggVorbis320;
-    }
-    if (averageBitrate >= 90000 && averageBitrate <= 115000) {
-      if (averageBitrate >= 96800 && averageBitrate <= 97000) {
-        return SpotifyAudioFormat.mp396;
-      }
-      return SpotifyAudioFormat.oggVorbis96;
-    }
-    if (averageBitrate >= 125000 && averageBitrate <= 140000) {
-      return SpotifyAudioFormat.mp4128;
-    }
-    if (averageBitrate >= 250000 && averageBitrate <= 280000) {
+    if (averageBitrate > 195000 && averageBitrate <= 280000) {
       return SpotifyAudioFormat.mp4256;
     }
-    if (averageBitrate >= 20000 && averageBitrate <= 35000) {
-      return SpotifyAudioFormat.aac24;
+    if (averageBitrate > 280000 && averageBitrate <= 500000) {
+      return SpotifyAudioFormat.oggVorbis320;
     }
     if (averageBitrate > 700000) {
       return SpotifyAudioFormat.flacFlac;
     }
-    return SpotifyAudioFormat.mp4128;
+    return null;
   }
 
   /// 1:1 replica of Spotify's head file selection logic (`a1a.java` lines 237-258).
@@ -145,7 +142,11 @@ abstract final class SpotifyAudioFileMapper {
   /// 1:1 replica of Spotify's full track stream selection logic (`AudioFileSelection.proto` & `a1a.java`).
   ///
   /// Selects the primary audio stream candidate from the track's file list,
-  /// defaulting to `MP4_128` (AAC) according to client settings.
+  /// defaulting to `MP4_128` (ISO-BMFF MP4 container) according to client settings.
+  ///
+  /// Strictly selects authentic MP4 containers and never falls back to Vorbis file IDs,
+  /// raw AAC clips, or preview files, preserving deterministic separation between
+  /// Vorbis Chunk 0 head streams and full-track MP4 media streams.
   static SpotifyAudioFile? selectFullTrackFile(
     List<SpotifyAudioFile> trackFiles, {
     SpotifyAudioFormat preferredFormat = defaultFullTrackFormat,
@@ -154,28 +155,25 @@ abstract final class SpotifyAudioFileMapper {
       return null;
     }
 
-    // 1. Exact preferred match (MP4_128)
+    // 1. Exact preferred match (strictly an authentic MP4 container)
     for (final SpotifyAudioFile file in trackFiles) {
-      if (file.format == preferredFormat) {
+      if (file.format == preferredFormat && file.format.isMp4) {
         return file;
       }
     }
 
-    // 2. Hierarchy fallback for MP4/AAC:
-    const List<SpotifyAudioFormat> aacHierarchy = <SpotifyAudioFormat>[
-      SpotifyAudioFormat.mp4256,
+    // 2. Deterministic hierarchy for MP4 containers:
+    const List<SpotifyAudioFormat> mp4Hierarchy = <SpotifyAudioFormat>[
+      SpotifyAudioFormat.mp4128,
       SpotifyAudioFormat.mp4128Dual,
-      SpotifyAudioFormat.mp4256Dual,
       SpotifyAudioFormat.mp4128Cbcs,
+      SpotifyAudioFormat.mp4256,
+      SpotifyAudioFormat.mp4256Dual,
       SpotifyAudioFormat.mp4256Cbcs,
-      SpotifyAudioFormat.aac48,
-      SpotifyAudioFormat.aac24,
-      SpotifyAudioFormat.oggVorbis320,
-      SpotifyAudioFormat.oggVorbis160,
-      SpotifyAudioFormat.oggVorbis96,
+      SpotifyAudioFormat.mp4Flac,
     ];
 
-    for (final SpotifyAudioFormat fallback in aacHierarchy) {
+    for (final SpotifyAudioFormat fallback in mp4Hierarchy) {
       for (final SpotifyAudioFile file in trackFiles) {
         if (file.format == fallback) {
           return file;
@@ -183,7 +181,7 @@ abstract final class SpotifyAudioFileMapper {
       }
     }
 
-    // 3. First available file
-    return trackFiles.firstOrNull;
+    // Strict rule: Never return non-MP4 formats (Vorbis, MP3, AAC_24 preview, AAC_48).
+    return null;
   }
 }

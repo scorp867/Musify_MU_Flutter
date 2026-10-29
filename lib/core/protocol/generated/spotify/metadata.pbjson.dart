@@ -137,26 +137,28 @@ const AudioFile_Format$json = {
     {'1': 'MP3_160', '2': 5},
     {'1': 'MP3_96', '2': 6},
     {'1': 'MP3_160_ENC', '2': 7},
-    {'1': 'MP4_128', '2': 8},
-    {'1': 'MP4_192', '2': 9},
-    {'1': 'MP4_256', '2': 10},
-    {'1': 'MP4_320', '2': 11},
-    {'1': 'MP4_96', '2': 12},
-    {'1': 'MP4_BAM', '2': 13},
+    {'1': 'AAC_24', '2': 8},
+    {'1': 'AAC_48', '2': 9},
+    {'1': 'MP4_128', '2': 10},
+    {'1': 'MP4_256', '2': 11},
+    {'1': 'MP4_128_DUAL', '2': 12},
+    {'1': 'MP4_256_DUAL', '2': 13},
+    {'1': 'MP4_128_CBCS', '2': 14},
+    {'1': 'MP4_256_CBCS', '2': 15},
     {'1': 'FLAC_FLAC', '2': 16},
-    {'1': 'XHE_AAC_24', '2': 22},
+    {'1': 'MP4_FLAC', '2': 17},
   ],
 };
 
 /// Descriptor for `AudioFile`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List audioFileDescriptor = $convert.base64Decode(
     'CglBdWRpb0ZpbGUSFwoHZmlsZV9pZBgBIAEoDFIGZmlsZUlkEjoKBmZvcm1hdBgCIAEoDjIiLn'
-    'Nwb3RpZnkubWV0YWRhdGEuQXVkaW9GaWxlLkZvcm1hdFIGZm9ybWF0IvMBCgZGb3JtYXQSEQoN'
+    'Nwb3RpZnkubWV0YWRhdGEuQXVkaW9GaWxlLkZvcm1hdFIGZm9ybWF0Ip4CCgZGb3JtYXQSEQoN'
     'T0dHX1ZPUkJJU185NhAAEhIKDk9HR19WT1JCSVNfMTYwEAESEgoOT0dHX1ZPUkJJU18zMjAQAh'
     'ILCgdNUDNfMjU2EAMSCwoHTVAzXzMyMBAEEgsKB01QM18xNjAQBRIKCgZNUDNfOTYQBhIPCgtN'
-    'UDNfMTYwX0VOQxAHEgsKB01QNF8xMjgQCBILCgdNUDRfMTkyEAkSCwoHTVA0XzI1NhAKEgsKB0'
-    '1QNF8zMjAQCxIKCgZNUDRfOTYQDBILCgdNUDRfQkFNEA0SDQoJRkxBQ19GTEFDEBASDgoKWEhF'
-    'X0FBQ18yNBAW');
+    'UDNfMTYwX0VOQxAHEgoKBkFBQ18yNBAIEgoKBkFBQ180OBAJEgsKB01QNF8xMjgQChILCgdNUD'
+    'RfMjU2EAsSEAoMTVA0XzEyOF9EVUFMEAwSEAoMTVA0XzI1Nl9EVUFMEA0SEAoMTVA0XzEyOF9D'
+    'QkNTEA4SEAoMTVA0XzI1Nl9DQkNTEA8SDQoJRkxBQ19GTEFDEBASDAoITVA0X0ZMQUMQEQ==');
 
 @$core.Deprecated('Use trackDescriptor instead')
 const Track$json = {
@@ -187,19 +189,34 @@ const Track$json = {
     {'1': 'explicit', '3': 9, '4': 1, '5': 8, '10': 'explicit'},
     {
       '1': 'file',
-      '3': 14,
+      '3': 12,
       '4': 3,
       '5': 11,
       '6': '.spotify.metadata.AudioFile',
       '10': 'file'
     },
     {
+      '1': 'alternative',
+      '3': 13,
+      '4': 3,
+      '5': 11,
+      '6': '.spotify.metadata.Track',
+      '10': 'alternative'
+    },
+    {
       '1': 'preview',
-      '3': 17,
+      '3': 15,
       '4': 3,
       '5': 11,
       '6': '.spotify.metadata.AudioFile',
       '10': 'preview'
+    },
+    {
+      '1': 'earliest_live_timestamp',
+      '3': 17,
+      '4': 1,
+      '5': 3,
+      '10': 'earliestLiveTimestamp'
     },
     {'1': 'canonical_uri', '3': 36, '4': 1, '5': 9, '10': 'canonicalUri'},
   ],
@@ -212,9 +229,11 @@ final $typed_data.Uint8List trackDescriptor = $convert.base64Decode(
     'c3BvdGlmeS5tZXRhZGF0YS5BcnRpc3RSBmFydGlzdBIWCgZudW1iZXIYBSABKBFSBm51bWJlch'
     'IfCgtkaXNjX251bWJlchgGIAEoEVIKZGlzY051bWJlchIaCghkdXJhdGlvbhgHIAEoEVIIZHVy'
     'YXRpb24SHgoKcG9wdWxhcml0eRgIIAEoEVIKcG9wdWxhcml0eRIaCghleHBsaWNpdBgJIAEoCF'
-    'IIZXhwbGljaXQSLwoEZmlsZRgOIAMoCzIbLnNwb3RpZnkubWV0YWRhdGEuQXVkaW9GaWxlUgRm'
-    'aWxlEjUKB3ByZXZpZXcYESADKAsyGy5zcG90aWZ5Lm1ldGFkYXRhLkF1ZGlvRmlsZVIHcHJldm'
-    'lldxIjCg1jYW5vbmljYWxfdXJpGCQgASgJUgxjYW5vbmljYWxVcmk=');
+    'IIZXhwbGljaXQSLwoEZmlsZRgMIAMoCzIbLnNwb3RpZnkubWV0YWRhdGEuQXVkaW9GaWxlUgRm'
+    'aWxlEjkKC2FsdGVybmF0aXZlGA0gAygLMhcuc3BvdGlmeS5tZXRhZGF0YS5UcmFja1ILYWx0ZX'
+    'JuYXRpdmUSNQoHcHJldmlldxgPIAMoCzIbLnNwb3RpZnkubWV0YWRhdGEuQXVkaW9GaWxlUgdw'
+    'cmV2aWV3EjYKF2VhcmxpZXN0X2xpdmVfdGltZXN0YW1wGBEgASgDUhVlYXJsaWVzdExpdmVUaW'
+    '1lc3RhbXASIwoNY2Fub25pY2FsX3VyaRgkIAEoCVIMY2Fub25pY2FsVXJp');
 
 @$core.Deprecated('Use showDescriptor instead')
 const Show$json = {

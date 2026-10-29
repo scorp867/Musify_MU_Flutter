@@ -61,22 +61,26 @@ class AudioFile_Format extends $pb.ProtobufEnum {
       AudioFile_Format._(6, _omitEnumNames ? '' : 'MP3_96');
   static const AudioFile_Format MP3_160_ENC =
       AudioFile_Format._(7, _omitEnumNames ? '' : 'MP3_160_ENC');
+  static const AudioFile_Format AAC_24 =
+      AudioFile_Format._(8, _omitEnumNames ? '' : 'AAC_24');
+  static const AudioFile_Format AAC_48 =
+      AudioFile_Format._(9, _omitEnumNames ? '' : 'AAC_48');
   static const AudioFile_Format MP4_128 =
-      AudioFile_Format._(8, _omitEnumNames ? '' : 'MP4_128');
-  static const AudioFile_Format MP4_192 =
-      AudioFile_Format._(9, _omitEnumNames ? '' : 'MP4_192');
+      AudioFile_Format._(10, _omitEnumNames ? '' : 'MP4_128');
   static const AudioFile_Format MP4_256 =
-      AudioFile_Format._(10, _omitEnumNames ? '' : 'MP4_256');
-  static const AudioFile_Format MP4_320 =
-      AudioFile_Format._(11, _omitEnumNames ? '' : 'MP4_320');
-  static const AudioFile_Format MP4_96 =
-      AudioFile_Format._(12, _omitEnumNames ? '' : 'MP4_96');
-  static const AudioFile_Format MP4_BAM =
-      AudioFile_Format._(13, _omitEnumNames ? '' : 'MP4_BAM');
+      AudioFile_Format._(11, _omitEnumNames ? '' : 'MP4_256');
+  static const AudioFile_Format MP4_128_DUAL =
+      AudioFile_Format._(12, _omitEnumNames ? '' : 'MP4_128_DUAL');
+  static const AudioFile_Format MP4_256_DUAL =
+      AudioFile_Format._(13, _omitEnumNames ? '' : 'MP4_256_DUAL');
+  static const AudioFile_Format MP4_128_CBCS =
+      AudioFile_Format._(14, _omitEnumNames ? '' : 'MP4_128_CBCS');
+  static const AudioFile_Format MP4_256_CBCS =
+      AudioFile_Format._(15, _omitEnumNames ? '' : 'MP4_256_CBCS');
   static const AudioFile_Format FLAC_FLAC =
       AudioFile_Format._(16, _omitEnumNames ? '' : 'FLAC_FLAC');
-  static const AudioFile_Format XHE_AAC_24 =
-      AudioFile_Format._(22, _omitEnumNames ? '' : 'XHE_AAC_24');
+  static const AudioFile_Format MP4_FLAC =
+      AudioFile_Format._(17, _omitEnumNames ? '' : 'MP4_FLAC');
 
   static const $core.List<AudioFile_Format> values = <AudioFile_Format>[
     OGG_VORBIS_96,
@@ -87,19 +91,22 @@ class AudioFile_Format extends $pb.ProtobufEnum {
     MP3_160,
     MP3_96,
     MP3_160_ENC,
+    AAC_24,
+    AAC_48,
     MP4_128,
-    MP4_192,
     MP4_256,
-    MP4_320,
-    MP4_96,
-    MP4_BAM,
+    MP4_128_DUAL,
+    MP4_256_DUAL,
+    MP4_128_CBCS,
+    MP4_256_CBCS,
     FLAC_FLAC,
-    XHE_AAC_24,
+    MP4_FLAC,
   ];
 
-  static final $core.Map<$core.int, AudioFile_Format> _byValue =
-      $pb.ProtobufEnum.initByValue(values);
-  static AudioFile_Format? valueOf($core.int value) => _byValue[value];
+  static final $core.List<AudioFile_Format?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 17);
+  static AudioFile_Format? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
 
   const AudioFile_Format._(super.value, super.name);
 }

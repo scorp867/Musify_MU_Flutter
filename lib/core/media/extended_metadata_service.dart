@@ -285,7 +285,7 @@ class ExtendedMetadataService {
                   : '');
           final aacFileId = (playback != null && playback.aacFileIdHex.isNotEmpty)
               ? playback.aacFileIdHex
-              : (rawTrait.aacFileId.isNotEmpty ? rawTrait.aacFileId : fileId);
+              : (rawTrait.aacFileId.isNotEmpty ? rawTrait.aacFileId : '');
           final cdnUrl = (playback != null && playback.passThroughCdnUrl.isNotEmpty)
               ? playback.passThroughCdnUrl
               : '';
@@ -316,7 +316,11 @@ class ExtendedMetadataService {
                             : ''));
                 final resolvedAacFileId = (canonicalPlaybackTrait != null && canonicalPlaybackTrait.aacFileIdHex.isNotEmpty)
                     ? canonicalPlaybackTrait.aacFileIdHex
-                    : (canonicalRaw.aacFileId.isNotEmpty ? canonicalRaw.aacFileId : aacFileId);
+                    : ((playback != null && playback.aacFileIdHex.isNotEmpty)
+                        ? playback.aacFileIdHex
+                        : (canonicalRaw.aacFileId.isNotEmpty
+                            ? canonicalRaw.aacFileId
+                            : aacFileId));
                 final resolvedCdnUrl = (canonicalPlaybackTrait != null && canonicalPlaybackTrait.passThroughCdnUrl.isNotEmpty)
                     ? canonicalPlaybackTrait.passThroughCdnUrl
                     : cdnUrl;

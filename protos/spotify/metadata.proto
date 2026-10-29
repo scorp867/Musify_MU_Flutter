@@ -46,14 +46,16 @@ message AudioFile {
         MP3_160 = 5;
         MP3_96 = 6;
         MP3_160_ENC = 7;
-        MP4_128 = 8;
-        MP4_192 = 9;
-        MP4_256 = 10;
-        MP4_320 = 11;
-        MP4_96 = 12;
-        MP4_BAM = 13;
+        AAC_24 = 8;
+        AAC_48 = 9;
+        MP4_128 = 10;
+        MP4_256 = 11;
+        MP4_128_DUAL = 12;
+        MP4_256_DUAL = 13;
+        MP4_128_CBCS = 14;
+        MP4_256_CBCS = 15;
         FLAC_FLAC = 16;
-        XHE_AAC_24 = 22;
+        MP4_FLAC = 17;
     }
 
     optional bytes file_id = 1;
@@ -70,8 +72,10 @@ message Track {
     optional sint32 duration = 7;
     optional sint32 popularity = 8;
     optional bool explicit = 9;
-    repeated AudioFile file = 14;
-    repeated AudioFile preview = 17;
+    repeated AudioFile file = 12;
+    repeated Track alternative = 13;
+    repeated AudioFile preview = 15;
+    optional int64 earliest_live_timestamp = 17;
     optional string canonical_uri = 36;
 }
 

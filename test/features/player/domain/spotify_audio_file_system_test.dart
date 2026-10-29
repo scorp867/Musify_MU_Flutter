@@ -218,6 +218,57 @@ void main() {
       expect(selected?.format, SpotifyAudioFormat.mp4256);
       expect(selected?.fileIdHex, '3333333333333333333333333333333333333333');
     });
+
+    test('mapFromBitrate correctly identifies Spotify stream formats from bitrate in bps', () {
+      // 24 kbps AAC preview
+      expect(SpotifyAudioFileMapper.mapFromBitrate(24317), equals(SpotifyAudioFormat.aac24));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(24323), equals(SpotifyAudioFormat.aac24));
+
+      // 96 kbps OGG Vorbis
+      expect(SpotifyAudioFileMapper.mapFromBitrate(93867), equals(SpotifyAudioFormat.oggVorbis96));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(96891), equals(SpotifyAudioFormat.oggVorbis96));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(96917), equals(SpotifyAudioFormat.oggVorbis96));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(97858), equals(SpotifyAudioFormat.oggVorbis96));
+
+      // 128 kbps MP4/AAC
+      expect(SpotifyAudioFileMapper.mapFromBitrate(129568), equals(SpotifyAudioFormat.mp4128));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(129589), equals(SpotifyAudioFormat.mp4128));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(132235), equals(SpotifyAudioFormat.mp4128));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(132254), equals(SpotifyAudioFormat.mp4128));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(132371), equals(SpotifyAudioFormat.mp4128));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(132398), equals(SpotifyAudioFormat.mp4128));
+
+      // 160 kbps OGG Vorbis
+      expect(SpotifyAudioFileMapper.mapFromBitrate(157336), equals(SpotifyAudioFormat.oggVorbis160));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(161679), equals(SpotifyAudioFormat.oggVorbis160));
+
+      // 256 kbps MP4/AAC
+      expect(SpotifyAudioFileMapper.mapFromBitrate(257590), equals(SpotifyAudioFormat.mp4256));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(257624), equals(SpotifyAudioFormat.mp4256));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(260270), equals(SpotifyAudioFormat.mp4256));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(260275), equals(SpotifyAudioFormat.mp4256));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(260392), equals(SpotifyAudioFormat.mp4256));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(260433), equals(SpotifyAudioFormat.mp4256));
+
+      // 320 kbps OGG Vorbis
+      expect(SpotifyAudioFileMapper.mapFromBitrate(336255), equals(SpotifyAudioFormat.oggVorbis320));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(361431), equals(SpotifyAudioFormat.oggVorbis320));
+
+      // > 700 kbps Lossless FLAC
+      expect(SpotifyAudioFileMapper.mapFromBitrate(875916), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(877211), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(908952), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(910250), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(1580557), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(1581851), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(1613553), equals(SpotifyAudioFormat.flacFlac));
+      expect(SpotifyAudioFileMapper.mapFromBitrate(1614849), equals(SpotifyAudioFormat.flacFlac));
+
+      // Out of bounds
+      expect(SpotifyAudioFileMapper.mapFromBitrate(0), isNull);
+      expect(SpotifyAudioFileMapper.mapFromBitrate(10000), isNull);
+      expect(SpotifyAudioFileMapper.mapFromBitrate(600000), isNull);
+    });
   });
 
   group('TrackV4Plugin & Protobuf Integration', () {

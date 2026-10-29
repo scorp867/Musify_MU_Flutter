@@ -9,9 +9,10 @@ import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 import 'package:musify_mu/features/player/data/mappers/spotify_audio_file_mapper.dart';
 import 'package:musify_mu/features/player/data/services/spotify_head_resolver.dart';
 import 'package:musify_mu/features/player/domain/models/spotify_audio_file.dart';
+import 'package:musify_mu/features/player/domain/models/spotify_audio_format.dart';
 
 /// Plugin for ExtensionKind 10 (TRACK_V4).
-/// Provides complete track metadata matching Spotify Android's TrackV4 extension,
+/// Provides complete track metadata matching Spotify Android's TrackV4 extension (`p199p/a1a.java`),
 /// including 1:1 extraction of full track AudioFiles and preview Head files.
 class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
   const TrackV4Plugin();
@@ -90,39 +91,31 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
 
     // Relinked track fallback: If primary file list is empty (common for region-restricted
     // or market-relinked tracks), extract audio files from alternative tracks in field 13.
-    if (fullTrackFiles.isEmpty && track.unknownFields.hasField(13)) {
-      final altField = track.unknownFields.getField(13);
-      if (altField != null) {
-        for (final altBytes in altField.lengthDelimited) {
-          try {
-            final altTrack = meta_pb.Track.fromBuffer(altBytes);
-            if (altTrack.file.isNotEmpty) {
-              for (final file in altTrack.file) {
-                if (file.hasFileId() && file.hasFormat()) {
-                  final mapped = SpotifyAudioFileMapper.mapFromRaw(
-                    fileIdBytes: file.fileId,
-                    formatNumber: file.format.value,
-                  );
-                  parsedAudioEntries.add((
-                    format: file.format,
-                    rawBytes: file.fileId,
-                    mapped: mapped,
-                  ));
-                  if (mapped case final validMapped?) {
-                    fullTrackFiles.add(validMapped);
-                  }
-                }
-              }
-              if (fullTrackFiles.isNotEmpty) {
-                dev.log(
-                  'TrackV4Plugin: Relinked track extracted ${fullTrackFiles.length} files from alternative track (canonical: $canonicalUri)',
-                  name: 'Metadata.Relink',
-                );
-                break;
+    if (fullTrackFiles.isEmpty && track.alternative.isNotEmpty) {
+      for (final altTrack in track.alternative) {
+        if (altTrack.file.isNotEmpty) {
+          for (final file in altTrack.file) {
+            if (file.hasFileId() && file.hasFormat()) {
+              final mapped = SpotifyAudioFileMapper.mapFromRaw(
+                fileIdBytes: file.fileId,
+                formatNumber: file.format.value,
+              );
+              parsedAudioEntries.add((
+                format: file.format,
+                rawBytes: file.fileId,
+                mapped: mapped,
+              ));
+              if (mapped case final validMapped?) {
+                fullTrackFiles.add(validMapped);
               }
             }
-          } catch (e) {
-            dev.log('TrackV4Plugin: Error parsing alternative track: $e', name: 'Metadata.Relink');
+          }
+          if (fullTrackFiles.isNotEmpty) {
+            dev.log(
+              'TrackV4Plugin: Relinked track extracted ${fullTrackFiles.length} files from alternative track (canonical: $canonicalUri)',
+              name: 'Metadata.Relink',
+            );
+            break;
           }
         }
       }
@@ -149,25 +142,28 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
     }
 
     // In Spotify, Chunk 0 Head files are 128 KiB Vorbis headers of the full track audio streams.
-    // We check fullTrackFiles first for Vorbis formats (OGG_VORBIS_160 / 320 / 96).
-    // As a strict safeguard, selectHeadFile ONLY returns Vorbis formats and returns null for non-Vorbis.
+    // We check fullTrackFiles first for authentic Vorbis streams (OGG_VORBIS_160 -> 320 -> 96).
+    // If fullTrackFiles only carries MP4/AAC streams, check previewFiles for standard Vorbis 160/320 headers.
+    // Low-quality 96 kbps preview clips (~25 KB) are strictly rejected to prevent buffer underflow/mismatch.
     final SpotifyAudioFile? selectedHead =
         SpotifyAudioFileMapper.selectHeadFile(fullTrackFiles) ??
-        SpotifyAudioFileMapper.selectHeadFile(previewFiles);
+        SpotifyAudioFileMapper.selectHeadFile(
+          previewFiles.where((f) => f.format != SpotifyAudioFormat.oggVorbis96).toList(),
+        );
 
     final SpotifyAudioFile? selectedTrack =
         SpotifyAudioFileMapper.selectFullTrackFile(fullTrackFiles);
 
-    // Only set headUrl if a valid Vorbis head file is present.
-    // If no Vorbis stream is available, headUrl remains empty so the player can gracefully bypass
-    // the head file download and directly stream the full track.
+    // Only set headUrl if an authentic Vorbis head file is present.
+    // If no Vorbis stream is available, headUrl and fileId remain empty so the player can gracefully
+    // bypass the head file download and directly stream the full track without corrupting chunk 0.
     final String fileId;
     final String headUrl;
     if (selectedHead case final validHead? when validHead.fileIdHex.isNotEmpty) {
       fileId = validHead.fileIdHex;
       headUrl = SpotifyHeadResolver.instance.buildHeadUrl(fileId);
     } else {
-      fileId = selectedTrack?.fileIdHex ?? '';
+      fileId = '';
       headUrl = '';
     }
 
@@ -175,8 +171,7 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
     if (selectedTrack case final validTrack? when !validTrack.format.isVorbis && validTrack.fileIdHex.isNotEmpty) {
       aacFileId = validTrack.fileIdHex;
     } else {
-      final anyAac = fullTrackFiles.where((f) => !f.format.isVorbis && f.fileIdHex.isNotEmpty).firstOrNull;
-      aacFileId = anyAac?.fileIdHex ?? '';
+      aacFileId = '';
     }
 
     // Clean, formatted per-track logging displaying all received formats and head selection
