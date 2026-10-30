@@ -76,10 +76,16 @@ class FakeTokenStore implements SpotifyTokenStore {
   }
 
   @override
-  Future<void> saveClientToken(String token) async => _data['client_token'] = token;
+  Future<void> saveClientToken(String token, {int lifetimeMs = 86400000}) async => _data['client_token'] = token;
 
   @override
   Future<String?> getClientToken() async => _data['client_token'];
+
+  @override
+  Future<bool> isClientTokenExpired() async => false;
+
+  @override
+  Future<void> deleteClientToken() async => _data.remove('client_token');
 
   @override
   Future<void> clearAll() async => _data.clear();

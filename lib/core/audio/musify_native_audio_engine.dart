@@ -125,6 +125,34 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 
+  /// Loads a single encrypted stream directly (e.g. Widevine AAC track without Vorbis head chunk).
+  NativeEngineStatus loadEncrypted({
+    required String url,
+    required String licenseServerUrl,
+    String? authHeader,
+  }) {
+    _ensureAlive();
+    final urlPtr = url.toNativeUtf8();
+    final licensePtr = licenseServerUrl.toNativeUtf8();
+    final authPtr = (authHeader != null && authHeader.isNotEmpty)
+        ? authHeader.toNativeUtf8()
+        : nullptr;
+
+    try {
+      final code = _ffi.loadEncrypted(
+        _handle,
+        urlPtr.cast(),
+        licensePtr.cast(),
+        authPtr != nullptr ? authPtr.cast() : nullptr,
+      );
+      return NativeEngineStatus.fromInt(code);
+    } finally {
+      calloc.free(urlPtr);
+      calloc.free(licensePtr);
+      if (authPtr != nullptr) calloc.free(authPtr);
+    }
+  }
+
   /// Loads a Spotify track with native chunk 0 head file resolution & download in C++.
   ///
   /// C++ checks the disk cache at `$cacheDir/heads/{fileIdHex}.ogg` (131,072 bytes),

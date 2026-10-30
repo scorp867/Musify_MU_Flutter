@@ -153,6 +153,7 @@ void AudioEngine::stopPlayback() {
         AMediaCrypto_delete(mSecondaryCrypto);
         mSecondaryCrypto = nullptr;
     }
+    closeActiveDrmSession();
 
     if (mMonitorThread.joinable()) {
         mMonitorThread.join();
@@ -257,7 +258,7 @@ EngineStatus AudioEngine::loadTrackWithHead(const char* fileIdHex,
             if (fullTrackUrl && fullTrackUrl[0] != '\0') {
                 LOGI("Falling back to full track stream: %s", fullTrackUrl);
                 if (licenseServerUrl && licenseServerUrl[0] != '\0') {
-                    return loadDualSource(fullTrackUrl, fullTrackUrl, licenseServerUrl, authHeader, -1);
+                    return loadEncryptedStream(fullTrackUrl, licenseServerUrl, authHeader);
                 }
                 return loadLocal(fullTrackUrl);
             }
@@ -539,6 +540,208 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
     mMonitorShouldStop.store(false, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
+    return EngineStatus::Ok;
+}
+
+// ===========================================================================
+// Control: loadEncryptedStream (direct single-stream encrypted playback)
+// ===========================================================================
+
+EngineStatus AudioEngine::loadEncryptedStream(const char* url,
+                                             const char* licenseServerUrl,
+                                             const char* authHeader) {
+    if (!url || url[0] == '\0') {
+        return EngineStatus::ErrorInvalidArg;
+    }
+
+    stopPlayback();
+    mIsEncryptedSource = true;
+    mIsDualSource.store(false, std::memory_order_release);
+    mSecondaryPending.store(false, std::memory_order_release);
+    mSecondaryReady.store(false, std::memory_order_release);
+    mSecondaryFailed.store(false, std::memory_order_release);
+    mHandoffCompleted.store(false, std::memory_order_release);
+    mHandoffTargetMs.store(-1, std::memory_order_release);
+    mHandoffActualMs.store(0, std::memory_order_release);
+
+    mState.store(EngineState::Loading, std::memory_order_release);
+
+    std::unique_ptr<IAudioDataSource> source;
+    if (std::strncmp(url, "http://", 7) == 0 || std::strncmp(url, "https://", 8) == 0) {
+        source = std::make_unique<HttpMediaDataSource>(url, authHeader);
+    } else {
+        source = std::make_unique<LocalFileDataSource>(url);
+    }
+
+    EngineStatus status = source->open();
+    if (status != EngineStatus::Ok) {
+        LOGE("Encrypted stream data source open failed: %d", static_cast<int>(status));
+        mState.store(EngineState::Faulted, std::memory_order_release);
+        return status;
+    }
+
+    mSampleRate = source->getSampleRate();
+    mSourceChannelCount = source->getChannelCount();
+    mDurationMs = source->getDurationUs() / 1000;
+
+    if (mSampleRate <= 0 || mSourceChannelCount <= 0) {
+        LOGE("Invalid format for encrypted stream: sr=%d cc=%d", mSampleRate, mSourceChannelCount);
+        source->close();
+        mState.store(EngineState::Faulted, std::memory_order_release);
+        return EngineStatus::ErrorCodec;
+    }
+
+    LOGI("Encrypted source opened: sr=%d cc=%d dur=%lldms mime=%s",
+         mSampleRate, mSourceChannelCount, static_cast<long long>(mDurationMs), source->getMimeType());
+
+    AMediaCrypto* crypto = nullptr;
+    if (source->hasWidevinePssh() || (licenseServerUrl && licenseServerUrl[0] != '\0')) {
+        LOGI("Encrypted stream requires Widevine DRM key exchange (licenseUrl=%s)",
+             licenseServerUrl ? licenseServerUrl : "null");
+        std::vector<uint8_t> psshData = source->getPsshBytes();
+        if (psshData.empty()) {
+            const char* audioPattern = "/audio/";
+            const char* match = std::strstr(url, audioPattern);
+            if (!match) {
+                audioPattern = "/head/";
+                match = std::strstr(url, audioPattern);
+            }
+            if (match) {
+                const char* hexStart = match + std::strlen(audioPattern);
+                bool isHex = true;
+                for (int i = 0; i < 40; ++i) {
+                    char c = hexStart[i];
+                    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+                        isHex = false;
+                        break;
+                    }
+                }
+                if (isHex) {
+                    uint8_t fileId[20];
+                    for (int i = 0; i < 20; ++i) {
+                        char byteHex[3] = { hexStart[i * 2], hexStart[i * 2 + 1], '\0' };
+                        fileId[i] = static_cast<uint8_t>(std::strtoul(byteHex, nullptr, 16));
+                    }
+                    std::vector<uint8_t> payload;
+                    payload.push_back(0x08);
+                    payload.push_back(0x01);
+                    payload.push_back(0x12);
+                    payload.push_back(16);
+                    payload.insert(payload.end(), fileId, fileId + 16);
+                    const char* provider = "spotify";
+                    payload.push_back(0x1a);
+                    payload.push_back(static_cast<uint8_t>(std::strlen(provider)));
+                    payload.insert(payload.end(), provider, provider + std::strlen(provider));
+                    payload.push_back(0x22);
+                    payload.push_back(20);
+                    payload.insert(payload.end(), fileId, fileId + 20);
+
+                    uint32_t protectionScheme = 0x63626373;
+                    int32_t cryptoMode = 0;
+                    if (source->getTrackFormat() && AMediaFormat_getInt32(source->getTrackFormat(), "crypto-mode", &cryptoMode)) {
+                        if (cryptoMode == 1) protectionScheme = 0x63656e63;
+                        else if (cryptoMode == 2) protectionScheme = 0x63626373;
+                    }
+                    payload.push_back(0x48);
+                    uint32_t val = protectionScheme;
+                    while (val > 0x7F) {
+                        payload.push_back(static_cast<uint8_t>((val & 0x7F) | 0x80));
+                        val >>= 7;
+                    }
+                    payload.push_back(static_cast<uint8_t>(val & 0x7F));
+
+                    uint32_t totalSize = 32 + static_cast<uint32_t>(payload.size());
+                    psshData.reserve(totalSize);
+                    psshData.push_back((totalSize >> 24) & 0xFF);
+                    psshData.push_back((totalSize >> 16) & 0xFF);
+                    psshData.push_back((totalSize >> 8) & 0xFF);
+                    psshData.push_back(totalSize & 0xFF);
+                    psshData.push_back('p'); psshData.push_back('s'); psshData.push_back('s'); psshData.push_back('h');
+                    psshData.push_back(0x00); psshData.push_back(0x00); psshData.push_back(0x00); psshData.push_back(0x00);
+                    psshData.insert(psshData.end(), kWidevineUuid, kWidevineUuid + 16);
+                    uint32_t dataLen = static_cast<uint32_t>(payload.size());
+                    psshData.push_back((dataLen >> 24) & 0xFF);
+                    psshData.push_back((dataLen >> 16) & 0xFF);
+                    psshData.push_back((dataLen >> 8) & 0xFF);
+                    psshData.push_back(dataLen & 0xFF);
+                    psshData.insert(psshData.end(), payload.begin(), payload.end());
+                }
+            }
+        }
+
+        crypto = acquireWidevineCrypto(psshData,
+                                       licenseServerUrl ? std::string(licenseServerUrl) : std::string(),
+                                       authHeader ? std::string(authHeader) : std::string());
+        if (!crypto) {
+            LOGE("Failed to acquire Widevine crypto session for encrypted stream");
+            source->close();
+            mState.store(EngineState::Faulted, std::memory_order_release);
+            return EngineStatus::ErrorCodec;
+        }
+        mSecondaryCrypto = crypto;
+    }
+
+    auto decoder = std::make_unique<NativeDecoder>(
+        mRingBuffer,
+        source->getExtractor(),
+        source->getMimeType(),
+        source->getTrackFormat(),
+        mSourceChannelCount,
+        crypto,
+        -1,
+        sJavaVm);
+
+    status = decoder->configure();
+    if (status != EngineStatus::Ok) {
+        LOGE("Encrypted stream decoder configure failed: %d", static_cast<int>(status));
+        source->close();
+        mState.store(EngineState::Faulted, std::memory_order_release);
+        return status;
+    }
+
+    mDataSource = std::move(source);
+    mDecoder = std::move(decoder);
+
+    status = openOboeStream();
+    if (status != EngineStatus::Ok) {
+        LOGE("Encrypted stream Oboe stream open failed: %d", static_cast<int>(status));
+        mDecoder->stop();
+        mDecoder.reset();
+        mDataSource->close();
+        mDataSource.reset();
+        mState.store(EngineState::Faulted, std::memory_order_release);
+        return status;
+    }
+
+    mRingBuffer.reset();
+    mFramesConsumedByHardware.store(0, std::memory_order_relaxed);
+    mSeekPositionMs.store(0, std::memory_order_relaxed);
+    mUnderrunCount.store(0, std::memory_order_relaxed);
+    mDecoderEndOfStream.store(false, std::memory_order_relaxed);
+
+    mState.store(EngineState::Prebuffering, std::memory_order_release);
+
+    status = mDecoder->start();
+    if (status != EngineStatus::Ok) {
+        LOGE("Encrypted stream decoder start failed: %d", static_cast<int>(status));
+        mStream->close();
+        mStream.reset();
+        mDecoder.reset();
+        mDataSource->close();
+        mDataSource.reset();
+        mState.store(EngineState::Faulted, std::memory_order_release);
+        return status;
+    }
+
+    if (mMonitorThread.joinable()) {
+        mMonitorShouldStop.store(true, std::memory_order_release);
+        mMonitorThread.join();
+    }
+    mMonitorShouldStop.store(false, std::memory_order_release);
+    mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
+
+    LOGI("Encrypted stream started successfully: mime=%s dur=%lldms",
+         mDataSource->getMimeType(), static_cast<long long>(mDurationMs));
     return EngineStatus::Ok;
 }
 
@@ -883,6 +1086,8 @@ AMediaCrypto* AudioEngine::acquireWidevineCrypto(const std::vector<uint8_t>& pss
         jsize sessionLen = env->GetArrayLength(jSessionId);
         jbyte* sessionBytes = env->GetByteArrayElements(jSessionId, nullptr);
         if (sessionBytes && sessionLen > 0) {
+            mActiveDrmSessionId.assign(reinterpret_cast<const uint8_t*>(sessionBytes),
+                                       reinterpret_cast<const uint8_t*>(sessionBytes) + sessionLen);
             crypto = AMediaCrypto_new(
                 kWidevineUuid,
                 reinterpret_cast<const void*>(sessionBytes),
@@ -907,6 +1112,67 @@ AMediaCrypto* AudioEngine::acquireWidevineCrypto(const std::vector<uint8_t>& pss
     }
 
     return crypto;
+}
+
+void AudioEngine::closeActiveDrmSession() {
+    if (mActiveDrmSessionId.empty()) {
+        return;
+    }
+
+    if (!sJavaVm) {
+        mActiveDrmSessionId.clear();
+        return;
+    }
+
+    JNIEnv* env = nullptr;
+    bool didAttach = false;
+    jint getEnvRes = sJavaVm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (getEnvRes == JNI_EDETACHED) {
+        if (sJavaVm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+            didAttach = true;
+        }
+    }
+
+    if (env) {
+        jclass bridgeClass = sDrmBridgeClass;
+        jmethodID closeMethod = sCloseSessionMethod;
+        bool needsDeleteLocal = false;
+
+        if (!bridgeClass && sClassLoader && sLoadClassMethod) {
+            jstring jclassName = env->NewStringUTF("um.musify.mu.musify_mu.NativeDrmBridge");
+            jclass loadedClass = static_cast<jclass>(env->CallObjectMethod(sClassLoader, sLoadClassMethod, jclassName));
+            env->DeleteLocalRef(jclassName);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            } else if (loadedClass) {
+                bridgeClass = loadedClass;
+                closeMethod = env->GetStaticMethodID(bridgeClass, "closeSession", "([B)V");
+                if (env->ExceptionCheck()) env->ExceptionClear();
+                needsDeleteLocal = true;
+            }
+        }
+
+        if (bridgeClass && closeMethod) {
+            jbyteArray jSession = env->NewByteArray(static_cast<jsize>(mActiveDrmSessionId.size()));
+            env->SetByteArrayRegion(jSession, 0, static_cast<jsize>(mActiveDrmSessionId.size()),
+                                   reinterpret_cast<const jbyte*>(mActiveDrmSessionId.data()));
+            env->CallStaticVoidMethod(bridgeClass, closeMethod, jSession);
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
+            env->DeleteLocalRef(jSession);
+            LOGI("NativeDrmBridge.closeSession successfully executed from C++ AudioEngine");
+        }
+
+        if (needsDeleteLocal) {
+            env->DeleteLocalRef(bridgeClass);
+        }
+        if (didAttach) {
+            sJavaVm->DetachCurrentThread();
+        }
+    }
+
+    mActiveDrmSessionId.clear();
 }
 
 EngineStatus AudioEngine::setDrmSessionId(const uint8_t* sessionId, int32_t sessionLen) {

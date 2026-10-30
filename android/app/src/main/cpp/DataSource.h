@@ -68,6 +68,13 @@ public:
 
     /// Release all native resources.
     virtual void close() = 0;
+
+    /// Extract Widevine PSSH byte array if present in container.
+    virtual bool hasWidevinePssh() const { return false; }
+    virtual const std::vector<uint8_t>& getPsshBytes() const {
+        static const std::vector<uint8_t> sEmptyPssh;
+        return sEmptyPssh;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -173,8 +180,8 @@ public:
     void close() override;
 
     /// Extract Widevine PSSH byte array if present in container.
-    bool hasWidevinePssh() const { return mHasPssh; }
-    const std::vector<uint8_t>& getPsshBytes() const { return mPsshData; }
+    bool hasWidevinePssh() const override { return mHasPssh; }
+    const std::vector<uint8_t>& getPsshBytes() const override { return mPsshData; }
     const char* getUrl() const { return mUrl; }
 
     void buildWidevinePsshBox(const uint8_t* kidBytes, size_t kidLen,

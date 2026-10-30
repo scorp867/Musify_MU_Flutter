@@ -21,6 +21,7 @@ import '../services/spotify_head_resolver.dart';
 import '../services/spotify_license_resolver.dart';
 import '../services/spotify_storage_resolver.dart';
 import '../../../../core/network/spotify/auth/auth_session_provider.dart';
+import '../../../../core/network/spotify/auth/spotify_client_token.dart';
 import 'queue_proto_mappers.dart';
 
 /// Active Esperanto transport implementation backed by the native C++ audio engine.
@@ -37,6 +38,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
   final SpotifyStorageResolver? _storageResolver;
   final SpotifyLicenseResolver? _licenseResolver;
   final AuthSessionProvider? _authSessionProvider;
+  final SpotifyClientTokenFetcher? _clientTokenFetcher;
 
   /// Internal state tracking for change-detection on polling.
   NativeEngineState _lastPolledState = NativeEngineState.idle;
@@ -91,10 +93,12 @@ class NativeEsperantoTransport implements EsperantoTransport {
     SpotifyStorageResolver? storageResolver,
     SpotifyLicenseResolver? licenseResolver,
     AuthSessionProvider? authSessionProvider,
+    SpotifyClientTokenFetcher? clientTokenFetcher,
   })  : _metadataService = metadataService,
         _storageResolver = storageResolver,
         _licenseResolver = licenseResolver,
-        _authSessionProvider = authSessionProvider {
+        _authSessionProvider = authSessionProvider,
+        _clientTokenFetcher = clientTokenFetcher {
     _startPolling();
     _emitQueueUpdate();
     _emitPlayerState();
@@ -414,7 +418,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
       if (metadataService != null) {
         try {
           final meta = await metadataService.resolve(track.uri).timeout(const Duration(seconds: 3));
-          if (meta case final validMeta? when (validMeta.fileId.isNotEmpty || validMeta.cdnUrl.isNotEmpty)) {
+          if (meta case final validMeta? when (validMeta.fileId.isNotEmpty || validMeta.aacFileId.isNotEmpty || validMeta.cdnUrl.isNotEmpty)) {
             fileId = validMeta.fileId;
             headUrl = validMeta.headUrl;
             if (validMeta.aacFileId.isNotEmpty) {
@@ -423,12 +427,16 @@ class NativeEsperantoTransport implements EsperantoTransport {
             final updatedMeta = Map<String, String>.from(track.metadata);
             if (validMeta.fileId.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyFileId] = validMeta.fileId;
+            } else {
+              updatedMeta.remove(ContextTrackMetadata.keyFileId);
             }
             if (validMeta.aacFileId.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyAacFileId] = validMeta.aacFileId;
             }
             if (validMeta.headUrl.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyHeadFileUrl] = validMeta.headUrl;
+            } else {
+              updatedMeta.remove(ContextTrackMetadata.keyHeadFileUrl);
             }
             if (validMeta.cdnUrl.isNotEmpty) {
               updatedMeta[ContextTrackMetadata.keyCdnAacUrl] = validMeta.cdnUrl;
@@ -447,12 +455,51 @@ class NativeEsperantoTransport implements EsperantoTransport {
       }
     }
 
-    if ((headUrl == null || headUrl.isEmpty) && fileId != null && fileId.isNotEmpty) {
-      headUrl = SpotifyHeadResolver.instance.buildHeadUrl(fileId);
+    var cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
+    var licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
+
+    // If no Vorbis head URL exists, resolve the full CDN stream via MP4 file ID upfront
+    if ((headUrl == null || headUrl.isEmpty) && (cdnAac == null || cdnAac.isEmpty) && aacFileId != null && aacFileId.isNotEmpty) {
+      try {
+        dev.log(
+          'NativeEsperantoTransport: resolving CDN URL upfront for MP4 file $aacFileId',
+          name: 'NativePlayer',
+        );
+        final resolvedCdn = await _storageResolver?.resolveCdnUrl(aacFileId);
+        if (resolvedCdn != null && resolvedCdn.isNotEmpty) {
+          cdnAac = resolvedCdn;
+          final updatedMeta = Map<String, String>.from(track.metadata);
+          updatedMeta[ContextTrackMetadata.keyCdnAacUrl] = resolvedCdn;
+          track = track.toBuilder().metadata(updatedMeta).build();
+          _currentTrack = track;
+          _currentQueue = _currentQueue.toBuilder().track(track).build();
+          _emitQueueUpdate();
+        }
+      } catch (e) {
+        dev.log(
+          'NativeEsperantoTransport: upfront storage-resolve failed for $aacFileId: $e',
+          name: 'NativePlayer',
+        );
+      }
     }
 
-    final cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
-    final licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
+    if ((licenseUrl == null || licenseUrl.isEmpty) && (cdnAac != null && cdnAac.isNotEmpty)) {
+      try {
+        final resolvedLicense = await _licenseResolver?.resolveLicenseUrl();
+        if (resolvedLicense != null && resolvedLicense.isNotEmpty) {
+          licenseUrl = resolvedLicense;
+          final updatedMeta = Map<String, String>.from(track.metadata);
+          updatedMeta[ContextTrackMetadata.keyLicenseServerUrl] = resolvedLicense;
+          track = track.toBuilder().metadata(updatedMeta).build();
+          _currentTrack = track;
+        }
+      } catch (e) {
+        dev.log(
+          'NativeEsperantoTransport: license-resolve failed: $e',
+          name: 'NativePlayer',
+        );
+      }
+    }
     var authHeader = track.metadata[ContextTrackMetadata.keyDrmAuthHeader];
     if (authHeader == null || authHeader.isEmpty) {
       final token = await _authSessionProvider?.getAccessToken();
@@ -524,6 +571,9 @@ class NativeEsperantoTransport implements EsperantoTransport {
       );
       if (status == NativeEngineStatus.ok) {
         _engine.play();
+        if (handoffMs > 0) {
+          _engine.seekMs(handoffMs);
+        }
         if (fullTrackUrl.isEmpty) {
           _cancelSecondaryStreamDebounce();
           _secondaryStreamDebounceTimer = Timer(const Duration(milliseconds: 350), () {
@@ -539,13 +589,13 @@ class NativeEsperantoTransport implements EsperantoTransport {
         );
         // Fallback: If head chunk load failed, stream directly
         if (fullTrackUrl.isNotEmpty) {
-          status = _engine.loadDualSource(
-            primaryPath: fullTrackUrl,
-            secondaryUrl: fullTrackUrl,
-            licenseServerUrl: licenseUrl,
-            authHeader: authHeader,
-            handoffPositionMs: handoffMs,
-          );
+          status = (licenseUrl != null && licenseUrl.isNotEmpty)
+              ? _engine.loadEncrypted(
+                  url: fullTrackUrl,
+                  licenseServerUrl: licenseUrl,
+                  authHeader: authHeader,
+                )
+              : _engine.loadLocal(fullTrackUrl);
         } else if (previewOgg != null && previewOgg.isNotEmpty) {
           status = _engine.loadLocal(previewOgg);
         } else if (localPath != null && localPath.isNotEmpty) {
@@ -554,7 +604,15 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
         if (status == NativeEngineStatus.ok) {
           _engine.play();
+          if (handoffMs > 0) {
+            _engine.seekMs(handoffMs);
+          }
         } else {
+          dev.log(
+            'NativeEsperantoTransport: streaming fallback failed with status $status for ${track.uri}',
+            name: 'NativePlayer',
+          );
+          _clientTokenFetcher?.forceRefreshClientToken();
           _emitError('TRACK_UNAVAILABLE', track.uri);
         }
       }
@@ -565,17 +623,23 @@ class NativeEsperantoTransport implements EsperantoTransport {
         name: 'NativePlayer',
       );
       final status = (licenseUrl != null && licenseUrl.isNotEmpty)
-          ? _engine.loadDualSource(
-              primaryPath: cdnAac,
-              secondaryUrl: cdnAac,
+          ? _engine.loadEncrypted(
+              url: cdnAac,
               licenseServerUrl: licenseUrl,
               authHeader: authHeader,
-              handoffPositionMs: handoffMs,
             )
           : _engine.loadLocal(cdnAac);
       if (status == NativeEngineStatus.ok) {
         _engine.play();
+        if (handoffMs > 0) {
+          _engine.seekMs(handoffMs);
+        }
       } else {
+        dev.log(
+          'NativeEsperantoTransport: loadEncrypted failed with status $status for ${track.uri}',
+          name: 'NativePlayer',
+        );
+        _clientTokenFetcher?.forceRefreshClientToken();
         _emitError('TRACK_UNAVAILABLE', track.uri);
       }
     } else if (primaryPath != null && primaryPath.isNotEmpty) {
@@ -587,6 +651,9 @@ class NativeEsperantoTransport implements EsperantoTransport {
       final status = _engine.loadLocal(primaryPath);
       if (status == NativeEngineStatus.ok) {
         _engine.play();
+        if (handoffMs > 0) {
+          _engine.seekMs(handoffMs);
+        }
       } else {
         _emitError('TRACK_UNAVAILABLE', track.uri);
       }

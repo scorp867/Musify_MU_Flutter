@@ -124,12 +124,8 @@ class PlaylistKodiakDecorator {
           derivedFirstCover = albumCovers.first;
         }
 
-        final fileId = meta.fileId.isNotEmpty
-            ? meta.fileId
-            : (existingMeta?.fileId ?? '');
-        final headUrl = meta.headUrl.isNotEmpty
-            ? meta.headUrl
-            : (existingMeta?.headUrl ?? '');
+        final fileId = meta.fileId;
+        final headUrl = meta.headUrl;
         final cdnUrl = meta.cdnUrl.isNotEmpty
             ? meta.cdnUrl
             : (existingMeta?.cdnUrl ?? '');

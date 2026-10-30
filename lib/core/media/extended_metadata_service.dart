@@ -137,7 +137,7 @@ class ExtendedMetadataService {
   Future<TrackMeta?> resolve(String uri) async {
     await _ensureDiskLoaded();
     final cached = _memCache.get(uri);
-    if (cached != null && (cached.fileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
+    if (cached != null && (cached.fileId.isNotEmpty || cached.aacFileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
       return cached;
     }
     final map = await fetchTracks([uri]);
@@ -157,7 +157,7 @@ class ExtendedMetadataService {
 
     for (final uri in uris) {
       final cached = _memCache.get(uri);
-      if (cached != null && (cached.fileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
+      if (cached != null && (cached.fileId.isNotEmpty || cached.aacFileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
         results[uri] = cached;
       } else {
         uncached.add(uri);
@@ -206,7 +206,7 @@ class ExtendedMetadataService {
 
     for (final uri in uris) {
       final cached = _memCache.get(uri);
-      if (cached != null && (cached.fileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
+      if (cached != null && (cached.fileId.isNotEmpty || cached.aacFileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
         results[uri] = cached;
       } else {
         uncached.add(uri);

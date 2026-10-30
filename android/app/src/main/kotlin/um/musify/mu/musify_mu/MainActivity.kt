@@ -27,6 +27,11 @@ object NativeDrmBridge {
     fun closeSession(sessionId: ByteArray) {
         drmManager.closeSession(sessionId)
     }
+
+    @JvmStatic
+    fun closeActiveSession() {
+        drmManager.closeActiveSession()
+    }
 }
 
 object NativeHeadDownloader {
@@ -246,10 +251,10 @@ class MainActivity : FlutterActivity() {
                         val sessionId = call.argument<ByteArray>("sessionId")
                         if (sessionId != null) {
                             NativeDrmBridge.closeSession(sessionId)
-                            result.success(true)
                         } else {
-                            result.error("INVALID_ARGS", "sessionId is required", null)
+                            NativeDrmBridge.closeActiveSession()
                         }
+                        result.success(true)
                     }
                     else -> result.notImplemented()
                 }

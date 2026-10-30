@@ -11,6 +11,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.HashMap
 import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
 class RateLimitException(message: String) : IllegalStateException(message)
@@ -20,6 +24,10 @@ class RateLimitException(message: String) : IllegalStateException(message)
  * Strictly guarantees single-active-session concurrency (closing previous stream session
  * before opening a new track session to prevent Spotify concurrent-stream 429 errors),
  * WebPlayer header conformity, and auth cookie propagation.
+ *
+ * All network operations (license POST and device provisioning) are offloaded to a dedicated
+ * background executor (ioExecutor) so that invocations from any thread (including Android UI/Main thread
+ * via Dart FFI) will never trigger android.os.NetworkOnMainThreadException.
  */
 class MusifyDrmManager {
     companion object {
@@ -32,6 +40,7 @@ class MusifyDrmManager {
     }
 
     private val drmLock = Any()
+    private val ioExecutor = Executors.newCachedThreadPool()
     private var mediaDrm: MediaDrm? = null
     private var currentActiveSessionId: ByteArray? = null
 
@@ -111,6 +120,13 @@ class MusifyDrmManager {
         currentActiveSessionId?.let { oldSession ->
             try {
                 Log.i(TAG, "Closing previous track DRM session before opening new session to prevent concurrency 429")
+                val it = sessionCache.entries.iterator()
+                while (it.hasNext()) {
+                    if (it.next().value.contentEquals(oldSession)) {
+                        it.remove()
+                        break
+                    }
+                }
                 drm.closeSession(oldSession)
             } catch (e: Exception) {
                 Log.w(TAG, "Error closing previous DRM session", e)
@@ -202,7 +218,7 @@ class MusifyDrmManager {
                     Log.e(TAG, "Aborting retries immediately due to license server rate limiting: ${e.message}")
                     break
                 } catch (e: Exception) {
-                    Log.w(TAG, "License request attempt $attempt failed: ${e.message}")
+                    Log.w(TAG, "License request attempt $attempt failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 }
 
                 if (attempt < maxRetries) {
@@ -229,7 +245,7 @@ class MusifyDrmManager {
             putSession(drm, cacheKey, sessionId)
             return sessionId
         } catch (e: Exception) {
-            Log.e(TAG, "Failed during DRM key exchange", e)
+            Log.e(TAG, "Failed during DRM key exchange: ${e.javaClass.simpleName}: ${e.message}", e)
             closeSessionInternal(drm, sessionId)
             return null
         }
@@ -313,7 +329,29 @@ class MusifyDrmManager {
         return out
     }
 
+    /**
+     * Dispatches license POST request to a background thread to prevent NetworkOnMainThreadException
+     * if invoked directly from the platform/UI thread via Dart FFI.
+     */
     private fun executeLicensePost(
+        serverUrl: String,
+        authHeader: String?,
+        requestData: ByteArray
+    ): ByteArray {
+        val future = ioExecutor.submit(Callable {
+            executeLicensePostInternal(serverUrl, authHeader, requestData)
+        })
+        return try {
+            future.get((CONNECT_TIMEOUT_MS + READ_TIMEOUT_MS).toLong(), TimeUnit.MILLISECONDS)
+        } catch (e: ExecutionException) {
+            val cause = e.cause ?: e
+            if (cause is RateLimitException) throw cause
+            if (cause is Exception) throw cause
+            throw IllegalStateException("License request failed: ${cause.message}", cause)
+        }
+    }
+
+    private fun executeLicensePostInternal(
         serverUrl: String,
         authHeader: String?,
         requestData: ByteArray
@@ -326,22 +364,18 @@ class MusifyDrmManager {
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.setRequestProperty("Content-Type", "application/octet-stream")
-        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
-        connection.setRequestProperty("app-platform", "WebPlayer")
-        connection.setRequestProperty("spotify-app-version", "1.2.87.215.g6e7e7fc2")
-        connection.setRequestProperty("Origin", "https://open.spotify.com")
-        connection.setRequestProperty("Referer", "https://open.spotify.com/")
+        connection.setRequestProperty("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:158.0) Gecko/20100101 Firefox/158.0")
         connection.setRequestProperty("Accept", "*/*")
         connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
-        connection.setRequestProperty("sec-ch-ua", "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"")
-        connection.setRequestProperty("sec-ch-ua-mobile", "?0")
-        connection.setRequestProperty("sec-ch-ua-platform", "\"Windows\"")
-        connection.setRequestProperty("sec-fetch-dest", "empty")
-        connection.setRequestProperty("sec-fetch-mode", "cors")
-        connection.setRequestProperty("sec-fetch-site", "same-site")
-        connection.setRequestProperty("sec-gpc", "1")
-        connection.setRequestProperty("priority", "u=1, i")
-        connection.setRequestProperty("Connection", "close")
+        connection.setRequestProperty("Accept-Encoding", "gzip, deflate, br, zstd")
+        connection.setRequestProperty("Origin", "https://open.spotify.com")
+        connection.setRequestProperty("Referer", "https://open.spotify.com/")
+        connection.setRequestProperty("Sec-Fetch-Dest", "empty")
+        connection.setRequestProperty("Sec-Fetch-Mode", "cors")
+        connection.setRequestProperty("Sec-Fetch-Site", "same-site")
+        connection.setRequestProperty("Connection", "keep-alive")
+        connection.setRequestProperty("Priority", "u=4")
+        connection.setRequestProperty("TE", "trailers")
 
         if (authHeader != null && authHeader.isNotEmpty()) {
             val lines = authHeader.split("\n")
@@ -364,6 +398,12 @@ class MusifyDrmManager {
                 }
             }
         }
+
+        val hasAuth = connection.getRequestProperty("Authorization") != null
+        val authSnippet = connection.getRequestProperty("Authorization")?.take(20) ?: "none"
+        val hasClientToken = connection.getRequestProperty("client-token") != null
+        val clientTokenSnippet = connection.getRequestProperty("client-token")?.take(25) ?: "none"
+        Log.i(TAG, "Posting license request: URL=$serverUrl | Bytes=${requestData.size} | hasAuth=$hasAuth ($authSnippet...) | hasClientToken=$hasClientToken ($clientTokenSnippet...)")
 
         connection.outputStream.use { outputStream ->
             outputStream.write(requestData)
@@ -417,6 +457,18 @@ class MusifyDrmManager {
     }
 
     private fun handleProvisioning(drm: MediaDrm): Boolean {
+        val future = ioExecutor.submit(Callable {
+            handleProvisioningInternal(drm)
+        })
+        return try {
+            future.get((CONNECT_TIMEOUT_MS + READ_TIMEOUT_MS).toLong(), TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            Log.e(TAG, "Widevine provisioning future failed", e)
+            false
+        }
+    }
+
+    private fun handleProvisioningInternal(drm: MediaDrm): Boolean {
         return try {
             val request = drm.provisionRequest
             val defaultUrl = request.defaultUrl
@@ -485,6 +537,15 @@ class MusifyDrmManager {
         }
     }
 
+    fun closeActiveSession() {
+        val drm = mediaDrm ?: return
+        synchronized(drmLock) {
+            currentActiveSessionId?.let { session ->
+                closeSession(session)
+            }
+        }
+    }
+
     fun release() {
         val drm = mediaDrm ?: return
         synchronized(drmLock) {
@@ -495,6 +556,7 @@ class MusifyDrmManager {
                 Log.w(TAG, "Error releasing MediaDrm", e)
             } finally {
                 mediaDrm = null
+                ioExecutor.shutdown()
             }
         }
     }

@@ -35,6 +35,16 @@ class MusifyFfiBindings {
                     Int64)>>('musify_engine_load_dual_source')
         .asFunction(isLeaf: true);
 
+    _loadEncrypted = lib
+        .lookup<
+            NativeFunction<
+                Int32 Function(
+                    Pointer<Void>,
+                    Pointer<Utf8>,
+                    Pointer<Utf8>,
+                    Pointer<Utf8>)>>('musify_engine_load_encrypted')
+        .asFunction(isLeaf: true);
+
     _attachSecondaryStream = lib
         .lookup<
             NativeFunction<
@@ -145,26 +155,35 @@ class MusifyFfiBindings {
   late final void Function(Pointer<Void>) _destroy;
   late final int Function(Pointer<Void>, Pointer<Utf8>) _loadLocal;
   late final int Function(
-      Pointer<Void>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      int) _loadDualSource;
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    int,
+  ) _loadDualSource;
   late final int Function(
-      Pointer<Void>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      int) _attachSecondaryStream;
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+  ) _loadEncrypted;
   late final int Function(
-      Pointer<Void>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      Pointer<Utf8>,
-      int) _loadTrackWithHead;
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    int,
+  ) _attachSecondaryStream;
+  late final int Function(
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    int,
+  ) _loadTrackWithHead;
   late final void Function(
       Pointer<Void>,
       Pointer<Utf8>,
@@ -204,6 +223,18 @@ class MusifyFfiBindings {
         licenseServerUrl,
         authHeader,
         handoffPositionMs,
+      );
+  int loadEncrypted(
+    Pointer<Void> h,
+    Pointer<Utf8> url,
+    Pointer<Utf8> licenseServerUrl,
+    Pointer<Utf8> authHeader,
+  ) =>
+      _loadEncrypted(
+        h,
+        url,
+        licenseServerUrl,
+        authHeader,
       );
   int attachSecondaryStream(
     Pointer<Void> h,

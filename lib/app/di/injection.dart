@@ -378,6 +378,7 @@ Future<void> setupInjection() async {
       storageResolver: getIt<SpotifyStorageResolver>(),
       licenseResolver: getIt<SpotifyLicenseResolver>(),
       authSessionProvider: getIt<AuthSessionProvider>(),
+      clientTokenFetcher: getIt<SpotifyClientTokenFetcher>(),
     ),
     dispose: (t) {
       if (t is NativeEsperantoTransport) {

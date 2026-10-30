@@ -23,7 +23,7 @@
 ///                                                               Faulted
 ///
 /// Thread model:
-///   - Main/FFI thread: loadLocal, loadDualSource, play, pause, seekMs, getters
+///   - Main/FFI thread: loadLocal, loadDualSource, loadEncryptedStream, play, pause, seekMs, getters
 ///   - Decoder thread(s): fills RingBuffer from AMediaCodec (Primary & Secondary)
 ///   - Background worker: negotiates Widevine DRM and primes SecondaryDecoder
 ///   - Audio callback thread (Oboe): drains RingBuffer to hardware
@@ -69,6 +69,11 @@ public:
                                 const char* licenseServerUrl,
                                 const char* authHeader,
                                 int64_t handoffPositionMs);
+
+    /// Load a single encrypted audio stream directly (e.g. Widevine AAC track without Vorbis head chunk).
+    EngineStatus loadEncryptedStream(const char* url,
+                                    const char* licenseServerUrl,
+                                    const char* authHeader);
 
     /// Asynchronously attaches or starts the secondary full-track stream while primary is already playing.
     EngineStatus attachSecondaryStream(const char* secondaryUrl,
@@ -134,6 +139,7 @@ private:
     AMediaCrypto* acquireWidevineCrypto(const std::vector<uint8_t>& psshData,
                                         const std::string& licenseServerUrl,
                                         const std::string& authHeader);
+    void closeActiveDrmSession();
     static bool downloadHeadFileNative(const char* fileIdHex, const char* targetFilePath);
 
     // --- State ---
@@ -151,6 +157,7 @@ private:
     std::unique_ptr<HttpMediaDataSource> mSecondarySource;
     std::unique_ptr<NativeDecoder> mSecondaryDecoder;
     AMediaCrypto* mSecondaryCrypto{nullptr};
+    std::vector<uint8_t> mActiveDrmSessionId;
 
     std::atomic<bool> mIsDualSource{false};
     std::atomic<bool> mSecondaryPending{false};

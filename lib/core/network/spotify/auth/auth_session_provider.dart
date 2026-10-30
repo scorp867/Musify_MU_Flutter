@@ -35,7 +35,15 @@ class SpotifyAuthSessionProvider implements AuthSessionProvider {
         _clientTokenFetcher = clientTokenFetcher;
 
   @override
-  Future<String?> getAccessToken() => _tokenStore.getAccessToken();
+  Future<String?> getAccessToken() async {
+    if (await _tokenStore.isAccessTokenExpired()) {
+      final refreshed = await _tokenRefresher.refresh();
+      if (refreshed != null && refreshed.isNotEmpty) {
+        return refreshed;
+      }
+    }
+    return _tokenStore.getAccessToken();
+  }
 
   @override
   Future<String?> getClientToken() => _clientTokenFetcher.getClientToken();

@@ -24,10 +24,22 @@ class SpotifyClientTokenFetcher {
 
   SpotifyClientTokenFetcher(this._tokenStore);
 
-  /// Returns a valid client token, fetching a new one if needed.
+  /// Returns a valid client token, fetching a new one if missing or expired.
   Future<String?> getClientToken() async {
-    final cached = await _tokenStore.getClientToken();
-    if (cached != null) return cached;
+    final isExpired = await _tokenStore.isClientTokenExpired();
+    if (!isExpired) {
+      final cached = await _tokenStore.getClientToken();
+      if (cached != null && cached.isNotEmpty) return cached;
+    }
+    return fetchClientToken();
+  }
+
+  /// Forces invalidation of the cached client token and acquires a completely fresh identity.
+  /// Useful when rate limited (HTTP 429) to break out of Envoy token-bucket throttles.
+  Future<String?> forceRefreshClientToken() async {
+    dev.log('ClientToken: Forcing token refresh and rotating device identity...', name: 'Auth');
+    await _tokenStore.deleteClientToken();
+    _deviceId = _generateDeviceId();
     return fetchClientToken();
   }
 
@@ -88,10 +100,12 @@ class SpotifyClientTokenFetcher {
         final grantedToken =
             json['granted_token'] as Map<String, dynamic>?;
         final token = grantedToken?['token'] as String?;
+        final expiresSeconds = grantedToken?['expires_after_seconds'] as int? ?? 86400;
 
         if (token != null && token.isNotEmpty) {
-          await _tokenStore.saveClientToken(token);
-          dev.log('ClientToken obtained (${token.length} chars)');
+          final lifetimeMs = expiresSeconds * 1000;
+          await _tokenStore.saveClientToken(token, lifetimeMs: lifetimeMs);
+          dev.log('ClientToken obtained (${token.length} chars, expires in ${expiresSeconds}s)');
           return token;
         }
       }

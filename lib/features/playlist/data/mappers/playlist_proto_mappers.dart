@@ -207,18 +207,16 @@ class PlaylistProtoMappers {
     final rawFileId = formatMap['file_id'] ??
         formatMap['audio.file_id'] ??
         formatMap['track_file_id'] ??
-        (itemAttrs != null && itemAttrs.hasItemId() && itemAttrs.itemId.isNotEmpty
-            ? SpotifyHeadResolver.instance.normalizeFileId(itemAttrs.itemId)
-            : '');
+        '';
     final fileId = SpotifyHeadResolver.instance.normalizeFileId(rawFileId);
     final rawAacFileId = formatMap['aac_file_id'] ??
         formatMap['audio.aac_file_id'] ??
-        '';
+        (itemAttrs != null && itemAttrs.hasItemId() && itemAttrs.itemId.isNotEmpty
+            ? SpotifyHeadResolver.instance.normalizeFileId(itemAttrs.itemId)
+            : '');
     final aacFileId = SpotifyHeadResolver.instance.normalizeFileId(rawAacFileId);
     final canonicalUri = formatMap['canonical_uri'] ?? formatMap['linked_from_uri'] ?? '';
-    final headUrl = fileId.isNotEmpty
-        ? SpotifyHeadResolver.instance.buildHeadUrl(fileId)
-        : (formatMap['head_file_url'] ?? formatMap['head_url'] ?? '');
+    final headUrl = formatMap['head_file_url'] ?? formatMap['head_url'] ?? '';
 
     // Section classification: matches Spotify's "You added" vs "Includes" vs "We added"
     PlaylistSectionType sectionType = PlaylistSectionType.standard;

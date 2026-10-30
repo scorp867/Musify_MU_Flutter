@@ -48,6 +48,19 @@ MUSIFY_EXPORT int32_t musify_engine_load_dual_source(
         handoffPositionMs));
 }
 
+MUSIFY_EXPORT int32_t musify_engine_load_encrypted(
+        void* handle,
+        const char* url,
+        const char* licenseServerUrl,
+        const char* authHeader) {
+    if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
+    auto* engine = static_cast<AudioEngine*>(handle);
+    return static_cast<int32_t>(engine->loadEncryptedStream(
+        url,
+        licenseServerUrl,
+        authHeader));
+}
+
 MUSIFY_EXPORT int32_t musify_engine_attach_secondary_stream(
         void* handle,
         const char* secondaryUrl,

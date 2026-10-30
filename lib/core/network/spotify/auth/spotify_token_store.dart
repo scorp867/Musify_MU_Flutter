@@ -9,6 +9,8 @@ class SpotifyTokenStore {
   static const _kAccessToken = 'spotify_access_token';
   static const _kAccessTokenExpiry = 'spotify_access_token_expiry';
   static const _kUsername = 'spotify_username';
+  static const _kClientToken = 'spotify_client_token';
+  static const _kClientTokenExpiry = 'spotify_client_token_expiry';
 
   final FlutterSecureStorage _storage;
 
@@ -97,12 +99,26 @@ class SpotifyTokenStore {
 
   // ── Client Token ───────────────────────────────────────────────────
 
-  static const _kClientToken = 'spotify_client_token';
-
-  Future<void> saveClientToken(String token) =>
-      _storage.write(key: _kClientToken, value: token);
+  Future<void> saveClientToken(String token, {int lifetimeMs = 86400000}) async {
+    final expiry = DateTime.now().millisecondsSinceEpoch + lifetimeMs;
+    await _storage.write(key: _kClientToken, value: token);
+    await _storage.write(key: _kClientTokenExpiry, value: expiry.toString());
+  }
 
   Future<String?> getClientToken() => _storage.read(key: _kClientToken);
+
+  Future<bool> isClientTokenExpired() async {
+    final expiryStr = await _storage.read(key: _kClientTokenExpiry);
+    if (expiryStr == null) return true;
+    final expiry = int.tryParse(expiryStr) ?? 0;
+    // Treat as expired if less than 5 minutes remain
+    return DateTime.now().millisecondsSinceEpoch > expiry - 300000;
+  }
+
+  Future<void> deleteClientToken() async {
+    await _storage.delete(key: _kClientToken);
+    await _storage.delete(key: _kClientTokenExpiry);
+  }
 
   // ── Clear all ─────────────────────────────────────────────────────────
 
@@ -116,5 +132,6 @@ class SpotifyTokenStore {
     await _storage.delete(key: _kCountry);
     await _storage.delete(key: _kProduct);
     await _storage.delete(key: _kClientToken);
+    await _storage.delete(key: _kClientTokenExpiry);
   }
 }
