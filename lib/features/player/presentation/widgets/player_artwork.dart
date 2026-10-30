@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:ui';
 
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
@@ -294,14 +295,14 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
     }
 
     if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty) {
-      return Image.network(
-        widget.imageUrl!,
+            return AppNetworkImage(
+        imageUrl: widget.imageUrl!,
         width: widget.artworkWidth ?? double.infinity,
         height: widget.artworkHeight ?? double.infinity,
         fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: isLarge ? FilterQuality.medium : FilterQuality.low,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+        memCacheWidth: isLarge ? 800 : 200,
+        memCacheHeight: isLarge ? 800 : 200,
+        errorWidget: (context, url, error) => _buildPlaceholder(),
       );
     }
 
