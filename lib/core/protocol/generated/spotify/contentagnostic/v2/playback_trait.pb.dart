@@ -159,10 +159,12 @@ class NormalizationParams extends $pb.GeneratedMessage {
 class AudioFile extends $pb.GeneratedMessage {
   factory AudioFile({
     $core.List<$core.int>? fileId,
+    $core.int? format,
     $core.int? averageBitrate,
   }) {
     final result = AudioFile._();
     if (fileId != null) result.fileId = fileId;
+    if (format != null) result.format = format;
     if (averageBitrate != null) result.averageBitrate = averageBitrate;
     return result;
   }
@@ -183,6 +185,7 @@ class AudioFile extends $pb.GeneratedMessage {
       createEmptyInstance: AudioFile.$_createMessage)
     ..a<$core.List<$core.int>>(
         1, _omitFieldNames ? '' : 'fileId', $pb.PbFieldType.OY)
+    ..aI(2, _omitFieldNames ? '' : 'format')
     ..aI(3, _omitFieldNames ? '' : 'averageBitrate')
     ..hasRequiredFields = false;
 
@@ -215,12 +218,21 @@ class AudioFile extends $pb.GeneratedMessage {
   @$pb.TagNumber(1)
   void clearFileId() => $_clearField(1);
 
+  @$pb.TagNumber(2)
+  $core.int get format => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set format($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasFormat() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearFormat() => $_clearField(2);
+
   @$pb.TagNumber(3)
-  $core.int get averageBitrate => $_getIZ(1);
+  $core.int get averageBitrate => $_getIZ(2);
   @$pb.TagNumber(3)
-  set averageBitrate($core.int value) => $_setSignedInt32(1, value);
+  set averageBitrate($core.int value) => $_setSignedInt32(2, value);
   @$pb.TagNumber(3)
-  $core.bool hasAverageBitrate() => $_has(1);
+  $core.bool hasAverageBitrate() => $_has(2);
   @$pb.TagNumber(3)
   void clearAverageBitrate() => $_clearField(3);
 }

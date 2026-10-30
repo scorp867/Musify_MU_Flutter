@@ -48,14 +48,15 @@ const AudioFile$json = {
   '1': 'AudioFile',
   '2': [
     {'1': 'file_id', '3': 1, '4': 1, '5': 12, '10': 'fileId'},
+    {'1': 'format', '3': 2, '4': 1, '5': 5, '10': 'format'},
     {'1': 'average_bitrate', '3': 3, '4': 1, '5': 5, '10': 'averageBitrate'},
   ],
 };
 
 /// Descriptor for `AudioFile`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List audioFileDescriptor = $convert.base64Decode(
-    'CglBdWRpb0ZpbGUSFwoHZmlsZV9pZBgBIAEoDFIGZmlsZUlkEicKD2F2ZXJhZ2VfYml0cmF0ZR'
-    'gDIAEoBVIOYXZlcmFnZUJpdHJhdGU=');
+    'CglBdWRpb0ZpbGUSFwoHZmlsZV9pZBgBIAEoDFIGZmlsZUlkEhYKBmZvcm1hdBgCIAEoBVIGZm'
+    '9ybWF0EicKD2F2ZXJhZ2VfYml0cmF0ZRgDIAEoBVIOYXZlcmFnZUJpdHJhdGU=');
 
 @$core.Deprecated('Use audioHostedDescriptor instead')
 const AudioHosted$json = {

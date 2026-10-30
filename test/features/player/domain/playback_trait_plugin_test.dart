@@ -133,6 +133,35 @@ void main() {
       expect(trait.audioTracks.length, equals(8));
     });
 
+    test('accurately classifies files using explicit protobuf format field 2 (1:1 with Kotlin MusifyMU)', () {
+      final audioIdBytes = List<int>.generate(16, (i) => 0xbb);
+      final vorbis160Bytes = List<int>.filled(20, 0x01);
+      final mp4_128Bytes = List<int>.filled(20, 0x10);
+
+      final expectedVorbisHex = SpotifyHexUtils.formatFileId(vorbis160Bytes);
+      final expectedMp4Hex = SpotifyHexUtils.formatFileId(mp4_128Bytes);
+
+      final proto = pb.PlaybackTrait()
+        ..audio.add(
+          pb.AudioMapEntry()
+            ..key = 1
+            ..value = (pb.AudioPlayback()
+              ..hosted = (pb.AudioHosted()
+                ..audioId = audioIdBytes
+                ..files.addAll([
+                  // Tag 2 format = 1 (OGG_VORBIS_160)
+                  pb.AudioFile()..fileId = vorbis160Bytes..format = 1..averageBitrate = 160000,
+                  // Tag 2 format = 10 (MP4_128)
+                  pb.AudioFile()..fileId = mp4_128Bytes..format = 10..averageBitrate = 128000,
+                ]))),
+        );
+
+      final trait = plugin.parse(proto.writeToBuffer());
+
+      expect(trait.primaryFileIdHex, equals(expectedVorbisHex));
+      expect(trait.aacFileIdHex, equals(expectedMp4Hex));
+    });
+
     test('parses pass-through CDN stream when hosted is absent', () {
       const cdnUrl = 'https://audio4-fa.scdn.co/stream/dummy.aac';
 

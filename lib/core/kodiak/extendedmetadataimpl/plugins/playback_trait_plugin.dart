@@ -111,18 +111,27 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
             final fileIdHex = SpotifyHexUtils.formatFileId(file.fileId);
 
             if (fileIdHex.isNotEmpty && fileIdHex.length == 40) {
+              // Format is determined 1:1 by protobuf format tag 2 (exact match with Kotlin MusifyMU),
+              // falling back to averageBitrate if format tag 2 is omitted:
+              final int? explicitFormatCode = file.hasFormat() && file.format != 0 ? file.format : null;
+              final SpotifyAudioFormat? mappedFormat = (explicitFormatCode != null
+                      ? (SpotifyAudioFormat.fromProtobufFormat(explicitFormatCode) ??
+                         SpotifyAudioFormat.fromNumber(explicitFormatCode))
+                      : null) ??
+                  SpotifyAudioFileMapper.mapFromBitrate(file.averageBitrate) ??
+                  (file.averageBitrate == 0 ? SpotifyAudioFormat.fromNumber(formatNumber) : null);
+
+              final resolvedFormatNumber = explicitFormatCode ??
+                  (mappedFormat?.number ?? formatNumber);
+
               audioTracks.add(PlaybackAudioTrack(
-                formatNumber: formatNumber,
+                formatNumber: resolvedFormatNumber,
                 fileIdHex: fileIdHex,
                 reportingUri: reportingUri,
                 averageBitrate: file.averageBitrate,
                 startOffsetMs: startMs,
                 endOffsetMs: endMs,
               ));
-
-              // Format is determined 1:1 by averageBitrate from Spotify streaming infrastructure:
-              final mappedFormat = SpotifyAudioFileMapper.mapFromBitrate(file.averageBitrate) ??
-                  (file.averageBitrate == 0 ? SpotifyAudioFormat.fromNumber(formatNumber) : null);
 
               if (mappedFormat != null) {
                 final mapped = SpotifyAudioFileMapper.fromHex(
@@ -135,7 +144,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
               }
 
               hostedEntries.add((
-                formatNumber: formatNumber,
+                formatNumber: resolvedFormatNumber,
                 fileIdHex: fileIdHex,
                 rawBytes: file.fileId,
                 bitrate: file.averageBitrate,
@@ -229,9 +238,6 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
     } else {
       for (var i = 0; i < hostedEntries.length; i++) {
         final entry = hostedEntries[i];
-        final formatDesc = entry.formatNumber == 1
-            ? 'STEREO'
-            : (entry.formatNumber == 2 ? 'SPATIAL' : 'UNSPECIFIED');
         final firstHex = entry.fileIdHex.length >= 8 ? entry.fileIdHex.substring(0, 8) : entry.fileIdHex;
         final rawStr = entry.rawBytes != null
             ? entry.rawBytes!.take(4).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').toList().toString()
@@ -250,7 +256,7 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
           formatBadge = '';
         }
 
-        sb.writeln('│   [$i] $formatDesc (layout: ${entry.formatNumber}) -> ${entry.mappedFormat?.name ?? "unmapped (HLS master)"}$formatBadge$bitrateDesc');
+        sb.writeln('│   [$i] (code: ${entry.formatNumber}) -> ${entry.mappedFormat?.name ?? "unmapped (HLS master)"}$formatBadge$bitrateDesc');
         sb.writeln('│       First Bytes: $firstHex $rawStr -> Full ID: ${entry.fileIdHex}');
       }
     }
