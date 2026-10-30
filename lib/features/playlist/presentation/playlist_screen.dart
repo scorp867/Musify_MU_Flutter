@@ -1,6 +1,7 @@
 library;
 
 import 'dart:math' as math;
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/di/injection.dart';
@@ -576,10 +577,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                         height: 48,
                         color: const Color(0xFF383838),
                         child: state.playlist.pictureUrl.isNotEmpty
-                            ? Image.network(
-                                state.playlist.pictureUrl,
+                            ? AppNetworkImage(
+                                imageUrl: state.playlist.pictureUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
+                                memCacheWidth: 96,
+                                memCacheHeight: 96,
+                                errorWidget: (context, url, error) => SpotifyIcon.track(
                                   size: 24,
                                   color: const Color(0xFFB3B3B3),
                                 ),
@@ -688,10 +691,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                         height: 48,
                         color: const Color(0xFF383838),
                         child: item.coverUrl.isNotEmpty
-                            ? Image.network(
-                                item.coverUrl,
+                            ? AppNetworkImage(
+                                imageUrl: item.coverUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
+                                memCacheWidth: 96,
+                                memCacheHeight: 96,
+                                errorWidget: (context, url, error) => SpotifyIcon.track(
                                   size: 24,
                                   color: const Color(0xFFB3B3B3),
                                 ),
