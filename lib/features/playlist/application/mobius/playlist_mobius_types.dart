@@ -2,6 +2,7 @@ library;
 
 import 'package:flutter/foundation.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_types.dart';
+import 'package:musify_mu/features/player/domain/commands/options/logging_params.dart';
 import '../../domain/models/playlist_entity.dart';
 import '../../domain/models/playlist_item.dart';
 import '../../domain/models/playlist_screen_state.dart';
@@ -29,7 +30,8 @@ final class PlaylistRetryTappedEvent extends PlaylistEvent {
 
 final class PlaylistPlayTappedEvent extends PlaylistEvent {
   final String? trackUri;
-  const PlaylistPlayTappedEvent({this.trackUri});
+  final LoggingParams? loggingParams;
+  const PlaylistPlayTappedEvent({this.trackUri, this.loggingParams});
 }
 
 final class PlaylistShuffleTappedEvent extends PlaylistEvent {
@@ -97,7 +99,13 @@ final class PlayContextEffect extends PlaylistEffect {
   final String playlistUri;
   final String? trackUri;
   final bool shuffle;
-  const PlayContextEffect(this.playlistUri, {this.trackUri, this.shuffle = false});
+  final LoggingParams? loggingParams;
+  const PlayContextEffect(
+    this.playlistUri, {
+    this.trackUri,
+    this.shuffle = false,
+    this.loggingParams,
+  });
 }
 
 final class PausePlaybackEffect extends PlaylistEffect {
@@ -189,7 +197,7 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
         {SubscribePlaylistEffect(uri, ProvidedSortOrder.custom)},
       );
 
-    case PlaylistPlayTappedEvent(:final trackUri):
+    case PlaylistPlayTappedEvent(:final trackUri, :final loggingParams):
       if (state is PlaylistLoadedState) {
         if (trackUri == null && state.isPlaying) {
           return Next.next(
@@ -210,6 +218,7 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
               state.playlist.uri,
               trackUri: trackUri,
               shuffle: state.isShuffleEnabled,
+              loggingParams: loggingParams,
             ),
           },
         );

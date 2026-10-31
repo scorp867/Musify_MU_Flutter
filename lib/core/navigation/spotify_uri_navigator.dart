@@ -1,6 +1,9 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:musify_mu/app/di/injection.dart';
+import 'package:musify_mu/core/navigation/spotify_navigator.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
 
 /// Centralized Spotify URI navigation router.
@@ -10,6 +13,7 @@ import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
 /// - `p199p/d8l1.java#m37036x`: Canonical Liked Songs / Collection URI validator
 /// - `p199p/veb0.java#mo57935a`: Entity page route dispatcher
 /// - `p199p/gtb0.java#mo27594a`: List entity route binder for `qcb0.COLLECTION_TRACKS`
+/// - `p199p/vgm0.java`: Spotify Navigator contract
 class SpotifyUriNavigator {
   const SpotifyUriNavigator._();
 
@@ -46,15 +50,42 @@ class SpotifyUriNavigator {
     return false;
   }
 
+  static int _lastNavigateTimeMs = 0;
+  static String _lastNavigateUri = '';
+
   /// Opens a Spotify URI within the active nested navigation stack.
   /// Uses [rootNavigator: false] so the screen renders inside the current tab stack,
   /// extending behind the persistent MiniPlayer and bottom navigation bar.
   ///
   /// Returns `true` if the URI was handled by a known route, or `false` otherwise.
   static bool openUri(BuildContext context, String uri) {
+    if (getIt.isRegistered<SpotifyNavigator>()) {
+      return getIt<SpotifyNavigator>().openUri(context, uri);
+    }
+
     if (uri.isEmpty) return false;
 
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_lastNavigateUri == uri && (now - _lastNavigateTimeMs) < 600) {
+      return false;
+    }
+    _lastNavigateTimeMs = now;
+    _lastNavigateUri = uri;
+
     if (isPlaylistUri(uri)) {
+      try {
+        if (getIt.isRegistered<UbiLogger>()) {
+          final ubiLogger = getIt<UbiLogger>();
+          ubiLogger.logInteraction(
+            UbiInteractionElement(
+              elementPath: 'link_dispatcher',
+              uri: uri,
+              actionName: 'navigate',
+            ),
+          );
+        }
+      } catch (_) {}
+
       Navigator.of(context, rootNavigator: false).push(
         MaterialPageRoute<void>(
           builder: (_) => PlaylistScreen(playlistUri: uri),

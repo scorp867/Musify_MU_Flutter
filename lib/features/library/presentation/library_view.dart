@@ -1,3 +1,4 @@
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -5,6 +6,9 @@ import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
@@ -32,6 +36,32 @@ enum LibraryFilter { all, playlists, podcasts, artists }
 
 class _LibraryViewState extends State<LibraryView> {
   LibraryFilter _activeFilter = LibraryFilter.all;
+  late PageInstanceId _pageInstanceId;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    if (widget.isActive) {
+      _activateUbiPage();
+    }
+  }
+
+  void _activateUbiPage() {
+    if (getIt.isRegistered<PageInstanceIdHolder>()) {
+      getIt<PageInstanceIdHolder>().update(_pageInstanceId);
+    }
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        getIt<UbiLogger>().logImpression(
+          const UbiImpressionElement(
+            elementPath: 'your_library_screen',
+            uri: 'spotify:yourlibrary',
+          ),
+        );
+      }
+    } catch (_) {}
+  }
 
   @override
   void didUpdateWidget(LibraryView oldWidget) {
@@ -40,6 +70,8 @@ class _LibraryViewState extends State<LibraryView> {
       AppSnackBar.clear(context);
       context.read<LibraryBloc>().add(const LibraryCancelRequested());
     } else if (!oldWidget.isActive && widget.isActive) {
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+      _activateUbiPage();
       final bloc = context.read<LibraryBloc>();
       if (bloc.state is LibraryLoading) {
         bloc.add(const LibraryLoadRequested());
@@ -79,76 +111,76 @@ class _LibraryViewState extends State<LibraryView> {
       },
       child: BlocBuilder<LibraryBloc, LibraryState>(
         builder: (context, state) {
-        final itemCount = switch (state) {
-          LibraryLoaded(:final data) => _filterItems(data).length,
-          LibraryError(:final staleData) =>
-            staleData != null ? _filterItems(staleData).length : 0,
-          _ => 0,
-        };
+          final itemCount = switch (state) {
+            LibraryLoaded(:final data) => _filterItems(data).length,
+            LibraryError(:final staleData) =>
+              staleData != null ? _filterItems(staleData).length : 0,
+            _ => 0,
+          };
 
-        return RefreshIndicator(
-          color: const Color(0xFF1DB954),
-          backgroundColor: const Color(0xFF282828),
-          onRefresh: () async {
-            final bloc = context.read<LibraryBloc>();
-            bloc.add(const LibraryRefreshRequested());
-            try {
-              await bloc.stream
-                  .firstWhere(
-                    (s) =>
-                        (s is LibraryLoaded && !s.isRefreshing) ||
-                        s is LibraryError,
-                  )
-                  .timeout(const Duration(seconds: 8));
-            } catch (_) {}
-          },
-          child: CustomScrollView(
-            slivers: [
-              // Header (floating)
-              SliverAppBar(
-                floating: true,
-                snap: true,
-                pinned: false,
-                backgroundColor: const Color(0xFF121212),
-                surfaceTintColor: Colors.transparent,
-                elevation: 0,
-                scrolledUnderElevation: 0,
-                toolbarHeight: 72,
-                titleSpacing: 0,
-                automaticallyImplyLeading: false,
-                title: _LibraryHeader(
-                  onMenuPressed: widget.onMenuPressed,
-                  onToggleMode: widget.onToggleMode,
-                ),
-              ),
-
-              // Filter chips (pinned)
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: StickyHeaderDelegate(
-                  height: 48,
-                  child: _FilterChipRow(
-                    active: _activeFilter,
-                    onChanged: (filter) =>
-                        setState(() => _activeFilter = filter),
+          return RefreshIndicator(
+            color: const Color(0xFF1DB954),
+            backgroundColor: const Color(0xFF282828),
+            onRefresh: () async {
+              final bloc = context.read<LibraryBloc>();
+              bloc.add(const LibraryRefreshRequested());
+              try {
+                await bloc.stream
+                    .firstWhere(
+                      (s) =>
+                          (s is LibraryLoaded && !s.isRefreshing) ||
+                          s is LibraryError,
+                    )
+                    .timeout(const Duration(seconds: 8));
+              } catch (_) {}
+            },
+            child: CustomScrollView(
+              slivers: [
+                // Header (floating)
+                SliverAppBar(
+                  floating: true,
+                  snap: true,
+                  pinned: false,
+                  backgroundColor: const Color(0xFF121212),
+                  surfaceTintColor: Colors.transparent,
+                  elevation: 0,
+                  scrolledUnderElevation: 0,
+                  toolbarHeight: 72,
+                  titleSpacing: 0,
+                  automaticallyImplyLeading: false,
+                  title: _LibraryHeader(
+                    onMenuPressed: widget.onMenuPressed,
+                    onToggleMode: widget.onToggleMode,
                   ),
                 ),
-              ),
 
-              // Sort bar
-              SliverToBoxAdapter(
-                child: _SortBar(itemCount: itemCount),
-              ),
+                // Filter chips (pinned)
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: StickyHeaderDelegate(
+                    height: 48,
+                    child: _FilterChipRow(
+                      active: _activeFilter,
+                      onChanged: (filter) =>
+                          setState(() => _activeFilter = filter),
+                    ),
+                  ),
+                ),
 
-              // Body content
-              ..._buildBodySlivers(context, state),
-            ],
-          ),
-        );
-      },
-    ),
-  );
-}
+                // Sort bar
+                SliverToBoxAdapter(
+                  child: _SortBar(itemCount: itemCount),
+                ),
+
+                // Body content
+                ..._buildBodySlivers(context, state),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   List<Widget> _buildBodySlivers(BuildContext context, LibraryState state) {
     return switch (state) {

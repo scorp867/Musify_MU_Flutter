@@ -8,6 +8,11 @@ import '../../application/queue/player_queue_bloc.dart';
 import '../../data/queue/context_track_extensions.dart';
 import '../../domain/models/context_track.dart';
 import 'player_artwork.dart';
+import '../../../../core/ubi/domain/logging/ubi_logger.dart';
+import '../../../../core/ubi/domain/models/page_instance_id.dart';
+import '../../../../core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import '../../../player/data/logging/player_logging_params_factory.dart';
+import '../../../player/domain/commands/options/logging_params.dart';
 
 /// A sleek Spotify-authentic miniplayer featuring dynamic artwork palette extraction,
 /// playback controls, swipe gestures, and a bottom progress bar.
@@ -52,10 +57,46 @@ class _MiniPlayerState extends State<MiniPlayer> {
   bool _isFavorite = false;
   late bool _isPlaying;
   String? _lastExtractedKey;
+  late final PageInstanceId _pageInstanceId;
+
+  LoggingParams? _logMiniPlayerInteraction(String elementPath, [String actionName = 'hit']) {
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        final ubiLogger = getIt<UbiLogger>();
+        final result = ubiLogger.logInteraction(
+          UbiInteractionElement(
+            elementPath: elementPath,
+            actionName: actionName,
+          ),
+        );
+        if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
+          final factory = getIt<PlayerLoggingParamsFactory>();
+          return factory.createFromInteractionResult(result);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  PageInstanceId get pageInstanceId => _pageInstanceId;
 
   @override
   void initState() {
     super.initState();
+    final holder = getIt<PageInstanceIdHolder>();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    holder.update(_pageInstanceId);
+
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        final ubiLogger = getIt<UbiLogger>();
+        ubiLogger.logImpression(
+          const UbiImpressionElement(
+            elementPath: 'mini_player',
+          ),
+        );
+      }
+    } catch (_) {}
     _isPlaying = widget.isPlaying;
     final initialSongId = widget.queueBloc?.state.songId ?? widget.currentTrack?.songId ?? widget.songId;
     final initialImageUrl = widget.queueBloc?.state.imageUrl ?? widget.currentTrack?.imageUrl ?? widget.imageUrl;
@@ -161,6 +202,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
+          _logMiniPlayerInteraction('now_playing_bar', 'ui_navigate');
           if (widget.onTap != null) {
             widget.onTap!();
           } else {
@@ -178,16 +220,18 @@ class _MiniPlayerState extends State<MiniPlayer> {
         onHorizontalDragEnd: (details) {
           final velocity = details.primaryVelocity ?? 0;
           if (velocity < -250) {
+            final lp = _logMiniPlayerInteraction('swipe_skip_next', 'swipe');
             if (widget.onNext != null) {
               widget.onNext!();
             } else {
-              widget.queueBloc?.add(const SkipToNextTrack());
+              widget.queueBloc?.add(SkipToNextTrack(loggingParams: lp));
             }
           } else if (velocity > 250) {
+            final lp = _logMiniPlayerInteraction('swipe_skip_prev', 'swipe');
             if (widget.onPrevious != null) {
               widget.onPrevious!();
             } else {
-              widget.queueBloc?.add(const SkipToPrevTrack());
+              widget.queueBloc?.add(SkipToPrevTrack(loggingParams: lp));
             }
           }
         },
@@ -292,10 +336,11 @@ class _MiniPlayerState extends State<MiniPlayer> {
                         setState(() {
                           _isPlaying = !_isPlaying;
                         });
+                        final lp = _logMiniPlayerInteraction('play_pause_button', 'hit');
                         if (widget.onPlayPause != null) {
                           widget.onPlayPause!();
                         } else if (widget.queueBloc != null) {
-                          widget.queueBloc!.add(const TogglePlayPause());
+                          widget.queueBloc!.add(TogglePlayPause(loggingParams: lp));
                         }
                       },
                     ),

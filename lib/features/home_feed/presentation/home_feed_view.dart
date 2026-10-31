@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/features/home/presentation/widgets/home_header.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
@@ -34,6 +38,33 @@ class _HomeFeedViewState extends State<HomeFeedView> {
     HomeChip(id: 'podcasts', label: 'Podcasts'),
   ];
 
+  late PageInstanceId _pageInstanceId;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    if (widget.isActive) {
+      _activateUbiPage();
+    }
+  }
+
+  void _activateUbiPage() {
+    if (getIt.isRegistered<PageInstanceIdHolder>()) {
+      getIt<PageInstanceIdHolder>().update(_pageInstanceId);
+    }
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        getIt<UbiLogger>().logImpression(
+          const UbiImpressionElement(
+            elementPath: 'home_feed_screen',
+            uri: 'spotify:home',
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
   @override
   void didUpdateWidget(HomeFeedView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -41,6 +72,8 @@ class _HomeFeedViewState extends State<HomeFeedView> {
       AppSnackBar.clear(context);
       context.read<HomeFeedBloc>().add(const HomeFeedCancelRequested());
     } else if (!oldWidget.isActive && widget.isActive) {
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+      _activateUbiPage();
       final bloc = context.read<HomeFeedBloc>();
       if (bloc.state is HomeFeedLoading) {
         bloc.add(const HomeFeedLoadRequested());
@@ -68,64 +101,64 @@ class _HomeFeedViewState extends State<HomeFeedView> {
       child: BlocBuilder<HomeFeedBloc, HomeFeedState>(
         builder: (context, state) {
           final List<HomeChip> chips = switch (state) {
-          HomeFeedLoaded(:final data) =>
-            data.chips.isNotEmpty ? data.chips : _defaultChips,
-          _ => _defaultChips,
-        };
+            HomeFeedLoaded(:final data) =>
+              data.chips.isNotEmpty ? data.chips : _defaultChips,
+            _ => _defaultChips,
+          };
 
-        return RefreshIndicator(
-          color: const Color(0xFF1DB954),
-          backgroundColor: const Color(0xFF282828),
-          onRefresh: () async {
-            final bloc = context.read<HomeFeedBloc>();
-            bloc.add(const HomeFeedRefreshRequested());
-            try {
-              await bloc.stream
-                  .firstWhere(
-                    (s) =>
-                        (s is HomeFeedLoaded && !s.isRefreshing) ||
-                        s is HomeFeedError,
-                  )
-                  .timeout(const Duration(seconds: 8));
-            } catch (_) {}
-          },
-          child: CustomScrollView(
-            slivers: [
-              // Title row (floating -- reappears on any downward scroll)
-              if (widget.headerTitleRow != null)
-                SliverAppBar(
-                  floating: true,
-                  snap: true,
-                  pinned: false,
-                  backgroundColor: const Color(0xFF121212),
-                  surfaceTintColor: Colors.transparent,
-                  elevation: 0,
-                  scrolledUnderElevation: 0,
-                  toolbarHeight: 72,
-                  titleSpacing: 0,
-                  automaticallyImplyLeading: false,
-                  title: widget.headerTitleRow,
-                ),
-
-              // Filter chips (pinned -- stays visible when scrolling)
-              if (widget.headerTitleRow != null)
-                SliverPersistentHeader(
-                  pinned: true,
-                  delegate: StickyHeaderDelegate(
-                    height: 40,
-                    child: HomeFilterChips(chips: chips),
+          return RefreshIndicator(
+            color: const Color(0xFF1DB954),
+            backgroundColor: const Color(0xFF282828),
+            onRefresh: () async {
+              final bloc = context.read<HomeFeedBloc>();
+              bloc.add(const HomeFeedRefreshRequested());
+              try {
+                await bloc.stream
+                    .firstWhere(
+                      (s) =>
+                          (s is HomeFeedLoaded && !s.isRefreshing) ||
+                          s is HomeFeedError,
+                    )
+                    .timeout(const Duration(seconds: 8));
+              } catch (_) {}
+            },
+            child: CustomScrollView(
+              slivers: [
+                // Title row (floating -- reappears on any downward scroll)
+                if (widget.headerTitleRow != null)
+                  SliverAppBar(
+                    floating: true,
+                    snap: true,
+                    pinned: false,
+                    backgroundColor: const Color(0xFF121212),
+                    surfaceTintColor: Colors.transparent,
+                    elevation: 0,
+                    scrolledUnderElevation: 0,
+                    toolbarHeight: 72,
+                    titleSpacing: 0,
+                    automaticallyImplyLeading: false,
+                    title: widget.headerTitleRow,
                   ),
-                ),
 
-              // Body content
-              ..._buildBodySlivers(context, state),
-            ],
-          ),
-        );
-      },
-    ),
-  );
-}
+                // Filter chips (pinned -- stays visible when scrolling)
+                if (widget.headerTitleRow != null)
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: StickyHeaderDelegate(
+                      height: 40,
+                      child: HomeFilterChips(chips: chips),
+                    ),
+                  ),
+
+                // Body content
+                ..._buildBodySlivers(context, state),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   List<Widget> _buildBodySlivers(BuildContext context, HomeFeedState state) {
     return switch (state) {

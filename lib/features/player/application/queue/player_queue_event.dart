@@ -1,4 +1,5 @@
 import '../../data/queue/queue_add_handler.dart';
+import '../../domain/commands/options/logging_params.dart';
 import '../../domain/commands/options/prepare_play_options.dart';
 import '../../domain/commands/set_sleep_timer_command.dart';
 import '../../domain/commands/signal_command.dart';
@@ -88,12 +89,14 @@ class ClearQueue extends PlayerQueueEvent {
 
 /// Toggle shuffling context
 class ToggleShuffle extends PlayerQueueEvent {
-  const ToggleShuffle();
+  final LoggingParams? loggingParams;
+  const ToggleShuffle({this.loggingParams});
 }
 
 /// Cycle through repeat modes: none -> context -> track -> none
 class ToggleRepeat extends PlayerQueueEvent {
-  const ToggleRepeat();
+  final LoggingParams? loggingParams;
+  const ToggleRepeat({this.loggingParams});
 }
 
 /// Play a specific track from the queue
@@ -104,23 +107,27 @@ class PlayTrackFromQueue extends PlayerQueueEvent {
 
 /// Toggle play/pause state
 class TogglePlayPause extends PlayerQueueEvent {
-  const TogglePlayPause();
+  final LoggingParams? loggingParams;
+  const TogglePlayPause({this.loggingParams});
 }
 
 /// Skip to next track
 class SkipToNextTrack extends PlayerQueueEvent {
-  const SkipToNextTrack();
+  final LoggingParams? loggingParams;
+  const SkipToNextTrack({this.loggingParams});
 }
 
 /// Skip to previous track
 class SkipToPrevTrack extends PlayerQueueEvent {
-  const SkipToPrevTrack();
+  final LoggingParams? loggingParams;
+  const SkipToPrevTrack({this.loggingParams});
 }
 
 /// Seek playback to an exact position in milliseconds
 class SeekToTrackPosition extends PlayerQueueEvent {
   final int positionMs;
-  const SeekToTrackPosition(this.positionMs);
+  final LoggingParams? loggingParams;
+  const SeekToTrackPosition(this.positionMs, {this.loggingParams});
 }
 
 /// Stop playback immediately

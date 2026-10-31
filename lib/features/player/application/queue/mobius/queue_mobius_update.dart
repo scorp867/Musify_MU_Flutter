@@ -140,7 +140,7 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
         queue: updatedQueue,
       ),
       {
-        ToggleShuffleEffect(nextShuffle),
+        ToggleShuffleEffect(nextShuffle, loggingParams: event.loggingParams),
         if (nextShuffle)
           SetQueueTracksEffect(nextTracks: updatedQueue.nextTracks),
       },
@@ -182,6 +182,7 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
         ToggleRepeatEffect(
           nextRepeatContext: nextRepeatContext,
           nextRepeatTrack: nextRepeatTrack,
+          loggingParams: event.loggingParams,
         )
       },
     );
@@ -196,16 +197,16 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
 
     return Next.next(
       model.copyWith(playerState: updatedPs),
-      {PlayPauseEffect(model.isPlaying)},
+      {PlayPauseEffect(model.isPlaying, loggingParams: event.loggingParams)},
     );
   }
 
   if (event is SkipToNextTrack) {
-    return Next.dispatch({const SkipNextEffect()});
+    return Next.dispatch({SkipNextEffect(loggingParams: event.loggingParams)});
   }
 
   if (event is SkipToPrevTrack) {
-    return Next.dispatch({const SkipPrevEffect()});
+    return Next.dispatch({SkipPrevEffect(loggingParams: event.loggingParams)});
   }
 
   if (event is PlayTrackFromQueue) {
@@ -220,7 +221,7 @@ Next<PlayerQueueState, QueueEffect> queueMobiusUpdate(
 
     return Next.next(
       model.copyWith(playerState: updatedPs),
-      {SeekToEffect(event.positionMs)},
+      {SeekToEffect(event.positionMs, loggingParams: event.loggingParams)},
     );
   }
 

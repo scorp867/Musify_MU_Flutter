@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
@@ -8,6 +9,8 @@ import 'package:musify_mu/core/ui/animations/mode_transition.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/auth_gated_bloc_provider.dart';
 import 'package:musify_mu/core/ui/widgets/connect_spotify_prompt.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/bottom_tab_ubi_elements.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
 import 'package:musify_mu/features/browse/presentation/offline_browse_view.dart';
@@ -297,11 +300,32 @@ class _MainScreenState extends State<MainScreen> {
                       currentIndex: _currentIndex,
                       isNetworkBarVisible: isNetworkVisible,
                       onTap: (index) {
+                        final ubiLogger = getIt.isRegistered<UbiLogger>()
+                            ? getIt<UbiLogger>()
+                            : null;
                         if (_currentIndex == index) {
+                          if (ubiLogger != null) {
+                            final element = switch (index) {
+                              0 => const HomeTabUbiElement.quickScroll(),
+                              1 => const SearchTabUbiElement.quickScroll(),
+                              2 => const YourLibraryTabUbiElement.quickScroll(),
+                              _ => const TabBarUbiElement(actionName: 'quick_scroll'),
+                            };
+                            ubiLogger.logInteraction(element);
+                          }
                           _navigatorKeys[index]
                               .currentState
                               ?.popUntil((route) => route.isFirst);
                         } else {
+                          if (ubiLogger != null) {
+                            final element = switch (index) {
+                              0 => const HomeTabUbiElement.navigate(),
+                              1 => const SearchTabUbiElement.navigate(),
+                              2 => const YourLibraryTabUbiElement.navigate(),
+                              _ => const TabBarUbiElement(actionName: 'ui_navigate'),
+                            };
+                            ubiLogger.logInteraction(element);
+                          }
                           setState(() {
                             _currentIndex = index;
                             _visitedTabs.add(index);

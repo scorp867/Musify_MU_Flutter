@@ -25,6 +25,11 @@ import '../widgets/player_theme.dart';
 import '../widgets/pull_to_dismiss_scaffold.dart';
 import '../widgets/queue_controls_layout.dart';
 import 'queue_sheet_screen.dart';
+import '../../../../core/ubi/domain/logging/ubi_logger.dart';
+import '../../../../core/ubi/domain/models/page_instance_id.dart';
+import '../../../../core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import '../../../player/data/logging/player_logging_params_factory.dart';
+import '../../../player/domain/commands/options/logging_params.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String title;
@@ -135,6 +140,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   QueueRepeatMode _repeatMode = QueueRepeatMode.none;
 
   Timer? _positionTimer;
+  late final PageInstanceId _pageInstanceId;
+
+  PageInstanceId get pageInstanceId => _pageInstanceId;
 
   static const Color _topGradientColor = Color(0xFF1E3264);
 
@@ -150,9 +158,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
       widget.queueBloc ??
       (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
 
+  LoggingParams? _logPlayerInteraction(String elementPath, [String actionName = 'hit']) {
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        final ubiLogger = getIt<UbiLogger>();
+        final result = ubiLogger.logInteraction(
+          UbiInteractionElement(
+            elementPath: elementPath,
+            actionName: actionName,
+          ),
+        );
+        if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
+          final factory = getIt<PlayerLoggingParamsFactory>();
+          return factory.createFromInteractionResult(result);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
+    final holder = getIt<PageInstanceIdHolder>();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    holder.update(_pageInstanceId);
+
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        final ubiLogger = getIt<UbiLogger>();
+        ubiLogger.logImpression(
+          const UbiImpressionElement(
+            elementPath: 'now_playing_screen',
+          ),
+        );
+      }
+    } catch (_) {}
     _positionNotifier = ValueNotifier<Duration>(Duration.zero);
 
     _scrollBloc = getIt<NowPlayingScrollBloc>();
@@ -542,18 +583,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _handleSeek(Duration pos) {
     _dragNotifier.value = null;
+    final lp = _logPlayerInteraction('seek_bar', 'drag');
     final bloc = _effectiveBloc;
     if (bloc != null) {
-      bloc.add(SeekToTrackPosition(pos.inMilliseconds));
+      bloc.add(SeekToTrackPosition(pos.inMilliseconds, loggingParams: lp));
     } else {
       _positionNotifier.value = pos;
     }
   }
 
   void _handlePlayPause() {
+    final lp = _logPlayerInteraction('play_pause_button');
     final bloc = _effectiveBloc;
     if (bloc != null) {
-      bloc.add(const PlayerQueueTogglePlayPause());
+      bloc.add(TogglePlayPause(loggingParams: lp));
     } else {
       setState(() {
         _isPlaying = !_isPlaying;
@@ -563,9 +606,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleShuffle() {
+    final lp = _logPlayerInteraction('shuffle_button');
     final bloc = _effectiveBloc;
     if (bloc != null) {
-      bloc.add(const PlayerQueueToggleShuffle());
+      bloc.add(ToggleShuffle(loggingParams: lp));
     } else {
       setState(() {
         _shuffleMode = _shuffleMode == QueueShuffleMode.all
@@ -576,9 +620,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleRepeat() {
+    final lp = _logPlayerInteraction('repeat_button');
     final bloc = _effectiveBloc;
     if (bloc != null) {
-      bloc.add(const PlayerQueueCycleRepeat());
+      bloc.add(ToggleRepeat(loggingParams: lp));
     } else {
       setState(() {
         if (_repeatMode == QueueRepeatMode.none) {
@@ -593,11 +638,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleNext() {
-    _effectiveBloc?.add(const PlayerQueueSkipNext());
+    final lp = _logPlayerInteraction('skip_next_button');
+    _effectiveBloc?.add(SkipToNextTrack(loggingParams: lp));
   }
 
   void _handlePrevious() {
-    _effectiveBloc?.add(const PlayerQueueSkipPrevious());
+    final lp = _logPlayerInteraction('skip_previous_button');
+    _effectiveBloc?.add(SkipToPrevTrack(loggingParams: lp));
   }
 
   void _onExpandLyrics() {
@@ -617,6 +664,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     QueueShuffleMode? shuffleVal,
     QueueRepeatMode? repeatVal,
   }) {
+    _logPlayerInteraction('queue_button', 'hit');
     QueueSheetScreen.show(
       context,
       bloc: _effectiveBloc,

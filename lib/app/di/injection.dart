@@ -16,6 +16,13 @@ import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/core/network/status/network_monitor_service.dart';
 import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
 import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/data/logging/ubi_logger_impl.dart';
+import 'package:musify_mu/core/ubi/data/factory/ubi_event_metadata_factory.dart';
+import 'package:musify_mu/core/ubi/domain/providers/page_instance_id_provider.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import 'package:musify_mu/features/player/data/logging/player_logging_params_factory.dart';
+import 'package:musify_mu/features/playlist/data/coordinator/playlist_play_coordinator.dart';
 import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
@@ -75,6 +82,8 @@ import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dar
 import 'package:musify_mu/features/playlist/data/decorator/playlist_kodiak_decorator.dart';
 import 'package:musify_mu/features/playlist/data/repositories/playlist_repository_impl.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
+import 'package:musify_mu/core/navigation/spotify_navigator.dart';
+import 'package:musify_mu/core/navigation/spotify_navigator_impl.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -450,6 +459,34 @@ Future<void> setupInjection() async {
           : null,
       kodiakDecorator: getIt<PlaylistKodiakDecorator>(),
       currentUsername: '',
+    ),
+  );
+
+  // --- UBI & Telemetry Subsystem ---
+  final pageInstanceIdHolder = PageInstanceIdHolder();
+  getIt.registerSingleton<PageInstanceIdHolder>(pageInstanceIdHolder);
+  getIt.registerLazySingleton<PageInstanceIdProvider>(
+    () => getIt<PageInstanceIdHolder>(),
+  );
+  getIt.registerLazySingleton<UbiEventMetadataFactory>(
+    () => UbiEventMetadataFactory(getIt<PageInstanceIdProvider>()),
+  );
+  getIt.registerLazySingleton<UbiLogger>(
+    () => UbiLoggerImpl(
+      metadataFactory: getIt<UbiEventMetadataFactory>(),
+      pageInstanceIdProvider: getIt<PageInstanceIdProvider>(),
+    ),
+  );
+  getIt.registerLazySingleton<PlayerLoggingParamsFactory>(
+    () => PlayerLoggingParamsFactory(getIt<PageInstanceIdProvider>()),
+  );
+  getIt.registerLazySingleton<PlaylistPlayCoordinator>(
+    () => PlaylistPlayCoordinator(getIt<PageInstanceIdProvider>()),
+  );
+  getIt.registerLazySingleton<SpotifyNavigator>(
+    () => SpotifyNavigatorImpl(
+      ubiLogger: getIt<UbiLogger>(),
+      pageInstanceIdHolder: getIt<PageInstanceIdHolder>(),
     ),
   );
 }

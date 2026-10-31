@@ -228,10 +228,22 @@ class NativeEsperantoTransport implements EsperantoTransport {
     String contextUri = '';
     Map<String, String> contextMetadata = {};
 
+    String? interactionId;
+    String? pageInstanceId;
+
     if (payload.isNotEmpty) {
       // 1. Try Protobuf decoding
       try {
         final req = proto.PlayRequest.fromBuffer(payload);
+        if (req.hasLoggingParams()) {
+          final lp = req.loggingParams;
+          if (lp.interactionIds.isNotEmpty) {
+            interactionId = lp.interactionIds.first;
+          }
+          if (lp.pageInstanceIds.isNotEmpty) {
+            pageInstanceId = lp.pageInstanceIds.first;
+          }
+        }
         if (req.hasPreparePlayRequest()) {
           final prep = req.preparePlayRequest;
           if (prep.hasContext()) {
@@ -340,6 +352,21 @@ class NativeEsperantoTransport implements EsperantoTransport {
               }
             }
           }
+          if (json.containsKey('logging_params')) {
+            final lp = json['logging_params'];
+            if (lp is Map) {
+              if (lp['interaction_ids'] is List && (lp['interaction_ids'] as List).isNotEmpty) {
+                interactionId = (lp['interaction_ids'] as List).first?.toString();
+              } else if (lp['interaction_id'] is String) {
+                interactionId = lp['interaction_id'] as String;
+              }
+              if (lp['page_instance_ids'] is List && (lp['page_instance_ids'] as List).isNotEmpty) {
+                pageInstanceId = (lp['page_instance_ids'] as List).first?.toString();
+              } else if (lp['page_instance_id'] is String) {
+                pageInstanceId = lp['page_instance_id'] as String;
+              }
+            }
+          }
         } catch (_) {}
       }
     }
@@ -434,6 +461,17 @@ class NativeEsperantoTransport implements EsperantoTransport {
     trackToPlay ??= _currentQueue.track;
 
     if (trackToPlay != null) {
+      if ((interactionId != null && interactionId.isNotEmpty) ||
+          (pageInstanceId != null && pageInstanceId.isNotEmpty)) {
+        final updatedMeta = Map<String, String>.from(trackToPlay.metadata);
+        if (interactionId != null && interactionId.isNotEmpty) {
+          updatedMeta[ContextTrackMetadata.keyInteractionId] = interactionId;
+        }
+        if (pageInstanceId != null && pageInstanceId.isNotEmpty) {
+          updatedMeta[ContextTrackMetadata.keyPageInstanceId] = pageInstanceId;
+        }
+        trackToPlay = trackToPlay.toBuilder().metadata(updatedMeta).build();
+      }
       await _playTrack(trackToPlay);
     }
 
@@ -1606,15 +1644,37 @@ class NativeEsperantoTransport implements EsperantoTransport {
     if (payload.isNotEmpty) {
       try {
         final json = jsonDecode(utf8.decode(payload)) as Map<String, dynamic>;
+        String? interactionId;
+        String? pageInstanceId;
+        if (json.containsKey('logging_params')) {
+          final lp = json['logging_params'];
+          if (lp is Map) {
+            if (lp['interaction_ids'] is List && (lp['interaction_ids'] as List).isNotEmpty) {
+              interactionId = (lp['interaction_ids'] as List).first?.toString();
+            } else if (lp['interaction_id'] is String) {
+              interactionId = lp['interaction_id'] as String;
+            }
+            if (lp['page_instance_ids'] is List && (lp['page_instance_ids'] as List).isNotEmpty) {
+              pageInstanceId = (lp['page_instance_ids'] as List).first?.toString();
+            } else if (lp['page_instance_id'] is String) {
+              pageInstanceId = lp['page_instance_id'] as String;
+            }
+          }
+        }
         if (json.containsKey('tracks')) {
           final tracksList = json['tracks'] as List;
           final newTracks = tracksList
               .map((t) => QueueProtoMappers.providedTrackToContextTrack(
                   t as Map<String, dynamic>))
               .map((track) {
-                if (track.isQueued) return track;
                 final meta = Map<String, String>.from(track.metadata);
                 meta[ContextTrackMetadata.keyIsQueued] = 'true';
+                if (interactionId != null && interactionId.isNotEmpty) {
+                  meta[ContextTrackMetadata.keyInteractionId] = interactionId;
+                }
+                if (pageInstanceId != null && pageInstanceId.isNotEmpty) {
+                  meta[ContextTrackMetadata.keyPageInstanceId] = pageInstanceId;
+                }
                 return track.toBuilder().metadata(meta).build();
               })
               .toList();

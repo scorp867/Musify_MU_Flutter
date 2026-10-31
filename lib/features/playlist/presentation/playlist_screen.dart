@@ -8,6 +8,10 @@ import '../../../core/color/color_extraction_service.dart';
 import '../../../core/color/eased_gradient.dart';
 import '../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../../core/ui/widgets/shell_bottom_spacer.dart';
+import '../../../core/navigation/spotify_navigator.dart';
+import '../../../core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import '../../../core/ubi/domain/logging/ubi_logger.dart';
+import '../../../core/ubi/domain/models/page_instance_id.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
@@ -16,6 +20,7 @@ import '../../../features/player/domain/models/context_track.dart';
 import '../../player/presentation/widgets/spotify_scroll_physics.dart';
 import '../application/mobius/playlist_effect_handler.dart';
 import '../application/mobius/playlist_mobius_loop.dart';
+import '../data/coordinator/playlist_play_coordinator.dart';
 import '../domain/models/playlist_item.dart';
 import '../domain/models/playlist_screen_state.dart';
 import '../domain/repositories/playlist_repository.dart';
@@ -59,6 +64,7 @@ class PlaylistScreen extends StatefulWidget {
 
 class _PlaylistScreenState extends State<PlaylistScreen>
     with TickerProviderStateMixin {
+  late final PageInstanceId _pageInstanceId;
   late final PlaylistMobiusLoop _loop;
   late final ScrollController _scrollController;
   late final ValueNotifier<double> _scrollOffsetNotifier;
@@ -88,6 +94,22 @@ class _PlaylistScreenState extends State<PlaylistScreen>
     final optionsClient = getIt<ContextPlayerOptionsClient>();
     final controlClient = getIt<ContextPlayerControlClient>();
     final stateClient = getIt<ContextPlayerStateClient>();
+
+    final pageInstanceHolder = getIt<PageInstanceIdHolder>();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    pageInstanceHolder.update(_pageInstanceId);
+
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        final ubiLogger = getIt<UbiLogger>();
+        ubiLogger.logImpression(
+          UbiImpressionElement(
+            elementPath: 'playlist_screen',
+            uri: widget.playlistUri,
+          ),
+        );
+      }
+    } catch (_) {}
 
     final effectHandler = PlaylistMobiusEffectHandler(
       repository: repo,
@@ -135,8 +157,47 @@ class _PlaylistScreenState extends State<PlaylistScreen>
     } catch (_) {}
   }
 
-  void _handleSwipeToQueue(PlaylistItem item) {
+  void _handlePlayFabTapped() {
+    final ubiLogger = getIt<UbiLogger>();
+    final coordinator = getIt<PlaylistPlayCoordinator>();
+    final result = ubiLogger.logInteraction(
+      const UbiInteractionElement(
+        elementPath: 'play_button',
+        actionName: 'hit',
+      ),
+    );
+    final loggingParams = coordinator.buildLoggingParams(result);
+    _loop.onPlayTapped(loggingParams: loggingParams);
+  }
+
+  void _handleTrackTapped(PlaylistItem item, int position) {
+    final ubiLogger = getIt<UbiLogger>();
+    final coordinator = getIt<PlaylistPlayCoordinator>();
+    final result = ubiLogger.logInteraction(
+      UbiInteractionElement(
+        elementPath: 'track_row',
+        uri: item.uri,
+        position: position,
+        actionName: 'hit',
+      ),
+    );
+    final loggingParams = coordinator.buildLoggingParams(result);
+    _loop.onPlayTapped(trackUri: item.uri, loggingParams: loggingParams);
+  }
+
+  void _handleSwipeToQueue(PlaylistItem item, [int position = 0]) {
     try {
+      final ubiLogger = getIt<UbiLogger>();
+      final coordinator = getIt<PlaylistPlayCoordinator>();
+      final result = ubiLogger.logInteraction(
+        UbiInteractionElement(
+          elementPath: 'swipe_to_queue',
+          uri: item.uri,
+          position: position,
+          actionName: 'swipe',
+        ),
+      );
+      final loggingParams = coordinator.buildLoggingParams(result);
       final controlClient = getIt<ContextPlayerControlClient>();
       final queuedTrack = ContextTrack.builder(item.uri)
           .uid(item.uid.isNotEmpty ? item.uid : item.uri)
@@ -152,6 +213,8 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             ContextTrackMetadata.keyEntityUri: item.uri,
             ContextTrackMetadata.keyContextUri: widget.playlistUri,
             ContextTrackMetadata.keyIsQueued: 'true',
+            ContextTrackMetadata.keyInteractionId: result.interactionId.value,
+            ContextTrackMetadata.keyPageInstanceId: _pageInstanceId.value,
             if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
               ContextTrackMetadata.keyFileId: meta.fileId,
             if (item.trackMetadata case final meta? when meta.aacFileId.isNotEmpty)
@@ -163,9 +226,11 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           })
           .build();
 
-      controlClient.playAsNextInQueue(
-        PlayAsNextInQueueCommand.create([queuedTrack]),
-      );
+      final command = PlayAsNextInQueueCommand.builder([queuedTrack])
+          .loggingParams(loggingParams)
+          .build();
+
+      controlClient.playAsNextInQueue(command);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -433,7 +498,13 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 searchController: _searchController,
                 searchFocusNode: _searchFocusNode,
                 onSearchChanged: _loop.onSearchChanged,
-                onBackTapped: () => Navigator.maybePop(context),
+                onBackTapped: () {
+                  if (getIt.isRegistered<SpotifyNavigator>()) {
+                    getIt<SpotifyNavigator>().goBack(context);
+                  } else {
+                    Navigator.maybePop(context);
+                  }
+                },
                 onSearchTapped: () {
                   setState(() {
                     _isSearchActive = true;
@@ -466,7 +537,7 @@ class _PlaylistScreenState extends State<PlaylistScreen>
               child: PlaylistPlayFab(
                 isPlaying: state.isPlaying,
                 isShuffleEnabled: state.isShuffleEnabled,
-                onPlayTapped: () => _loop.onPlayTapped(),
+                onPlayTapped: _handlePlayFabTapped,
               ),
             );
           },
@@ -491,9 +562,9 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 item: item,
                 isActiveTrack: isCurrent,
                 isPlaying: state.isPlaying,
-                onTap: () => _loop.onPlayTapped(trackUri: item.uri),
+                onTap: () => _handleTrackTapped(item, index),
                 onMoreTapped: () => _showTrackOptionsMenu(item),
-                onSwipeToQueue: () => _handleSwipeToQueue(item),
+                onSwipeToQueue: () => _handleSwipeToQueue(item, index),
               );
             },
             childCount: state.displayItems.length,
@@ -536,9 +607,9 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                 item: item,
                 isActiveTrack: isCurrent,
                 isPlaying: state.isPlaying,
-                onTap: () => _loop.onPlayTapped(trackUri: item.uri),
+                onTap: () => _handleTrackTapped(item, index),
                 onMoreTapped: () => _showTrackOptionsMenu(item),
-                onSwipeToQueue: () => _handleSwipeToQueue(item),
+                onSwipeToQueue: () => _handleSwipeToQueue(item, index),
               );
             },
             childCount: sectionItems.length,

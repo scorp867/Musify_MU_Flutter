@@ -16,6 +16,7 @@ import '../../../domain/commands/resume_command.dart';
 import '../../../domain/commands/seek_to_command.dart';
 import '../../../domain/commands/set_options_command.dart';
 import '../../../domain/commands/set_queue_command.dart';
+import '../../../domain/commands/set_shuffling_context_command.dart';
 import '../../../domain/commands/skip_to_next_track_command.dart';
 import '../../../domain/commands/skip_to_prev_track_command.dart';
 import '../../../domain/commands/stop_command.dart';
@@ -138,7 +139,11 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
       if (effect is ToggleShuffleEffect) {
         final oc = optionsClient;
         if (oc != null) {
-          await oc.setShuffle(effect.nextShuffle);
+          final builder = SetShufflingContextCommand.builder(effect.nextShuffle);
+          if (effect.loggingParams != null) {
+            builder.loggingParams(effect.loggingParams!);
+          }
+          await oc.setShufflingContext(builder.build());
         }
         return null;
       }
@@ -146,11 +151,13 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
       if (effect is ToggleRepeatEffect) {
         final oc = optionsClient;
         if (oc != null) {
-          final command = SetOptionsCommand.builder()
+          final builder = SetOptionsCommand.builder()
               .repeatingContext(effect.nextRepeatContext)
-              .repeatingTrack(effect.nextRepeatTrack)
-              .build();
-          await oc.setOptions(command);
+              .repeatingTrack(effect.nextRepeatTrack);
+          if (effect.loggingParams != null) {
+            builder.loggingParams(effect.loggingParams!);
+          }
+          await oc.setOptions(builder.build());
         }
         return null;
       }
@@ -159,9 +166,17 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
         final cc = controlClient;
         if (cc != null) {
           if (effect.currentlyPlaying) {
-            await cc.pause(PauseCommand.builder().build());
+            final builder = PauseCommand.builder();
+            if (effect.loggingParams != null) {
+              builder.loggingParams(effect.loggingParams!);
+            }
+            await cc.pause(builder.build());
           } else {
-            await cc.resume(ResumeCommand.builder().build());
+            final builder = ResumeCommand.builder();
+            if (effect.loggingParams != null) {
+              builder.loggingParams(effect.loggingParams!);
+            }
+            await cc.resume(builder.build());
           }
         }
         return null;
@@ -170,7 +185,11 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
       if (effect is SkipNextEffect) {
         final cc = controlClient;
         if (cc != null) {
-          await cc.skipToNext(SkipToNextTrackCommand.create());
+          final builder = SkipToNextTrackCommand.builder();
+          if (effect.loggingParams != null) {
+            builder.loggingParams(effect.loggingParams!);
+          }
+          await cc.skipToNext(builder.build());
         }
         return null;
       }
@@ -178,7 +197,11 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
       if (effect is SkipPrevEffect) {
         final cc = controlClient;
         if (cc != null) {
-          await cc.skipToPrev(SkipToPrevTrackCommand.create());
+          final builder = SkipToPrevTrackCommand.builder();
+          if (effect.loggingParams != null) {
+            builder.loggingParams(effect.loggingParams!);
+          }
+          await cc.skipToPrev(builder.build());
         }
         return null;
       }
@@ -216,7 +239,11 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
       if (effect is SeekToEffect) {
         final cc = controlClient;
         if (cc != null) {
-          await cc.seekTo(SeekToCommand.create(effect.positionMs));
+          final builder = SeekToCommand.builder(effect.positionMs);
+          if (effect.loggingParams != null) {
+            builder.loggingParams(effect.loggingParams!);
+          }
+          await cc.seekTo(builder.build());
         }
         return null;
       }

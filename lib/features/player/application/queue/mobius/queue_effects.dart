@@ -1,4 +1,5 @@
 import '../../../data/queue/queue_add_handler.dart';
+import '../../../domain/commands/options/logging_params.dart';
 import '../../../domain/commands/options/prepare_play_options.dart';
 import '../../../domain/commands/set_sleep_timer_command.dart';
 import '../../../domain/commands/signal_command.dart';
@@ -55,29 +56,35 @@ class ClearQueueEffect extends QueueEffect {
 
 class ToggleShuffleEffect extends QueueEffect {
   final bool nextShuffle;
-  const ToggleShuffleEffect(this.nextShuffle);
+  final LoggingParams? loggingParams;
+  const ToggleShuffleEffect(this.nextShuffle, {this.loggingParams});
 }
 
 class ToggleRepeatEffect extends QueueEffect {
   final bool nextRepeatContext;
   final bool nextRepeatTrack;
+  final LoggingParams? loggingParams;
   const ToggleRepeatEffect({
     required this.nextRepeatContext,
     required this.nextRepeatTrack,
+    this.loggingParams,
   });
 }
 
 class PlayPauseEffect extends QueueEffect {
   final bool currentlyPlaying;
-  const PlayPauseEffect(this.currentlyPlaying);
+  final LoggingParams? loggingParams;
+  const PlayPauseEffect(this.currentlyPlaying, {this.loggingParams});
 }
 
 class SkipNextEffect extends QueueEffect {
-  const SkipNextEffect();
+  final LoggingParams? loggingParams;
+  const SkipNextEffect({this.loggingParams});
 }
 
 class SkipPrevEffect extends QueueEffect {
-  const SkipPrevEffect();
+  final LoggingParams? loggingParams;
+  const SkipPrevEffect({this.loggingParams});
 }
 
 class PlayTrackEffect extends QueueEffect {
@@ -87,7 +94,8 @@ class PlayTrackEffect extends QueueEffect {
 
 class SeekToEffect extends QueueEffect {
   final int positionMs;
-  const SeekToEffect(this.positionMs);
+  final LoggingParams? loggingParams;
+  const SeekToEffect(this.positionMs, {this.loggingParams});
 }
 
 class StopEffect extends QueueEffect {

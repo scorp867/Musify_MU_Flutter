@@ -1,5 +1,6 @@
 library;
 
+import '../../../player/domain/commands/options/logging_params.dart';
 import '../models/playlist_entity.dart';
 import '../models/sort_order.dart';
 
@@ -36,5 +37,7 @@ abstract class PlaylistRepository {
     required String playlistUri,
     String? skipToUri,
     bool shuffle = false,
+    LoggingParams? loggingParams,
   });
 }
+

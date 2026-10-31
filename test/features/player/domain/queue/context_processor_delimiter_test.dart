@@ -1,9 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/player/data/esperanto/proto/es_context_page.pb.dart' as es_page;
 import 'package:musify_mu/features/player/data/esperanto/proto/es_context_track.pb.dart' as es_track;
-import 'package:musify_mu/features/player/data/esperanto/proto/es_queue.pb.dart' as es_queue;
 import 'package:musify_mu/features/player/data/queue/context_track_extensions.dart';
-import 'package:musify_mu/features/player/data/queue/queue_track_filter.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';

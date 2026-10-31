@@ -1,3 +1,4 @@
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -5,6 +6,9 @@ import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
@@ -29,6 +33,33 @@ class BrowseView extends StatefulWidget {
 }
 
 class _BrowseViewState extends State<BrowseView> {
+  late PageInstanceId _pageInstanceId;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    if (widget.isActive) {
+      _activateUbiPage();
+    }
+  }
+
+  void _activateUbiPage() {
+    if (getIt.isRegistered<PageInstanceIdHolder>()) {
+      getIt<PageInstanceIdHolder>().update(_pageInstanceId);
+    }
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        getIt<UbiLogger>().logImpression(
+          const UbiImpressionElement(
+            elementPath: 'search_screen',
+            uri: 'spotify:search',
+          ),
+        );
+      }
+    } catch (_) {}
+  }
+
   @override
   void didUpdateWidget(BrowseView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -36,6 +67,8 @@ class _BrowseViewState extends State<BrowseView> {
       AppSnackBar.clear(context);
       context.read<BrowseBloc>().add(const BrowseCancelRequested());
     } else if (!oldWidget.isActive && widget.isActive) {
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+      _activateUbiPage();
       final bloc = context.read<BrowseBloc>();
       if (bloc.state is BrowseLoading) {
         bloc.add(const BrowseLoadRequested());

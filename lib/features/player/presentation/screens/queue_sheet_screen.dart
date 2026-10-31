@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/icons/spotify_encore_icons.dart';
+import '../../../../core/ubi/domain/logging/ubi_logger.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../data/esperanto/context_player_options_client.dart';
@@ -278,6 +279,17 @@ class QueueSheetScreen extends StatelessWidget {
     if (_isOpen) return;
     _isOpen = true;
     isOpenNotifier.value = true;
+
+    try {
+      if (getIt.isRegistered<UbiLogger>()) {
+        getIt<UbiLogger>().logImpression(
+          const UbiImpressionElement(
+            elementPath: 'nowplaying/queue',
+            uri: 'spotify:internal:queue',
+          ),
+        );
+      }
+    } catch (_) {}
 
     final effectiveBloc = bloc ??
         (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);

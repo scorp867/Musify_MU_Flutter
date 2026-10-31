@@ -9,6 +9,7 @@ import 'package:musify_mu/features/library/data/cache/library_cache.dart';
 import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
+import 'package:musify_mu/features/player/domain/commands/options/logging_params.dart';
 import 'package:musify_mu/features/player/domain/commands/options/player_option_overrides.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
 import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
@@ -389,6 +390,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     required String playlistUri,
     String? skipToUri,
     bool shuffle = false,
+    LoggingParams? loggingParams,
   }) async {
     final playlistId = _extractPlaylistId(playlistUri);
     final isLiked = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
@@ -516,6 +518,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             ? PlayerOptionOverrides.builder().shufflingContext(true).build()
             : null,
       ),
+      loggingParams: loggingParams,
     );
 
     // Route through both ContextPlayerPlayClient and PlaylistPlayClient

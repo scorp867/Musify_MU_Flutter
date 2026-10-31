@@ -34,11 +34,17 @@ class PlaylistMobiusEffectHandler
           );
           return PlaylistLoadedEvent(playlist);
 
-        case PlayContextEffect(:final playlistUri, :final trackUri, :final shuffle):
+        case PlayContextEffect(
+            :final playlistUri,
+            :final trackUri,
+            :final shuffle,
+            :final loggingParams
+          ):
           await _repository.playPlaylist(
             playlistUri: playlistUri,
             skipToUri: trackUri,
             shuffle: shuffle,
+            loggingParams: loggingParams,
           );
           return null;
 
