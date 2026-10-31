@@ -1,6 +1,6 @@
 import 'dart:developer' as dev;
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/contentagnostic/v2/playback_trait.pb.dart'
     as pb;
@@ -35,13 +35,6 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
     final trait = pb.PlaybackTrait.fromBuffer(payload);
     final audioTracks = <PlaybackAudioTrack>[];
     final audioFiles = <SpotifyAudioFile>[];
-    final hostedEntries = <({
-      int formatNumber,
-      String fileIdHex,
-      List<int>? rawBytes,
-      int? bitrate,
-      SpotifyAudioFormat? mappedFormat,
-    })>[];
 
     String passThroughCdnUrl = '';
 
@@ -94,14 +87,6 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
                 format: audioIdFormat,
               ));
             }
-
-            hostedEntries.add((
-              formatNumber: formatNumber,
-              fileIdHex: fileIdHex,
-              rawBytes: hosted.audioId,
-              bitrate: null,
-              mappedFormat: audioIdFormat,
-            ));
           }
         }
 
@@ -142,14 +127,6 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
                   audioFiles.add(validMapped);
                 }
               }
-
-              hostedEntries.add((
-                formatNumber: resolvedFormatNumber,
-                fileIdHex: fileIdHex,
-                rawBytes: file.fileId,
-                bitrate: file.averageBitrate,
-                mappedFormat: mappedFormat,
-              ));
             }
           }
         }
@@ -196,14 +173,11 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
       aacFileIdHex = '';
     }
 
-    // Clean, formatted per-track logging for PlaybackTrait
-    _logPlaybackTraitSummary(
-      hostedEntries: hostedEntries,
-      passThroughCdnUrl: passThroughCdnUrl,
-      selectedHead: selectedHead,
-      selectedTrack: selectedTrack,
-      headUrl: headUrl,
-      fallbackFileId: primaryFileIdHex,
+    dev.log(
+      '[PlaybackTrait] head=${selectedHead?.format.name ?? "none"} '
+      'track=${selectedTrack?.format.name ?? "none"} '
+      'files=${audioFiles.length}',
+      name: 'Metadata.FileId',
     );
 
     return PlaybackTrait(
@@ -213,81 +187,5 @@ class PlaybackTraitPlugin implements ExtendedMetadataPlugin<PlaybackTrait> {
       headUrl: headUrl,
       passThroughCdnUrl: passThroughCdnUrl,
     );
-  }
-
-  void _logPlaybackTraitSummary({
-    required List<({
-      int formatNumber,
-      String fileIdHex,
-      List<int>? rawBytes,
-      int? bitrate,
-      SpotifyAudioFormat? mappedFormat,
-    })> hostedEntries,
-    required String passThroughCdnUrl,
-    required SpotifyAudioFile? selectedHead,
-    required SpotifyAudioFile? selectedTrack,
-    required String headUrl,
-    required String fallbackFileId,
-  }) {
-    final sb = StringBuffer();
-    sb.writeln('┌─── [PLAYBACK_TRAIT AUDIO FORMATS] ─────────────────────────────────────────────────');
-    sb.writeln('├── Available Stream Formats (${hostedEntries.length} hosted received):');
-
-    if (hostedEntries.isEmpty) {
-      sb.writeln('│   (none hosted)');
-    } else {
-      for (var i = 0; i < hostedEntries.length; i++) {
-        final entry = hostedEntries[i];
-        final firstHex = entry.fileIdHex.length >= 8 ? entry.fileIdHex.substring(0, 8) : entry.fileIdHex;
-        final rawStr = entry.rawBytes != null
-            ? entry.rawBytes!.take(4).map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').toList().toString()
-            : '[]';
-        final bitrateDesc = entry.bitrate != null ? ' | Bitrate: ${entry.bitrate} bps' : '';
-        final String formatBadge;
-        if (entry.mappedFormat case final fmt?) {
-          if (fmt.isVorbis) {
-            formatBadge = ' [VORBIS]';
-          } else if (fmt.isMp4) {
-            formatBadge = ' [MP4]';
-          } else {
-            formatBadge = ' [${fmt.name}]';
-          }
-        } else {
-          formatBadge = '';
-        }
-
-        sb.writeln('│   [$i] (code: ${entry.formatNumber}) -> ${entry.mappedFormat?.name ?? "unmapped (HLS master)"}$formatBadge$bitrateDesc');
-        sb.writeln('│       First Bytes: $firstHex $rawStr -> Full ID: ${entry.fileIdHex}');
-      }
-    }
-
-    if (passThroughCdnUrl.isNotEmpty) {
-      sb.writeln('├── Pass-Through CDN Stream:');
-      sb.writeln('│   • URL: $passThroughCdnUrl');
-    }
-
-    sb.writeln('├── Head File Decision:');
-    if (selectedHead case final head? when head.fileIdHex.isNotEmpty) {
-      final headFirstHex = head.fileIdHex.length >= 8 ? head.fileIdHex.substring(0, 8) : head.fileIdHex;
-      sb.writeln('│   ✔ PICKED FOR HEAD: [${head.format.name}] (format code: ${head.format.number})');
-      sb.writeln('│     File ID: $headFirstHex... (Full: ${head.fileIdHex})');
-      sb.writeln('│     CDN URL: $headUrl');
-    } else {
-      sb.writeln('│   ✖ NO VORBIS FORMAT AVAILABLE -> Head fetch bypassed (Fallback ID: ${fallbackFileId.isNotEmpty ? fallbackFileId : "none"})');
-    }
-
-    sb.writeln('├── Full Track Stream Decision:');
-    if (selectedTrack case final track? when track.fileIdHex.isNotEmpty) {
-      final trackFirstHex = track.fileIdHex.length >= 8 ? track.fileIdHex.substring(0, 8) : track.fileIdHex;
-      sb.writeln('│   ✔ PICKED FOR FULL TRACK: [${track.format.name}] (format code: ${track.format.number})');
-      sb.writeln('│     File ID: $trackFirstHex... (Full: ${track.fileIdHex})');
-    } else {
-      sb.writeln('│   ✖ NO MP4 FORMAT AVAILABLE (aacFileIdHex is empty)');
-    }
-    sb.writeln('└────────────────────────────────────────────────────────────────────────────────────');
-
-    final logOutput = sb.toString();
-    dev.log(logOutput, name: 'Metadata.FileId');
-    debugPrint(logOutput);
   }
 }

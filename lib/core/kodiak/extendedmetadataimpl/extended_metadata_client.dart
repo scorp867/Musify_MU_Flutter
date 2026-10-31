@@ -71,10 +71,6 @@ class ExtendedMetadataClient {
     }
 
     final payload = _buildRequest(entityQueries);
-    dev.log(
-      '[Metadata] POSTing ${entityQueries.length} entities (${payload.length}B) via ${_transport.runtimeType} to /extended-metadata/v0/extended-metadata',
-      name: 'Metadata',
-    );
     final result = await _transport.postResult(
       '/extended-metadata/v0/extended-metadata',
       Uint8List.fromList(payload),
@@ -93,22 +89,12 @@ class ExtendedMetadataClient {
     final bytes = (result as NetworkSuccess<Uint8List>).data;
     final status = result.statusCode;
     if (bytes.isEmpty) {
-      dev.log('[Metadata] POST succeeded with empty bytes!', name: 'Metadata');
       return NetworkSuccess<Map<CellKey, Trait>>({}, statusCode: status);
     }
 
     try {
-      dev.log(
-        '[Metadata] Received ${bytes.length} bytes (header: ${bytes.take(4).map((b) => b.toRadixString(16).padLeft(2, "0")).join(" ")}), decoding...',
-        name: 'Metadata',
-      );
       final parsedMap = await _parsePayload(bytes);
-      dev.log(
-        '[Metadata] BatchedExtensionResponseParser returned ${parsedMap.length} entities: ${parsedMap.keys.toList()}',
-        name: 'Metadata',
-      );
       final mapped = KodiakCellMapper.map(parsedMap);
-      dev.log('[Metadata] KodiakCellMapper mapped ${mapped.length} cells', name: 'Metadata');
       return NetworkSuccess(mapped, statusCode: status);
     } catch (e, st) {
       dev.log('[Metadata] PARSE ERROR: $e\n$st', name: 'Metadata');
