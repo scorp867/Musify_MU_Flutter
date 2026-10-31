@@ -6,13 +6,33 @@ import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
 /// Centralized Spotify URI navigation router.
 /// Replicates Spotify Android's internal `LinkDispatcher` / `NavigationManager` pattern.
 ///
-/// Dispatches supported URIs (`spotify:playlist:*`) to dedicated screen coordinators
-/// while preserving future extensible slots for albums, artists, and shows.
+/// 1:1 replica of decompiled Spotify Android classes:
+/// - `p199p/d8l1.java#m37036x`: Canonical Liked Songs / Collection URI validator
+/// - `p199p/veb0.java#mo57935a`: Entity page route dispatcher
+/// - `p199p/gtb0.java#mo27594a`: List entity route binder for `qcb0.COLLECTION_TRACKS`
 class SpotifyUriNavigator {
   const SpotifyUriNavigator._();
 
-  /// Checks whether a URI corresponds to a Spotify playlist entity.
+  /// 1:1 replica of Spotify Android `d8l1.m37036x`.
+  /// Checks whether a URI corresponds to the Liked Songs / Collection tracks entity.
+  static bool isLikedSongsUri(String uri) {
+    if (uri == 'spotify:playlist:37i9dQZF1F5p3rmiWPIYgZ' ||
+        uri == 'spotify:collection:tracks' ||
+        uri == 'spotify:internal:collection:tracks') {
+      return true;
+    }
+    if (uri.startsWith('spotify:user:') && uri.endsWith(':collection')) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Checks whether a URI corresponds to a Spotify playlist entity or list entity.
+  /// 1:1 replica of Spotify Android `veb0.mo57935a` and `gtb0.mo27594a`.
   static bool isPlaylistUri(String uri) {
+    if (isLikedSongsUri(uri)) {
+      return true;
+    }
     if (uri.startsWith('spotify:playlist:')) {
       return true;
     }

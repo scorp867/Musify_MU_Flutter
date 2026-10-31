@@ -1,4 +1,6 @@
 #include "AudioEngine.h"
+#include "ContextProcessor.h"
+#include "ProtobufWireHelper.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -188,3 +190,189 @@ MUSIFY_EXPORT int32_t musify_engine_is_handoff_completed(void* handle) {
     auto* engine = static_cast<AudioEngine*>(handle);
     return engine->isHandoffCompleted() ? 1 : 0;
 }
+
+// ===========================================================================
+// String memory management
+// ===========================================================================
+
+MUSIFY_EXPORT void musify_free_string(char* str) {
+    if (str) {
+        std::free(str);
+    }
+}
+
+// ===========================================================================
+// Spotify ContextProcessor & Queue Delimiter Pagination (1:1 with liborbit.so)
+// ===========================================================================
+
+MUSIFY_EXPORT void* musify_context_processor_create() {
+    auto* cp = new spotify::player::ContextProcessor();
+    return static_cast<void*>(cp);
+}
+
+MUSIFY_EXPORT void musify_context_processor_destroy(void* handle) {
+    if (!handle) return;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    delete cp;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_is_delimiter(const char* uri) {
+    if (!uri) return 0;
+    return spotify::player::ContextProcessor::is_delimiter(uri) ? 1 : 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_set_context_proto(
+        void* handle,
+        const char* context_uri,
+        const uint8_t* page_proto_bytes,
+        int32_t page_proto_len,
+        int32_t initial_index) {
+    if (!handle) return -1;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    std::string page_url;
+    std::string next_page_url;
+    std::vector<spotify::player::context_view::Entry> tracks;
+    if (page_proto_bytes && page_proto_len > 0) {
+        spotify::player::decode_context_page(
+            page_proto_bytes,
+            static_cast<size_t>(page_proto_len),
+            page_url,
+            next_page_url,
+            tracks);
+    }
+    cp->set_context(
+        context_uri ? context_uri : "",
+        page_url,
+        tracks,
+        next_page_url,
+        initial_index);
+    return 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_parse_loaded_page_proto(
+        void* handle,
+        int32_t iteration,
+        const uint8_t* page_proto_bytes,
+        int32_t page_proto_len) {
+    if (!handle) return -1;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    std::string page_url;
+    std::string next_page_url;
+    std::vector<spotify::player::context_view::Entry> tracks;
+    if (page_proto_bytes && page_proto_len > 0) {
+        spotify::player::decode_context_page(
+            page_proto_bytes,
+            static_cast<size_t>(page_proto_len),
+            page_url,
+            next_page_url,
+            tracks);
+    }
+    cp->parseLoadedContextPage(
+        iteration,
+        page_url,
+        tracks,
+        next_page_url);
+    return 0;
+}
+
+MUSIFY_EXPORT uint8_t* musify_context_processor_get_queue_proto(
+        void* handle,
+        int32_t max_next_count,
+        int32_t* out_len) {
+    if (!handle || !out_len) {
+        if (out_len) *out_len = 0;
+        return nullptr;
+    }
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    auto current = cp->get_current_track();
+    auto next = cp->get_next_tracks(max_next_count);
+    auto prev = cp->get_prev_tracks();
+
+    const spotify::player::context_view::Entry* cur_ptr = current.has_value() ? &current.value() : nullptr;
+    auto proto_bytes = spotify::player::encode_queue(cur_ptr, next, prev, cp->get_current_iteration());
+
+    *out_len = static_cast<int32_t>(proto_bytes.size());
+    if (proto_bytes.empty()) return nullptr;
+
+    auto* buffer = static_cast<uint8_t*>(malloc(proto_bytes.size()));
+    if (!buffer) {
+        *out_len = 0;
+        return nullptr;
+    }
+    std::memcpy(buffer, proto_bytes.data(), proto_bytes.size());
+    return buffer;
+}
+
+MUSIFY_EXPORT void musify_free_bytes(uint8_t* bytes) {
+    if (bytes) {
+        free(bytes);
+    }
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_skip_next(void* handle) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->skip_next() ? 1 : 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_skip_prev(void* handle) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->skip_prev() ? 1 : 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_skip_to_index(void* handle, int32_t index) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->skip_to_index(index) ? 1 : 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_skip_to_uri(void* handle, const char* uri) {
+    if (!handle || !uri) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->skip_to_uri(uri) ? 1 : 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_skip_to_uid(void* handle, const char* uid) {
+    if (!handle || !uid) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->skip_to_uid(uid) ? 1 : 0;
+}
+
+MUSIFY_EXPORT void musify_context_processor_set_shuffling(void* handle, int32_t shuffle) {
+    if (!handle) return;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    cp->set_shuffling(shuffle != 0);
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_is_shuffling(void* handle) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->is_shuffling() ? 1 : 0;
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_needs_next_page(void* handle) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->needs_next_page() ? 1 : 0;
+}
+
+MUSIFY_EXPORT char* musify_context_processor_get_next_page_url(void* handle) {
+    if (!handle) return nullptr;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    std::string url = cp->get_next_page_url();
+    return strdup(url.c_str());
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_get_current_iteration(void* handle) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->get_current_iteration();
+}
+
+MUSIFY_EXPORT int32_t musify_context_processor_get_current_index(void* handle) {
+    if (!handle) return 0;
+    auto* cp = static_cast<spotify::player::ContextProcessor*>(handle);
+    return cp->get_current_index();
+}
+

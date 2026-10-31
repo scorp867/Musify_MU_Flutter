@@ -1,8 +1,11 @@
 library;
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
+import 'package:musify_mu/features/library/data/cache/library_cache.dart';
 import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
@@ -27,6 +30,11 @@ import 'package:musify_mu/features/playlist/data/proto/playlist_esperanto_proto.
 
 /// 1:1 Implementation of Spotify PlaylistRepository.
 /// Interconnects Esperanto transport, ContextPlayer, remote sources, cache, and Kodiak decoration.
+///
+/// 1:1 replica of decompiled Spotify Android classes:
+/// - `p199p/gml.java#L350` & `L532`: Resolves Liked Songs to canonical playlist ID `37i9dQZF1F5p3rmiWPIYgZ`
+/// - `p199p/d8l1.java#m37036x`: Canonical collection tracks identifier
+/// - `p199p/jox.java#L34` & `p199p/wmb0.java#L256`: Overrides title to Liked Songs
 class PlaylistRepositoryImpl implements PlaylistRepository {
   final PlaylistDataClient _dataClient;
   final PlaylistModificationClient _modificationClient;
@@ -34,6 +42,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
   final ContextPlayerPlayClient _contextPlayerPlayClient;
   final PlaylistRemoteSource? _remoteSource;
   final PlaylistDetailCache? _cache;
+  final LibraryCache? _libraryCache;
   final PlaylistKodiakDecorator? _kodiakDecorator;
   final String _currentUsername;
 
@@ -47,6 +56,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     required ContextPlayerPlayClient contextPlayerPlayClient,
     PlaylistRemoteSource? remoteSource,
     PlaylistDetailCache? cache,
+    LibraryCache? libraryCache,
     PlaylistKodiakDecorator? kodiakDecorator,
     String currentUsername = '',
   })  : _dataClient = dataClient,
@@ -55,6 +65,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         _contextPlayerPlayClient = contextPlayerPlayClient,
         _remoteSource = remoteSource,
         _cache = cache,
+        _libraryCache = libraryCache,
         _kodiakDecorator = kodiakDecorator,
         _currentUsername = currentUsername;
 
@@ -64,6 +75,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     ProvidedSortOrder sortOrder = ProvidedSortOrder.custom,
   }) async* {
     final playlistId = _extractPlaylistId(playlistUri);
+    final isLiked = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
     bool hasEmittedData = false;
 
     // 1. Emit disk cache immediately for instant UI render
@@ -87,6 +99,27 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           _memoryCache[playlistId] = decorated;
           _memoryCache[playlistUri] = decorated;
           yield decorated;
+        }
+      } else if (isLiked && _libraryCache != null) {
+        final colBytes = await _libraryCache.getStructureBytes('col_collection');
+        if (colBytes != null && colBytes.isNotEmpty) {
+          final cachedEntity = PlaylistProtoMappers.fromCollectionBytes(
+            colBytes,
+            playlistUri: playlistUri,
+            currentUsername: _currentUsername,
+            sortOrder: sortOrder,
+          );
+          _memoryCache[playlistId] = cachedEntity;
+          _memoryCache[playlistUri] = cachedEntity;
+          yield cachedEntity;
+          hasEmittedData = true;
+
+          if (_kodiakDecorator != null && cachedEntity.items.isNotEmpty) {
+            final decorated = await _kodiakDecorator.decorate(cachedEntity);
+            _memoryCache[playlistId] = decorated;
+            _memoryCache[playlistUri] = decorated;
+            yield decorated;
+          }
         }
       }
     }
@@ -119,16 +152,79 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           yield decoratedEntity;
           hasEmittedData = true;
         } else if (!hasEmittedData) {
-          throw StateError('Empty playlist response for $playlistUri');
+          if (isLiked && _libraryCache != null) {
+            final colBytes = await _libraryCache.getStructureBytes('col_collection');
+            if (colBytes != null && colBytes.isNotEmpty) {
+              final rawEntity = PlaylistProtoMappers.fromCollectionBytes(
+                colBytes,
+                playlistUri: playlistUri,
+                currentUsername: _currentUsername,
+                sortOrder: sortOrder,
+              );
+              final decoratedEntity = _kodiakDecorator != null
+                  ? await _kodiakDecorator.decorate(rawEntity)
+                  : rawEntity;
+
+              _memoryCache[playlistId] = decoratedEntity;
+              _memoryCache[playlistUri] = decoratedEntity;
+              yield decoratedEntity;
+              hasEmittedData = true;
+            }
+          }
+          if (!hasEmittedData) {
+            throw StateError('Empty playlist response for $playlistUri');
+          }
         }
       } catch (e) {
         if (!hasEmittedData) {
-          // If no cache was emitted, propagate the failure so the UI transitions out of loading
-          rethrow;
+          if (isLiked && _libraryCache != null) {
+            final colBytes = await _libraryCache.getStructureBytes('col_collection');
+            if (colBytes != null && colBytes.isNotEmpty) {
+              final rawEntity = PlaylistProtoMappers.fromCollectionBytes(
+                colBytes,
+                playlistUri: playlistUri,
+                currentUsername: _currentUsername,
+                sortOrder: sortOrder,
+              );
+              final decoratedEntity = _kodiakDecorator != null
+                  ? await _kodiakDecorator.decorate(rawEntity)
+                  : rawEntity;
+
+              _memoryCache[playlistId] = decoratedEntity;
+              _memoryCache[playlistUri] = decoratedEntity;
+              yield decoratedEntity;
+              hasEmittedData = true;
+            }
+          }
+          if (!hasEmittedData) {
+            // If no cache was emitted, propagate the failure so the UI transitions out of loading
+            rethrow;
+          }
         }
       }
     } else if (!hasEmittedData) {
-      throw StateError('No remote source or cache available for $playlistUri');
+      if (isLiked && _libraryCache != null) {
+        final colBytes = await _libraryCache.getStructureBytes('col_collection');
+        if (colBytes != null && colBytes.isNotEmpty) {
+          final rawEntity = PlaylistProtoMappers.fromCollectionBytes(
+            colBytes,
+            playlistUri: playlistUri,
+            currentUsername: _currentUsername,
+            sortOrder: sortOrder,
+          );
+          final decoratedEntity = _kodiakDecorator != null
+              ? await _kodiakDecorator.decorate(rawEntity)
+              : rawEntity;
+
+          _memoryCache[playlistId] = decoratedEntity;
+          _memoryCache[playlistUri] = decoratedEntity;
+          yield decoratedEntity;
+          hasEmittedData = true;
+        }
+      }
+      if (!hasEmittedData) {
+        throw StateError('No remote source or cache available for $playlistUri');
+      }
     }
 
     // 3. Listen to live Esperanto updates if available
@@ -178,6 +274,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     ProvidedSortOrder sortOrder = ProvidedSortOrder.custom,
   }) async {
     final playlistId = _extractPlaylistId(playlistUri);
+    final isLiked = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
 
     if (_remoteSource != null) {
       try {
@@ -226,10 +323,30 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
       }
     }
 
+    if (isLiked && _libraryCache != null) {
+      final colBytes = await _libraryCache.getStructureBytes('col_collection');
+      if (colBytes != null && colBytes.isNotEmpty) {
+        final rawEntity = PlaylistProtoMappers.fromCollectionBytes(
+          colBytes,
+          playlistUri: playlistUri,
+          currentUsername: _currentUsername,
+          sortOrder: sortOrder,
+        );
+
+        final result = _kodiakDecorator != null
+            ? await _kodiakDecorator.decorate(rawEntity)
+            : rawEntity;
+        _memoryCache[playlistId] = result;
+        _memoryCache[playlistUri] = result;
+        return result;
+      }
+    }
+
     final fallback = PlaylistEntity(
       metadata: PlaylistMetadata(
         uri: playlistUri,
-        name: 'Playlist',
+        name: isLiked ? 'Liked Songs' : 'Playlist',
+        picture: isLiked ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png' : '',
       ),
       items: const [],
       isLoaded: false,
@@ -274,6 +391,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     bool shuffle = false,
   }) async {
     final playlistId = _extractPlaylistId(playlistUri);
+    final isLiked = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
     PlaylistEntity? entity = _memoryCache[playlistId] ?? _memoryCache[playlistUri];
 
     if (entity == null || entity.items.isEmpty) {
@@ -282,6 +400,21 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         if (cachedBytes != null && cachedBytes.isNotEmpty) {
           final rawEntity = PlaylistProtoMappers.fromBytes(
             cachedBytes,
+            playlistUri: playlistUri,
+            currentUsername: _currentUsername,
+          );
+          entity = _kodiakDecorator != null
+              ? await _kodiakDecorator.decorate(rawEntity)
+              : rawEntity;
+          _memoryCache[playlistId] = entity;
+          _memoryCache[playlistUri] = entity;
+        }
+      }
+      if ((entity == null || entity.items.isEmpty) && isLiked && _libraryCache != null) {
+        final colBytes = await _libraryCache.getStructureBytes('col_collection');
+        if (colBytes != null && colBytes.isNotEmpty) {
+          final rawEntity = PlaylistProtoMappers.fromCollectionBytes(
+            colBytes,
             playlistUri: playlistUri,
             currentUsername: _currentUsername,
           );
@@ -343,7 +476,22 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             .build();
       }).toList(growable: false);
 
-      pages = [ContextPage.builder().tracks(contextTracks).build()];
+      // 1:1 Spotify Context resolution: Partition into 30-track ContextPage chunks
+      const int pageSize = 30;
+      final totalPages = (contextTracks.length / pageSize).ceil();
+      pages = List.generate(totalPages, (pageIdx) {
+        final start = pageIdx * pageSize;
+        final end = math.min(start + pageSize, contextTracks.length);
+        final isLast = pageIdx == totalPages - 1;
+        final pageUrl = 'context://$playlistUri?page=$pageIdx';
+        final nextPageUrl =
+            isLast ? '' : 'context://$playlistUri?page=${pageIdx + 1}';
+        return ContextPage.builder()
+            .pageUrl(pageUrl)
+            .nextPageUrl(nextPageUrl)
+            .tracks(contextTracks.sublist(start, end))
+            .build();
+      });
     }
 
     final command = PlayCommand(
@@ -387,6 +535,11 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     var uri = rawUri.trim();
     if (uri.contains('?')) {
       uri = uri.split('?').first;
+    }
+    // 1:1 Spotify Android `p199p/gml.java#L350` & `p199p/gml.java#L532`:
+    // Liked songs / collection tracks resolves to canonical playlist ID 37i9dQZF1F5p3rmiWPIYgZ
+    if (SpotifyUriNavigator.isLikedSongsUri(uri)) {
+      return '37i9dQZF1F5p3rmiWPIYgZ';
     }
     if (uri.startsWith('spotify:playlist:')) {
       return uri.substring('spotify:playlist:'.length);

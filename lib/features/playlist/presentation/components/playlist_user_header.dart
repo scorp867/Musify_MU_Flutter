@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../../../core/navigation/spotify_uri_navigator.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../domain/models/playlist_metadata.dart';
 
@@ -278,6 +279,17 @@ class PlaylistUserHeader extends StatelessWidget {
   }
 
   Widget _buildPlaceholderCover() {
+    if (SpotifyUriNavigator.isLikedSongsUri(metadata.uri)) {
+      return Container(
+        color: const Color(0xFF431337),
+        child: Center(
+          child: SpotifyIcon.heartActive(
+            size: 72,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
     return Center(
       child: SpotifyIcon.track(
         size: 72,

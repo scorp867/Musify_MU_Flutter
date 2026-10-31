@@ -3,6 +3,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart';
@@ -65,6 +66,14 @@ class NativeEsperantoTransport implements EsperantoTransport {
   /// Original sequentially ordered context tracks before shuffling
   List<ContextTrack> _originalContextTracks = const [];
 
+  /// 1:1 Native ContextProcessor instance (backed by C++ libmusify_audio.so)
+  NativeContextProcessor? _contextProcessor;
+  int _currentIteration = 0;
+  int _loadedContextOffset = 0;
+
+  static const int kDefaultContextPageSize = 30;
+  static const int kPageLookaheadThreshold = 3;
+
   /// Playback options (shuffle, repeat) managed locally.
   PlayerOptions _currentOptions = const PlayerOptions();
 
@@ -102,6 +111,8 @@ class NativeEsperantoTransport implements EsperantoTransport {
     _startPolling();
     _emitQueueUpdate();
     _emitPlayerState();
+    // Pre-warm head cache directory so it's ready before first playback
+    unawaited(SpotifyHeadResolver.instance.getCacheParentDirectory());
   }
 
   // -----------------------------------------------------------------------
@@ -340,6 +351,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
     if (contextTracks.isNotEmpty) {
       _originalContextTracks = List<ContextTrack>.from(contextTracks);
+      _currentIteration = 0;
 
       int activeIndex = 0;
       if (skipToIndex != null && skipToIndex >= 0 && skipToIndex < contextTracks.length) {
@@ -354,25 +366,63 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
       trackToPlay = contextTracks[activeIndex];
 
-      final prev = contextTracks.sublist(0, activeIndex).reversed.toList(growable: false);
-      final next = contextTracks.sublist(activeIndex + 1);
+      // 1:1 Spotify ContextProcessor pagination & delimiter placement
+      _loadedContextOffset = math.min(
+        activeIndex + 1 + kDefaultContextPageSize,
+        contextTracks.length,
+      );
+      final hasMorePages = _loadedContextOffset < contextTracks.length;
+      final pageWindowTracks =
+          contextTracks.sublist(activeIndex + 1, _loadedContextOffset);
 
-      final userQueued = _currentQueue.nextTracks.where((t) => t.isQueued).toList(growable: false);
+      final prev = contextTracks
+          .sublist(0, activeIndex)
+          .reversed
+          .toList(growable: false);
+
+      final delimiterTrack = ContextTrack.builder('spotify:delimiter')
+          .uid('$_currentIteration')
+          .metadata(const {'is_delimiter': 'true'})
+          .build();
+
+      final nextWithDelimiter = <ContextTrack>[
+        ...pageWindowTracks,
+        if (hasMorePages) delimiterTrack,
+      ];
+
+      final userQueued =
+          _currentQueue.nextTracks.where((t) => t.isQueued).toList(growable: false);
 
       _currentQueue = _currentQueue
           .toBuilder()
           .track(trackToPlay)
           .prevTracks(prev)
-          .nextTracks([...userQueued, ...next])
+          .nextTracks([...userQueued, ...nextWithDelimiter])
           .build();
 
       if (_currentOptions.shufflingContext) {
-        final remainingContext = List<ContextTrack>.from(next);
+        final remainingContext = List<ContextTrack>.from(pageWindowTracks);
         remainingContext.shuffle();
-        _currentQueue = _currentQueue.toBuilder()
-            .nextTracks([...userQueued, ...remainingContext])
+        _currentQueue = _currentQueue
+            .toBuilder()
+            .nextTracks([
+              ...userQueued,
+              ...remainingContext,
+              if (hasMorePages) delimiterTrack,
+            ])
             .build();
       }
+
+      try {
+        _contextProcessor ??= NativeContextProcessor();
+        _contextProcessor?.setContext(
+          contextUri: contextUri,
+          pageUrl: 'context://$contextUri?page=0',
+          tracks: contextTracks,
+          nextPageUrl: hasMorePages ? 'context://$contextUri?page=1' : '',
+          initialIndex: activeIndex,
+        );
+      } catch (_) {}
     } else if (contextUri.isNotEmpty) {
       if (contextMetadata.isNotEmpty) {
         trackToPlay = ContextTrack.builder(contextUri).metadata(contextMetadata).build();
@@ -401,6 +451,30 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
     final localPath = track.metadata[ContextTrackMetadata.keyLocalFilePath];
     final previewOgg = track.metadata[ContextTrackMetadata.keyPreviewOggUrl];
+
+    // TTFA fast path: local files skip all network resolution
+    if (localPath != null && localPath.isNotEmpty && track.uri.startsWith('spotify:local:')) {
+      dev.log(
+        'NativeEsperantoTransport: fast-path loadLocal for local track ${track.uri}',
+        name: 'NativePlayer',
+      );
+      final status = _engine.loadLocal(localPath);
+      if (status == NativeEngineStatus.ok) {
+        _engine.play();
+        final handoffStr = track.metadata[ContextTrackMetadata.keyHandoffPositionMs];
+        if (handoffStr case final str?) {
+          final parsed = int.tryParse(str);
+          if (parsed case final validParsed? when validParsed > 0) {
+            _engine.seekMs(validParsed);
+          }
+        }
+      } else {
+        _emitError('TRACK_UNAVAILABLE', track.uri);
+      }
+      _emitPlayerState(isBuffering: false);
+      return;
+    }
+
     String? fileId = track.metadata[ContextTrackMetadata.keyFileId] ??
         track.metadata['file_id'] ??
         track.metadata['audio.file_id'];
@@ -409,9 +483,112 @@ class NativeEsperantoTransport implements EsperantoTransport {
     var headUrl = track.metadata[ContextTrackMetadata.keyHeadFileUrl] ??
         track.metadata['head_url'];
 
+    // TTFA fast path: when head file is available, start playback IMMEDIATELY.
+    // Check BEFORE JIT metadata resolve — the head only needs fileId + headUrl,
+    // NOT aacFileId/duration/cdnUrl. The secondary stream resolver handles those.
+    if (fileId != null && fileId.isNotEmpty && headUrl != null && headUrl.isNotEmpty) {
+      // Pre-download head file via async Dart HTTP to ensure it's on disk
+      // BEFORE the synchronous FFI call. This prevents loadTrackWithHead from
+      // blocking the main thread with a network download on cache miss.
+      await SpotifyHeadResolver.instance.resolveOrPrefetchHead(fileId);
+
+      final headsCacheParentDir = await SpotifyHeadResolver.instance.getCacheParentDirectory();
+
+      var cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
+      var licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
+
+      // Use cdnAac/license/auth only if already cached in metadata — no network waits
+      String fullTrackUrl = '';
+      if (cdnAac case final validAac? when validAac.isNotEmpty) {
+        fullTrackUrl = validAac;
+      }
+      final cachedLicense = licenseUrl;
+      final cachedAuth = track.metadata[ContextTrackMetadata.keyDrmAuthHeader];
+
+      final handoffStr = track.metadata[ContextTrackMetadata.keyHandoffPositionMs];
+      int handoffMs = -1;
+      if (handoffStr case final str?) {
+        final parsed = int.tryParse(str);
+        if (parsed case final validParsed?) {
+          handoffMs = validParsed;
+        }
+      }
+
+      int trackDurationMs = -1;
+      final metaDurationStr = track.metadata[ContextTrackMetadata.keyDuration];
+      if (metaDurationStr != null && metaDurationStr.isNotEmpty) {
+        final parsed = int.tryParse(metaDurationStr);
+        if (parsed != null && parsed > 0) {
+          trackDurationMs = parsed;
+        }
+      }
+
+      dev.log(
+        'NativeEsperantoTransport: TTFA fast-path loadTrackWithHead fileId=$fileId, fullUrl=$fullTrackUrl, cacheDir=$headsCacheParentDir, trackDurationMs=$trackDurationMs',
+        name: 'NativePlayer',
+      );
+      var status = _engine.loadTrackWithHead(
+        fileIdHex: fileId,
+        fullTrackUrl: fullTrackUrl,
+        cacheDir: headsCacheParentDir,
+        licenseServerUrl: cachedLicense,
+        authHeader: cachedAuth,
+        trackDurationMs: trackDurationMs,
+      );
+      dev.log(
+        'NativeEsperantoTransport: loadTrackWithHead returned $status',
+        name: 'NativePlayer',
+      );
+      if (status == NativeEngineStatus.ok) {
+        _engine.play();
+        if (handoffMs > 0) {
+          _engine.seekMs(handoffMs);
+        }
+        // Resolve full-track CDN stream asynchronously while head chunk plays
+        if (fullTrackUrl.isEmpty) {
+          _cancelSecondaryStreamDebounce();
+          _secondaryStreamDebounceTimer = Timer(const Duration(milliseconds: 50), () {
+            if (_currentTrack?.uri == track.uri) {
+              _resolveAndAttachSecondaryStream(track, aacFileId);
+            }
+          });
+        }
+      } else {
+        dev.log(
+          'NativeEsperantoTransport: loadTrackWithHead failed ($status), falling through to standard pipeline',
+          name: 'NativePlayer',
+        );
+        await _playTrackStandardPipeline(
+          track: track,
+          fileId: fileId,
+          aacFileId: aacFileId,
+          headUrl: headUrl,
+          previewOgg: previewOgg,
+          localPath: localPath,
+        );
+        return;
+      }
+      _emitPlayerState(isBuffering: false);
+
+      // Prefetch next track's head file for seamless transitions
+      final nextTrack = _currentQueue.nextTracks.firstOrNull;
+      if (nextTrack != null) {
+        final nextFileId = nextTrack.metadata[ContextTrackMetadata.keyFileId] ??
+            nextTrack.metadata['file_id'];
+        final nextHeadUrl = nextTrack.metadata[ContextTrackMetadata.keyHeadFileUrl] ??
+            nextTrack.metadata['head_url'];
+        if (nextFileId != null && nextFileId.isNotEmpty && nextHeadUrl != null && nextHeadUrl.isNotEmpty) {
+          // Dart-side async download ensures head is on disk before next FFI call
+          unawaited(SpotifyHeadResolver.instance.resolveOrPrefetchHead(nextFileId));
+          _engine.prefetchHead(fileIdHex: nextFileId, cacheDir: headsCacheParentDir);
+        }
+      }
+      return;
+    }
+
+    // No head file available — run JIT metadata resolve to populate fileId/headUrl/aacFileId
     final durationMeta = track.metadata[ContextTrackMetadata.keyDuration];
     final bool hasDuration = durationMeta != null && durationMeta.isNotEmpty;
-    // Stage 2: JIT Resolution on Cache Miss (Spotify openTrackPlayer at offset 0x194978 & padme 0x24ac9f)
     if ((fileId == null || fileId.isEmpty || aacFileId == null || aacFileId.isEmpty || !hasDuration) &&
         track.uri.startsWith('spotify:track:')) {
       final metadataService = _metadataService;
@@ -455,11 +632,146 @@ class NativeEsperantoTransport implements EsperantoTransport {
       }
     }
 
+    // After JIT resolve, try head path again (JIT may have populated fileId+headUrl)
+    headUrl = track.metadata[ContextTrackMetadata.keyHeadFileUrl] ?? track.metadata['head_url'];
+    fileId = track.metadata[ContextTrackMetadata.keyFileId] ?? track.metadata['file_id'] ?? track.metadata['audio.file_id'];
+    aacFileId = track.metadata[ContextTrackMetadata.keyAacFileId] ?? track.metadata['aac_file_id'];
+    if (fileId != null && fileId.isNotEmpty && headUrl != null && headUrl.isNotEmpty) {
+      await SpotifyHeadResolver.instance.resolveOrPrefetchHead(fileId);
+      final headsCacheParentDir = await SpotifyHeadResolver.instance.getCacheParentDirectory();
+      var cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
+      var licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
+      String fullTrackUrl = '';
+      if (cdnAac case final validAac? when validAac.isNotEmpty) {
+        fullTrackUrl = validAac;
+      }
+
+      int trackDurationMs = -1;
+      final metaDurationStr = track.metadata[ContextTrackMetadata.keyDuration];
+      if (metaDurationStr != null && metaDurationStr.isNotEmpty) {
+        final parsed = int.tryParse(metaDurationStr);
+        if (parsed != null && parsed > 0) {
+          trackDurationMs = parsed;
+        }
+      }
+
+      final handoffStr = track.metadata[ContextTrackMetadata.keyHandoffPositionMs];
+      int handoffMs = -1;
+      if (handoffStr case final str?) {
+        final parsed = int.tryParse(str);
+        if (parsed case final validParsed?) {
+          handoffMs = validParsed;
+        }
+      }
+
+      dev.log(
+        'NativeEsperantoTransport: post-JIT loadTrackWithHead fileId=$fileId, fullUrl=$fullTrackUrl, cacheDir=$headsCacheParentDir, trackDurationMs=$trackDurationMs',
+        name: 'NativePlayer',
+      );
+      var status = _engine.loadTrackWithHead(
+        fileIdHex: fileId,
+        fullTrackUrl: fullTrackUrl,
+        cacheDir: headsCacheParentDir,
+        licenseServerUrl: licenseUrl,
+        authHeader: track.metadata[ContextTrackMetadata.keyDrmAuthHeader],
+        trackDurationMs: trackDurationMs,
+      );
+      if (status == NativeEngineStatus.ok) {
+        _engine.play();
+        if (handoffMs > 0) {
+          _engine.seekMs(handoffMs);
+        }
+        if (fullTrackUrl.isEmpty) {
+          _cancelSecondaryStreamDebounce();
+          _secondaryStreamDebounceTimer = Timer(const Duration(milliseconds: 50), () {
+            if (_currentTrack?.uri == track.uri) {
+              _resolveAndAttachSecondaryStream(track, aacFileId);
+            }
+          });
+        }
+        _emitPlayerState(isBuffering: false);
+
+        final nextTrack = _currentQueue.nextTracks.firstOrNull;
+        if (nextTrack != null) {
+          final nextFileId = nextTrack.metadata[ContextTrackMetadata.keyFileId] ?? nextTrack.metadata['file_id'];
+          final nextHeadUrl = nextTrack.metadata[ContextTrackMetadata.keyHeadFileUrl] ?? nextTrack.metadata['head_url'];
+          if (nextFileId != null && nextFileId.isNotEmpty && nextHeadUrl != null && nextHeadUrl.isNotEmpty) {
+            _engine.prefetchHead(fileIdHex: nextFileId, cacheDir: headsCacheParentDir);
+          }
+        }
+        return;
+      }
+      // If head load failed after JIT, fall through to standard pipeline
+    }
+
+    // Standard pipeline: no head file available, resolve CDN/license/auth before playback
+    await _playTrackStandardPipeline(
+      track: track,
+      fileId: fileId,
+      aacFileId: aacFileId,
+      headUrl: headUrl,
+      previewOgg: previewOgg,
+      localPath: localPath,
+    );
+  }
+
+  /// Standard (non-fast-path) playback pipeline. Used when no head file is available,
+  /// or as a fallback when loadTrackWithHead fails. Resolves CDN, license, and auth
+  /// before calling loadEncrypted/loadLocal.
+  Future<void> _playTrackStandardPipeline({
+    required ContextTrack track,
+    required String? fileId,
+    required String? aacFileId,
+    required String? headUrl,
+    required String? previewOgg,
+    required String? localPath,
+  }) async {
     var cdnAac = track.metadata[ContextTrackMetadata.keyCdnAacUrl];
     var licenseUrl = track.metadata[ContextTrackMetadata.keyLicenseServerUrl];
 
-    // If no Vorbis head URL exists, resolve the full CDN stream via MP4 file ID upfront
-    if ((headUrl == null || headUrl.isEmpty) && (cdnAac == null || cdnAac.isEmpty) && aacFileId != null && aacFileId.isNotEmpty) {
+    // Parallelize CDN + license resolution when both are missing
+    final needsCdnResolve = (headUrl == null || headUrl.isEmpty) && (cdnAac == null || cdnAac.isEmpty) && aacFileId != null && aacFileId.isNotEmpty;
+    final needsLicenseResolve = licenseUrl == null || licenseUrl.isEmpty;
+
+    if (needsCdnResolve && needsLicenseResolve) {
+      try {
+        dev.log(
+          'NativeEsperantoTransport: parallel-resolving CDN + license for MP4 file $aacFileId',
+          name: 'NativePlayer',
+        );
+        final results = await Future.wait([
+          _storageResolver?.resolveCdnUrl(aacFileId) ?? Future<String?>.value(null),
+          _licenseResolver?.resolveLicenseUrl() ?? Future<String?>.value(null),
+        ]);
+        final resolvedCdn = results[0];
+        final resolvedLicense = results[1];
+
+        if (resolvedCdn != null && resolvedCdn.isNotEmpty) {
+          cdnAac = resolvedCdn;
+          final updatedMeta = Map<String, String>.from(track.metadata);
+          updatedMeta[ContextTrackMetadata.keyCdnAacUrl] = resolvedCdn;
+          if (resolvedLicense != null && resolvedLicense.isNotEmpty) {
+            updatedMeta[ContextTrackMetadata.keyLicenseServerUrl] = resolvedLicense;
+            licenseUrl = resolvedLicense;
+          }
+          track = track.toBuilder().metadata(updatedMeta).build();
+          _currentTrack = track;
+          _currentQueue = _currentQueue.toBuilder().track(track).build();
+          _emitQueueUpdate();
+        } else if (resolvedLicense != null && resolvedLicense.isNotEmpty) {
+          licenseUrl = resolvedLicense;
+          final updatedMeta = Map<String, String>.from(track.metadata);
+          updatedMeta[ContextTrackMetadata.keyLicenseServerUrl] = resolvedLicense;
+          track = track.toBuilder().metadata(updatedMeta).build();
+          _currentTrack = track;
+        }
+      } catch (e) {
+        dev.log(
+          'NativeEsperantoTransport: parallel CDN+license resolve failed: $e',
+          name: 'NativePlayer',
+        );
+      }
+    } else if (needsCdnResolve) {
       try {
         dev.log(
           'NativeEsperantoTransport: resolving CDN URL upfront for MP4 file $aacFileId',
@@ -481,9 +793,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
           name: 'NativePlayer',
         );
       }
-    }
-
-    if ((licenseUrl == null || licenseUrl.isEmpty) && (cdnAac != null && cdnAac.isNotEmpty)) {
+    } else if (needsLicenseResolve && (cdnAac != null && cdnAac.isNotEmpty)) {
       try {
         final resolvedLicense = await _licenseResolver?.resolveLicenseUrl();
         if (resolvedLicense != null && resolvedLicense.isNotEmpty) {
@@ -500,6 +810,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
         );
       }
     }
+
     var authHeader = track.metadata[ContextTrackMetadata.keyDrmAuthHeader];
     if (authHeader == null || authHeader.isEmpty) {
       final token = await _authSessionProvider?.getAccessToken();
@@ -516,6 +827,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
         authHeader = authHeaderBuffer.toString();
       }
     }
+
     final handoffStr = track.metadata[ContextTrackMetadata.keyHandoffPositionMs];
     int handoffMs = -1;
     if (handoffStr case final str?) {
@@ -534,92 +846,14 @@ class NativeEsperantoTransport implements EsperantoTransport {
     final headsCacheParentDir = await SpotifyHeadResolver.instance.getCacheParentDirectory();
 
     dev.log(
-      'NativeEsperantoTransport._playTrack: uri=${track.uri}, fileId=$fileId, headUrl=$headUrl, primaryPath=$primaryPath, cdnAac=$cdnAac, cacheDir=$headsCacheParentDir',
+      'NativeEsperantoTransport._playTrackStandard: uri=${track.uri}, fileId=$fileId, headUrl=$headUrl, primaryPath=$primaryPath, cdnAac=$cdnAac, cacheDir=$headsCacheParentDir',
       name: 'NativePlayer',
     );
 
-    int trackDurationMs = -1;
-    final metaDurationStr = track.metadata[ContextTrackMetadata.keyDuration];
-    if (metaDurationStr != null && metaDurationStr.isNotEmpty) {
-      final parsed = int.tryParse(metaDurationStr);
-      if (parsed != null && parsed > 0) {
-        trackDurationMs = parsed;
-      }
-    }
-
-    // Option 1: Fast Vorbis Head File + Full Track dual-decoder pipeline (< 30ms TTFA)
-    if (fileId != null && fileId.isNotEmpty && headUrl != null && headUrl.isNotEmpty) {
-      String fullTrackUrl = '';
-      if (cdnAac case final validAac? when validAac.isNotEmpty) {
-        fullTrackUrl = validAac;
-      }
+    if (cdnAac != null && cdnAac.isNotEmpty) {
+      // Direct AAC/MP4/pass-through stream (no Vorbis head chunk)
       dev.log(
-        'NativeEsperantoTransport: calling loadTrackWithHead fileId=$fileId, fullUrl=$fullTrackUrl, cacheDir=$headsCacheParentDir, trackDurationMs=$trackDurationMs',
-        name: 'NativePlayer',
-      );
-      var status = _engine.loadTrackWithHead(
-        fileIdHex: fileId,
-        fullTrackUrl: fullTrackUrl,
-        cacheDir: headsCacheParentDir,
-        licenseServerUrl: licenseUrl,
-        authHeader: authHeader,
-        trackDurationMs: trackDurationMs,
-      );
-      dev.log(
-        'NativeEsperantoTransport: loadTrackWithHead returned $status',
-        name: 'NativePlayer',
-      );
-      if (status == NativeEngineStatus.ok) {
-        _engine.play();
-        if (handoffMs > 0) {
-          _engine.seekMs(handoffMs);
-        }
-        if (fullTrackUrl.isEmpty) {
-          _cancelSecondaryStreamDebounce();
-          _secondaryStreamDebounceTimer = Timer(const Duration(milliseconds: 350), () {
-            if (_currentTrack?.uri == track.uri) {
-              _resolveAndAttachSecondaryStream(track, aacFileId);
-            }
-          });
-        }
-      } else {
-        dev.log(
-          'NativeEsperantoTransport: loadTrackWithHead failed ($status), attempting graceful streaming bypass',
-          name: 'NativePlayer',
-        );
-        // Fallback: If head chunk load failed, stream directly
-        if (fullTrackUrl.isNotEmpty) {
-          status = (licenseUrl != null && licenseUrl.isNotEmpty)
-              ? _engine.loadEncrypted(
-                  url: fullTrackUrl,
-                  licenseServerUrl: licenseUrl,
-                  authHeader: authHeader,
-                )
-              : _engine.loadLocal(fullTrackUrl);
-        } else if (previewOgg != null && previewOgg.isNotEmpty) {
-          status = _engine.loadLocal(previewOgg);
-        } else if (localPath != null && localPath.isNotEmpty) {
-          status = _engine.loadLocal(localPath);
-        }
-
-        if (status == NativeEngineStatus.ok) {
-          _engine.play();
-          if (handoffMs > 0) {
-            _engine.seekMs(handoffMs);
-          }
-        } else {
-          dev.log(
-            'NativeEsperantoTransport: streaming fallback failed with status $status for ${track.uri}',
-            name: 'NativePlayer',
-          );
-          _clientTokenFetcher?.forceRefreshClientToken();
-          _emitError('TRACK_UNAVAILABLE', track.uri);
-        }
-      }
-    } else if (cdnAac != null && cdnAac.isNotEmpty) {
-      // Option 2: Graceful bypass when no Vorbis stream is available (direct AAC/MP4/pass-through stream)
-      dev.log(
-        'NativeEsperantoTransport: no Vorbis head chunk, streaming full CDN track directly: $cdnAac',
+        'NativeEsperantoTransport: streaming full CDN track directly: $cdnAac',
         name: 'NativePlayer',
       );
       final status = (licenseUrl != null && licenseUrl.isNotEmpty)
@@ -643,7 +877,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
         _emitError('TRACK_UNAVAILABLE', track.uri);
       }
     } else if (primaryPath != null && primaryPath.isNotEmpty) {
-      // Option 3: Local file or standalone preview audio
+      // Local file or standalone preview audio
       dev.log(
         'NativeEsperantoTransport: calling loadLocal primaryPath=$primaryPath',
         name: 'NativePlayer',
@@ -877,7 +1111,20 @@ class NativeEsperantoTransport implements EsperantoTransport {
         }
       }
 
-      final nextTrack = nextTracks[targetIndex];
+      ContextTrack nextTrack = nextTracks[targetIndex];
+
+      // 1:1 Spotify delimiter handling: if target is delimiter, load next page slice first
+      if (nextTrack.isDelimiter()) {
+        _loadNextPageSlice();
+        final refreshedNext =
+            _currentQueue.nextTracks.where((t) => !t.isDelimiter()).toList();
+        if (refreshedNext.isNotEmpty) {
+          nextTrack = refreshedNext.first;
+        } else {
+          return Uint8List(0);
+        }
+      }
+
       final isTargetQueued = nextTrack.isQueued;
 
       List<ContextTrack> newNextTracks;
@@ -902,12 +1149,15 @@ class NativeEsperantoTransport implements EsperantoTransport {
       } else {
         // Target is a context track.
         // 1:1 Spotify: All user-queued tracks in nextTracks MUST be preserved at the head of nextTracks!
-        final preservedUserQueued = nextTracks.where((t) => t.isQueued).toList(growable: false);
-        final contextTracks = nextTracks.where((t) => !t.isQueued).toList(growable: false);
+        final preservedUserQueued =
+            nextTracks.where((t) => t.isQueued).toList(growable: false);
+        final contextTracks =
+            nextTracks.where((t) => !t.isQueued).toList(growable: false);
 
         final ctxTargetIdx = contextTracks.indexWhere(
-          (t) => (t.uid.isNotEmpty && t.uid == nextTrack.uid) ||
-                 (t.uri.isNotEmpty && t.uri == nextTrack.uri),
+          (t) =>
+              (t.uid.isNotEmpty && t.uid == nextTrack.uid) ||
+              (t.uri.isNotEmpty && t.uri == nextTrack.uri),
         );
 
         final safeCtxIdx = ctxTargetIdx != -1 ? ctxTargetIdx : 0;
@@ -924,11 +1174,62 @@ class NativeEsperantoTransport implements EsperantoTransport {
           .nextTracks(newNextTracks)
           .build();
 
+      // 1:1 Spotify Lookahead Page Preload: If remaining context tracks in nextTracks <= kPageLookaheadThreshold,
+      // trigger parseLoadedContextPage for the next chunk ahead of time!
+      final remainingContextCount = _currentQueue.nextTracks
+          .where((t) => !t.isQueued && !t.isDelimiter())
+          .length;
+      if (remainingContextCount <= kPageLookaheadThreshold &&
+          _loadedContextOffset < _originalContextTracks.length) {
+        _loadNextPageSlice();
+      }
+
       await _playTrack(nextTrack);
-    } else if (_currentOptions.repeatingContext && _currentQueue.prevTracks.isNotEmpty) {
+    } else if (_currentOptions.repeatingContext &&
+        _currentQueue.prevTracks.isNotEmpty) {
       await _handleLoopContext();
     }
     return Uint8List(0);
+  }
+
+  /// 1:1 Spotify parseLoadedContextPage triggering on page boundary
+  void _loadNextPageSlice() {
+    if (_loadedContextOffset >= _originalContextTracks.length) return;
+
+    final nextOffset = math.min(
+      _loadedContextOffset + kDefaultContextPageSize,
+      _originalContextTracks.length,
+    );
+    final newPageSlice =
+        _originalContextTracks.sublist(_loadedContextOffset, nextOffset);
+    _loadedContextOffset = nextOffset;
+    _currentIteration++;
+
+    final hasMorePages = _loadedContextOffset < _originalContextTracks.length;
+    final newDelimiter = ContextTrack.builder('spotify:delimiter')
+        .uid('$_currentIteration')
+        .metadata(const {'is_delimiter': 'true'})
+        .build();
+
+    final existingWithoutDelimiter =
+        _currentQueue.nextTracks.where((t) => !t.isDelimiter()).toList();
+
+    _currentQueue = _currentQueue.toBuilder().nextTracks([
+      ...existingWithoutDelimiter,
+      ...newPageSlice,
+      if (hasMorePages) newDelimiter,
+    ]).build();
+
+    try {
+      _contextProcessor?.parseLoadedContextPage(
+        iteration: _currentIteration,
+        pageUrl: 'context://$_currentContextUri?page=$_currentIteration',
+        tracks: newPageSlice,
+        nextPageUrl: hasMorePages
+            ? 'context://$_currentContextUri?page=${_currentIteration + 1}'
+            : '',
+      );
+    } catch (_) {}
   }
 
   Future<Uint8List> _handleSkipPrev([Uint8List? payload]) async {
@@ -1000,13 +1301,22 @@ class NativeEsperantoTransport implements EsperantoTransport {
         .build();
 
     final userQueue = QueueHelpers.getUserQueuedTracks(_currentQueue);
+    final hasMorePages = _loadedContextOffset < _originalContextTracks.length;
+    final delimiter = ContextTrack.builder('spotify:delimiter')
+        .uid('$_currentIteration')
+        .metadata(const {'is_delimiter': 'true'})
+        .build();
 
     if (shuffling) {
-      final contextTracks = List<ContextTrack>.from(QueueHelpers.getContextTracks(_currentQueue));
+      final contextTracks = List<ContextTrack>.from(
+          QueueHelpers.getContextTracks(_currentQueue)
+              .where((t) => !t.isDelimiter()));
       contextTracks.shuffle();
-      _currentQueue = _currentQueue.toBuilder()
-          .nextTracks([...userQueue, ...contextTracks])
-          .build();
+      _currentQueue = _currentQueue.toBuilder().nextTracks([
+        ...userQueue,
+        ...contextTracks,
+        if (hasMorePages) delimiter,
+      ]).build();
     } else {
       // 1:1 Spotify Unshuffle: Restore original context tracks order
       final originalContext = List<ContextTrack>.from(_originalContextTracks);
@@ -1017,22 +1327,40 @@ class NativeEsperantoTransport implements EsperantoTransport {
             (t.uri.isNotEmpty && t.uri == activeTrack.uri));
         final List<ContextTrack> remainingContext;
         if (activeIdx != -1 && activeIdx + 1 < originalContext.length) {
-          remainingContext = originalContext.sublist(activeIdx + 1);
+          final windowEnd = math.min(
+            activeIdx + 1 + kDefaultContextPageSize,
+            originalContext.length,
+          );
+          remainingContext = originalContext.sublist(activeIdx + 1, windowEnd);
         } else {
-          final playedUids = _currentQueue.prevTracks.map((p) => p.uid).toSet();
-          remainingContext = originalContext.where((t) =>
-              t.uid != activeTrack.uid && !playedUids.contains(t.uid)).toList();
+          final playedUids =
+              _currentQueue.prevTracks.map((p) => p.uid).toSet();
+          remainingContext = originalContext
+              .where((t) =>
+                  t.uid != activeTrack.uid && !playedUids.contains(t.uid))
+              .take(kDefaultContextPageSize)
+              .toList();
         }
-        _currentQueue = _currentQueue.toBuilder()
-            .nextTracks([...userQueue, ...remainingContext])
-            .build();
+        _currentQueue = _currentQueue.toBuilder().nextTracks([
+          ...userQueue,
+          ...remainingContext,
+          if (hasMorePages) delimiter,
+        ]).build();
       } else {
-        final currentContext = QueueHelpers.getContextTracks(_currentQueue);
-        _currentQueue = _currentQueue.toBuilder()
-            .nextTracks([...userQueue, ...currentContext])
-            .build();
+        final currentContext = QueueHelpers.getContextTracks(_currentQueue)
+            .where((t) => !t.isDelimiter())
+            .toList();
+        _currentQueue = _currentQueue.toBuilder().nextTracks([
+          ...userQueue,
+          ...currentContext,
+          if (hasMorePages) delimiter,
+        ]).build();
       }
     }
+
+    try {
+      _contextProcessor?.setShuffling(shuffling);
+    } catch (_) {}
 
     _emitQueueUpdate();
     _emitPlayerState();

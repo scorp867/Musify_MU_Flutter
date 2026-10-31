@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/foundation.dart';
+import '../../../../core/navigation/spotify_uri_navigator.dart';
 import 'playlist_header_type.dart';
 
 /// 1:1 replica of Spotify's `xcx.java` and `fob0.java` playlist metadata model.
@@ -47,6 +48,9 @@ class PlaylistMetadata {
   /// Evaluates whether this playlist is an official Spotify editorial/curated playlist
   /// matching Spotify's `is_curated` policy and author resolution (`ItemCurationStatePolicy.java`).
   bool get isEditorial {
+    if (SpotifyUriNavigator.isLikedSongsUri(uri)) {
+      return false;
+    }
     final owner = ownerUsername.toLowerCase();
     final name = ownerName.toLowerCase();
     return owner == 'spotify' ||

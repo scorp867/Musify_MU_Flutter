@@ -9,6 +9,7 @@ add_library(musify_audio SHARED
     DataSource.cpp
     NativeDecoder.cpp
     AudioEngine.cpp
+    ContextProcessor.cpp
     ffi_bridge.cpp
 )
 

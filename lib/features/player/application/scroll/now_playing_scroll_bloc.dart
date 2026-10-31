@@ -33,6 +33,16 @@ class NowPlayingScrollBloc
   ) async {
     final trackId = event.trackId;
 
+    // Skip network calls entirely for missing/empty track IDs
+    if (trackId == null || trackId.isEmpty) {
+      emit(NowPlayingScrollLoaded(
+        trackId: trackId,
+        cards: const [],
+        lyrics: null,
+      ));
+      return;
+    }
+
     emit(NowPlayingScrollLoading(
       trackId: trackId,
       currentCards: const [],
@@ -42,7 +52,7 @@ class NowPlayingScrollBloc
       final results = await Future.wait([
         _scrollSitaRepository?.getScrollCards(trackId) ??
             Future.value(const <ScrollCardDescriptor>[]),
-        (trackId != null && _lyricsRepository != null)
+        (_lyricsRepository != null)
             ? _lyricsRepository.getLyrics(trackId)
             : Future<ColorLyricsResponse?>.value(null),
       ]);

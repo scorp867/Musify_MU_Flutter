@@ -3,6 +3,10 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../../features/player/data/esperanto/proto/es_context_page.pb.dart' as es_page;
+import '../../features/player/data/esperanto/proto/es_context_track.pb.dart' as es_track;
+import '../../features/player/data/esperanto/proto/es_queue.pb.dart' as es_queue;
+import '../../features/player/domain/models/context_track.dart';
 import 'musify_ffi_bindings.dart';
 
 /// Mirrors C++ EngineState enum values exactly.
@@ -337,3 +341,242 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 }
+
+/// Native C++ ContextProcessor wrapper (1:1 with liborbit.so ContextProcessor & ContextView).
+///
+/// Implements deterministic queue windowing, delimiter generation, and page-boundary slicing
+/// directly in the native C++ player engine.
+class NativeContextProcessor implements Finalizable {
+  NativeContextProcessor() {
+    _handle = _ffi.cpCreate();
+    if (_handle == nullptr) {
+      throw StateError('musify_context_processor_create returned null');
+    }
+    _destructor.attach(this, _handle.cast(), detach: this);
+  }
+
+  static final NativeFinalizer _destructor = NativeFinalizer(
+    MusifyFfiBindings.instance.lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
+            'musify_context_processor_destroy')
+        .cast(),
+  );
+
+  final MusifyFfiBindings _ffi = MusifyFfiBindings.instance;
+  late final Pointer<Void> _handle;
+  bool _disposed = false;
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _destructor.detach(this);
+    _ffi.cpDestroy(_handle);
+  }
+
+  void _ensureAlive() {
+    if (_disposed) {
+      throw StateError('NativeContextProcessor already disposed');
+    }
+  }
+
+  /// 1:1 delimiter check with liborbit.so 0x16b81d4
+  bool isDelimiter(String uri) {
+    final uriPtr = uri.toNativeUtf8();
+    try {
+      return _ffi.cpIsDelimiter(uriPtr);
+    } finally {
+      calloc.free(uriPtr);
+    }
+  }
+
+  /// Sets context and initial tracks via 1:1 binary Protobuf wire format.
+  void setContextProto({
+    required String contextUri,
+    required Uint8List pageProtoBytes,
+    int initialIndex = 0,
+  }) {
+    _ensureAlive();
+    final cUriPtr = contextUri.toNativeUtf8();
+    final bytesPtr = calloc<Uint8>(pageProtoBytes.length);
+    bytesPtr.asTypedList(pageProtoBytes.length).setAll(0, pageProtoBytes);
+
+    try {
+      _ffi.cpSetContextProto(
+        _handle,
+        cUriPtr,
+        bytesPtr,
+        pageProtoBytes.length,
+        initialIndex,
+      );
+    } finally {
+      calloc.free(cUriPtr);
+      calloc.free(bytesPtr);
+    }
+  }
+
+  /// Sets context using Domain/Protobuf ContextPage.
+  void setContext({
+    required String contextUri,
+    required String pageUrl,
+    required List<ContextTrack> tracks,
+    required String nextPageUrl,
+    int initialIndex = 0,
+  }) {
+    final page = es_page.ContextPage(
+      pageUrl: pageUrl,
+      nextPageUrl: nextPageUrl,
+      tracks: tracks.map((t) => es_track.ContextTrack(
+            uri: t.uri,
+            uid: t.uid,
+            metadata: t.metadata.entries,
+          )),
+    );
+    setContextProto(
+      contextUri: contextUri,
+      pageProtoBytes: page.writeToBuffer(),
+      initialIndex: initialIndex,
+    );
+  }
+
+  /// 1:1 with liborbit.so 0x16a7530 parseLoadedContextPage via binary Protobuf.
+  void parseLoadedContextPageProto({
+    required int iteration,
+    required Uint8List pageProtoBytes,
+  }) {
+    _ensureAlive();
+    final bytesPtr = calloc<Uint8>(pageProtoBytes.length);
+    bytesPtr.asTypedList(pageProtoBytes.length).setAll(0, pageProtoBytes);
+
+    try {
+      _ffi.cpParseLoadedPageProto(
+        _handle,
+        iteration,
+        bytesPtr,
+        pageProtoBytes.length,
+      );
+    } finally {
+      calloc.free(bytesPtr);
+    }
+  }
+
+  /// 1:1 with liborbit.so 0x16a7530 parseLoadedContextPage.
+  void parseLoadedContextPage({
+    required int iteration,
+    required String pageUrl,
+    required List<ContextTrack> tracks,
+    required String nextPageUrl,
+  }) {
+    final page = es_page.ContextPage(
+      pageUrl: pageUrl,
+      nextPageUrl: nextPageUrl,
+      tracks: tracks.map((t) => es_track.ContextTrack(
+            uri: t.uri,
+            uid: t.uid,
+            metadata: t.metadata.entries,
+          )),
+    );
+    parseLoadedContextPageProto(
+      iteration: iteration,
+      pageProtoBytes: page.writeToBuffer(),
+    );
+  }
+
+  /// Returns the raw binary wire buffer of the active queue (1:1 with EsQueue$Queue).
+  Uint8List? getQueueProto({int maxNextCount = 50}) {
+    _ensureAlive();
+    final outLenPtr = calloc<Int32>();
+    try {
+      final bytesPtr = _ffi.cpGetQueueProto(_handle, maxNextCount, outLenPtr);
+      final len = outLenPtr.value;
+      if (bytesPtr == nullptr || len <= 0) return null;
+      try {
+        final list = Uint8List(len);
+        list.setAll(0, bytesPtr.asTypedList(len));
+        return list;
+      } finally {
+        _ffi.freeBytes(bytesPtr);
+      }
+    } finally {
+      calloc.free(outLenPtr);
+    }
+  }
+
+  /// Returns the deserialized Spotify esperanto Queue proto (1:1 with EsQueue$Queue).
+  es_queue.Queue? getQueue({int maxNextCount = 50}) {
+    final bytes = getQueueProto(maxNextCount: maxNextCount);
+    if (bytes == null || bytes.isEmpty) return null;
+    return es_queue.Queue.fromBuffer(bytes);
+  }
+
+  bool skipNext() {
+    _ensureAlive();
+    return _ffi.cpSkipNext(_handle);
+  }
+
+  bool skipPrev() {
+    _ensureAlive();
+    return _ffi.cpSkipPrev(_handle);
+  }
+
+  bool skipToIndex(int index) {
+    _ensureAlive();
+    return _ffi.cpSkipToIndex(_handle, index);
+  }
+
+  bool skipToUri(String uri) {
+    _ensureAlive();
+    final uriPtr = uri.toNativeUtf8();
+    try {
+      return _ffi.cpSkipToUri(_handle, uriPtr);
+    } finally {
+      calloc.free(uriPtr);
+    }
+  }
+
+  bool skipToUid(String uid) {
+    _ensureAlive();
+    final uidPtr = uid.toNativeUtf8();
+    try {
+      return _ffi.cpSkipToUid(_handle, uidPtr);
+    } finally {
+      calloc.free(uidPtr);
+    }
+  }
+
+  void setShuffling(bool shuffle) {
+    _ensureAlive();
+    _ffi.cpSetShuffling(_handle, shuffle);
+  }
+
+  bool get isShuffling {
+    _ensureAlive();
+    return _ffi.cpIsShuffling(_handle);
+  }
+
+  bool get needsNextPage {
+    _ensureAlive();
+    return _ffi.cpNeedsNextPage(_handle);
+  }
+
+  String get nextPageUrl {
+    _ensureAlive();
+    final urlPtr = _ffi.cpGetNextPageUrl(_handle);
+    if (urlPtr == nullptr) return '';
+    try {
+      return urlPtr.toDartString();
+    } finally {
+      _ffi.freeString(urlPtr);
+    }
+  }
+
+  int get currentIteration {
+    _ensureAlive();
+    return _ffi.cpGetCurrentIteration(_handle);
+  }
+
+  int get currentIndex {
+    _ensureAlive();
+    return _ffi.cpGetCurrentIndex(_handle);
+  }
+}
+

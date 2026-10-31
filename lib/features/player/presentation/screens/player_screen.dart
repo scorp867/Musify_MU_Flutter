@@ -5,10 +5,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/eased_gradient.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
+import '../../application/scroll/now_playing_scroll_bloc.dart';
 import '../../data/queue/context_track_extensions.dart';
 import '../../domain/models/context_track.dart';
+import '../../domain/models/scroll_card_descriptor.dart';
+import '../scroll/scroll_card_registry.dart';
 import '../widgets/peek_scroll_view.dart';
 import '../widgets/player_artwork.dart';
 import '../widgets/player_controls.dart';
@@ -115,10 +120,14 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   final GlobalKey<PeekScrollViewState> _peekScrollKey =
       GlobalKey<PeekScrollViewState>();
-  final GlobalKey _lyricsKey = GlobalKey();
 
   final ValueNotifier<Duration?> _dragNotifier = ValueNotifier<Duration?>(null);
   late final ValueNotifier<Duration> _positionNotifier;
+
+  late final NowPlayingScrollBloc _scrollBloc;
+  late final ScrollCardRegistry _cardRegistry;
+  DataPool? _dataPool;
+  String _currentTrackId = '';
 
   bool _isPlaying = false;
   bool _isFavorite = false;
@@ -137,17 +146,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ),
   );
 
-  static const List<String> _mockLyrics = [
-    'I\'m tryna put you in the worst mood, ah',
-    'P1 cleaner than your church shoes, ah',
-    'Milli point two just to hurt you, ah',
-    'All red Lamb\' just to tease you, ah',
-    'None of these toys on lease too, ah',
-    'Made your whole year in a week too, yah',
-    'Main bitch out your league too, ah',
-    'Side bitch out of your league too, ah',
-  ];
-
   PlayerQueueBloc? get _effectiveBloc =>
       widget.queueBloc ??
       (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
@@ -157,21 +155,84 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.initState();
     _positionNotifier = ValueNotifier<Duration>(Duration.zero);
 
+    _scrollBloc = getIt<NowPlayingScrollBloc>();
+    _dataPool = getIt.isRegistered<DataPool>() ? getIt<DataPool>() : null;
+    _cardRegistry = ScrollCardRegistry(dataPool: _dataPool);
+
     final bloc = _effectiveBloc;
     if (bloc != null) {
       _isPlaying = bloc.state.isPlaying;
       _positionNotifier.value = bloc.state.currentPosition;
     }
     _updatePositionTicker(_isPlaying);
+
+    final initialTrack = _effectiveBloc?.state.currentTrack ?? widget.currentTrack;
+    _currentTrackId = _extractTrackId(initialTrack, _effectiveBloc?.state.songId ?? widget.songId);
+    if (_currentTrackId.isNotEmpty) {
+      _scrollBloc.add(FetchNowPlayingScroll(_currentTrackId));
+    }
   }
 
   @override
   void dispose() {
+    _scrollBloc.close();
     _positionTimer?.cancel();
     _positionTimer = null;
     _positionNotifier.dispose();
     _dragNotifier.dispose();
     super.dispose();
+  }
+
+  /// URI prefixes that must never trigger ScrollSita or lyrics fetches.
+  /// Matches Spotify's wi21.java blocklist + ock1.m68144T episode filter.
+  static const _nonMusicUriPrefixes = [
+    'spotify:ad:',
+    'spotify:interruption:',
+    'spotify:delimiter',
+    'spotify:local:',
+    'spotify:meta:',
+    'spotify:episode:',
+    'spotify:podcast-chapter:',
+    'spotify:clip:',
+  ];
+
+  String _extractTrackId(ContextTrack? track, int? songId) {
+    if (track != null && track.uri.isNotEmpty) {
+      // Block non-music URIs from triggering scroll/lyrics network calls
+      for (final prefix in _nonMusicUriPrefixes) {
+        if (track.uri.startsWith(prefix)) return '';
+      }
+      if (track.uri.startsWith('spotify:track:')) {
+        return track.uri.substring('spotify:track:'.length);
+      }
+      return track.uri;
+    }
+    if (songId != null && songId > 0) {
+      return songId.toString();
+    }
+    return '';
+  }
+
+  int _resolveActiveLyricsLine(
+    ColorLyricsResponse? colorLyrics,
+    Duration currentPos,
+  ) {
+    if (colorLyrics == null ||
+        !colorLyrics.hasLyrics() ||
+        colorLyrics.lyrics.lines.isEmpty) {
+      return 0;
+    }
+    final posMs = currentPos.inMilliseconds;
+    final lines = colorLyrics.lyrics.lines;
+    int activeIndex = 0;
+    for (int i = 0; i < lines.length; i++) {
+      if (lines[i].startTimeMs.toInt() <= posMs) {
+        activeIndex = i;
+      } else {
+        break;
+      }
+    }
+    return activeIndex;
   }
 
   void _updatePositionTicker(bool isPlaying) {
@@ -199,12 +260,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return BlocConsumer<PlayerQueueBloc, PlayerQueueState>(
         bloc: bloc,
         listenWhen: (previous, current) {
-          return previous.isPlaying != current.isPlaying;
+          return previous.isPlaying != current.isPlaying ||
+              previous.currentTrack != current.currentTrack ||
+              previous.songId != current.songId;
         },
         listener: (context, state) {
           _updatePositionTicker(state.isPlaying);
           if (_dragNotifier.value == null) {
             _positionNotifier.value = state.currentPosition;
+          }
+          final newTrack = state.currentTrack;
+          final newTrackId = _extractTrackId(newTrack, state.songId);
+          if (newTrackId.isNotEmpty && newTrackId != _currentTrackId) {
+            _currentTrackId = newTrackId;
+            _scrollBloc.add(FetchNowPlayingScroll(newTrackId));
           }
         },
         buildWhen: (previous, current) {
@@ -227,23 +296,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _buildContent(BuildContext context, {PlayerQueueState? queueState}) {
     final activeTrack = queueState?.currentTrack ?? widget.currentTrack;
-    final displayTitle = (activeTrack?.title.isNotEmpty == true)
-        ? activeTrack!.title
-        : (queueState?.title.isNotEmpty == true ? queueState!.title : widget.title);
-    final displayArtist = (activeTrack?.artist.isNotEmpty == true)
-        ? activeTrack!.artist
-        : (queueState?.artist.isNotEmpty == true ? queueState!.artist : widget.artist);
-    final displayAlbum = (activeTrack?.album.isNotEmpty == true)
-        ? activeTrack!.album
-        : (queueState?.album.isNotEmpty == true ? queueState!.album : widget.album);
+    final track = activeTrack;
+    final displayTitle = (track != null && track.title.isNotEmpty)
+        ? track.title
+        : (queueState != null && queueState.title.isNotEmpty ? queueState.title : widget.title);
+    final displayArtist = (track != null && track.artist.isNotEmpty)
+        ? track.artist
+        : (queueState != null && queueState.artist.isNotEmpty ? queueState.artist : widget.artist);
+    final displayAlbum = (track != null && track.album.isNotEmpty)
+        ? track.album
+        : (queueState != null && queueState.album.isNotEmpty ? queueState.album : widget.album);
     final displayDuration = (queueState != null && queueState.durationMs > 0)
         ? queueState.currentDuration
-        : (activeTrack?.duration ?? widget.duration);
-    final displayImageUrl = (activeTrack != null || queueState != null)
-        ? (activeTrack?.imageUrl ?? queueState?.imageUrl)
+        : (track?.duration ?? widget.duration);
+    final displayImageUrl = (track != null || queueState != null)
+        ? (track?.imageUrl ?? queueState?.imageUrl)
         : widget.imageUrl;
-    final displaySongId = (activeTrack != null || queueState != null)
-        ? (activeTrack?.songId ?? queueState?.songId)
+    final displaySongId = (track != null || queueState != null)
+        ? (track?.songId ?? queueState?.songId)
         : widget.songId;
 
     final isPlaying = queueState?.isPlaying ?? _isPlaying;
@@ -256,137 +326,217 @@ class _PlayerScreenState extends State<PlayerScreen> {
             : (queueState.repeatContext ? QueueRepeatMode.all : QueueRepeatMode.none))
         : _repeatMode;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.light,
-      ),
-      child: PullToDismissScaffold(
-        barrierBaseAlpha: 0.70,
-        builder: (context, dismissController) {
-          return PeekScrollView(
-            key: _peekScrollKey,
-            dismissController: dismissController,
-            peekHeight: 64.0,
-            tier1Decoration: _tier1Decoration,
-            header: PlayerHeader(
-              onClose: dismissController.dismiss,
-              onMore: () => _showMoreOptions(
-                context,
-                title: displayTitle,
-                artist: displayArtist,
-                album: displayAlbum,
-                duration: displayDuration,
-                activeTrack: activeTrack,
-                isPlayingVal: isPlaying,
-                shuffleVal: shuffleMode,
-                repeatVal: repeatMode,
-              ),
-              contextTitle: 'PLAYING FROM ALBUM',
-              contextSubtitle: displayAlbum,
+    return BlocBuilder<NowPlayingScrollBloc, NowPlayingScrollState>(
+      bloc: _scrollBloc,
+      builder: (context, scrollState) {
+        final activeTrackUri = (track != null && track.uri.isNotEmpty)
+            ? track.uri
+            : (_currentTrackId.isNotEmpty
+                ? 'spotify:track:$_currentTrackId'
+                : 'spotify:track:default');
+        final activeArtistUri = track?.metadata[ContextTrackMetadata.keyArtistUri] ?? '';
+
+        ColorLyricsResponse? colorLyrics;
+        List<ScrollCardDescriptor> cards = const [];
+
+        if (scrollState is NowPlayingScrollLoaded) {
+          cards = scrollState.cards;
+          colorLyrics = scrollState.lyrics;
+        } else if (scrollState is NowPlayingScrollFailure) {
+          cards = scrollState.fallbackCards;
+        }
+
+        if (cards.isEmpty) {
+          cards = [
+            LyricsCardDescriptor(entityUri: activeTrackUri),
+            CreatorBioCardDescriptor(
+              creatorUri: activeArtistUri,
+              title: 'About the artist',
             ),
-            mainContent: Column(
-              children: [
-                const Spacer(flex: 1),
-                Flexible(
-                  flex: 16,
-                  child: RepaintBoundary(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: 380,
-                        maxHeight: 380,
-                      ),
-                      child: PlayerAlbumArtwork(
-                        key: ValueKey('artwork_${activeTrack?.uid ?? activeTrack?.uri ?? displaySongId ?? displayImageUrl}'),
-                        imageUrl: displayImageUrl,
-                        songId: displaySongId,
-                      ),
-                    ),
-                  ),
-                ),
-                const Spacer(flex: 1),
-                RepaintBoundary(
-                  child: PlayerMetadata(
+            CreditsCardDescriptor(
+              entityUri: activeTrackUri,
+              contributorUris: const [],
+            ),
+          ];
+        }
+
+        final activeLineIdx = _resolveActiveLyricsLine(
+          colorLyrics,
+          _positionNotifier.value,
+        );
+
+        _cardRegistry.registerDefaultCards(
+          defaultArtistName: displayArtist,
+          colorLyrics: colorLyrics,
+          activeLineIndex: activeLineIdx,
+          onTapLyrics: _onExpandLyrics,
+          onShowAllCredits: () => _showCreditsDetailSheet(
+            context,
+            title: displayTitle,
+            artist: displayArtist,
+            album: displayAlbum,
+            duration: displayDuration,
+          ),
+          onShowAllEvents: () {},
+        );
+
+        // 1:1 Spotify card promotion:
+        // If track has valid lyrics, Lyrics is peeking card.
+        // If no lyrics, CreatorBio promotes to peeking card.
+        ScrollCardDescriptor peekingDesc;
+        List<ScrollCardDescriptor> expandedDescs;
+
+        final hasValidLyrics = colorLyrics != null &&
+            colorLyrics.hasLyrics() &&
+            colorLyrics.lyrics.lines.isNotEmpty;
+
+        final lyricsDesc = cards.whereType<LyricsCardDescriptor>().firstOrNull;
+        final creatorBioDesc = cards.whereType<CreatorBioCardDescriptor>().firstOrNull;
+
+        if (hasValidLyrics && lyricsDesc != null) {
+          peekingDesc = lyricsDesc;
+          expandedDescs = cards.where((d) => d != lyricsDesc).toList();
+        } else if (creatorBioDesc != null) {
+          peekingDesc = creatorBioDesc;
+          expandedDescs = cards.where((d) => d != creatorBioDesc).toList();
+        } else {
+          peekingDesc = cards.first;
+          expandedDescs = cards.skip(1).toList();
+        }
+
+        final peekingWidget = _cardRegistry.buildCard(context, peekingDesc) ??
+            PlayerAboutArtistSection(
+              key: const ValueKey('bio_default'),
+              artistName: displayArtist,
+              dataPool: _dataPool,
+              artistUri: activeArtistUri,
+            );
+
+        final expandedWidgets = expandedDescs
+            .map((d) => _cardRegistry.buildCard(context, d))
+            .whereType<Widget>()
+            .toList();
+
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.light,
+            statusBarBrightness: Brightness.dark,
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarIconBrightness: Brightness.light,
+          ),
+          child: PullToDismissScaffold(
+            barrierBaseAlpha: 0.70,
+            builder: (context, dismissController) {
+              return PeekScrollView(
+                key: _peekScrollKey,
+                dismissController: dismissController,
+                peekHeight: 64.0,
+                tier1Decoration: _tier1Decoration,
+                header: PlayerHeader(
+                  onClose: dismissController.dismiss,
+                  onMore: () => _showMoreOptions(
+                    context,
                     title: displayTitle,
                     artist: displayArtist,
-                    isFavorite: _isFavorite,
-                    onFavoriteChanged: _toggleFavorite,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                RepaintBoundary(
-                  child: ValueListenableBuilder<Duration?>(
-                    valueListenable: _dragNotifier,
-                    builder: (context, dragPos, _) {
-                      return ValueListenableBuilder<Duration>(
-                        valueListenable: _positionNotifier,
-                        builder: (context, pos, _) {
-                          return PlayerSeekBar(
-                            duration: displayDuration,
-                            position: dragPos ?? pos,
-                            dragPosition: dragPos,
-                            onDragPositionChanged: (newDragPos) {
-                              _dragNotifier.value = newDragPos;
-                              if (newDragPos != null) {
-                                _positionNotifier.value = newDragPos;
-                              }
-                            },
-                            onSeek: _handleSeek,
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 8),
-                RepaintBoundary(
-                  child: PlayerPlaybackControls(
-                    isPlaying: isPlaying,
-                    isBuffering: queueState?.isBuffering ?? false,
-                    shuffleMode: shuffleMode,
-                    repeatMode: repeatMode,
-                    onPlayPause: _handlePlayPause,
-                    onShuffle: _handleShuffle,
-                    onRepeat: _handleRepeat,
-                    onNext: _handleNext,
-                    onPrevious: _handlePrevious,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                PlayerUtilityRow(
-                  onQueue: () => _showQueue(
-                    context,
-                    activeTrack: activeTrack,
+                    album: displayAlbum,
+                    duration: displayDuration,
+                    activeTrack: track,
                     isPlayingVal: isPlaying,
                     shuffleVal: shuffleMode,
                     repeatVal: repeatMode,
                   ),
+                  contextTitle: 'PLAYING FROM ALBUM',
+                  contextSubtitle: displayAlbum,
                 ),
-                const SizedBox(height: 8),
-              ],
-            ),
-            peekingCard: PlayerLyricsSection(
-              key: _lyricsKey,
-              lyricsLines: _mockLyrics,
-              activeLineIndex: 1,
-              backgroundColor: const Color(0xFF1E3264),
-              onTapHeader: _onExpandLyrics,
-            ),
-            expandedCards: [
-              PlayerAboutArtistSection(
-                artistName: displayArtist,
-              ),
-              PlayerCreditsSection(
-                artistName: displayArtist,
-              ),
-            ],
-          );
-        },
-      ),
+                mainContent: Column(
+                  children: [
+                    const Spacer(flex: 1),
+                    Flexible(
+                      flex: 16,
+                      child: RepaintBoundary(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: 380,
+                            maxHeight: 380,
+                          ),
+                          child: PlayerAlbumArtwork(
+                            key: ValueKey('artwork_${track?.uid ?? track?.uri ?? displaySongId ?? displayImageUrl}'),
+                            imageUrl: displayImageUrl,
+                            songId: displaySongId,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Spacer(flex: 1),
+                    RepaintBoundary(
+                      child: PlayerMetadata(
+                        title: displayTitle,
+                        artist: displayArtist,
+                        isFavorite: _isFavorite,
+                        onFavoriteChanged: _toggleFavorite,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    RepaintBoundary(
+                      child: ValueListenableBuilder<Duration?>(
+                        valueListenable: _dragNotifier,
+                        builder: (context, dragPos, _) {
+                          return ValueListenableBuilder<Duration>(
+                            valueListenable: _positionNotifier,
+                            builder: (context, pos, _) {
+                              return PlayerSeekBar(
+                                duration: displayDuration,
+                                position: dragPos ?? pos,
+                                dragPosition: dragPos,
+                                onDragPositionChanged: (newDragPos) {
+                                  _dragNotifier.value = newDragPos;
+                                  if (newDragPos != null) {
+                                    _positionNotifier.value = newDragPos;
+                                  }
+                                },
+                                onSeek: _handleSeek,
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    RepaintBoundary(
+                      child: PlayerPlaybackControls(
+                        isPlaying: isPlaying,
+                        isBuffering: queueState?.isBuffering ?? false,
+                        shuffleMode: shuffleMode,
+                        repeatMode: repeatMode,
+                        onPlayPause: _handlePlayPause,
+                        onShuffle: _handleShuffle,
+                        onRepeat: _handleRepeat,
+                        onNext: _handleNext,
+                        onPrevious: _handlePrevious,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    PlayerUtilityRow(
+                      onQueue: () => _showQueue(
+                        context,
+                        activeTrack: track,
+                        isPlayingVal: isPlaying,
+                        shuffleVal: shuffleMode,
+                        repeatVal: repeatMode,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+                peekingCard: peekingWidget,
+                expandedCards: expandedWidgets,
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -480,6 +630,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  void _showCreditsDetailSheet(
+    BuildContext context, {
+    required String title,
+    required String artist,
+    required String album,
+    required Duration duration,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: PlayerColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (detailsContext) {
+        return PlayerTrackDetailsSheet(
+          title: title,
+          artist: artist,
+          album: album,
+          duration: duration,
+        );
+      },
+    );
+  }
+
   void _showMoreOptions(
     BuildContext context, {
     required String title,
@@ -499,23 +673,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
       ),
       builder: (bottomSheetContext) {
         return PlayerOptionsSheet(
-          onShowDetails: () {
-            showModalBottomSheet<void>(
-              context: context,
-              backgroundColor: PlayerColors.surface,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              builder: (detailsContext) {
-                return PlayerTrackDetailsSheet(
-                  title: title,
-                  artist: artist,
-                  album: album,
-                  duration: duration,
-                );
-              },
-            );
-          },
+          onShowDetails: () => _showCreditsDetailSheet(
+            context,
+            title: title,
+            artist: artist,
+            album: album,
+            duration: duration,
+          ),
           onShowQueue: () {
             _showQueue(
               context,

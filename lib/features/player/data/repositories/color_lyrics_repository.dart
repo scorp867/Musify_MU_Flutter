@@ -45,6 +45,8 @@ class ColorLyricsRepositoryImpl implements LyricsRepository {
     if (input.startsWith('spotify:track:')) {
       return input.replaceFirst('spotify:track:', '');
     }
+    // Reject full Spotify URIs that are not tracks (episodes, local, ads, etc.)
+    if (input.contains(':')) return '';
     return input;
   }
 

@@ -269,6 +269,9 @@ Future<void> setupInjection() async {
   getIt.registerLazySingleton<PlaylistDetailCache>(
     () => PlaylistDetailCache(cacheManager: getIt<AppCacheManager>()),
   );
+  getIt.registerLazySingleton<LibraryCache>(
+    () => LibraryCache(cacheManager: getIt<AppCacheManager>()),
+  );
   getIt.registerFactoryParam<LibraryRepository, String, void>(
     (userId, _) => LibraryRepositoryImpl(
       librarySource: LibraryRemoteSource(
@@ -278,9 +281,7 @@ Future<void> setupInjection() async {
         userId: userId,
       ),
       playlistSource: getIt<PlaylistRemoteSource>(),
-      libraryCache: LibraryCache(
-        cacheManager: getIt<AppCacheManager>(),
-      ),
+      libraryCache: getIt<LibraryCache>(),
       playlistCache: getIt<PlaylistDetailCache>(),
       metadataService: getIt<ExtendedMetadataService>(),
       userId: userId,
@@ -443,6 +444,9 @@ Future<void> setupInjection() async {
           : null,
       cache: getIt.isRegistered<PlaylistDetailCache>()
           ? getIt<PlaylistDetailCache>()
+          : null,
+      libraryCache: getIt.isRegistered<LibraryCache>()
+          ? getIt<LibraryCache>()
           : null,
       kodiakDecorator: getIt<PlaylistKodiakDecorator>(),
       currentUsername: '',

@@ -2,6 +2,9 @@ library;
 
 import 'dart:typed_data';
 
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
+import 'package:musify_mu/core/protocol/generated/spotify/collection/collection_paging.pb.dart'
+    as col_pb;
 import 'package:musify_mu/core/protocol/generated/spotify/playlist/playlist_detail.pb.dart'
     as detail_pb;
 import 'package:musify_mu/core/protocol/generated/spotify/playlist/rootlist.pb.dart'
@@ -38,7 +41,12 @@ class PlaylistProtoMappers {
         return PlaylistEntity(
           metadata: PlaylistMetadata(
             uri: playlistUri,
-            name: 'Playlist',
+            name: SpotifyUriNavigator.isLikedSongsUri(playlistUri)
+                ? 'Liked Songs'
+                : 'Playlist',
+            picture: SpotifyUriNavigator.isLikedSongsUri(playlistUri)
+                ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png'
+                : '',
           ),
           items: const [],
           isLoaded: false,
@@ -63,6 +71,81 @@ class PlaylistProtoMappers {
     }
   }
 
+  /// 1:1 Mapper translating collection/v2 PageResponse bytes into a PlaylistEntity for Liked Songs.
+  static PlaylistEntity fromCollectionBytes(
+    Uint8List bytes, {
+    required String playlistUri,
+    String currentUsername = '',
+    ProvidedSortOrder sortOrder = ProvidedSortOrder.custom,
+  }) {
+    final response = col_pb.PageResponse.fromBuffer(bytes);
+    final items = <PlaylistItem>[];
+
+    for (int i = 0; i < response.items.length; i++) {
+      final item = response.items[i];
+      final uri = item.uri;
+      if (uri.isEmpty) continue;
+      final addedAt = item.addedAt.toInt();
+
+      final trackMetadata = TrackItemMetadata(
+        title: _fallbackTitleFromUri(uri),
+        uri: uri,
+        isPlayable: true,
+        isExplicit: false,
+        durationMs: 0,
+        albumName: '',
+        albumCovers: const [],
+        artists: const [],
+        fileId: '',
+        aacFileId: '',
+        headUrl: '',
+        canonicalUri: uri,
+      );
+
+      items.add(PlaylistItem(
+        uri: uri,
+        uid: '$i-$uri',
+        rowPosition: i,
+        addedBy: currentUsername,
+        addedAt: addedAt,
+        trackMetadata: trackMetadata,
+        sectionType: PlaylistSectionType.standard,
+      ));
+    }
+
+    final sortedItems = _sortItems(items, sortOrder);
+
+    final metadata = PlaylistMetadata(
+      uri: playlistUri,
+      name: 'Liked Songs',
+      description: '',
+      ownerUsername: currentUsername,
+      ownerName: currentUsername.isNotEmpty ? currentUsername : 'You',
+      ownerAvatarUrl: '',
+      isCollaborative: false,
+      isFollowed: true,
+      isPublished: false,
+      canEdit: true,
+      canReport: false,
+      canAnnotate: false,
+      canDelete: false,
+      totalDurationMs: 0,
+      followersCount: 0,
+      picture: 'https://misc.scdn.co/liked-songs/liked-songs-300.png',
+      customAttributes: const {},
+    );
+
+    return PlaylistEntity(
+      metadata: metadata,
+      items: sortedItems,
+      totalLength: items.length,
+      unfilteredLength: items.length,
+      isLoaded: true,
+      hasMore: false,
+      sortOrder: sortOrder,
+    );
+  }
+
   static PlaylistEntity _fromPlaylistResponse(
     detail_pb.PlaylistResponse response, {
     required String playlistUri,
@@ -73,24 +156,31 @@ class PlaylistProtoMappers {
     final coverUrl = _extractCoverUrl(attrs);
     final ownerUsername = response.ownerUsername;
     final isOwn = currentUsername.isNotEmpty && ownerUsername == currentUsername;
+    final isLikedSongs = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
 
     final metadata = PlaylistMetadata(
       uri: playlistUri,
-      name: attrs.name.isNotEmpty ? attrs.name : 'Untitled Playlist',
+      name: isLikedSongs
+          ? 'Liked Songs'
+          : (attrs.name.isNotEmpty ? attrs.name : 'Untitled Playlist'),
       description: attrs.description,
       ownerUsername: ownerUsername,
-      ownerName: ownerUsername,
+      ownerName: isLikedSongs && ownerUsername.isEmpty
+          ? (currentUsername.isNotEmpty ? currentUsername : 'You')
+          : ownerUsername,
       ownerAvatarUrl: '',
       isCollaborative: attrs.collaborative,
       isFollowed: false,
       isPublished: true,
-      canEdit: isOwn,
-      canReport: !isOwn,
-      canAnnotate: isOwn,
-      canDelete: isOwn,
+      canEdit: isOwn || isLikedSongs,
+      canReport: !isOwn && !isLikedSongs,
+      canAnnotate: isOwn || isLikedSongs,
+      canDelete: isOwn && !isLikedSongs,
       totalDurationMs: 0,
       followersCount: 0,
-      picture: coverUrl ?? '',
+      picture: isLikedSongs && (coverUrl == null || coverUrl.isEmpty)
+          ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png'
+          : (coverUrl ?? ''),
       customAttributes: _extractFormatAttributes(attrs.formatAttributes),
     );
 
@@ -128,16 +218,23 @@ class PlaylistProtoMappers {
     final coverUrl = _extractCoverUrl(attrs);
     final ownerUsername = selected.ownerUsername;
     final isOwn = currentUsername.isNotEmpty && ownerUsername == currentUsername;
+    final isLikedSongs = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
 
     final metadata = PlaylistMetadata(
       uri: playlistUri,
-      name: attrs.name.isNotEmpty ? attrs.name : 'Untitled Playlist',
+      name: isLikedSongs
+          ? 'Liked Songs'
+          : (attrs.name.isNotEmpty ? attrs.name : 'Untitled Playlist'),
       description: attrs.description,
       ownerUsername: ownerUsername,
-      ownerName: ownerUsername,
+      ownerName: isLikedSongs && ownerUsername.isEmpty
+          ? (currentUsername.isNotEmpty ? currentUsername : 'You')
+          : ownerUsername,
       isCollaborative: attrs.collaborative,
-      canEdit: isOwn,
-      picture: coverUrl ?? '',
+      canEdit: isOwn || isLikedSongs,
+      picture: isLikedSongs && (coverUrl == null || coverUrl.isEmpty)
+          ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png'
+          : (coverUrl ?? ''),
       customAttributes: _extractFormatAttributes(attrs.formatAttributes),
     );
 
