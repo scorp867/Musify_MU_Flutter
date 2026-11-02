@@ -8,6 +8,7 @@ import '../../../core/color/color_extraction_service.dart';
 import '../../../core/color/eased_gradient.dart';
 import '../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../../core/ui/widgets/shell_bottom_spacer.dart';
+import '../../../core/widgets/app_network_image.dart';
 import '../../../core/navigation/spotify_navigator.dart';
 import '../../../core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import '../../../core/ubi/domain/logging/ubi_logger.dart';
@@ -649,10 +650,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                         height: 48,
                         color: const Color(0xFF383838),
                         child: state.playlist.pictureUrl.isNotEmpty
-                            ? Image.network(
-                                state.playlist.pictureUrl,
+                            ? AppNetworkImage(
+                                imageUrl: state.playlist.pictureUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
+                                memCacheWidth: 96,
+                                memCacheHeight: 96,
+                                errorWidget: (context, error, stackTrace) => SpotifyIcon.track(
                                   size: 24,
                                   color: const Color(0xFFB3B3B3),
                                 ),
@@ -761,10 +764,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
                         height: 48,
                         color: const Color(0xFF383838),
                         child: item.coverUrl.isNotEmpty
-                            ? Image.network(
-                                item.coverUrl,
+                            ? AppNetworkImage(
+                                imageUrl: item.coverUrl,
                                 fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
+                                memCacheWidth: 96,
+                                memCacheHeight: 96,
+                                errorWidget: (context, error, stackTrace) => SpotifyIcon.track(
                                   size: 24,
                                   color: const Color(0xFFB3B3B3),
                                 ),
