@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
+import '../../../../core/widgets/app_network_image.dart';
 import 'player_theme.dart';
 
 /// Singleton in-memory LRU cache of canonical [ImageProvider]s for local song artwork.
@@ -294,14 +295,14 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
     }
 
     if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty) {
-      return Image.network(
-        widget.imageUrl!,
+      return AppNetworkImage(
+        imageUrl: widget.imageUrl!,
         width: widget.artworkWidth ?? double.infinity,
         height: widget.artworkHeight ?? double.infinity,
+        memCacheWidth: isLarge ? 720 : 144,
+        memCacheHeight: isLarge ? 720 : 144,
         fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: isLarge ? FilterQuality.medium : FilterQuality.low,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+        errorWidget: (context, error, stackTrace) => _buildPlaceholder(),
       );
     }
 

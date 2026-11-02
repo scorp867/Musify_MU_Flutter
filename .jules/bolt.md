@@ -1,0 +1,3 @@
+## 2024-05-15 - [AppNetworkImage Usage for Performance]
+**Learning:** Found multiple usages of `Image.network` across the codebase which can cause uncontrolled memory consumption during decoding, specifically for lists, headers, and grids. This app has a memory-bounded wrapper `AppNetworkImage` that wraps `CachedNetworkImage` with connectivity-retry and `memCacheWidth`/`memCacheHeight` sizing limits.
+**Action:** Replace direct `Image.network` usages with `AppNetworkImage` where appropriate, setting reasonable memory bounds (e.g. 216x216/256x256 max) to significantly reduce RAM consumption and avoid OutOfMemory errors in scrollable lists.
