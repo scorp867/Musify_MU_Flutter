@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../domain/models/playlist_metadata.dart';
 
@@ -138,10 +139,10 @@ class PlaylistEditorialHeader extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: metadata.picture.isNotEmpty
-                  ? Image.network(
-                      metadata.picture,
+                  ? AppNetworkImage(
+                      imageUrl: metadata.picture,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
+                      errorWidget: (context, url, error) =>
                           _buildPlaceholderCover(),
                     )
                   : _buildPlaceholderCover(),

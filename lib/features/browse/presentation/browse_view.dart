@@ -2,6 +2,7 @@ import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/app_snack_bar.dart';
 import 'package:musify_mu/core/ui/widgets/sticky_header_delegate.dart';
@@ -326,7 +327,7 @@ class _BrowseHeader extends StatelessWidget {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(avatarUrl),
+            backgroundImage: CachedNetworkImageProvider(avatarUrl),
           );
         } else if (user?.displayName case final displayName?) {
           avatar = CircleAvatar(
