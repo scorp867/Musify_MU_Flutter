@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_optional.proto";
+
+option optimize_for = CODE_SIZE;
+
+message LoggingParams {
+    OptionalInt64 command_initiated_time = 1;
+    OptionalInt64 command_received_time = 2;
+    repeated string page_instance_ids = 3;
+    repeated string interaction_ids = 4;
+    string device_identifier = 5;
+    optional string command_id = 6;
+}

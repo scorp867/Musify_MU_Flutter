@@ -1,6 +1,6 @@
 // 1:1 replica of com.spotify.player.model.command.options.TimerType
 
-abstract class TimerType {
+sealed class TimerType {
   const TimerType();
 
   static TimerTypeClear clear() => const TimerTypeClear();
@@ -9,7 +9,7 @@ abstract class TimerType {
   static TimerTypeEndOfTrack endOfTrack() => const TimerTypeEndOfTrack();
 }
 
-class TimerTypeClear extends TimerType {
+final class TimerTypeClear extends TimerType {
   const TimerTypeClear();
 
   static TimerTypeClear create() => const TimerTypeClear();
@@ -19,10 +19,13 @@ class TimerTypeClear extends TimerType {
       identical(this, other) || (other is TimerTypeClear);
 
   @override
-  int get hashCode => runtimeType.hashCode;
+  int get hashCode => 1;
+
+  @override
+  String toString() => 'Clear{}';
 }
 
-class TimerTypeDuration extends TimerType {
+final class TimerTypeDuration extends TimerType {
   final int durationSeconds;
 
   const TimerTypeDuration(this.durationSeconds);
@@ -36,10 +39,13 @@ class TimerTypeDuration extends TimerType {
       (other is TimerTypeDuration && other.durationSeconds == durationSeconds);
 
   @override
-  int get hashCode => durationSeconds.hashCode;
+  int get hashCode => (durationSeconds ^ (durationSeconds >> 32)) ^ 1000003;
+
+  @override
+  String toString() => 'Duration{durationSeconds=$durationSeconds}';
 }
 
-class TimerTypeEndOfTrack extends TimerType {
+final class TimerTypeEndOfTrack extends TimerType {
   const TimerTypeEndOfTrack();
 
   static TimerTypeEndOfTrack create() => const TimerTypeEndOfTrack();
@@ -49,5 +55,8 @@ class TimerTypeEndOfTrack extends TimerType {
       identical(this, other) || (other is TimerTypeEndOfTrack);
 
   @override
-  int get hashCode => runtimeType.hashCode;
+  int get hashCode => 1;
+
+  @override
+  String toString() => 'EndOfTrack{}';
 }

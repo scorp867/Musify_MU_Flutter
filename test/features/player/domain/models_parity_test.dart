@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify_mu/features/player/data/esperanto/queue_proto_mappers.dart';
 import 'package:musify_mu/features/player/data/queue/context_track_extensions.dart';
 import 'package:musify_mu/features/player/domain/commands/play_command.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
@@ -99,6 +100,17 @@ void main() {
 
       expect(command.context.uri, 'spotify:playlist:123');
       expect(command.playOrigin.featureIdentifier, 'musify');
+    });
+
+    test('QueueProtoMappers: safely maps PlayerQueue.empty with non-numeric or empty revision', () {
+      final emptyProto = QueueProtoMappers.toQueueProto(PlayerQueue.empty);
+      expect(emptyProto.queueRevision.toInt(), 0);
+
+      final blankRevProto = QueueProtoMappers.toQueueProto(const PlayerQueue(revision: ''));
+      expect(blankRevProto.queueRevision.toInt(), 0);
+
+      final validProto = QueueProtoMappers.toQueueProto(const PlayerQueue(revision: '12345'));
+      expect(validProto.queueRevision.toInt(), 12345);
     });
   });
 }

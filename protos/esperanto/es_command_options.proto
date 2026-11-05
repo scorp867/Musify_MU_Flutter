@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+option optimize_for = CODE_SIZE;
+
+message CommandOptions {
+    bool override_restrictions = 1;
+    bool only_for_local_device = 2;
+    bool system_initiated = 3;
+    bytes only_for_playback_id = 4;
+}

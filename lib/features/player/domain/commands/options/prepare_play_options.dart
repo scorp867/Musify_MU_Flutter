@@ -9,96 +9,99 @@ import 'skip_to_track.dart';
 class PreparePlayOptions {
   static final PreparePlayOptions empty = builder().build();
 
-  final bool? alwaysPlaySomething;
-  final AudioStream? audioStream;
-  final Map<String, String> configurationOverride;
-  final bool? initiallyPaused;
-  final String? license;
   final String? playbackId;
-  final PlayerOptionOverrides? playerOptionsOverride;
-  final PrefetchLevel? prefetchLevel;
-  final int? seekTo;
-  final String? seekToCreatorTimestamp;
-  final String? sessionId;
+  final bool? alwaysPlaySomething;
   final SkipToTrack? skipTo;
-  final Suppressions? suppressions;
+  final int? seekTo;
+  final bool? initiallyPaused;
   final bool? systemInitiated;
+  final PlayerOptionOverrides? playerOptionsOverride;
+  final Suppressions? suppressions;
+  final PrefetchLevel? prefetchLevel;
+  final AudioStream? audioStream;
+  final String? sessionId;
+  final String? license;
+  final Map<String, String> configurationOverride;
+  final String? seekToCreatorTimestamp;
 
   const PreparePlayOptions({
-    this.alwaysPlaySomething,
-    this.audioStream,
-    this.configurationOverride = const <String, String>{},
-    this.initiallyPaused,
-    this.license,
     this.playbackId,
-    this.playerOptionsOverride,
-    this.prefetchLevel,
-    this.seekTo,
-    this.seekToCreatorTimestamp,
-    this.sessionId,
+    this.alwaysPlaySomething,
     this.skipTo,
-    this.suppressions,
+    this.seekTo,
+    this.initiallyPaused,
     this.systemInitiated,
+    this.playerOptionsOverride,
+    this.suppressions,
+    this.prefetchLevel,
+    this.audioStream,
+    this.sessionId,
+    this.license,
+    this.configurationOverride = const <String, String>{},
+    this.seekToCreatorTimestamp,
   });
 
-  static PreparePlayOptionsBuilder builder() => PreparePlayOptionsBuilder();
+  static PreparePlayOptionsBuilder builder() =>
+      PreparePlayOptionsBuilder().configurationOverride(const <String, String>{});
 
   PreparePlayOptionsBuilder toBuilder() => PreparePlayOptionsBuilder(
-        alwaysPlaySomething: alwaysPlaySomething,
-        audioStream: audioStream,
-        configurationOverride: configurationOverride,
-        initiallyPaused: initiallyPaused,
-        license: license,
         playbackId: playbackId,
-        playerOptionsOverride: playerOptionsOverride,
-        prefetchLevel: prefetchLevel,
-        seekTo: seekTo,
-        seekToCreatorTimestamp: seekToCreatorTimestamp,
-        sessionId: sessionId,
+        alwaysPlaySomething: alwaysPlaySomething,
         skipTo: skipTo,
-        suppressions: suppressions,
+        seekTo: seekTo,
+        initiallyPaused: initiallyPaused,
         systemInitiated: systemInitiated,
+        playerOptionsOverride: playerOptionsOverride,
+        suppressions: suppressions,
+        prefetchLevel: prefetchLevel,
+        audioStream: audioStream,
+        sessionId: sessionId,
+        license: license,
+        configurationOverride: configurationOverride,
+        seekToCreatorTimestamp: seekToCreatorTimestamp,
       );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PreparePlayOptions &&
-          other.alwaysPlaySomething == alwaysPlaySomething &&
-          other.audioStream == audioStream &&
-          other.initiallyPaused == initiallyPaused &&
-          other.license == license &&
           other.playbackId == playbackId &&
-          other.playerOptionsOverride == playerOptionsOverride &&
-          other.prefetchLevel == prefetchLevel &&
-          other.seekTo == seekTo &&
-          other.seekToCreatorTimestamp == seekToCreatorTimestamp &&
-          other.sessionId == sessionId &&
+          other.alwaysPlaySomething == alwaysPlaySomething &&
           other.skipTo == skipTo &&
-          other.suppressions == suppressions &&
+          other.seekTo == seekTo &&
+          other.initiallyPaused == initiallyPaused &&
           other.systemInitiated == systemInitiated &&
-          _mapEquals(other.configurationOverride, configurationOverride));
+          other.playerOptionsOverride == playerOptionsOverride &&
+          other.suppressions == suppressions &&
+          other.prefetchLevel == prefetchLevel &&
+          other.audioStream == audioStream &&
+          other.sessionId == sessionId &&
+          other.license == license &&
+          _mapEquals(other.configurationOverride, configurationOverride) &&
+          other.seekToCreatorTimestamp == seekToCreatorTimestamp);
 
   @override
   int get hashCode => Object.hashAll([
-        alwaysPlaySomething,
-        audioStream,
-        initiallyPaused,
-        license,
         playbackId,
-        playerOptionsOverride,
-        prefetchLevel,
-        seekTo,
-        seekToCreatorTimestamp,
-        sessionId,
+        alwaysPlaySomething,
         skipTo,
-        suppressions,
+        seekTo,
+        initiallyPaused,
         systemInitiated,
+        playerOptionsOverride,
+        suppressions,
+        prefetchLevel,
+        audioStream,
+        sessionId,
+        license,
+        Object.hashAll(
+            configurationOverride.entries.map((e) => Object.hash(e.key, e.value))),
+        seekToCreatorTimestamp,
       ]);
 
   @override
   String toString() =>
-      'PreparePlayOptions{alwaysPlaySomething=$alwaysPlaySomething, audioStream=$audioStream, initiallyPaused=$initiallyPaused, license=$license, playbackId=$playbackId, prefetchLevel=$prefetchLevel, seekTo=$seekTo, sessionId=$sessionId, skipTo=$skipTo, systemInitiated=$systemInitiated}';
+      'PreparePlayOptions{playbackId=$playbackId, alwaysPlaySomething=$alwaysPlaySomething, skipTo=$skipTo, seekTo=$seekTo, initiallyPaused=$initiallyPaused, systemInitiated=$systemInitiated, playerOptionsOverride=$playerOptionsOverride, suppressions=$suppressions, prefetchLevel=$prefetchLevel, audioStream=$audioStream, sessionId=$sessionId, license=$license, configurationOverride=$configurationOverride, seekToCreatorTimestamp=$seekToCreatorTimestamp}';
 
   static bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (identical(a, b)) return true;
@@ -111,80 +114,143 @@ class PreparePlayOptions {
 }
 
 class PreparePlayOptionsBuilder {
-  bool? _alwaysPlaySomething;
-  AudioStream? _audioStream;
-  Map<String, String> _configurationOverride;
-  bool? _initiallyPaused;
-  String? _license;
   String? _playbackId;
-  PlayerOptionOverrides? _playerOptionsOverride;
-  PrefetchLevel? _prefetchLevel;
-  int? _seekTo;
-  String? _seekToCreatorTimestamp;
-  String? _sessionId;
+  bool? _alwaysPlaySomething;
   SkipToTrack? _skipTo;
-  Suppressions? _suppressions;
+  int? _seekTo;
+  bool? _initiallyPaused;
   bool? _systemInitiated;
+  PlayerOptionOverrides? _playerOptionsOverride;
+  Suppressions? _suppressions;
+  PrefetchLevel? _prefetchLevel;
+  AudioStream? _audioStream;
+  String? _sessionId;
+  String? _license;
+  Map<String, String> _configurationOverride;
+  String? _seekToCreatorTimestamp;
 
   PreparePlayOptionsBuilder({
-    bool? alwaysPlaySomething,
-    AudioStream? audioStream,
-    Map<String, String> configurationOverride = const <String, String>{},
-    bool? initiallyPaused,
-    String? license,
     String? playbackId,
-    PlayerOptionOverrides? playerOptionsOverride,
-    PrefetchLevel? prefetchLevel,
-    int? seekTo,
-    String? seekToCreatorTimestamp,
-    String? sessionId,
+    bool? alwaysPlaySomething,
     SkipToTrack? skipTo,
-    Suppressions? suppressions,
+    int? seekTo,
+    bool? initiallyPaused,
     bool? systemInitiated,
-  })  : _alwaysPlaySomething = alwaysPlaySomething,
-        _audioStream = audioStream,
-        _configurationOverride = Map<String, String>.from(configurationOverride),
-        _initiallyPaused = initiallyPaused,
-        _license = license,
-        _playbackId = playbackId,
-        _playerOptionsOverride = playerOptionsOverride,
-        _prefetchLevel = prefetchLevel,
-        _seekTo = seekTo,
-        _seekToCreatorTimestamp = seekToCreatorTimestamp,
-        _sessionId = sessionId,
+    PlayerOptionOverrides? playerOptionsOverride,
+    Suppressions? suppressions,
+    PrefetchLevel? prefetchLevel,
+    AudioStream? audioStream,
+    String? sessionId,
+    String? license,
+    Map<String, String> configurationOverride = const <String, String>{},
+    String? seekToCreatorTimestamp,
+  })  : _playbackId = playbackId,
+        _alwaysPlaySomething = alwaysPlaySomething,
         _skipTo = skipTo,
+        _seekTo = seekTo,
+        _initiallyPaused = initiallyPaused,
+        _systemInitiated = systemInitiated,
+        _playerOptionsOverride = playerOptionsOverride,
         _suppressions = suppressions,
-        _systemInitiated = systemInitiated;
+        _prefetchLevel = prefetchLevel,
+        _audioStream = audioStream,
+        _sessionId = sessionId,
+        _license = license,
+        _configurationOverride = Map<String, String>.from(configurationOverride),
+        _seekToCreatorTimestamp = seekToCreatorTimestamp;
 
-  PreparePlayOptionsBuilder alwaysPlaySomething(bool val) { _alwaysPlaySomething = val; return this; }
-  PreparePlayOptionsBuilder audioStream(AudioStream val) { _audioStream = val; return this; }
-  PreparePlayOptionsBuilder configurationOverride(Map<String, String> val) { _configurationOverride = Map.from(val); return this; }
-  PreparePlayOptionsBuilder initiallyPaused(bool val) { _initiallyPaused = val; return this; }
-  PreparePlayOptionsBuilder license(String val) { _license = val; return this; }
-  PreparePlayOptionsBuilder playbackId(String val) { _playbackId = val; return this; }
-  PreparePlayOptionsBuilder playerOptionsOverride(PlayerOptionOverrides val) { _playerOptionsOverride = val; return this; }
-  PreparePlayOptionsBuilder prefetchLevel(PrefetchLevel val) { _prefetchLevel = val; return this; }
-  PreparePlayOptionsBuilder seekTo(int val) { _seekTo = val; return this; }
-  PreparePlayOptionsBuilder seekToCreatorTimestamp(String val) { _seekToCreatorTimestamp = val; return this; }
-  PreparePlayOptionsBuilder sessionId(String val) { _sessionId = val; return this; }
-  PreparePlayOptionsBuilder skipTo(SkipToTrack val) { _skipTo = val; return this; }
-  PreparePlayOptionsBuilder suppressions(Suppressions val) { _suppressions = val; return this; }
-  PreparePlayOptionsBuilder systemInitiated(bool val) { _systemInitiated = val; return this; }
+  static PreparePlayOptionsBuilder builder() => PreparePlayOptions.builder();
+
+  PreparePlayOptionsBuilder playbackId(String val) {
+    _playbackId = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder alwaysPlaySomething(bool val) {
+    _alwaysPlaySomething = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder skipTo(SkipToTrack val) {
+    _skipTo = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder seekTo(int val) {
+    _seekTo = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder initiallyPaused(bool val) {
+    _initiallyPaused = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder systemInitiated(bool val) {
+    _systemInitiated = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder playerOptionsOverride(PlayerOptionOverrides val) {
+    _playerOptionsOverride = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder suppressions(Suppressions val) {
+    _suppressions = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder suppressionsFromSet(Set<String> set) {
+    _suppressions = Suppressions.create(set);
+    return this;
+  }
+
+  PreparePlayOptionsBuilder prefetchLevel(PrefetchLevel val) {
+    _prefetchLevel = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder audioStream(AudioStream val) {
+    _audioStream = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder sessionId(String val) {
+    _sessionId = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder license(String val) {
+    _license = val;
+    return this;
+  }
+
+  PreparePlayOptionsBuilder configurationOverride(Map<String, String> val) {
+    _configurationOverride = Map<String, String>.from(val);
+    return this;
+  }
+
+  PreparePlayOptionsBuilder seekToCreatorTimestamp(String val) {
+    _seekToCreatorTimestamp = val;
+    return this;
+  }
 
   PreparePlayOptions build() => PreparePlayOptions(
-        alwaysPlaySomething: _alwaysPlaySomething,
-        audioStream: _audioStream,
-        configurationOverride: Map<String, String>.unmodifiable(_configurationOverride),
-        initiallyPaused: _initiallyPaused,
-        license: _license,
         playbackId: _playbackId,
-        playerOptionsOverride: _playerOptionsOverride,
-        prefetchLevel: _prefetchLevel,
-        seekTo: _seekTo,
-        seekToCreatorTimestamp: _seekToCreatorTimestamp,
-        sessionId: _sessionId,
+        alwaysPlaySomething: _alwaysPlaySomething,
         skipTo: _skipTo,
-        suppressions: _suppressions,
+        seekTo: _seekTo,
+        initiallyPaused: _initiallyPaused,
         systemInitiated: _systemInitiated,
+        playerOptionsOverride: _playerOptionsOverride,
+        suppressions: _suppressions,
+        prefetchLevel: _prefetchLevel,
+        audioStream: _audioStream,
+        sessionId: _sessionId,
+        license: _license,
+        configurationOverride:
+            Map<String, String>.unmodifiable(_configurationOverride),
+        seekToCreatorTimestamp: _seekToCreatorTimestamp,
       );
 }

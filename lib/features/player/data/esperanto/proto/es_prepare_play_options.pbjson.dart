@@ -81,11 +81,23 @@ const PreparePlayOptions$json = {
           '.spotify.player.esperanto.proto.PreparePlayOptions.ConfigurationOverrideEntry',
       '10': 'configurationOverride'
     },
+    {
+      '1': 'seek_to_creator_timestamp',
+      '3': 14,
+      '4': 1,
+      '5': 9,
+      '9': 0,
+      '10': 'seekToCreatorTimestamp',
+      '17': true
+    },
   ],
   '3': [PreparePlayOptions_ConfigurationOverrideEntry$json],
   '4': [
-    PreparePlayOptions_PrefetchLevel$json,
-    PreparePlayOptions_AudioStream$json
+    PreparePlayOptions_AudioStream$json,
+    PreparePlayOptions_PrefetchLevel$json
+  ],
+  '8': [
+    {'1': '_seek_to_creator_timestamp'},
   ],
 };
 
@@ -100,20 +112,20 @@ const PreparePlayOptions_ConfigurationOverrideEntry$json = {
 };
 
 @$core.Deprecated('Use preparePlayOptionsDescriptor instead')
-const PreparePlayOptions_PrefetchLevel$json = {
-  '1': 'PrefetchLevel',
-  '2': [
-    {'1': 'NONE', '2': 0},
-    {'1': 'MEDIA', '2': 1},
-  ],
-};
-
-@$core.Deprecated('Use preparePlayOptionsDescriptor instead')
 const PreparePlayOptions_AudioStream$json = {
   '1': 'AudioStream',
   '2': [
     {'1': 'DEFAULT', '2': 0},
     {'1': 'ALARM', '2': 1},
+  ],
+};
+
+@$core.Deprecated('Use preparePlayOptionsDescriptor instead')
+const PreparePlayOptions_PrefetchLevel$json = {
+  '1': 'PrefetchLevel',
+  '2': [
+    {'1': 'NONE', '2': 0},
+    {'1': 'MEDIA', '2': 1},
   ],
 };
 
@@ -134,7 +146,9 @@ final $typed_data.Uint8List preparePlayOptionsDescriptor = $convert.base64Decode
     'LkF1ZGlvU3RyZWFtUgthdWRpb1N0cmVhbRIdCgpzZXNzaW9uX2lkGAsgASgJUglzZXNzaW9uSW'
     'QSGAoHbGljZW5zZRgMIAEoCVIHbGljZW5zZRKEAQoWY29uZmlndXJhdGlvbl9vdmVycmlkZRgN'
     'IAMoCzJNLnNwb3RpZnkucGxheWVyLmVzcGVyYW50by5wcm90by5QcmVwYXJlUGxheU9wdGlvbn'
-    'MuQ29uZmlndXJhdGlvbk92ZXJyaWRlRW50cnlSFWNvbmZpZ3VyYXRpb25PdmVycmlkZRpIChpD'
-    'b25maWd1cmF0aW9uT3ZlcnJpZGVFbnRyeRIQCgNrZXkYASABKAlSA2tleRIUCgV2YWx1ZRgCIA'
-    'EoCVIFdmFsdWU6AjgBIiQKDVByZWZldGNoTGV2ZWwSCAoETk9ORRAAEgkKBU1FRElBEAEiJQoL'
-    'QXVkaW9TdHJlYW0SCwoHREVGQVVMVBAAEgkKBUFMQVJNEAE=');
+    'MuQ29uZmlndXJhdGlvbk92ZXJyaWRlRW50cnlSFWNvbmZpZ3VyYXRpb25PdmVycmlkZRI+Chlz'
+    'ZWVrX3RvX2NyZWF0b3JfdGltZXN0YW1wGA4gASgJSABSFnNlZWtUb0NyZWF0b3JUaW1lc3RhbX'
+    'CIAQEaSAoaQ29uZmlndXJhdGlvbk92ZXJyaWRlRW50cnkSEAoDa2V5GAEgASgJUgNrZXkSFAoF'
+    'dmFsdWUYAiABKAlSBXZhbHVlOgI4ASIlCgtBdWRpb1N0cmVhbRILCgdERUZBVUxUEAASCQoFQU'
+    'xBUk0QASIkCg1QcmVmZXRjaExldmVsEggKBE5PTkUQABIJCgVNRURJQRABQhwKGl9zZWVrX3Rv'
+    'X2NyZWF0b3JfdGltZXN0YW1w');

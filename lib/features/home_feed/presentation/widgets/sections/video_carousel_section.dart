@@ -1,9 +1,12 @@
-import 'package:musify_mu/core/widgets/app_network_image.dart';
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
 /// Renders video episode sections matching Spotify's official layout.
 ///
@@ -48,7 +51,8 @@ class _VideoCarouselSectionState extends State<VideoCarouselSection>
   DataPool? _resolvePool() {
     try {
       return context.read<DataPool>();
-    } catch (_) {
+    } catch (e, stack) {
+      dev.log('Failed to read DataPool: $e', name: 'VideoCarouselSection', error: e, stackTrace: stack);
       return null;
     }
   }
@@ -126,6 +130,19 @@ class VideoPreviewCard extends StatelessWidget {
 
   const VideoPreviewCard({super.key, required this.entity});
 
+  void _playWithMetadata(BuildContext context) {
+    final videoThumbnail = entity.videoThumbnailUrl ?? entity.cardImageUrl;
+    final track = ContextTrack.builder(entity.uri)
+        .metadata({
+          ContextTrackMetadata.keyTitle: entity.cardTitle,
+          ContextTrackMetadata.keyArtistName: entity.cardSubtitle,
+          if (videoThumbnail != null && videoThumbnail.isNotEmpty)
+            ContextTrackMetadata.keyImageUrl: videoThumbnail,
+        })
+        .build();
+    SpotifyUriNavigator.playUri(context, entity.uri, track: track);
+  }
+
   @override
   Widget build(BuildContext context) {
     final simpleTrait = entity.getTrait<SimpleCardTrait>();
@@ -153,167 +170,172 @@ class VideoPreviewCard extends StatelessWidget {
     final showArtwork = entity.showArtworkUrl ?? entity.cardImageUrl;
     final durationStr = entity.durationString;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 16:9 Video Thumbnail
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Stack(
-            children: [
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: videoThumbnail != null && videoThumbnail.isNotEmpty
-                    ? AppNetworkImage(
-                        imageUrl: videoThumbnail,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 560,
-                        memCacheHeight: 315,
-                        errorWidget: (_, _, _) => Container(
+    return GestureDetector(
+      onTap: () => SpotifyUriNavigator.openUri(context, entity.uri),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 16:9 Video Thumbnail
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Stack(
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: videoThumbnail != null && videoThumbnail.isNotEmpty
+                      ? AppNetworkImage(
+                          imageUrl: videoThumbnail,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 560,
+                          memCacheHeight: 315,
+                          errorWidget: (_, _, _) => Container(
+                            color: const Color(0xFF242424),
+                            child: const Icon(Icons.videocam,
+                                color: Colors.white24, size: 48),
+                          ),
+                        )
+                      : Container(
                           color: const Color(0xFF242424),
                           child: const Icon(Icons.videocam,
                               color: Colors.white24, size: 48),
                         ),
-                      )
-                    : Container(
-                        color: const Color(0xFF242424),
-                        child: const Icon(Icons.videocam,
-                            color: Colors.white24, size: 48),
-                      ),
-              ),
-
-              // Duration badge in top-left corner
-              if (durationStr.isNotEmpty)
-                Positioned(
-                  left: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.75),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      durationStr,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ),
                 ),
 
-              // Overlay playback controls (Spotify 1:1)
-              Positioned(
-                right: 12,
-                top: 12,
-                child: _overlayIcon(Icons.add_circle_outline_rounded),
-              ),
-              Positioned(
-                right: 12,
-                top: 54,
-                child: _overlayIcon(Icons.volume_off_rounded),
-              ),
-              Positioned(
-                right: 12,
-                bottom: 12,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded,
-                    color: Colors.black,
-                    size: 26,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(height: 10),
-
-        // Episode info row below the thumbnail
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Square show artwork (44x44, 4px corners)
-              if (showArtwork != null && showArtwork.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(right: 10),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: AppNetworkImage(
-                      imageUrl: showArtwork,
-                      width: 44,
-                      height: 44,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 88,
-                      memCacheHeight: 88,
-                      errorWidget: (_, _, _) => Container(
-                        width: 44,
-                        height: 44,
-                        color: const Color(0xFF242424),
-                        child: const Icon(Icons.podcasts,
-                            color: Colors.white38, size: 20),
+                // Duration badge in top-left corner
+                if (durationStr.isNotEmpty)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.75),
+                        borderRadius: BorderRadius.circular(4),
                       ),
-                    ),
-                  ),
-                ),
-
-              // Episode Title + Show name
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (title.isNotEmpty)
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      child: Text(
+                        durationStr,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 14,
+                          fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          height: 1.25,
                         ),
                       ),
-                    if (showName.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        showName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.grey.shade400,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
+                    ),
+                  ),
+
+                // Right overlay icons: (+) add, mute, play
+                Positioned(
+                  right: 12,
+                  top: 12,
+                  child: _overlayIcon(Icons.add_circle_outline_rounded),
                 ),
-              ),
-
-              const SizedBox(width: 8),
-
-              // More options
-              Icon(
-                Icons.more_vert,
-                color: Colors.grey.shade400,
-                size: 20,
-              ),
-            ],
+                Positioned(
+                  right: 12,
+                  top: 54,
+                  child: _overlayIcon(Icons.volume_off_rounded),
+                ),
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: GestureDetector(
+                    onTap: () => _playWithMetadata(context),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.black,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+
+          const SizedBox(height: 10),
+
+          // Episode info row below the thumbnail
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Square show artwork (44x44, 4px corners)
+                if (showArtwork != null && showArtwork.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: AppNetworkImage(
+                        imageUrl: showArtwork,
+                        width: 44,
+                        height: 44,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 88,
+                        memCacheHeight: 88,
+                        errorWidget: (_, _, _) => Container(
+                          width: 44,
+                          height: 44,
+                          color: const Color(0xFF242424),
+                          child: const Icon(Icons.podcasts,
+                              color: Colors.white38, size: 20),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // Episode Title + Show name
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (title.isNotEmpty)
+                        Text(
+                          title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            height: 1.25,
+                          ),
+                        ),
+                      if (showName.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          showName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                // More options
+                Icon(
+                  Icons.more_vert,
+                  color: Colors.grey.shade400,
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

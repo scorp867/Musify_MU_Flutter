@@ -17,19 +17,19 @@ import 'package:protobuf/protobuf.dart' as $pb;
 class ResponseWithReasons_Error extends $pb.ProtobufEnum {
   static const ResponseWithReasons_Error OK =
       ResponseWithReasons_Error._(0, _omitEnumNames ? '' : 'OK');
-  static const ResponseWithReasons_Error FORBIDDEN =
-      ResponseWithReasons_Error._(1, _omitEnumNames ? '' : 'FORBIDDEN');
-  static const ResponseWithReasons_Error NOT_FOUND =
-      ResponseWithReasons_Error._(2, _omitEnumNames ? '' : 'NOT_FOUND');
-  static const ResponseWithReasons_Error CONFLICT =
-      ResponseWithReasons_Error._(3, _omitEnumNames ? '' : 'CONFLICT');
+  static const ResponseWithReasons_Error RESTRICTED =
+      ResponseWithReasons_Error._(1, _omitEnumNames ? '' : 'RESTRICTED');
+  static const ResponseWithReasons_Error IGNORING =
+      ResponseWithReasons_Error._(2, _omitEnumNames ? '' : 'IGNORING');
+  static const ResponseWithReasons_Error FAILED =
+      ResponseWithReasons_Error._(3, _omitEnumNames ? '' : 'FAILED');
 
   static const $core.List<ResponseWithReasons_Error> values =
       <ResponseWithReasons_Error>[
     OK,
-    FORBIDDEN,
-    NOT_FOUND,
-    CONFLICT,
+    RESTRICTED,
+    IGNORING,
+    FAILED,
   ];
 
   static final $core.List<ResponseWithReasons_Error?> _byValue =

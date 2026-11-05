@@ -5,15 +5,16 @@ enum PlayOperation {
   enqueue,
   push;
 
-  static PlayOperation fromString(String? value) {
-    switch (value?.toUpperCase()) {
+  static PlayOperation fromString(String value) {
+    switch (value.toUpperCase()) {
+      case 'REPLACE':
+        return PlayOperation.replace;
       case 'ENQUEUE':
         return PlayOperation.enqueue;
       case 'PUSH':
         return PlayOperation.push;
-      case 'REPLACE':
       default:
-        return PlayOperation.replace;
+        throw FormatException('Unknown PlayOperation: $value');
     }
   }
 

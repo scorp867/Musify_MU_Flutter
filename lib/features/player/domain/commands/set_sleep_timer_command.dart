@@ -21,8 +21,12 @@ class SetSleepTimerCommand implements Command {
   static SetSleepTimerCommand create([TimerType? timerType]) =>
       builder(timerType).build();
 
-  static SetSleepTimerCommandBuilder builder([TimerType? timerType]) =>
-      SetSleepTimerCommandBuilder(timerType: timerType);
+  static SetSleepTimerCommandBuilder builder([TimerType? timerType]) {
+    if (timerType case final validTimer?) {
+      return SetSleepTimerCommandBuilder(timerType: validTimer);
+    }
+    return SetSleepTimerCommandBuilder(timerType: TimerType.endOfTrack());
+  }
 
   SetSleepTimerCommandBuilder toBuilder() => SetSleepTimerCommandBuilder(
         timerType: timerType,
@@ -55,9 +59,15 @@ class SetSleepTimerCommandBuilder {
     TimerType? timerType,
     CommandOptions? options,
     LoggingParams? loggingParams,
-  })  : _timerType = timerType ?? TimerType.endOfTrack(),
+  })  : _timerType = switch (timerType) {
+          final validTimer? => validTimer,
+          null => TimerType.endOfTrack(),
+        },
         _options = options,
         _loggingParams = loggingParams;
+
+  static SetSleepTimerCommandBuilder builder() =>
+      SetSleepTimerCommand.builder(TimerType.endOfTrack());
 
   SetSleepTimerCommandBuilder timerType(TimerType val) {
     _timerType = val;

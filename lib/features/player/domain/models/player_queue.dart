@@ -17,7 +17,10 @@ class PlayerQueue {
     this.prevTracks = const <ContextTrack>[],
   });
 
-  static PlayerQueueBuilder builder() => PlayerQueueBuilder();
+  static PlayerQueueBuilder builder() => PlayerQueueBuilder()
+      .revision('')
+      .nextTracks(const <ContextTrack>[])
+      .prevTracks(const <ContextTrack>[]);
 
   PlayerQueueBuilder toBuilder() => PlayerQueueBuilder(
         revision: revision,
@@ -72,6 +75,8 @@ class PlayerQueueBuilder {
         _track = track,
         _nextTracks = List<ContextTrack>.from(nextTracks),
         _prevTracks = List<ContextTrack>.from(prevTracks);
+
+  static PlayerQueueBuilder builder() => PlayerQueue.builder();
 
   PlayerQueueBuilder revision(String val) {
     _revision = val;

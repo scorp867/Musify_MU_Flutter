@@ -5,12 +5,12 @@ import 'options/logging_params.dart';
 import 'options/play_options.dart';
 
 class PlaySessionCommand implements Command {
-  final LoggingParams? loggingParams;
   final PlayOptions? playOptions;
+  final LoggingParams? loggingParams;
 
   const PlaySessionCommand({
-    this.loggingParams,
     this.playOptions,
+    this.loggingParams,
   });
 
   static PlaySessionCommand create() => builder().build();
@@ -18,47 +18,49 @@ class PlaySessionCommand implements Command {
   static PlaySessionCommandBuilder builder() => PlaySessionCommandBuilder();
 
   PlaySessionCommandBuilder toBuilder() => PlaySessionCommandBuilder(
-        loggingParams: loggingParams,
         playOptions: playOptions,
+        loggingParams: loggingParams,
       );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PlaySessionCommand &&
-          other.loggingParams == loggingParams &&
-          other.playOptions == playOptions);
+          other.playOptions == playOptions &&
+          other.loggingParams == loggingParams);
 
   @override
-  int get hashCode => Object.hash(loggingParams, playOptions);
+  int get hashCode => Object.hash(playOptions, loggingParams);
 
   @override
   String toString() =>
-      'PlaySessionCommand{loggingParams=$loggingParams, playOptions=$playOptions}';
+      'PlaySessionCommand{playOptions=$playOptions, loggingParams=$loggingParams}';
 }
 
 class PlaySessionCommandBuilder {
-  LoggingParams? _loggingParams;
   PlayOptions? _playOptions;
+  LoggingParams? _loggingParams;
 
   PlaySessionCommandBuilder({
-    LoggingParams? loggingParams,
     PlayOptions? playOptions,
-  })  : _loggingParams = loggingParams,
-        _playOptions = playOptions;
+    LoggingParams? loggingParams,
+  })  : _playOptions = playOptions,
+        _loggingParams = loggingParams;
 
-  PlaySessionCommandBuilder loggingParams(LoggingParams val) {
-    _loggingParams = val;
-    return this;
-  }
+  static PlaySessionCommandBuilder builder() => PlaySessionCommand.builder();
 
   PlaySessionCommandBuilder playOptions(PlayOptions val) {
     _playOptions = val;
     return this;
   }
 
+  PlaySessionCommandBuilder loggingParams(LoggingParams val) {
+    _loggingParams = val;
+    return this;
+  }
+
   PlaySessionCommand build() => PlaySessionCommand(
-        loggingParams: _loggingParams,
         playOptions: _playOptions,
+        loggingParams: _loggingParams,
       );
 }

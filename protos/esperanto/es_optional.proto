@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+option optimize_for = CODE_SIZE;
+
+message OptionalBoolean {
+    bool value = 1;
+}
+
+message OptionalDouble {
+    double value = 1;
+}
+
+message OptionalInt64 {
+    int64 value = 1;
+}

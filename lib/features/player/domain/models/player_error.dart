@@ -39,17 +39,22 @@ class PlayerError {
           other.reasons == reasons);
 
   @override
-  int get hashCode => Object.hash(
-        error,
-        trackUri,
-        contextUri,
-        viewUri,
-        reasons,
-      );
+  int get hashCode {
+    var result = error.hashCode ^ 1000003;
+    result = (result * 1000003) ^ trackUri.hashCode;
+    result = (result * 1000003) ^ contextUri.hashCode;
+    result = (result * 1000003) ^ viewUri.hashCode;
+    result = (result * 1000003) ^ reasons.hashCode;
+    return result;
+  }
 
   @override
   String toString() =>
-      'PlayerError{error=$error, trackUri=$trackUri, contextUri=$contextUri, viewUri=$viewUri, reasons=$reasons}';
+      'PlayerError{error=$error, '
+      'trackUri=$trackUri, '
+      'contextUri=$contextUri, '
+      'viewUri=$viewUri, '
+      'reasons=$reasons}';
 }
 
 class PlayerErrorBuilder {
@@ -71,28 +76,28 @@ class PlayerErrorBuilder {
         _viewUri = viewUri,
         _reasons = reasons;
 
-  PlayerErrorBuilder error(ErrorType val) {
-    _error = val;
+  PlayerErrorBuilder error(ErrorType errorType) {
+    _error = errorType;
     return this;
   }
 
-  PlayerErrorBuilder trackUri(String val) {
-    _trackUri = val;
+  PlayerErrorBuilder trackUri(String str) {
+    _trackUri = str;
     return this;
   }
 
-  PlayerErrorBuilder contextUri(String val) {
-    _contextUri = val;
+  PlayerErrorBuilder contextUri(String str) {
+    _contextUri = str;
     return this;
   }
 
-  PlayerErrorBuilder viewUri(String val) {
-    _viewUri = val;
+  PlayerErrorBuilder viewUri(String str) {
+    _viewUri = str;
     return this;
   }
 
-  PlayerErrorBuilder reasons(String val) {
-    _reasons = val;
+  PlayerErrorBuilder reasons(String str) {
+    _reasons = str;
     return this;
   }
 

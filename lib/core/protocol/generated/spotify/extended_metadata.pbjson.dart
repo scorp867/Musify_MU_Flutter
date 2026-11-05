@@ -15,20 +15,6 @@ import 'dart:convert' as $convert;
 import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
-@$core.Deprecated('Use extensionTypeDescriptor instead')
-const ExtensionType$json = {
-  '1': 'ExtensionType',
-  '2': [
-    {'1': 'UNKNOWN', '2': 0},
-    {'1': 'GENERIC', '2': 1},
-    {'1': 'ASSOC', '2': 2},
-  ],
-};
-
-/// Descriptor for `ExtensionType`. Decode as a `google.protobuf.EnumDescriptorProto`.
-final $typed_data.Uint8List extensionTypeDescriptor = $convert.base64Decode(
-    'Cg1FeHRlbnNpb25UeXBlEgsKB1VOS05PV04QABILCgdHRU5FUklDEAESCQoFQVNTT0MQAg==');
-
 @$core.Deprecated('Use extensionQueryDescriptor instead')
 const ExtensionQuery$json = {
   '1': 'ExtensionQuery',
@@ -143,24 +129,16 @@ const EntityExtensionDataArrayHeader$json = {
       '5': 3,
       '10': 'offlineTtlInSeconds'
     },
-    {
-      '1': 'extension_type',
-      '3': 4,
-      '4': 1,
-      '5': 14,
-      '6': '.spotify.extendedmetadata.ExtensionType',
-      '10': 'extensionType'
-    },
   ],
 };
 
 /// Descriptor for `EntityExtensionDataArrayHeader`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List entityExtensionDataArrayHeaderDescriptor = $convert.base64Decode(
-    'Ch5FbnRpdHlFeHRlbnNpb25EYXRhQXJyYXlIZWFkZXISMgoVcHJvdmlkZXJfZXJyb3Jfc3RhdH'
-    'VzGAEgASgFUhNwcm92aWRlckVycm9yU3RhdHVzEi8KFGNhY2hlX3R0bF9pbl9zZWNvbmRzGAIg'
-    'ASgDUhFjYWNoZVR0bEluU2Vjb25kcxIzChZvZmZsaW5lX3R0bF9pbl9zZWNvbmRzGAMgASgDUh'
-    'NvZmZsaW5lVHRsSW5TZWNvbmRzEk4KDmV4dGVuc2lvbl90eXBlGAQgASgOMicuc3BvdGlmeS5l'
-    'eHRlbmRlZG1ldGFkYXRhLkV4dGVuc2lvblR5cGVSDWV4dGVuc2lvblR5cGU=');
+final $typed_data.Uint8List entityExtensionDataArrayHeaderDescriptor =
+    $convert.base64Decode(
+        'Ch5FbnRpdHlFeHRlbnNpb25EYXRhQXJyYXlIZWFkZXISMgoVcHJvdmlkZXJfZXJyb3Jfc3RhdH'
+        'VzGAEgASgFUhNwcm92aWRlckVycm9yU3RhdHVzEi8KFGNhY2hlX3R0bF9pbl9zZWNvbmRzGAIg'
+        'ASgDUhFjYWNoZVR0bEluU2Vjb25kcxIzChZvZmZsaW5lX3R0bF9pbl9zZWNvbmRzGAMgASgDUh'
+        'NvZmZsaW5lVHRsSW5TZWNvbmRz');
 
 @$core.Deprecated('Use entityExtensionDataArrayDescriptor instead')
 const EntityExtensionDataArray$json = {

@@ -16,12 +16,9 @@ import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
 
 import 'entity_extension_data.pb.dart' as $0;
-import 'extended_metadata.pbenum.dart';
 import 'extension_kind.pbenum.dart' as $1;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
-
-export 'extended_metadata.pbenum.dart';
 
 class ExtensionQuery extends $pb.GeneratedMessage {
   factory ExtensionQuery({
@@ -321,7 +318,6 @@ class EntityExtensionDataArrayHeader extends $pb.GeneratedMessage {
     $core.int? providerErrorStatus,
     $fixnum.Int64? cacheTtlInSeconds,
     $fixnum.Int64? offlineTtlInSeconds,
-    ExtensionType? extensionType,
   }) {
     final result = EntityExtensionDataArrayHeader._();
     if (providerErrorStatus != null)
@@ -329,7 +325,6 @@ class EntityExtensionDataArrayHeader extends $pb.GeneratedMessage {
     if (cacheTtlInSeconds != null) result.cacheTtlInSeconds = cacheTtlInSeconds;
     if (offlineTtlInSeconds != null)
       result.offlineTtlInSeconds = offlineTtlInSeconds;
-    if (extensionType != null) result.extensionType = extensionType;
     return result;
   }
 
@@ -350,8 +345,6 @@ class EntityExtensionDataArrayHeader extends $pb.GeneratedMessage {
     ..aI(1, _omitFieldNames ? '' : 'providerErrorStatus')
     ..aInt64(2, _omitFieldNames ? '' : 'cacheTtlInSeconds')
     ..aInt64(3, _omitFieldNames ? '' : 'offlineTtlInSeconds')
-    ..aE<ExtensionType>(4, _omitFieldNames ? '' : 'extensionType',
-        enumValues: ExtensionType.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -408,15 +401,6 @@ class EntityExtensionDataArrayHeader extends $pb.GeneratedMessage {
   $core.bool hasOfflineTtlInSeconds() => $_has(2);
   @$pb.TagNumber(3)
   void clearOfflineTtlInSeconds() => $_clearField(3);
-
-  @$pb.TagNumber(4)
-  ExtensionType get extensionType => $_getN(3);
-  @$pb.TagNumber(4)
-  set extensionType(ExtensionType value) => $_setField(4, value);
-  @$pb.TagNumber(4)
-  $core.bool hasExtensionType() => $_has(3);
-  @$pb.TagNumber(4)
-  void clearExtensionType() => $_clearField(4);
 }
 
 class EntityExtensionDataArray extends $pb.GeneratedMessage {

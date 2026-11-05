@@ -59,19 +59,26 @@ class PlaybackQuality {
           other.fileOrigin == fileOrigin);
 
   @override
-  int get hashCode => Object.hash(
-        bitrateLevel,
-        strategy,
-        targetBitrateLevel,
-        targetBitrateAvailable,
-        hifiStatus,
-        highestAvailableQuality,
-        fileOrigin,
-      );
+  int get hashCode {
+    var result = bitrateLevel.hashCode ^ 1000003;
+    result = (result * 1000003) ^ strategy.hashCode;
+    result = (result * 1000003) ^ targetBitrateLevel.hashCode;
+    result = (result * 1000003) ^ (targetBitrateAvailable ? 1231 : 1237);
+    result = (result * 1000003) ^ hifiStatus.hashCode;
+    result = (result * 1000003) ^ highestAvailableQuality.hashCode;
+    result = (result * 1000003) ^ fileOrigin.hashCode;
+    return result;
+  }
 
   @override
   String toString() =>
-      'PlaybackQuality{bitrateLevel=$bitrateLevel, strategy=$strategy, targetBitrateLevel=$targetBitrateLevel, targetBitrateAvailable=$targetBitrateAvailable, hifiStatus=$hifiStatus, highestAvailableQuality=$highestAvailableQuality, fileOrigin=$fileOrigin}';
+      'PlaybackQuality{bitrateLevel=$bitrateLevel, '
+      'strategy=$strategy, '
+      'targetBitrateLevel=$targetBitrateLevel, '
+      'targetBitrateAvailable=$targetBitrateAvailable, '
+      'hifiStatus=$hifiStatus, '
+      'highestAvailableQuality=$highestAvailableQuality, '
+      'fileOrigin=$fileOrigin}';
 }
 
 class PlaybackQualityBuilder {
@@ -99,38 +106,38 @@ class PlaybackQualityBuilder {
         _highestAvailableQuality = highestAvailableQuality,
         _fileOrigin = fileOrigin;
 
-  PlaybackQualityBuilder bitrateLevel(BitrateLevel val) {
-    _bitrateLevel = val;
+  PlaybackQualityBuilder bitrateLevel(BitrateLevel bitrateLevel) {
+    _bitrateLevel = bitrateLevel;
     return this;
   }
 
-  PlaybackQualityBuilder strategy(BitrateStrategy val) {
-    _strategy = val;
+  PlaybackQualityBuilder strategy(BitrateStrategy bitrateStrategy) {
+    _strategy = bitrateStrategy;
     return this;
   }
 
-  PlaybackQualityBuilder targetBitrateLevel(BitrateLevel val) {
-    _targetBitrateLevel = val;
+  PlaybackQualityBuilder targetBitrateLevel(BitrateLevel bitrateLevel) {
+    _targetBitrateLevel = bitrateLevel;
     return this;
   }
 
-  PlaybackQualityBuilder targetBitrateAvailable(bool val) {
-    _targetBitrateAvailable = val;
+  PlaybackQualityBuilder targetBitrateAvailable(bool z) {
+    _targetBitrateAvailable = z;
     return this;
   }
 
-  PlaybackQualityBuilder hifiStatus(HiFiStatus val) {
-    _hifiStatus = val;
+  PlaybackQualityBuilder hifiStatus(HiFiStatus hiFiStatus) {
+    _hifiStatus = hiFiStatus;
     return this;
   }
 
-  PlaybackQualityBuilder highestAvailableQuality(BitrateLevel val) {
-    _highestAvailableQuality = val;
+  PlaybackQualityBuilder highestAvailableQuality(BitrateLevel bitrateLevel) {
+    _highestAvailableQuality = bitrateLevel;
     return this;
   }
 
-  PlaybackQualityBuilder fileOrigin(FileOrigin val) {
-    _fileOrigin = val;
+  PlaybackQualityBuilder fileOrigin(FileOrigin fileOrigin) {
+    _fileOrigin = fileOrigin;
     return this;
   }
 

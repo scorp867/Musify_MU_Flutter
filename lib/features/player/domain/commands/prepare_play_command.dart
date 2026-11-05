@@ -19,8 +19,17 @@ class PreparePlayCommand implements Command {
   static PreparePlayCommand create(Context context, PlayOrigin playOrigin) =>
       builder(context, playOrigin).build();
 
-  static PreparePlayCommandBuilder builder(Context context, PlayOrigin playOrigin) =>
-      PreparePlayCommandBuilder(context: context, playOrigin: playOrigin);
+  static PreparePlayCommandBuilder builder([Context? context, PlayOrigin? playOrigin]) {
+    final c = switch (context) {
+      final valid? => valid,
+      null => Context.builder('').build(),
+    };
+    final o = switch (playOrigin) {
+      final valid? => valid,
+      null => PlayOrigin.create(''),
+    };
+    return PreparePlayCommandBuilder(context: c, playOrigin: o);
+  }
 
   PreparePlayCommandBuilder toBuilder() => PreparePlayCommandBuilder(
         context: context,
@@ -56,6 +65,8 @@ class PreparePlayCommandBuilder {
   })  : _context = context,
         _playOrigin = playOrigin,
         _options = options;
+
+  static PreparePlayCommandBuilder builder() => PreparePlayCommand.builder();
 
   PreparePlayCommandBuilder context(Context val) {
     _context = val;

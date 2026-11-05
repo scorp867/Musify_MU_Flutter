@@ -17,6 +17,7 @@ import 'package:protobuf/protobuf.dart' as $pb;
 
 import 'es_command_options.pb.dart' as $0;
 import 'es_logging_params.pb.dart' as $1;
+import 'es_optional.pb.dart' as $2;
 import 'es_seek_to.pbenum.dart';
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
@@ -29,12 +30,15 @@ class SeekToRequest extends $pb.GeneratedMessage {
     $1.LoggingParams? loggingParams,
     $fixnum.Int64? position,
     SeekToRequest_Relative? relative,
+    $2.OptionalInt64? creatorTimestampPositionMs,
   }) {
     final result = SeekToRequest._();
     if (options != null) result.options = options;
     if (loggingParams != null) result.loggingParams = loggingParams;
     if (position != null) result.position = position;
     if (relative != null) result.relative = relative;
+    if (creatorTimestampPositionMs != null)
+      result.creatorTimestampPositionMs = creatorTimestampPositionMs;
     return result;
   }
 
@@ -59,6 +63,9 @@ class SeekToRequest extends $pb.GeneratedMessage {
     ..aInt64(3, _omitFieldNames ? '' : 'position')
     ..aE<SeekToRequest_Relative>(4, _omitFieldNames ? '' : 'relative',
         enumValues: SeekToRequest_Relative.values)
+    ..aOM<$2.OptionalInt64>(
+        5, _omitFieldNames ? '' : 'creatorTimestampPositionMs',
+        subBuilder: $2.OptionalInt64.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -122,6 +129,18 @@ class SeekToRequest extends $pb.GeneratedMessage {
   $core.bool hasRelative() => $_has(3);
   @$pb.TagNumber(4)
   void clearRelative() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $2.OptionalInt64 get creatorTimestampPositionMs => $_getN(4);
+  @$pb.TagNumber(5)
+  set creatorTimestampPositionMs($2.OptionalInt64 value) =>
+      $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCreatorTimestampPositionMs() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCreatorTimestampPositionMs() => $_clearField(5);
+  @$pb.TagNumber(5)
+  $2.OptionalInt64 ensureCreatorTimestampPositionMs() => $_ensure(4);
 }
 
 const $core.bool _omitFieldNames =

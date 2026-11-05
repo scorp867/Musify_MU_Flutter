@@ -1,16 +1,21 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide RepeatMode;
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/eased_gradient.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../application/scroll/now_playing_scroll_bloc.dart';
+import '../../data/logging/player_logging_params_factory.dart';
 import '../../data/queue/context_track_extensions.dart';
+import '../../domain/commands/options/logging_params.dart';
 import '../../domain/models/context_track.dart';
 import '../../domain/models/scroll_card_descriptor.dart';
 import '../scroll/scroll_card_registry.dart';
@@ -25,12 +30,9 @@ import '../widgets/player_theme.dart';
 import '../widgets/pull_to_dismiss_scaffold.dart';
 import '../widgets/queue_controls_layout.dart';
 import 'queue_sheet_screen.dart';
-import '../../../../core/ubi/domain/logging/ubi_logger.dart';
-import '../../../../core/ubi/domain/models/page_instance_id.dart';
-import '../../../../core/ubi/data/lifecycle/page_instance_id_holder.dart';
-import '../../../player/data/logging/player_logging_params_factory.dart';
-import '../../../player/domain/commands/options/logging_params.dart';
 
+/// Full-screen edge-to-edge Now Playing screen replicating Spotify NowPlaying
+/// 1:1 with pure Mobius loop state controller and reactive cards pipeline.
 class PlayerScreen extends StatefulWidget {
   final String title;
   final String artist;
@@ -38,7 +40,7 @@ class PlayerScreen extends StatefulWidget {
   final Duration duration;
   final String? imageUrl;
   final int? songId;
-  final PlayerQueueBloc? queueBloc;
+  final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
 
   const PlayerScreen({
@@ -65,14 +67,18 @@ class PlayerScreen extends StatefulWidget {
     Duration duration = const Duration(minutes: 3, seconds: 50),
     String? imageUrl,
     int? songId,
-    PlayerQueueBloc? queueBloc,
+    PlayerQueueMobiusController? queueBloc,
     ContextTrack? currentTrack,
   }) async {
     if (_isOpen) return;
     _isOpen = true;
 
-    final effectiveBloc = queueBloc ??
-        (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
+    final effectiveBloc = switch (queueBloc) {
+      final b? => b,
+      null => getIt.isRegistered<PlayerQueueMobiusController>()
+          ? getIt<PlayerQueueMobiusController>()
+          : null,
+    };
 
     try {
       await Navigator.of(context, rootNavigator: true).push(
@@ -122,14 +128,17 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with SingleTickerProviderStateMixin {
   final GlobalKey<PeekScrollViewState> _peekScrollKey =
       GlobalKey<PeekScrollViewState>();
 
   final ValueNotifier<Duration?> _dragNotifier = ValueNotifier<Duration?>(null);
   late final ValueNotifier<Duration> _positionNotifier;
+  late final Ticker _positionTicker;
+  Duration _lastTick = Duration.zero;
 
-  late final NowPlayingScrollBloc _scrollBloc;
+  late final NowPlayingScrollController _scrollBloc;
   late final ScrollCardRegistry _cardRegistry;
   DataPool? _dataPool;
   String _currentTrackId = '';
@@ -139,7 +148,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   QueueShuffleMode _shuffleMode = QueueShuffleMode.none;
   QueueRepeatMode _repeatMode = QueueRepeatMode.none;
 
-  Timer? _positionTimer;
   late final PageInstanceId _pageInstanceId;
 
   PageInstanceId get pageInstanceId => _pageInstanceId;
@@ -154,49 +162,55 @@ class _PlayerScreenState extends State<PlayerScreen> {
     ),
   );
 
-  PlayerQueueBloc? get _effectiveBloc =>
-      widget.queueBloc ??
-      (getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null);
+  PlayerQueueMobiusController? get _effectiveBloc => switch (widget.queueBloc) {
+        final b? => b,
+        null => getIt.isRegistered<PlayerQueueMobiusController>()
+            ? getIt<PlayerQueueMobiusController>()
+            : null,
+      };
 
-  LoggingParams? _logPlayerInteraction(String elementPath, [String actionName = 'hit']) {
-    try {
-      if (getIt.isRegistered<UbiLogger>()) {
-        final ubiLogger = getIt<UbiLogger>();
-        final result = ubiLogger.logInteraction(
-          UbiInteractionElement(
-            elementPath: elementPath,
-            actionName: actionName,
-          ),
-        );
-        if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
-          final factory = getIt<PlayerLoggingParamsFactory>();
-          return factory.createFromInteractionResult(result);
-        }
+  LoggingParams? _logPlayerInteraction(
+    String elementPath, [
+    String actionName = 'hit',
+  ]) {
+    if (getIt.isRegistered<UbiLogger>()) {
+      final ubiLogger = getIt<UbiLogger>();
+      final result = ubiLogger.logInteraction(
+        UbiInteractionElement(
+          elementPath: elementPath,
+          actionName: actionName,
+        ),
+      );
+      if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
+        final factory = getIt<PlayerLoggingParamsFactory>();
+        return factory.createFromInteractionResult(result);
       }
-    } catch (_) {}
+    }
     return null;
   }
 
   @override
   void initState() {
     super.initState();
-    final holder = getIt<PageInstanceIdHolder>();
-    _pageInstanceId = PageInstanceIdHolder.generateNew();
-    holder.update(_pageInstanceId);
+    if (getIt.isRegistered<PageInstanceIdHolder>()) {
+      final holder = getIt<PageInstanceIdHolder>();
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+      holder.update(_pageInstanceId);
+    } else {
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+    }
 
-    try {
-      if (getIt.isRegistered<UbiLogger>()) {
-        final ubiLogger = getIt<UbiLogger>();
-        ubiLogger.logImpression(
-          const UbiImpressionElement(
-            elementPath: 'now_playing_screen',
-          ),
-        );
-      }
-    } catch (_) {}
+    if (getIt.isRegistered<UbiLogger>()) {
+      final ubiLogger = getIt<UbiLogger>();
+      ubiLogger.logImpression(
+        const UbiImpressionElement(
+          elementPath: 'now_playing_screen',
+        ),
+      );
+    }
     _positionNotifier = ValueNotifier<Duration>(Duration.zero);
 
-    _scrollBloc = getIt<NowPlayingScrollBloc>();
+    _scrollBloc = getIt<NowPlayingScrollController>();
     _dataPool = getIt.isRegistered<DataPool>() ? getIt<DataPool>() : null;
     _cardRegistry = ScrollCardRegistry(dataPool: _dataPool);
 
@@ -205,23 +219,66 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _isPlaying = bloc.state.isPlaying;
       _positionNotifier.value = bloc.state.currentPosition;
     }
-    _updatePositionTicker(_isPlaying);
 
-    final initialTrack = _effectiveBloc?.state.currentTrack ?? widget.currentTrack;
-    _currentTrackId = _extractTrackId(initialTrack, _effectiveBloc?.state.songId ?? widget.songId);
+    _positionTicker = createTicker((elapsed) {
+      if (elapsed - _lastTick > const Duration(milliseconds: 250)) {
+        _lastTick = elapsed;
+        if (_dragNotifier.value == null && mounted) {
+          if (_effectiveBloc case final activeBloc?) {
+            _positionNotifier.value = activeBloc.state.currentPosition;
+          }
+        }
+      }
+    });
+    if (_isPlaying) {
+      _positionTicker.start();
+    }
+
+    final initialTrack = switch (_effectiveBloc?.state.currentTrack) {
+      final t? => t,
+      null => widget.currentTrack,
+    };
+    final initialSongId = switch (_effectiveBloc?.state.songId) {
+      final id? => id,
+      null => widget.songId,
+    };
+    _currentTrackId = _extractTrackId(initialTrack, initialSongId);
     if (_currentTrackId.isNotEmpty) {
       _scrollBloc.add(FetchNowPlayingScroll(_currentTrackId));
     }
+
+    _effectiveBloc?.addListener(_onQueueStateChanged);
   }
 
   @override
   void dispose() {
+    _effectiveBloc?.removeListener(_onQueueStateChanged);
     _scrollBloc.close();
-    _positionTimer?.cancel();
-    _positionTimer = null;
+    _positionTicker.dispose();
     _positionNotifier.dispose();
     _dragNotifier.dispose();
     super.dispose();
+  }
+
+  void _onQueueStateChanged() {
+    if (_effectiveBloc case final bloc?) {
+      final state = bloc.state;
+      if (state.isPlaying != _isPlaying) {
+        setState(() {
+          _isPlaying = state.isPlaying;
+        });
+        _updatePositionTicker(state.isPlaying);
+      }
+      if (_dragNotifier.value == null) {
+        _positionNotifier.value = state.currentPosition;
+      }
+      final newTrack = state.currentTrack;
+      final newTrackId = _extractTrackId(newTrack, state.songId);
+      if (newTrackId.isNotEmpty && newTrackId != _currentTrackId) {
+        _currentTrackId = newTrackId;
+        _scrollBloc.add(FetchNowPlayingScroll(newTrackId));
+      }
+    }
   }
 
   /// URI prefixes that must never trigger ScrollSita or lyrics fetches.
@@ -278,19 +335,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _updatePositionTicker(bool isPlaying) {
     if (isPlaying) {
-      if (_positionTimer == null || !_positionTimer!.isActive) {
-        _positionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
-          if (_dragNotifier.value == null && mounted) {
-            final bloc = _effectiveBloc;
-            if (bloc != null) {
-              _positionNotifier.value = bloc.state.currentPosition;
-            }
-          }
-        });
+      if (!_positionTicker.isActive) {
+        _positionTicker.start();
       }
     } else {
-      _positionTimer?.cancel();
-      _positionTimer = null;
+      if (_positionTicker.isActive) {
+        _positionTicker.stop();
+      }
     }
   }
 
@@ -298,36 +349,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     final bloc = _effectiveBloc;
     if (bloc != null) {
-      return BlocConsumer<PlayerQueueBloc, PlayerQueueState>(
-        bloc: bloc,
-        listenWhen: (previous, current) {
-          return previous.isPlaying != current.isPlaying ||
-              previous.currentTrack != current.currentTrack ||
-              previous.songId != current.songId;
-        },
-        listener: (context, state) {
-          _updatePositionTicker(state.isPlaying);
-          if (_dragNotifier.value == null) {
-            _positionNotifier.value = state.currentPosition;
-          }
-          final newTrack = state.currentTrack;
-          final newTrackId = _extractTrackId(newTrack, state.songId);
-          if (newTrackId.isNotEmpty && newTrackId != _currentTrackId) {
-            _currentTrackId = newTrackId;
-            _scrollBloc.add(FetchNowPlayingScroll(newTrackId));
-          }
-        },
-        buildWhen: (previous, current) {
-          return previous.nowPlaying != current.nowPlaying ||
-              previous.songId != current.songId ||
-              previous.imageUrl != current.imageUrl ||
-              previous.isPlaying != current.isPlaying ||
-              previous.isBuffering != current.isBuffering ||
-              previous.isShuffling != current.isShuffling ||
-              previous.repeatMode != current.repeatMode ||
-              previous.durationMs != current.durationMs;
-        },
-        builder: (context, queueState) {
+      return ValueListenableBuilder<PlayerQueueState>(
+        valueListenable: bloc,
+        builder: (context, queueState, _) {
           return _buildContent(context, queueState: queueState);
         },
       );
@@ -336,46 +360,83 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildContent(BuildContext context, {PlayerQueueState? queueState}) {
-    final activeTrack = queueState?.currentTrack ?? widget.currentTrack;
+    final activeTrack = switch (queueState?.currentTrack) {
+      final track? => track,
+      null => widget.currentTrack,
+    };
     final track = activeTrack;
-    final displayTitle = (track != null && track.title.isNotEmpty)
-        ? track.title
-        : (queueState != null && queueState.title.isNotEmpty ? queueState.title : widget.title);
-    final displayArtist = (track != null && track.artist.isNotEmpty)
-        ? track.artist
-        : (queueState != null && queueState.artist.isNotEmpty ? queueState.artist : widget.artist);
-    final displayAlbum = (track != null && track.album.isNotEmpty)
-        ? track.album
-        : (queueState != null && queueState.album.isNotEmpty ? queueState.album : widget.album);
-    final displayDuration = (queueState != null && queueState.durationMs > 0)
-        ? queueState.currentDuration
-        : (track?.duration ?? widget.duration);
-    final displayImageUrl = (track != null || queueState != null)
-        ? (track?.imageUrl ?? queueState?.imageUrl)
-        : widget.imageUrl;
-    final displaySongId = (track != null || queueState != null)
-        ? (track?.songId ?? queueState?.songId)
-        : widget.songId;
+    final displayTitle = switch (track?.title) {
+      final t? when t.isNotEmpty => t,
+      _ => switch (queueState?.title) {
+        final t? when t.isNotEmpty => t,
+        _ => widget.title,
+      },
+    };
+    final displayArtist = switch (track?.artist) {
+      final a? when a.isNotEmpty => a,
+      _ => switch (queueState?.artist) {
+        final a? when a.isNotEmpty => a,
+        _ => widget.artist,
+      },
+    };
+    final displayAlbum = switch (track?.album) {
+      final a? when a.isNotEmpty => a,
+      _ => switch (queueState?.album) {
+        final a? when a.isNotEmpty => a,
+        _ => widget.album,
+      },
+    };
+    final displayDuration = switch (queueState) {
+      final q? when q.durationMs > 0 => q.currentDuration,
+      _ => switch (track?.duration) {
+        final dur? => dur,
+        null => widget.duration,
+      },
+    };
+    final displayImageUrl = switch (track?.imageUrl) {
+      final url? when url.isNotEmpty => url,
+      _ => switch (queueState?.imageUrl) {
+        final url? when url.isNotEmpty => url,
+        _ => widget.imageUrl,
+      },
+    };
+    final displaySongId = switch (track?.songId) {
+      final id? when id > 0 => id,
+      _ => switch (queueState?.songId) {
+        final id? when id > 0 => id,
+        _ => widget.songId,
+      },
+    };
 
-    final isPlaying = queueState?.isPlaying ?? _isPlaying;
-    final shuffleMode = queueState != null
-        ? (queueState.isShuffling ? QueueShuffleMode.all : QueueShuffleMode.none)
-        : _shuffleMode;
-    final repeatMode = queueState != null
-        ? (queueState.repeatTrack
-            ? QueueRepeatMode.one
-            : (queueState.repeatContext ? QueueRepeatMode.all : QueueRepeatMode.none))
-        : _repeatMode;
+    final isPlaying = switch (queueState?.isPlaying) {
+      final playing? => playing,
+      null => _isPlaying,
+    };
+    final shuffleMode = switch (queueState?.isShuffling) {
+      true => QueueShuffleMode.all,
+      false => QueueShuffleMode.none,
+      null => _shuffleMode,
+    };
+    final repeatMode = switch (queueState) {
+      final q? when q.repeatTrack => QueueRepeatMode.one,
+      final q? when q.repeatContext => QueueRepeatMode.all,
+      _? => QueueRepeatMode.none,
+      null => _repeatMode,
+    };
 
-    return BlocBuilder<NowPlayingScrollBloc, NowPlayingScrollState>(
-      bloc: _scrollBloc,
-      builder: (context, scrollState) {
-        final activeTrackUri = (track != null && track.uri.isNotEmpty)
-            ? track.uri
-            : (_currentTrackId.isNotEmpty
-                ? 'spotify:track:$_currentTrackId'
-                : 'spotify:track:default');
-        final activeArtistUri = track?.metadata[ContextTrackMetadata.keyArtistUri] ?? '';
+    return ValueListenableBuilder<NowPlayingScrollState>(
+      valueListenable: _scrollBloc,
+      builder: (context, scrollState, _) {
+        final activeTrackUri = switch (track?.uri) {
+          final uri? when uri.isNotEmpty => uri,
+          _ => _currentTrackId.isNotEmpty
+              ? 'spotify:track:$_currentTrackId'
+              : 'spotify:track:default',
+        };
+        final activeArtistUri = switch (track?.metadata[ContextTrackMetadata.keyArtistUri]) {
+          final uri? => uri,
+          null => '',
+        };
 
         ColorLyricsResponse? colorLyrics;
         List<ScrollCardDescriptor> cards = const [];
@@ -445,18 +506,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
           expandedDescs = cards.skip(1).toList();
         }
 
-        final peekingWidget = _cardRegistry.buildCard(context, peekingDesc) ??
-            PlayerAboutArtistSection(
-              key: const ValueKey('bio_default'),
-              artistName: displayArtist,
-              dataPool: _dataPool,
-              artistUri: activeArtistUri,
-            );
+        final resolvedPeeking = _cardRegistry.buildCard(context, peekingDesc);
+        final peekingWidget = switch (resolvedPeeking) {
+          final w? => w,
+          null => PlayerAboutArtistSection(
+            key: const ValueKey('bio_default'),
+            artistName: displayArtist,
+            dataPool: _dataPool,
+            artistUri: activeArtistUri,
+          ),
+        };
 
         final expandedWidgets = expandedDescs
             .map((d) => _cardRegistry.buildCard(context, d))
             .whereType<Widget>()
             .toList();
+
+        final artworkKeyString = switch (track?.uid) {
+          final uid? when uid.isNotEmpty => uid,
+          _ => switch (track?.uri) {
+            final uri? when uri.isNotEmpty => uri,
+            _ => switch (displaySongId) {
+              final id? => 'song_$id',
+              null => switch (displayImageUrl) {
+                final url? => url,
+                null => 'default',
+              },
+            },
+          },
+        };
 
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: const SystemUiOverlayStyle(
@@ -503,7 +581,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             maxHeight: 380,
                           ),
                           child: PlayerAlbumArtwork(
-                            key: ValueKey('artwork_${track?.uid ?? track?.uri ?? displaySongId ?? displayImageUrl}'),
+                            key: ValueKey('artwork_$artworkKeyString'),
                             imageUrl: displayImageUrl,
                             songId: displaySongId,
                           ),
@@ -527,9 +605,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           return ValueListenableBuilder<Duration>(
                             valueListenable: _positionNotifier,
                             builder: (context, pos, _) {
+                              final currentPos = switch (dragPos) {
+                                final d? => d,
+                                null => pos,
+                              };
                               return PlayerSeekBar(
                                 duration: displayDuration,
-                                position: dragPos ?? pos,
+                                position: currentPos,
                                 dragPosition: dragPos,
                                 onDragPositionChanged: (newDragPos) {
                                   _dragNotifier.value = newDragPos;
@@ -548,7 +630,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     RepaintBoundary(
                       child: PlayerPlaybackControls(
                         isPlaying: isPlaying,
-                        isBuffering: queueState?.isBuffering ?? false,
+                        isBuffering: switch (queueState?.isBuffering) {
+                          final b? => b,
+                          null => false,
+                        },
+                        canSkipNext: switch (queueState?.canSkipNext) {
+                          final c? => c,
+                          null => true,
+                        },
+                        canSkipPrevious: switch (queueState?.canSkipPrevious) {
+                          final c? => c,
+                          null => true,
+                        },
                         shuffleMode: shuffleMode,
                         repeatMode: repeatMode,
                         onPlayPause: _handlePlayPause,
@@ -584,8 +677,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _handleSeek(Duration pos) {
     _dragNotifier.value = null;
     final lp = _logPlayerInteraction('seek_bar', 'drag');
-    final bloc = _effectiveBloc;
-    if (bloc != null) {
+    if (_effectiveBloc case final bloc?) {
       bloc.add(SeekToTrackPosition(pos.inMilliseconds, loggingParams: lp));
     } else {
       _positionNotifier.value = pos;
@@ -594,8 +686,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _handlePlayPause() {
     final lp = _logPlayerInteraction('play_pause_button');
-    final bloc = _effectiveBloc;
-    if (bloc != null) {
+    if (_effectiveBloc case final bloc?) {
       bloc.add(TogglePlayPause(loggingParams: lp));
     } else {
       setState(() {
@@ -607,8 +698,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _handleShuffle() {
     final lp = _logPlayerInteraction('shuffle_button');
-    final bloc = _effectiveBloc;
-    if (bloc != null) {
+    if (_effectiveBloc case final bloc?) {
       bloc.add(ToggleShuffle(loggingParams: lp));
     } else {
       setState(() {
@@ -621,8 +711,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _handleRepeat() {
     final lp = _logPlayerInteraction('repeat_button');
-    final bloc = _effectiveBloc;
-    if (bloc != null) {
+    if (_effectiveBloc case final bloc?) {
       bloc.add(ToggleRepeat(loggingParams: lp));
     } else {
       setState(() {
@@ -638,11 +727,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _handleNext() {
+    if (_effectiveBloc?.state case final qState? when !qState.canSkipNext) {
+      return;
+    }
     final lp = _logPlayerInteraction('skip_next_button');
     _effectiveBloc?.add(SkipToNextTrack(loggingParams: lp));
   }
 
   void _handlePrevious() {
+    if (_effectiveBloc?.state case final qState? when !qState.canSkipPrevious) {
+      return;
+    }
     final lp = _logPlayerInteraction('skip_previous_button');
     _effectiveBloc?.add(SkipToPrevTrack(loggingParams: lp));
   }
@@ -665,13 +760,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
     QueueRepeatMode? repeatVal,
   }) {
     _logPlayerInteraction('queue_button', 'hit');
+    final resolvedTrack = switch (activeTrack) {
+      final t? => t,
+      null => widget.currentTrack,
+    };
+    final resolvedIsPlaying = switch (isPlayingVal) {
+      final p? => p,
+      null => _isPlaying,
+    };
+    final resolvedShuffle = switch (shuffleVal) {
+      final s? => s,
+      null => _shuffleMode,
+    };
+    final resolvedRepeat = switch (repeatVal) {
+      final r? => r,
+      null => _repeatMode,
+    };
     QueueSheetScreen.show(
       context,
       bloc: _effectiveBloc,
-      nowPlayingContextTrack: activeTrack ?? widget.currentTrack,
-      isPlaying: isPlayingVal ?? _isPlaying,
-      shuffleMode: shuffleVal ?? _shuffleMode,
-      repeatMode: repeatVal ?? _repeatMode,
+      nowPlayingContextTrack: resolvedTrack,
+      isPlaying: resolvedIsPlaying,
+      shuffleMode: resolvedShuffle,
+      repeatMode: resolvedRepeat,
       onPlayPause: _handlePlayPause,
       onShuffleTapped: _handleShuffle,
       onRepeatTapped: _handleRepeat,

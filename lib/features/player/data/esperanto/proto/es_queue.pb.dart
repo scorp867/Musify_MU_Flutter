@@ -48,9 +48,7 @@ class Queue extends $pb.GeneratedMessage {
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.player.esperanto.proto'),
       createEmptyInstance: Queue.$_createMessage)
-    ..a<$fixnum.Int64>(
-        1, _omitFieldNames ? '' : 'queueRevision', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aInt64(1, _omitFieldNames ? '' : 'queueRevision')
     ..aOM<$0.ProvidedTrack>(2, _omitFieldNames ? '' : 'track',
         subBuilder: $0.ProvidedTrack.$_createMessage)
     ..pPM<$0.ProvidedTrack>(3, _omitFieldNames ? '' : 'nextTracks',

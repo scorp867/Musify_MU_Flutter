@@ -17,6 +17,7 @@ export 'es_optional.pb.dart';
 export 'es_pause.pb.dart';
 export 'es_pauseresume_origin.pb.dart';
 export 'es_play.pb.dart';
+export 'es_play_as_next_in_queue_request.pb.dart';
 export 'es_play_options.pb.dart';
 export 'es_play_origin.pb.dart';
 export 'es_prepare_play.pb.dart';

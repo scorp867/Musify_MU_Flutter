@@ -1,21 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
-import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
+import '../../data/logging/player_logging_params_factory.dart';
 import '../../data/queue/context_track_extensions.dart';
+import '../../domain/commands/options/logging_params.dart';
 import '../../domain/models/context_track.dart';
+import '../screens/player_screen.dart';
 import 'player_artwork.dart';
-import '../../../../core/ubi/domain/logging/ubi_logger.dart';
-import '../../../../core/ubi/domain/models/page_instance_id.dart';
-import '../../../../core/ubi/data/lifecycle/page_instance_id_holder.dart';
-import '../../../player/data/logging/player_logging_params_factory.dart';
-import '../../../player/domain/commands/options/logging_params.dart';
 
-/// A sleek Spotify-authentic miniplayer featuring dynamic artwork palette extraction,
-/// playback controls, swipe gestures, and a bottom progress bar.
+/// Sleek 1:1 Spotify MiniPlayer matching:
+/// - `com.spotify.nowplayingmini.nowplayingmini.NowPlayingMiniMode`
+/// - `com.spotify.nowplayingmini.uicomponents.seekbar.FadingSeekBarView`
+/// - `com.spotify.nowplayingmini.uicomponents.trackinfo.TrackInfoView`
+/// - `p199p.edi0` (NowPlayingMini default view binder)
+///
+/// Driven directly by pure Mobius Loop Controller `PlayerQueueMobiusController`
+/// via [ValueListenableBuilder<PlayerQueueState>].
 class MiniPlayer extends StatefulWidget {
   final String title;
   final String artist;
@@ -28,7 +35,7 @@ class MiniPlayer extends StatefulWidget {
   final VoidCallback? onPrevious;
   final VoidCallback? onTap;
   final ColorExtractionService? colorService;
-  final PlayerQueueBloc? queueBloc;
+  final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
 
   const MiniPlayer({
@@ -59,22 +66,23 @@ class _MiniPlayerState extends State<MiniPlayer> {
   String? _lastExtractedKey;
   late final PageInstanceId _pageInstanceId;
 
-  LoggingParams? _logMiniPlayerInteraction(String elementPath, [String actionName = 'hit']) {
-    try {
-      if (getIt.isRegistered<UbiLogger>()) {
-        final ubiLogger = getIt<UbiLogger>();
-        final result = ubiLogger.logInteraction(
-          UbiInteractionElement(
-            elementPath: elementPath,
-            actionName: actionName,
-          ),
-        );
-        if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
-          final factory = getIt<PlayerLoggingParamsFactory>();
-          return factory.createFromInteractionResult(result);
-        }
+  LoggingParams? _logMiniPlayerInteraction(
+    String elementPath, [
+    String actionName = 'hit',
+  ]) {
+    if (getIt.isRegistered<UbiLogger>()) {
+      final ubiLogger = getIt<UbiLogger>();
+      final result = ubiLogger.logInteraction(
+        UbiInteractionElement(
+          elementPath: elementPath,
+          actionName: actionName,
+        ),
+      );
+      if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
+        final factory = getIt<PlayerLoggingParamsFactory>();
+        return factory.createFromInteractionResult(result);
       }
-    } catch (_) {}
+    }
     return null;
   }
 
@@ -83,29 +91,44 @@ class _MiniPlayerState extends State<MiniPlayer> {
   @override
   void initState() {
     super.initState();
-    final holder = getIt<PageInstanceIdHolder>();
-    _pageInstanceId = PageInstanceIdHolder.generateNew();
-    holder.update(_pageInstanceId);
+    if (getIt.isRegistered<PageInstanceIdHolder>()) {
+      final holder = getIt<PageInstanceIdHolder>();
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+      holder.update(_pageInstanceId);
+    } else {
+      _pageInstanceId = PageInstanceIdHolder.generateNew();
+    }
 
-    try {
-      if (getIt.isRegistered<UbiLogger>()) {
-        final ubiLogger = getIt<UbiLogger>();
-        ubiLogger.logImpression(
-          const UbiImpressionElement(
-            elementPath: 'mini_player',
-          ),
-        );
-      }
-    } catch (_) {}
+    if (getIt.isRegistered<UbiLogger>()) {
+      final ubiLogger = getIt<UbiLogger>();
+      ubiLogger.logImpression(
+        const UbiImpressionElement(
+          elementPath: 'mini_player',
+        ),
+      );
+    }
     _isPlaying = widget.isPlaying;
-    final initialSongId = widget.queueBloc?.state.songId ?? widget.currentTrack?.songId ?? widget.songId;
-    final initialImageUrl = widget.queueBloc?.state.imageUrl ?? widget.currentTrack?.imageUrl ?? widget.imageUrl;
+
+    final initialSongId = _resolveSongId(widget.queueBloc?.state);
+    final initialImageUrl = _resolveImageUrl(widget.queueBloc?.state);
     _extractColor(songId: initialSongId, imageUrl: initialImageUrl);
+
+    widget.queueBloc?.addListener(_onQueueStateChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.queueBloc?.removeListener(_onQueueStateChanged);
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant MiniPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.queueBloc != widget.queueBloc) {
+      oldWidget.queueBloc?.removeListener(_onQueueStateChanged);
+      widget.queueBloc?.addListener(_onQueueStateChanged);
+    }
     if (oldWidget.isPlaying != widget.isPlaying) {
       _isPlaying = widget.isPlaying;
     }
@@ -114,15 +137,65 @@ class _MiniPlayerState extends State<MiniPlayer> {
     }
   }
 
+  void _onQueueStateChanged() {
+    if (widget.queueBloc case final bloc?) {
+      final state = bloc.state;
+      if (state.isPlaying != _isPlaying) {
+        setState(() {
+          _isPlaying = state.isPlaying;
+        });
+      }
+      final resolvedSongId = _resolveSongId(state);
+      final resolvedImageUrl = _resolveImageUrl(state);
+      _extractColor(songId: resolvedSongId, imageUrl: resolvedImageUrl);
+    }
+  }
+
+  int? _resolveSongId(PlayerQueueState? state) {
+    if (state != null) {
+      if (state.songId case final id? when id > 0) {
+        return id;
+      }
+    }
+    if (widget.currentTrack case final track?) {
+      if (track.songId case final id? when id > 0) {
+        return id;
+      }
+    }
+    return widget.songId;
+  }
+
+  String? _resolveImageUrl(PlayerQueueState? state) {
+    if (state != null) {
+      if (state.imageUrl case final url? when url.isNotEmpty) {
+        return url;
+      }
+    }
+    if (widget.currentTrack case final track?) {
+      if (track.imageUrl case final url? when url.isNotEmpty) {
+        return url;
+      }
+    }
+    return widget.imageUrl;
+  }
+
   void _extractColor({int? songId, String? imageUrl}) {
-    final key = songId != null ? 'song_$songId' : (imageUrl ?? '');
+    final key = switch (songId) {
+      final id? when id > 0 => 'song_$id',
+      _ => switch (imageUrl) {
+        final url? when url.isNotEmpty => url,
+        _ => '',
+      },
+    };
     if (key.isEmpty || key == _lastExtractedKey) return;
     _lastExtractedKey = key;
 
-    final service = widget.colorService ??
-        (getIt.isRegistered<ColorExtractionService>()
-            ? getIt<ColorExtractionService>()
-            : null);
+    final service = switch (widget.colorService) {
+      final s? => s,
+      null => getIt.isRegistered<ColorExtractionService>()
+          ? getIt<ColorExtractionService>()
+          : null,
+    };
     if (service == null) return;
 
     final cached = service.getCached(key);
@@ -136,44 +209,37 @@ class _MiniPlayerState extends State<MiniPlayer> {
       return;
     }
 
-    service.extract(
-      songId: songId,
-      imageUrl: imageUrl,
-      cacheKey: key,
-    ).then((scheme) {
-      if (mounted && _lastExtractedKey == key) {
-        final targetColor = scheme.isNeutral ? const Color(0xFF242424) : scheme.surface;
-        if (_currentColor != targetColor) {
-          setState(() {
-            _currentColor = targetColor;
-          });
+    unawaited(
+      service.extract(
+        songId: songId,
+        imageUrl: imageUrl,
+        cacheKey: key,
+      ).then((scheme) {
+        if (mounted && _lastExtractedKey == key) {
+          final targetColor = scheme.isNeutral ? const Color(0xFF242424) : scheme.surface;
+          if (_currentColor != targetColor) {
+            setState(() {
+              _currentColor = targetColor;
+            });
+          }
         }
-      }
-    }).catchError((_) {});
+      }),
+    );
+  }
+
+  static double _boundProgress(double progress) {
+    if (progress < 0.0) return 0.0;
+    if (progress > 1.0) return 1.0;
+    return progress;
   }
 
   @override
   Widget build(BuildContext context) {
     final bloc = widget.queueBloc;
     if (bloc != null) {
-      return BlocConsumer<PlayerQueueBloc, PlayerQueueState>(
-        bloc: bloc,
-        listenWhen: (previous, current) {
-          return previous.songId != current.songId ||
-              previous.imageUrl != current.imageUrl;
-        },
-        listener: (context, state) {
-          _extractColor(songId: state.songId, imageUrl: state.imageUrl);
-        },
-        buildWhen: (previous, current) {
-          return previous.nowPlaying != current.nowPlaying ||
-              previous.isPlaying != current.isPlaying ||
-              previous.isBuffering != current.isBuffering ||
-              previous.playbackProgress != current.playbackProgress ||
-              previous.songId != current.songId ||
-              previous.imageUrl != current.imageUrl;
-        },
-        builder: (context, state) {
+      return ValueListenableBuilder<PlayerQueueState>(
+        valueListenable: bloc,
+        builder: (context, state, child) {
           return _buildMiniPlayerContent(context, state: state);
         },
       );
@@ -181,21 +247,35 @@ class _MiniPlayerState extends State<MiniPlayer> {
     return _buildMiniPlayerContent(context);
   }
 
-  Widget _buildMiniPlayerContent(BuildContext context, {PlayerQueueState? state}) {
-    final displayTitle = (state?.title.isNotEmpty == true)
-        ? state!.title
-        : widget.title;
-    final displayArtist = (state?.artist.isNotEmpty == true)
-        ? state!.artist
-        : widget.artist;
-    final displayImageUrl = state?.imageUrl ?? widget.imageUrl;
-    final displaySongId = state?.songId ?? widget.songId;
-    final isPlaying = state?.isPlaying ?? _isPlaying;
-    final progress = state != null ? state.playbackProgress : widget.progress;
-
-    if (_lastExtractedKey == null && (displaySongId != null || displayImageUrl != null)) {
-      _extractColor(songId: displaySongId, imageUrl: displayImageUrl);
-    }
+  Widget _buildMiniPlayerContent(
+    BuildContext context, {
+    PlayerQueueState? state,
+  }) {
+    final displayTitle = switch (state?.title) {
+      final t? when t.isNotEmpty => t,
+      _ => widget.title,
+    };
+    final displayArtist = switch (state?.artist) {
+      final a? when a.isNotEmpty => a,
+      _ => widget.artist,
+    };
+    final displayImageUrl = switch (state?.imageUrl) {
+      final url? when url.isNotEmpty => url,
+      _ => widget.imageUrl,
+    };
+    final displaySongId = switch (state?.songId) {
+      final id? when id > 0 => id,
+      _ => widget.songId,
+    };
+    final isPlaying = switch (state?.isPlaying) {
+      final playing? => playing,
+      null => _isPlaying,
+    };
+    final rawProgress = switch (state?.playbackProgress) {
+      final p? => p,
+      null => widget.progress,
+    };
+    final progress = _boundProgress(rawProgress);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -203,13 +283,16 @@ class _MiniPlayerState extends State<MiniPlayer> {
         behavior: HitTestBehavior.opaque,
         onTap: () {
           _logMiniPlayerInteraction('now_playing_bar', 'ui_navigate');
-          if (widget.onTap != null) {
-            widget.onTap!();
+          if (widget.onTap case final onTapAction?) {
+            onTapAction();
           } else {
             PlayerScreen.show(
               context,
               queueBloc: widget.queueBloc,
-              currentTrack: state?.currentTrack ?? widget.currentTrack,
+              currentTrack: switch (state?.currentTrack) {
+                final track? => track,
+                null => widget.currentTrack,
+              },
               title: displayTitle,
               artist: displayArtist,
               imageUrl: displayImageUrl,
@@ -218,20 +301,23 @@ class _MiniPlayerState extends State<MiniPlayer> {
           }
         },
         onHorizontalDragEnd: (details) {
-          final velocity = details.primaryVelocity ?? 0;
+          final velocity = switch (details.primaryVelocity) {
+            final v? => v,
+            null => 0.0,
+          };
           if (velocity < -250) {
             final lp = _logMiniPlayerInteraction('swipe_skip_next', 'swipe');
-            if (widget.onNext != null) {
-              widget.onNext!();
-            } else {
-              widget.queueBloc?.add(SkipToNextTrack(loggingParams: lp));
+            if (widget.onNext case final onNextAction?) {
+              onNextAction();
+            } else if (widget.queueBloc case final bloc?) {
+              bloc.add(SkipToNextTrack(loggingParams: lp));
             }
           } else if (velocity > 250) {
             final lp = _logMiniPlayerInteraction('swipe_skip_prev', 'swipe');
-            if (widget.onPrevious != null) {
-              widget.onPrevious!();
-            } else {
-              widget.queueBloc?.add(SkipToPrevTrack(loggingParams: lp));
+            if (widget.onPrevious case final onPrevAction?) {
+              onPrevAction();
+            } else if (widget.queueBloc case final bloc?) {
+              bloc.add(SkipToPrevTrack(loggingParams: lp));
             }
           }
         },
@@ -337,10 +423,10 @@ class _MiniPlayerState extends State<MiniPlayer> {
                           _isPlaying = !_isPlaying;
                         });
                         final lp = _logMiniPlayerInteraction('play_pause_button', 'hit');
-                        if (widget.onPlayPause != null) {
-                          widget.onPlayPause!();
-                        } else if (widget.queueBloc != null) {
-                          widget.queueBloc!.add(TogglePlayPause(loggingParams: lp));
+                        if (widget.onPlayPause case final onPlayPauseAction?) {
+                          onPlayPauseAction();
+                        } else if (widget.queueBloc case final bloc?) {
+                          bloc.add(TogglePlayPause(loggingParams: lp));
                         }
                       },
                     ),
@@ -354,7 +440,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 ),
                 child: RepaintBoundary(
                   child: LinearProgressIndicator(
-                    value: progress.clamp(0.0, 1.0),
+                    value: progress,
                     backgroundColor: Colors.white.withValues(alpha: 0.15),
                     valueColor: const AlwaysStoppedAnimation<Color>(
                       Colors.white,

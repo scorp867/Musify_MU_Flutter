@@ -56,9 +56,7 @@ class SetQueueRequest extends $pb.GeneratedMessage {
         subBuilder: $0.ProvidedTrack.$_createMessage)
     ..pPM<$0.ProvidedTrack>(2, _omitFieldNames ? '' : 'prevTracks',
         subBuilder: $0.ProvidedTrack.$_createMessage)
-    ..a<$fixnum.Int64>(
-        3, _omitFieldNames ? '' : 'queueRevision', $pb.PbFieldType.OU6,
-        defaultOrMaker: $fixnum.Int64.ZERO)
+    ..aInt64(3, _omitFieldNames ? '' : 'queueRevision')
     ..aOM<$1.CommandOptions>(4, _omitFieldNames ? '' : 'options',
         subBuilder: $1.CommandOptions.$_createMessage)
     ..aOM<$2.LoggingParams>(5, _omitFieldNames ? '' : 'loggingParams',

@@ -14,26 +14,6 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-class PreparePlayOptions_PrefetchLevel extends $pb.ProtobufEnum {
-  static const PreparePlayOptions_PrefetchLevel NONE =
-      PreparePlayOptions_PrefetchLevel._(0, _omitEnumNames ? '' : 'NONE');
-  static const PreparePlayOptions_PrefetchLevel MEDIA =
-      PreparePlayOptions_PrefetchLevel._(1, _omitEnumNames ? '' : 'MEDIA');
-
-  static const $core.List<PreparePlayOptions_PrefetchLevel> values =
-      <PreparePlayOptions_PrefetchLevel>[
-    NONE,
-    MEDIA,
-  ];
-
-  static final $core.List<PreparePlayOptions_PrefetchLevel?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 1);
-  static PreparePlayOptions_PrefetchLevel? valueOf($core.int value) =>
-      value < 0 || value >= _byValue.length ? null : _byValue[value];
-
-  const PreparePlayOptions_PrefetchLevel._(super.value, super.name);
-}
-
 class PreparePlayOptions_AudioStream extends $pb.ProtobufEnum {
   static const PreparePlayOptions_AudioStream DEFAULT =
       PreparePlayOptions_AudioStream._(0, _omitEnumNames ? '' : 'DEFAULT');
@@ -52,6 +32,26 @@ class PreparePlayOptions_AudioStream extends $pb.ProtobufEnum {
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
   const PreparePlayOptions_AudioStream._(super.value, super.name);
+}
+
+class PreparePlayOptions_PrefetchLevel extends $pb.ProtobufEnum {
+  static const PreparePlayOptions_PrefetchLevel NONE =
+      PreparePlayOptions_PrefetchLevel._(0, _omitEnumNames ? '' : 'NONE');
+  static const PreparePlayOptions_PrefetchLevel MEDIA =
+      PreparePlayOptions_PrefetchLevel._(1, _omitEnumNames ? '' : 'MEDIA');
+
+  static const $core.List<PreparePlayOptions_PrefetchLevel> values =
+      <PreparePlayOptions_PrefetchLevel>[
+    NONE,
+    MEDIA,
+  ];
+
+  static final $core.List<PreparePlayOptions_PrefetchLevel?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 1);
+  static PreparePlayOptions_PrefetchLevel? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const PreparePlayOptions_PrefetchLevel._(super.value, super.name);
 }
 
 const $core.bool _omitEnumNames =

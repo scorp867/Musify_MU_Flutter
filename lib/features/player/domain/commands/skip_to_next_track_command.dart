@@ -55,6 +55,9 @@ class SkipToNextTrackCommandBuilder {
         _options = options,
         _loggingParams = loggingParams;
 
+  static SkipToNextTrackCommandBuilder builder() =>
+      SkipToNextTrackCommand.builder();
+
   SkipToNextTrackCommandBuilder track(ContextTrack val) {
     _track = val;
     return this;

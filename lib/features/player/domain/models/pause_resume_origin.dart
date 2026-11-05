@@ -1,39 +1,50 @@
 // 1:1 replica of com.spotify.player.model.PauseResumeOrigin
 
 class PauseResumeOrigin {
-  final String action;
+  final String featureIdentifier;
 
-  const PauseResumeOrigin({required this.action});
+  const PauseResumeOrigin({required this.featureIdentifier});
 
-  static PauseResumeOrigin create(String action) =>
-      PauseResumeOrigin(action: action);
+  // Backward compatibility alias
+  String get action => featureIdentifier;
 
-  static PauseResumeOriginBuilder builder([String action = '']) =>
-      PauseResumeOriginBuilder(action);
+  static PauseResumeOrigin create(String featureIdentifier) =>
+      builder(featureIdentifier).build();
 
-  PauseResumeOriginBuilder toBuilder() => PauseResumeOriginBuilder(action);
+  static PauseResumeOriginBuilder builder([String featureIdentifier = '']) =>
+      PauseResumeOriginBuilder(featureIdentifier: featureIdentifier);
+
+  PauseResumeOriginBuilder toBuilder() =>
+      PauseResumeOriginBuilder(featureIdentifier: featureIdentifier);
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is PauseResumeOrigin && other.action == action);
+      (other is PauseResumeOrigin &&
+          other.featureIdentifier == featureIdentifier);
 
   @override
-  int get hashCode => action.hashCode;
+  int get hashCode => featureIdentifier.hashCode ^ 1000003;
 
   @override
-  String toString() => 'PauseResumeOrigin{action=$action}';
+  String toString() =>
+      'PauseResumeOrigin{featureIdentifier=$featureIdentifier}';
 }
 
 class PauseResumeOriginBuilder {
-  String _action;
+  String _featureIdentifier;
 
-  PauseResumeOriginBuilder([this._action = '']);
+  PauseResumeOriginBuilder({String featureIdentifier = ''})
+      : _featureIdentifier = featureIdentifier;
 
-  PauseResumeOriginBuilder action(String val) {
-    _action = val;
+  PauseResumeOriginBuilder featureIdentifier(String str) {
+    _featureIdentifier = str;
     return this;
   }
 
-  PauseResumeOrigin build() => PauseResumeOrigin(action: _action);
+  // Backward compatibility alias
+  PauseResumeOriginBuilder action(String val) => featureIdentifier(val);
+
+  PauseResumeOrigin build() =>
+      PauseResumeOrigin(featureIdentifier: _featureIdentifier);
 }

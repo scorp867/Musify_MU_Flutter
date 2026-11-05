@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_command_options.proto";
+import "es_logging_params.proto";
+
+option optimize_for = CODE_SIZE;
+
+message SignalRequest {
+    string signal_id = 1;
+    string parameters = 2;
+    CommandOptions options = 3;
+    LoggingParams logging_params = 4;
+}

@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_command_options.proto";
+import "es_logging_params.proto";
+import "es_optional.proto";
+
+option optimize_for = CODE_SIZE;
+
+message SeekToRequest {
+    enum Relative {
+        BEGINNING = 0;
+        CURRENT = 1;
+        END = 2;
+    }
+
+    CommandOptions options = 1;
+    LoggingParams logging_params = 2;
+    int64 position = 3;
+    Relative relative = 4;
+    OptionalInt64 creator_timestamp_position_ms = 5;
+}

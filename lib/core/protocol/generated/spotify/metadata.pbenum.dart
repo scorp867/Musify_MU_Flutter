@@ -14,34 +14,108 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-class Album_Type extends $pb.ProtobufEnum {
-  static const Album_Type ALBUM =
-      Album_Type._(1, _omitEnumNames ? '' : 'ALBUM');
-  static const Album_Type SINGLE =
-      Album_Type._(2, _omitEnumNames ? '' : 'SINGLE');
-  static const Album_Type COMPILATION =
-      Album_Type._(3, _omitEnumNames ? '' : 'COMPILATION');
-  static const Album_Type EP = Album_Type._(4, _omitEnumNames ? '' : 'EP');
-  static const Album_Type AUDIOBOOK =
-      Album_Type._(5, _omitEnumNames ? '' : 'AUDIOBOOK');
-  static const Album_Type PODCAST =
-      Album_Type._(6, _omitEnumNames ? '' : 'PODCAST');
+class Image_Size extends $pb.ProtobufEnum {
+  static const Image_Size DEFAULT =
+      Image_Size._(0, _omitEnumNames ? '' : 'DEFAULT');
+  static const Image_Size SMALL =
+      Image_Size._(1, _omitEnumNames ? '' : 'SMALL');
+  static const Image_Size LARGE =
+      Image_Size._(2, _omitEnumNames ? '' : 'LARGE');
+  static const Image_Size XLARGE =
+      Image_Size._(3, _omitEnumNames ? '' : 'XLARGE');
 
-  static const $core.List<Album_Type> values = <Album_Type>[
-    ALBUM,
-    SINGLE,
-    COMPILATION,
-    EP,
-    AUDIOBOOK,
-    PODCAST,
+  static const $core.List<Image_Size> values = <Image_Size>[
+    DEFAULT,
+    SMALL,
+    LARGE,
+    XLARGE,
   ];
 
-  static final $core.List<Album_Type?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 6);
-  static Album_Type? valueOf($core.int value) =>
+  static final $core.List<Image_Size?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
+  static Image_Size? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
-  const Album_Type._(super.value, super.name);
+  const Image_Size._(super.value, super.name);
+}
+
+class Audio_Format extends $pb.ProtobufEnum {
+  static const Audio_Format UNKNOWN =
+      Audio_Format._(0, _omitEnumNames ? '' : 'UNKNOWN');
+  static const Audio_Format DEFAULT =
+      Audio_Format._(1, _omitEnumNames ? '' : 'DEFAULT');
+  static const Audio_Format PARROT =
+      Audio_Format._(2, _omitEnumNames ? '' : 'PARROT');
+
+  static const $core.List<Audio_Format> values = <Audio_Format>[
+    UNKNOWN,
+    DEFAULT,
+    PARROT,
+  ];
+
+  static final $core.List<Audio_Format?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static Audio_Format? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const Audio_Format._(super.value, super.name);
+}
+
+class ArtistWithRole_Role extends $pb.ProtobufEnum {
+  static const ArtistWithRole_Role ARTIST_ROLE_UNKNOWN =
+      ArtistWithRole_Role._(0, _omitEnumNames ? '' : 'ARTIST_ROLE_UNKNOWN');
+  static const ArtistWithRole_Role ARTIST_ROLE_MAIN_ARTIST =
+      ArtistWithRole_Role._(1, _omitEnumNames ? '' : 'ARTIST_ROLE_MAIN_ARTIST');
+  static const ArtistWithRole_Role ARTIST_ROLE_FEATURED_ARTIST =
+      ArtistWithRole_Role._(
+          2, _omitEnumNames ? '' : 'ARTIST_ROLE_FEATURED_ARTIST');
+  static const ArtistWithRole_Role ARTIST_ROLE_REMIXER =
+      ArtistWithRole_Role._(3, _omitEnumNames ? '' : 'ARTIST_ROLE_REMIXER');
+  static const ArtistWithRole_Role ARTIST_ROLE_ACTOR =
+      ArtistWithRole_Role._(4, _omitEnumNames ? '' : 'ARTIST_ROLE_ACTOR');
+  static const ArtistWithRole_Role ARTIST_ROLE_COMPOSER =
+      ArtistWithRole_Role._(5, _omitEnumNames ? '' : 'ARTIST_ROLE_COMPOSER');
+  static const ArtistWithRole_Role ARTIST_ROLE_CONDUCTOR =
+      ArtistWithRole_Role._(6, _omitEnumNames ? '' : 'ARTIST_ROLE_CONDUCTOR');
+  static const ArtistWithRole_Role ARTIST_ROLE_ORCHESTRA =
+      ArtistWithRole_Role._(7, _omitEnumNames ? '' : 'ARTIST_ROLE_ORCHESTRA');
+
+  static const $core.List<ArtistWithRole_Role> values = <ArtistWithRole_Role>[
+    ARTIST_ROLE_UNKNOWN,
+    ARTIST_ROLE_MAIN_ARTIST,
+    ARTIST_ROLE_FEATURED_ARTIST,
+    ARTIST_ROLE_REMIXER,
+    ARTIST_ROLE_ACTOR,
+    ARTIST_ROLE_COMPOSER,
+    ARTIST_ROLE_CONDUCTOR,
+    ARTIST_ROLE_ORCHESTRA,
+  ];
+
+  static final $core.List<ArtistWithRole_Role?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 7);
+  static ArtistWithRole_Role? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const ArtistWithRole_Role._(super.value, super.name);
+}
+
+class Copyright_Type extends $pb.ProtobufEnum {
+  static const Copyright_Type P_COPYRIGHT =
+      Copyright_Type._(0, _omitEnumNames ? '' : 'P_COPYRIGHT');
+  static const Copyright_Type C_COPYRIGHT =
+      Copyright_Type._(1, _omitEnumNames ? '' : 'C_COPYRIGHT');
+
+  static const $core.List<Copyright_Type> values = <Copyright_Type>[
+    P_COPYRIGHT,
+    C_COPYRIGHT,
+  ];
+
+  static final $core.List<Copyright_Type?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 1);
+  static Copyright_Type? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const Copyright_Type._(super.value, super.name);
 }
 
 class AudioFile_Format extends $pb.ProtobufEnum {
@@ -111,29 +185,34 @@ class AudioFile_Format extends $pb.ProtobufEnum {
   const AudioFile_Format._(super.value, super.name);
 }
 
-class Image_Size extends $pb.ProtobufEnum {
-  static const Image_Size DEFAULT =
-      Image_Size._(0, _omitEnumNames ? '' : 'DEFAULT');
-  static const Image_Size SMALL =
-      Image_Size._(1, _omitEnumNames ? '' : 'SMALL');
-  static const Image_Size LARGE =
-      Image_Size._(2, _omitEnumNames ? '' : 'LARGE');
-  static const Image_Size XLARGE =
-      Image_Size._(3, _omitEnumNames ? '' : 'XLARGE');
+class Album_Type extends $pb.ProtobufEnum {
+  static const Album_Type ALBUM =
+      Album_Type._(1, _omitEnumNames ? '' : 'ALBUM');
+  static const Album_Type SINGLE =
+      Album_Type._(2, _omitEnumNames ? '' : 'SINGLE');
+  static const Album_Type COMPILATION =
+      Album_Type._(3, _omitEnumNames ? '' : 'COMPILATION');
+  static const Album_Type EP = Album_Type._(4, _omitEnumNames ? '' : 'EP');
+  static const Album_Type AUDIOBOOK =
+      Album_Type._(5, _omitEnumNames ? '' : 'AUDIOBOOK');
+  static const Album_Type PODCAST =
+      Album_Type._(6, _omitEnumNames ? '' : 'PODCAST');
 
-  static const $core.List<Image_Size> values = <Image_Size>[
-    DEFAULT,
-    SMALL,
-    LARGE,
-    XLARGE,
+  static const $core.List<Album_Type> values = <Album_Type>[
+    ALBUM,
+    SINGLE,
+    COMPILATION,
+    EP,
+    AUDIOBOOK,
+    PODCAST,
   ];
 
-  static final $core.List<Image_Size?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 3);
-  static Image_Size? valueOf($core.int value) =>
+  static final $core.List<Album_Type?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 6);
+  static Album_Type? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
-  const Image_Size._(super.value, super.name);
+  const Album_Type._(super.value, super.name);
 }
 
 const $core.bool _omitEnumNames =

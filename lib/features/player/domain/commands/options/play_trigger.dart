@@ -5,15 +5,16 @@ enum PlayTrigger {
   advancedPastTrack,
   advancedPastContext;
 
-  static PlayTrigger fromString(String? value) {
-    switch (value?.toUpperCase()) {
+  static PlayTrigger fromString(String value) {
+    switch (value.toUpperCase()) {
+      case 'IMMEDIATELY':
+        return PlayTrigger.immediately;
       case 'ADVANCED_PAST_TRACK':
         return PlayTrigger.advancedPastTrack;
       case 'ADVANCED_PAST_CONTEXT':
         return PlayTrigger.advancedPastContext;
-      case 'IMMEDIATELY':
       default:
-        return PlayTrigger.immediately;
+        throw FormatException('Unknown PlayTrigger: $value');
     }
   }
 

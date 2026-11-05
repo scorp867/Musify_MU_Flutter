@@ -1,11 +1,15 @@
 // 1:1 replica of com.spotify.player.model.Restrictions
 
+import 'dart:collection';
+
 class RestrictionReasons {
   final Set<String> reasons;
 
   const RestrictionReasons({this.reasons = const <String>{}});
 
   static RestrictionReasonsBuilder builder() => RestrictionReasonsBuilder();
+
+  RestrictionReasonsBuilder toBuilder() => RestrictionReasonsBuilder(reasons);
 
   @override
   bool operator ==(Object other) =>
@@ -15,7 +19,7 @@ class RestrictionReasons {
           other.reasons.containsAll(reasons));
 
   @override
-  int get hashCode => Object.hashAll(reasons);
+  int get hashCode => Object.hashAll(reasons) ^ 1000003;
 
   @override
   String toString() => 'RestrictionReasons{reasons=$reasons}';
@@ -27,13 +31,13 @@ class RestrictionReasonsBuilder {
   RestrictionReasonsBuilder([Set<String>? reasons])
       : _reasons = reasons != null ? Set<String>.from(reasons) : <String>{};
 
-  RestrictionReasonsBuilder reasons(Set<String> val) {
-    _reasons = Set<String>.from(val);
+  RestrictionReasonsBuilder reasons(Set<String> set) {
+    _reasons = Set<String>.from(set);
     return this;
   }
 
   RestrictionReasons build() =>
-      RestrictionReasons(reasons: Set<String>.unmodifiable(_reasons));
+      RestrictionReasons(reasons: UnmodifiableSetView<String>(_reasons));
 }
 
 class ModeRestrictions {
@@ -43,22 +47,29 @@ class ModeRestrictions {
 
   static ModeRestrictionsBuilder builder() => ModeRestrictionsBuilder();
 
+  ModeRestrictionsBuilder toBuilder() => ModeRestrictionsBuilder(values);
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is ModeRestrictions && _mapEquals(other.values, values));
 
   @override
-  int get hashCode => Object.hashAll(values.entries.map((e) => Object.hash(e.key, e.value)));
+  int get hashCode =>
+      Object.hashAll(values.entries.map((e) => Object.hash(e.key, e.value))) ^
+      1000003;
 
   @override
   String toString() => 'ModeRestrictions{values=$values}';
 
-  static bool _mapEquals(Map<String, RestrictionReasons> a, Map<String, RestrictionReasons> b) {
+  static bool _mapEquals(
+    Map<String, RestrictionReasons> a,
+    Map<String, RestrictionReasons> b,
+  ) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
-    for (final key in a.keys) {
-      if (b[key] != a[key]) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
     }
     return true;
   }
@@ -72,13 +83,13 @@ class ModeRestrictionsBuilder {
             ? Map<String, RestrictionReasons>.from(values)
             : <String, RestrictionReasons>{};
 
-  ModeRestrictionsBuilder values(Map<String, RestrictionReasons> val) {
-    _values = Map<String, RestrictionReasons>.from(val);
+  ModeRestrictionsBuilder values(Map<String, RestrictionReasons> map) {
+    _values = Map<String, RestrictionReasons>.from(map);
     return this;
   }
 
   ModeRestrictions build() =>
-      ModeRestrictions(values: Map<String, RestrictionReasons>.unmodifiable(_values));
+      ModeRestrictions(values: UnmodifiableMapView<String, RestrictionReasons>(_values));
 }
 
 class Restrictions {
@@ -209,6 +220,166 @@ class Restrictions {
         disallowViewingQueueReasons: disallowViewingQueueReasons,
         disallowViewingOrderedTracksInNextTracksReasons: disallowViewingOrderedTracksInNextTracksReasons,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is Restrictions &&
+          _setEquals(disallowPausingReasons, other.disallowPausingReasons) &&
+          _setEquals(disallowResumingReasons, other.disallowResumingReasons) &&
+          _setEquals(disallowSeekingReasons, other.disallowSeekingReasons) &&
+          _setEquals(disallowPeekingPrevReasons, other.disallowPeekingPrevReasons) &&
+          _setEquals(disallowPeekingNextReasons, other.disallowPeekingNextReasons) &&
+          _setEquals(disallowSkippingPrevReasons, other.disallowSkippingPrevReasons) &&
+          _setEquals(disallowSkippingNextReasons, other.disallowSkippingNextReasons) &&
+          _setEquals(disallowTogglingRepeatContextReasons, other.disallowTogglingRepeatContextReasons) &&
+          _setEquals(disallowTogglingRepeatTrackReasons, other.disallowTogglingRepeatTrackReasons) &&
+          _setEquals(disallowTogglingShuffleReasons, other.disallowTogglingShuffleReasons) &&
+          _setEquals(disallowSetQueueReasons, other.disallowSetQueueReasons) &&
+          _setEquals(disallowAddToQueueReasons, other.disallowAddToQueueReasons) &&
+          _setEquals(disallowInterruptingPlaybackReasons, other.disallowInterruptingPlaybackReasons) &&
+          _setEquals(disallowTransferringPlaybackReasons, other.disallowTransferringPlaybackReasons) &&
+          _setEquals(disallowRemoteControlReasons, other.disallowRemoteControlReasons) &&
+          _setEquals(disallowInsertingIntoNextTracksReasons, other.disallowInsertingIntoNextTracksReasons) &&
+          _setEquals(disallowInsertingIntoContextTracksReasons, other.disallowInsertingIntoContextTracksReasons) &&
+          _setEquals(disallowReorderingInNextTracksReasons, other.disallowReorderingInNextTracksReasons) &&
+          _setEquals(disallowReorderingInContextTracksReasons, other.disallowReorderingInContextTracksReasons) &&
+          _setEquals(disallowRemovingFromNextTracksReasons, other.disallowRemovingFromNextTracksReasons) &&
+          _setEquals(disallowRemovingFromContextTracksReasons, other.disallowRemovingFromContextTracksReasons) &&
+          _setEquals(disallowUpdatingContextReasons, other.disallowUpdatingContextReasons) &&
+          _setEquals(disallowSettingPlaybackSpeedReasons, other.disallowSettingPlaybackSpeedReasons) &&
+          _modeMapEquals(disallowSettingModes, other.disallowSettingModes) &&
+          _reasonsMapEquals(disallowSignals, other.disallowSignals) &&
+          _setEquals(disallowPlayAsNextInQueueReasons, other.disallowPlayAsNextInQueueReasons) &&
+          _setEquals(disallowSleepTimerClearReasons, other.disallowSleepTimerClearReasons) &&
+          _setEquals(disallowSleepTimerDurationReasons, other.disallowSleepTimerDurationReasons) &&
+          _setEquals(disallowSleepTimerEndOfTrackReasons, other.disallowSleepTimerEndOfTrackReasons) &&
+          _setEquals(disallowAddToQueueTrackReasons, other.disallowAddToQueueTrackReasons) &&
+          _setEquals(disallowTapToPlayTrackInNextTracksReasons, other.disallowTapToPlayTrackInNextTracksReasons) &&
+          _setEquals(disallowReorderingTrackInNextTracksReasons, other.disallowReorderingTrackInNextTracksReasons) &&
+          _setEquals(disallowReorderingEpisodeInNextTracksReasons, other.disallowReorderingEpisodeInNextTracksReasons) &&
+          _setEquals(disallowReorderingEnqueuedTrackInNextTracksReasons, other.disallowReorderingEnqueuedTrackInNextTracksReasons) &&
+          _setEquals(disallowReorderingEnqueuedEpisodeInNextTracksReasons, other.disallowReorderingEnqueuedEpisodeInNextTracksReasons) &&
+          _setEquals(disallowViewingQueueReasons, other.disallowViewingQueueReasons) &&
+          _setEquals(disallowViewingOrderedTracksInNextTracksReasons, other.disallowViewingOrderedTracksInNextTracksReasons) &&
+          _setEquals(disallowSwipeNextReasons, other.disallowSwipeNextReasons) &&
+          _setEquals(disallowSwipePrevReasons, other.disallowSwipePrevReasons));
+
+  @override
+  int get hashCode {
+    var result = disallowPausingReasons.hashCode ^ 1000003;
+    result = (result * 1000003) ^ disallowResumingReasons.hashCode;
+    result = (result * 1000003) ^ disallowSeekingReasons.hashCode;
+    result = (result * 1000003) ^ disallowPeekingPrevReasons.hashCode;
+    result = (result * 1000003) ^ disallowPeekingNextReasons.hashCode;
+    result = (result * 1000003) ^ disallowSkippingPrevReasons.hashCode;
+    result = (result * 1000003) ^ disallowSkippingNextReasons.hashCode;
+    result = (result * 1000003) ^ disallowTogglingRepeatContextReasons.hashCode;
+    result = (result * 1000003) ^ disallowTogglingRepeatTrackReasons.hashCode;
+    result = (result * 1000003) ^ disallowTogglingShuffleReasons.hashCode;
+    result = (result * 1000003) ^ disallowSetQueueReasons.hashCode;
+    result = (result * 1000003) ^ disallowAddToQueueReasons.hashCode;
+    result = (result * 1000003) ^ disallowInterruptingPlaybackReasons.hashCode;
+    result = (result * 1000003) ^ disallowTransferringPlaybackReasons.hashCode;
+    result = (result * 1000003) ^ disallowRemoteControlReasons.hashCode;
+    result = (result * 1000003) ^ disallowInsertingIntoNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowInsertingIntoContextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowReorderingInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowReorderingInContextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowRemovingFromNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowRemovingFromContextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowUpdatingContextReasons.hashCode;
+    result = (result * 1000003) ^ disallowSettingPlaybackSpeedReasons.hashCode;
+    result = (result * 1000003) ^ disallowSettingModes.hashCode;
+    result = (result * 1000003) ^ disallowSignals.hashCode;
+    result = (result * 1000003) ^ disallowPlayAsNextInQueueReasons.hashCode;
+    result = (result * 1000003) ^ disallowSleepTimerClearReasons.hashCode;
+    result = (result * 1000003) ^ disallowSleepTimerDurationReasons.hashCode;
+    result = (result * 1000003) ^ disallowSleepTimerEndOfTrackReasons.hashCode;
+    result = (result * 1000003) ^ disallowAddToQueueTrackReasons.hashCode;
+    result = (result * 1000003) ^ disallowTapToPlayTrackInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowReorderingTrackInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowReorderingEpisodeInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowReorderingEnqueuedTrackInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowReorderingEnqueuedEpisodeInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowViewingQueueReasons.hashCode;
+    result = (result * 1000003) ^ disallowViewingOrderedTracksInNextTracksReasons.hashCode;
+    result = (result * 1000003) ^ disallowSwipeNextReasons.hashCode;
+    result = (result * 1000003) ^ disallowSwipePrevReasons.hashCode;
+    return result;
+  }
+
+  @override
+  String toString() =>
+      'Restrictions{disallowPausingReasons=$disallowPausingReasons, '
+      'disallowResumingReasons=$disallowResumingReasons, '
+      'disallowSeekingReasons=$disallowSeekingReasons, '
+      'disallowPeekingPrevReasons=$disallowPeekingPrevReasons, '
+      'disallowPeekingNextReasons=$disallowPeekingNextReasons, '
+      'disallowSkippingPrevReasons=$disallowSkippingPrevReasons, '
+      'disallowSkippingNextReasons=$disallowSkippingNextReasons, '
+      'disallowTogglingRepeatContextReasons=$disallowTogglingRepeatContextReasons, '
+      'disallowTogglingRepeatTrackReasons=$disallowTogglingRepeatTrackReasons, '
+      'disallowTogglingShuffleReasons=$disallowTogglingShuffleReasons, '
+      'disallowSetQueueReasons=$disallowSetQueueReasons, '
+      'disallowAddToQueueReasons=$disallowAddToQueueReasons, '
+      'disallowInterruptingPlaybackReasons=$disallowInterruptingPlaybackReasons, '
+      'disallowTransferringPlaybackReasons=$disallowTransferringPlaybackReasons, '
+      'disallowRemoteControlReasons=$disallowRemoteControlReasons, '
+      'disallowInsertingIntoNextTracksReasons=$disallowInsertingIntoNextTracksReasons, '
+      'disallowInsertingIntoContextTracksReasons=$disallowInsertingIntoContextTracksReasons, '
+      'disallowReorderingInNextTracksReasons=$disallowReorderingInNextTracksReasons, '
+      'disallowReorderingInContextTracksReasons=$disallowReorderingInContextTracksReasons, '
+      'disallowRemovingFromNextTracksReasons=$disallowRemovingFromNextTracksReasons, '
+      'disallowRemovingFromContextTracksReasons=$disallowRemovingFromContextTracksReasons, '
+      'disallowUpdatingContextReasons=$disallowUpdatingContextReasons, '
+      'disallowSettingPlaybackSpeedReasons=$disallowSettingPlaybackSpeedReasons, '
+      'disallowSettingModes=$disallowSettingModes, '
+      'disallowSignals=$disallowSignals, '
+      'disallowPlayAsNextInQueueReasons=$disallowPlayAsNextInQueueReasons, '
+      'disallowSleepTimerClearReasons=$disallowSleepTimerClearReasons, '
+      'disallowSleepTimerDurationReasons=$disallowSleepTimerDurationReasons, '
+      'disallowSleepTimerEndOfTrackReasons=$disallowSleepTimerEndOfTrackReasons, '
+      'disallowAddToQueueTrackReasons=$disallowAddToQueueTrackReasons, '
+      'disallowTapToPlayTrackInNextTracksReasons=$disallowTapToPlayTrackInNextTracksReasons, '
+      'disallowReorderingTrackInNextTracksReasons=$disallowReorderingTrackInNextTracksReasons, '
+      'disallowReorderingEpisodeInNextTracksReasons=$disallowReorderingEpisodeInNextTracksReasons, '
+      'disallowReorderingEnqueuedTrackInNextTracksReasons=$disallowReorderingEnqueuedTrackInNextTracksReasons, '
+      'disallowReorderingEnqueuedEpisodeInNextTracksReasons=$disallowReorderingEnqueuedEpisodeInNextTracksReasons, '
+      'disallowViewingQueueReasons=$disallowViewingQueueReasons, '
+      'disallowViewingOrderedTracksInNextTracksReasons=$disallowViewingOrderedTracksInNextTracksReasons, '
+      'disallowSwipeNextReasons=$disallowSwipeNextReasons, '
+      'disallowSwipePrevReasons=$disallowSwipePrevReasons}';
+
+  static bool _setEquals(Set<String> a, Set<String> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    return a.containsAll(b);
+  }
+
+  static bool _modeMapEquals(
+    Map<String, ModeRestrictions> a,
+    Map<String, ModeRestrictions> b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  static bool _reasonsMapEquals(
+    Map<String, RestrictionReasons> a,
+    Map<String, RestrictionReasons> b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
 }
 
 class RestrictionsBuilder {
@@ -293,126 +464,429 @@ class RestrictionsBuilder {
     Set<String>? disallowViewingQueueReasons,
     Set<String>? disallowViewingOrderedTracksInNextTracksReasons,
   }) {
-    if (disallowPausingReasons != null) _disallowPausingReasons = Set.from(disallowPausingReasons);
-    if (disallowResumingReasons != null) _disallowResumingReasons = Set.from(disallowResumingReasons);
-    if (disallowSeekingReasons != null) _disallowSeekingReasons = Set.from(disallowSeekingReasons);
-    if (disallowPeekingPrevReasons != null) _disallowPeekingPrevReasons = Set.from(disallowPeekingPrevReasons);
-    if (disallowPeekingNextReasons != null) _disallowPeekingNextReasons = Set.from(disallowPeekingNextReasons);
-    if (disallowSkippingPrevReasons != null) _disallowSkippingPrevReasons = Set.from(disallowSkippingPrevReasons);
-    if (disallowSkippingNextReasons != null) _disallowSkippingNextReasons = Set.from(disallowSkippingNextReasons);
-    if (disallowSwipeNextReasons != null) _disallowSwipeNextReasons = Set.from(disallowSwipeNextReasons);
-    if (disallowSwipePrevReasons != null) _disallowSwipePrevReasons = Set.from(disallowSwipePrevReasons);
-    if (disallowTogglingRepeatContextReasons != null) _disallowTogglingRepeatContextReasons = Set.from(disallowTogglingRepeatContextReasons);
-    if (disallowTogglingRepeatTrackReasons != null) _disallowTogglingRepeatTrackReasons = Set.from(disallowTogglingRepeatTrackReasons);
-    if (disallowTogglingShuffleReasons != null) _disallowTogglingShuffleReasons = Set.from(disallowTogglingShuffleReasons);
-    if (disallowSetQueueReasons != null) _disallowSetQueueReasons = Set.from(disallowSetQueueReasons);
-    if (disallowAddToQueueReasons != null) _disallowAddToQueueReasons = Set.from(disallowAddToQueueReasons);
-    if (disallowAddToQueueTrackReasons != null) _disallowAddToQueueTrackReasons = Set.from(disallowAddToQueueTrackReasons);
-    if (disallowInterruptingPlaybackReasons != null) _disallowInterruptingPlaybackReasons = Set.from(disallowInterruptingPlaybackReasons);
-    if (disallowTransferringPlaybackReasons != null) _disallowTransferringPlaybackReasons = Set.from(disallowTransferringPlaybackReasons);
-    if (disallowRemoteControlReasons != null) _disallowRemoteControlReasons = Set.from(disallowRemoteControlReasons);
-    if (disallowInsertingIntoNextTracksReasons != null) _disallowInsertingIntoNextTracksReasons = Set.from(disallowInsertingIntoNextTracksReasons);
-    if (disallowInsertingIntoContextTracksReasons != null) _disallowInsertingIntoContextTracksReasons = Set.from(disallowInsertingIntoContextTracksReasons);
-    if (disallowReorderingInNextTracksReasons != null) _disallowReorderingInNextTracksReasons = Set.from(disallowReorderingInNextTracksReasons);
-    if (disallowReorderingInContextTracksReasons != null) _disallowReorderingInContextTracksReasons = Set.from(disallowReorderingInContextTracksReasons);
-    if (disallowRemovingFromNextTracksReasons != null) _disallowRemovingFromNextTracksReasons = Set.from(disallowRemovingFromNextTracksReasons);
-    if (disallowRemovingFromContextTracksReasons != null) _disallowRemovingFromContextTracksReasons = Set.from(disallowRemovingFromContextTracksReasons);
-    if (disallowUpdatingContextReasons != null) _disallowUpdatingContextReasons = Set.from(disallowUpdatingContextReasons);
-    if (disallowSettingPlaybackSpeedReasons != null) _disallowSettingPlaybackSpeedReasons = Set.from(disallowSettingPlaybackSpeedReasons);
-    if (disallowSettingModes != null) _disallowSettingModes = Map.from(disallowSettingModes);
-    if (disallowSignals != null) _disallowSignals = Map.from(disallowSignals);
-    if (disallowPlayAsNextInQueueReasons != null) _disallowPlayAsNextInQueueReasons = Set.from(disallowPlayAsNextInQueueReasons);
-    if (disallowSleepTimerClearReasons != null) _disallowSleepTimerClearReasons = Set.from(disallowSleepTimerClearReasons);
-    if (disallowSleepTimerDurationReasons != null) _disallowSleepTimerDurationReasons = Set.from(disallowSleepTimerDurationReasons);
-    if (disallowSleepTimerEndOfTrackReasons != null) _disallowSleepTimerEndOfTrackReasons = Set.from(disallowSleepTimerEndOfTrackReasons);
-    if (disallowTapToPlayTrackInNextTracksReasons != null) _disallowTapToPlayTrackInNextTracksReasons = Set.from(disallowTapToPlayTrackInNextTracksReasons);
-    if (disallowReorderingTrackInNextTracksReasons != null) _disallowReorderingTrackInNextTracksReasons = Set.from(disallowReorderingTrackInNextTracksReasons);
-    if (disallowReorderingEpisodeInNextTracksReasons != null) _disallowReorderingEpisodeInNextTracksReasons = Set.from(disallowReorderingEpisodeInNextTracksReasons);
-    if (disallowReorderingEnqueuedTrackInNextTracksReasons != null) _disallowReorderingEnqueuedTrackInNextTracksReasons = Set.from(disallowReorderingEnqueuedTrackInNextTracksReasons);
-    if (disallowReorderingEnqueuedEpisodeInNextTracksReasons != null) _disallowReorderingEnqueuedEpisodeInNextTracksReasons = Set.from(disallowReorderingEnqueuedEpisodeInNextTracksReasons);
-    if (disallowViewingQueueReasons != null) _disallowViewingQueueReasons = Set.from(disallowViewingQueueReasons);
-    if (disallowViewingOrderedTracksInNextTracksReasons != null) _disallowViewingOrderedTracksInNextTracksReasons = Set.from(disallowViewingOrderedTracksInNextTracksReasons);
+    if (disallowPausingReasons != null) {
+      _disallowPausingReasons = Set<String>.from(disallowPausingReasons);
+    }
+    if (disallowResumingReasons != null) {
+      _disallowResumingReasons = Set<String>.from(disallowResumingReasons);
+    }
+    if (disallowSeekingReasons != null) {
+      _disallowSeekingReasons = Set<String>.from(disallowSeekingReasons);
+    }
+    if (disallowPeekingPrevReasons != null) {
+      _disallowPeekingPrevReasons = Set<String>.from(disallowPeekingPrevReasons);
+    }
+    if (disallowPeekingNextReasons != null) {
+      _disallowPeekingNextReasons = Set<String>.from(disallowPeekingNextReasons);
+    }
+    if (disallowSkippingPrevReasons != null) {
+      _disallowSkippingPrevReasons = Set<String>.from(disallowSkippingPrevReasons);
+    }
+    if (disallowSkippingNextReasons != null) {
+      _disallowSkippingNextReasons = Set<String>.from(disallowSkippingNextReasons);
+    }
+    if (disallowSwipeNextReasons != null) {
+      _disallowSwipeNextReasons = Set<String>.from(disallowSwipeNextReasons);
+    }
+    if (disallowSwipePrevReasons != null) {
+      _disallowSwipePrevReasons = Set<String>.from(disallowSwipePrevReasons);
+    }
+    if (disallowTogglingRepeatContextReasons != null) {
+      _disallowTogglingRepeatContextReasons =
+          Set<String>.from(disallowTogglingRepeatContextReasons);
+    }
+    if (disallowTogglingRepeatTrackReasons != null) {
+      _disallowTogglingRepeatTrackReasons =
+          Set<String>.from(disallowTogglingRepeatTrackReasons);
+    }
+    if (disallowTogglingShuffleReasons != null) {
+      _disallowTogglingShuffleReasons =
+          Set<String>.from(disallowTogglingShuffleReasons);
+    }
+    if (disallowSetQueueReasons != null) {
+      _disallowSetQueueReasons = Set<String>.from(disallowSetQueueReasons);
+    }
+    if (disallowAddToQueueReasons != null) {
+      _disallowAddToQueueReasons = Set<String>.from(disallowAddToQueueReasons);
+    }
+    if (disallowAddToQueueTrackReasons != null) {
+      _disallowAddToQueueTrackReasons =
+          Set<String>.from(disallowAddToQueueTrackReasons);
+    }
+    if (disallowInterruptingPlaybackReasons != null) {
+      _disallowInterruptingPlaybackReasons =
+          Set<String>.from(disallowInterruptingPlaybackReasons);
+    }
+    if (disallowTransferringPlaybackReasons != null) {
+      _disallowTransferringPlaybackReasons =
+          Set<String>.from(disallowTransferringPlaybackReasons);
+    }
+    if (disallowRemoteControlReasons != null) {
+      _disallowRemoteControlReasons =
+          Set<String>.from(disallowRemoteControlReasons);
+    }
+    if (disallowInsertingIntoNextTracksReasons != null) {
+      _disallowInsertingIntoNextTracksReasons =
+          Set<String>.from(disallowInsertingIntoNextTracksReasons);
+    }
+    if (disallowInsertingIntoContextTracksReasons != null) {
+      _disallowInsertingIntoContextTracksReasons =
+          Set<String>.from(disallowInsertingIntoContextTracksReasons);
+    }
+    if (disallowReorderingInNextTracksReasons != null) {
+      _disallowReorderingInNextTracksReasons =
+          Set<String>.from(disallowReorderingInNextTracksReasons);
+    }
+    if (disallowReorderingInContextTracksReasons != null) {
+      _disallowReorderingInContextTracksReasons =
+          Set<String>.from(disallowReorderingInContextTracksReasons);
+    }
+    if (disallowRemovingFromNextTracksReasons != null) {
+      _disallowRemovingFromNextTracksReasons =
+          Set<String>.from(disallowRemovingFromNextTracksReasons);
+    }
+    if (disallowRemovingFromContextTracksReasons != null) {
+      _disallowRemovingFromContextTracksReasons =
+          Set<String>.from(disallowRemovingFromContextTracksReasons);
+    }
+    if (disallowUpdatingContextReasons != null) {
+      _disallowUpdatingContextReasons =
+          Set<String>.from(disallowUpdatingContextReasons);
+    }
+    if (disallowSettingPlaybackSpeedReasons != null) {
+      _disallowSettingPlaybackSpeedReasons =
+          Set<String>.from(disallowSettingPlaybackSpeedReasons);
+    }
+    if (disallowSettingModes != null) {
+      _disallowSettingModes =
+          Map<String, ModeRestrictions>.from(disallowSettingModes);
+    }
+    if (disallowSignals != null) {
+      _disallowSignals =
+          Map<String, RestrictionReasons>.from(disallowSignals);
+    }
+    if (disallowPlayAsNextInQueueReasons != null) {
+      _disallowPlayAsNextInQueueReasons =
+          Set<String>.from(disallowPlayAsNextInQueueReasons);
+    }
+    if (disallowSleepTimerClearReasons != null) {
+      _disallowSleepTimerClearReasons =
+          Set<String>.from(disallowSleepTimerClearReasons);
+    }
+    if (disallowSleepTimerDurationReasons != null) {
+      _disallowSleepTimerDurationReasons =
+          Set<String>.from(disallowSleepTimerDurationReasons);
+    }
+    if (disallowSleepTimerEndOfTrackReasons != null) {
+      _disallowSleepTimerEndOfTrackReasons =
+          Set<String>.from(disallowSleepTimerEndOfTrackReasons);
+    }
+    if (disallowTapToPlayTrackInNextTracksReasons != null) {
+      _disallowTapToPlayTrackInNextTracksReasons =
+          Set<String>.from(disallowTapToPlayTrackInNextTracksReasons);
+    }
+    if (disallowReorderingTrackInNextTracksReasons != null) {
+      _disallowReorderingTrackInNextTracksReasons =
+          Set<String>.from(disallowReorderingTrackInNextTracksReasons);
+    }
+    if (disallowReorderingEpisodeInNextTracksReasons != null) {
+      _disallowReorderingEpisodeInNextTracksReasons =
+          Set<String>.from(disallowReorderingEpisodeInNextTracksReasons);
+    }
+    if (disallowReorderingEnqueuedTrackInNextTracksReasons != null) {
+      _disallowReorderingEnqueuedTrackInNextTracksReasons =
+          Set<String>.from(disallowReorderingEnqueuedTrackInNextTracksReasons);
+    }
+    if (disallowReorderingEnqueuedEpisodeInNextTracksReasons != null) {
+      _disallowReorderingEnqueuedEpisodeInNextTracksReasons =
+          Set<String>.from(disallowReorderingEnqueuedEpisodeInNextTracksReasons);
+    }
+    if (disallowViewingQueueReasons != null) {
+      _disallowViewingQueueReasons =
+          Set<String>.from(disallowViewingQueueReasons);
+    }
+    if (disallowViewingOrderedTracksInNextTracksReasons != null) {
+      _disallowViewingOrderedTracksInNextTracksReasons =
+          Set<String>.from(disallowViewingOrderedTracksInNextTracksReasons);
+    }
   }
 
-  RestrictionsBuilder disallowPausingReasons(Set<String> val) { _disallowPausingReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowResumingReasons(Set<String> val) { _disallowResumingReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSeekingReasons(Set<String> val) { _disallowSeekingReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowPeekingPrevReasons(Set<String> val) { _disallowPeekingPrevReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowPeekingNextReasons(Set<String> val) { _disallowPeekingNextReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSkippingPrevReasons(Set<String> val) { _disallowSkippingPrevReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSkippingNextReasons(Set<String> val) { _disallowSkippingNextReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSwipeNextReasons(Set<String> val) { _disallowSwipeNextReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSwipePrevReasons(Set<String> val) { _disallowSwipePrevReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowTogglingRepeatContextReasons(Set<String> val) { _disallowTogglingRepeatContextReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowTogglingRepeatTrackReasons(Set<String> val) { _disallowTogglingRepeatTrackReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowTogglingShuffleReasons(Set<String> val) { _disallowTogglingShuffleReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSetQueueReasons(Set<String> val) { _disallowSetQueueReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowAddToQueueReasons(Set<String> val) { _disallowAddToQueueReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowAddToQueueTrackReasons(Set<String> val) { _disallowAddToQueueTrackReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowInterruptingPlaybackReasons(Set<String> val) { _disallowInterruptingPlaybackReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowTransferringPlaybackReasons(Set<String> val) { _disallowTransferringPlaybackReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowRemoteControlReasons(Set<String> val) { _disallowRemoteControlReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowInsertingIntoNextTracksReasons(Set<String> val) { _disallowInsertingIntoNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowInsertingIntoContextTracksReasons(Set<String> val) { _disallowInsertingIntoContextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowReorderingInNextTracksReasons(Set<String> val) { _disallowReorderingInNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowReorderingInContextTracksReasons(Set<String> val) { _disallowReorderingInContextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowRemovingFromNextTracksReasons(Set<String> val) { _disallowRemovingFromNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowRemovingFromContextTracksReasons(Set<String> val) { _disallowRemovingFromContextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowUpdatingContextReasons(Set<String> val) { _disallowUpdatingContextReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSettingPlaybackSpeedReasons(Set<String> val) { _disallowSettingPlaybackSpeedReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSettingModes(Map<String, ModeRestrictions> val) { _disallowSettingModes = Map.from(val); return this; }
-  RestrictionsBuilder disallowSignals(Map<String, RestrictionReasons> val) { _disallowSignals = Map.from(val); return this; }
-  RestrictionsBuilder disallowPlayAsNextInQueueReasons(Set<String> val) { _disallowPlayAsNextInQueueReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSleepTimerClearReasons(Set<String> val) { _disallowSleepTimerClearReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSleepTimerDurationReasons(Set<String> val) { _disallowSleepTimerDurationReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowSleepTimerEndOfTrackReasons(Set<String> val) { _disallowSleepTimerEndOfTrackReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowTapToPlayTrackInNextTracksReasons(Set<String> val) { _disallowTapToPlayTrackInNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowReorderingTrackInNextTracksReasons(Set<String> val) { _disallowReorderingTrackInNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowReorderingEpisodeInNextTracksReasons(Set<String> val) { _disallowReorderingEpisodeInNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowReorderingEnqueuedTrackInNextTracksReasons(Set<String> val) { _disallowReorderingEnqueuedTrackInNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowReorderingEnqueuedEpisodeInNextTracksReasons(Set<String> val) { _disallowReorderingEnqueuedEpisodeInNextTracksReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowViewingQueueReasons(Set<String> val) { _disallowViewingQueueReasons = Set.from(val); return this; }
-  RestrictionsBuilder disallowViewingOrderedTracksInNextTracksReasons(Set<String> val) { _disallowViewingOrderedTracksInNextTracksReasons = Set.from(val); return this; }
+  RestrictionsBuilder disallowPausingReasons(Set<String> set) {
+    _disallowPausingReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowResumingReasons(Set<String> set) {
+    _disallowResumingReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSeekingReasons(Set<String> set) {
+    _disallowSeekingReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowPeekingPrevReasons(Set<String> set) {
+    _disallowPeekingPrevReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowPeekingNextReasons(Set<String> set) {
+    _disallowPeekingNextReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSkippingPrevReasons(Set<String> set) {
+    _disallowSkippingPrevReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSkippingNextReasons(Set<String> set) {
+    _disallowSkippingNextReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSwipeNextReasons(Set<String> set) {
+    _disallowSwipeNextReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSwipePrevReasons(Set<String> set) {
+    _disallowSwipePrevReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowTogglingRepeatContextReasons(Set<String> set) {
+    _disallowTogglingRepeatContextReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowTogglingRepeatTrackReasons(Set<String> set) {
+    _disallowTogglingRepeatTrackReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowTogglingShuffleReasons(Set<String> set) {
+    _disallowTogglingShuffleReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSetQueueReasons(Set<String> set) {
+    _disallowSetQueueReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowAddToQueueReasons(Set<String> set) {
+    _disallowAddToQueueReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowAddToQueueTrackReasons(Set<String> set) {
+    _disallowAddToQueueTrackReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowInterruptingPlaybackReasons(Set<String> set) {
+    _disallowInterruptingPlaybackReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowTransferringPlaybackReasons(Set<String> set) {
+    _disallowTransferringPlaybackReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowRemoteControlReasons(Set<String> set) {
+    _disallowRemoteControlReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowInsertingIntoNextTracksReasons(Set<String> set) {
+    _disallowInsertingIntoNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowInsertingIntoContextTracksReasons(Set<String> set) {
+    _disallowInsertingIntoContextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowReorderingInNextTracksReasons(Set<String> set) {
+    _disallowReorderingInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowReorderingInContextTracksReasons(Set<String> set) {
+    _disallowReorderingInContextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowRemovingFromNextTracksReasons(Set<String> set) {
+    _disallowRemovingFromNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowRemovingFromContextTracksReasons(Set<String> set) {
+    _disallowRemovingFromContextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowUpdatingContextReasons(Set<String> set) {
+    _disallowUpdatingContextReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSettingPlaybackSpeedReasons(Set<String> set) {
+    _disallowSettingPlaybackSpeedReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSettingModes(Map<String, ModeRestrictions> map) {
+    _disallowSettingModes = Map<String, ModeRestrictions>.from(map);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSignals(Map<String, RestrictionReasons> map) {
+    _disallowSignals = Map<String, RestrictionReasons>.from(map);
+    return this;
+  }
+
+  RestrictionsBuilder disallowPlayAsNextInQueueReasons(Set<String> set) {
+    _disallowPlayAsNextInQueueReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSleepTimerClearReasons(Set<String> set) {
+    _disallowSleepTimerClearReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSleepTimerDurationReasons(Set<String> set) {
+    _disallowSleepTimerDurationReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowSleepTimerEndOfTrackReasons(Set<String> set) {
+    _disallowSleepTimerEndOfTrackReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowTapToPlayTrackInNextTracksReasons(Set<String> set) {
+    _disallowTapToPlayTrackInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowReorderingTrackInNextTracksReasons(Set<String> set) {
+    _disallowReorderingTrackInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowReorderingEpisodeInNextTracksReasons(Set<String> set) {
+    _disallowReorderingEpisodeInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowReorderingEnqueuedTrackInNextTracksReasons(Set<String> set) {
+    _disallowReorderingEnqueuedTrackInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowReorderingEnqueuedEpisodeInNextTracksReasons(Set<String> set) {
+    _disallowReorderingEnqueuedEpisodeInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowViewingQueueReasons(Set<String> set) {
+    _disallowViewingQueueReasons = Set<String>.from(set);
+    return this;
+  }
+
+  RestrictionsBuilder disallowViewingOrderedTracksInNextTracksReasons(Set<String> set) {
+    _disallowViewingOrderedTracksInNextTracksReasons = Set<String>.from(set);
+    return this;
+  }
 
   Restrictions build() => Restrictions(
-        disallowPausingReasons: Set.unmodifiable(_disallowPausingReasons),
-        disallowResumingReasons: Set.unmodifiable(_disallowResumingReasons),
-        disallowSeekingReasons: Set.unmodifiable(_disallowSeekingReasons),
-        disallowPeekingPrevReasons: Set.unmodifiable(_disallowPeekingPrevReasons),
-        disallowPeekingNextReasons: Set.unmodifiable(_disallowPeekingNextReasons),
-        disallowSkippingPrevReasons: Set.unmodifiable(_disallowSkippingPrevReasons),
-        disallowSkippingNextReasons: Set.unmodifiable(_disallowSkippingNextReasons),
-        disallowSwipeNextReasons: Set.unmodifiable(_disallowSwipeNextReasons),
-        disallowSwipePrevReasons: Set.unmodifiable(_disallowSwipePrevReasons),
-        disallowTogglingRepeatContextReasons: Set.unmodifiable(_disallowTogglingRepeatContextReasons),
-        disallowTogglingRepeatTrackReasons: Set.unmodifiable(_disallowTogglingRepeatTrackReasons),
-        disallowTogglingShuffleReasons: Set.unmodifiable(_disallowTogglingShuffleReasons),
-        disallowSetQueueReasons: Set.unmodifiable(_disallowSetQueueReasons),
-        disallowAddToQueueReasons: Set.unmodifiable(_disallowAddToQueueReasons),
-        disallowAddToQueueTrackReasons: Set.unmodifiable(_disallowAddToQueueTrackReasons),
-        disallowInterruptingPlaybackReasons: Set.unmodifiable(_disallowInterruptingPlaybackReasons),
-        disallowTransferringPlaybackReasons: Set.unmodifiable(_disallowTransferringPlaybackReasons),
-        disallowRemoteControlReasons: Set.unmodifiable(_disallowRemoteControlReasons),
-        disallowInsertingIntoNextTracksReasons: Set.unmodifiable(_disallowInsertingIntoNextTracksReasons),
-        disallowInsertingIntoContextTracksReasons: Set.unmodifiable(_disallowInsertingIntoContextTracksReasons),
-        disallowReorderingInNextTracksReasons: Set.unmodifiable(_disallowReorderingInNextTracksReasons),
-        disallowReorderingInContextTracksReasons: Set.unmodifiable(_disallowReorderingInContextTracksReasons),
-        disallowRemovingFromNextTracksReasons: Set.unmodifiable(_disallowRemovingFromNextTracksReasons),
-        disallowRemovingFromContextTracksReasons: Set.unmodifiable(_disallowRemovingFromContextTracksReasons),
-        disallowUpdatingContextReasons: Set.unmodifiable(_disallowUpdatingContextReasons),
-        disallowSettingPlaybackSpeedReasons: Set.unmodifiable(_disallowSettingPlaybackSpeedReasons),
-        disallowSettingModes: Map.unmodifiable(_disallowSettingModes),
-        disallowSignals: Map.unmodifiable(_disallowSignals),
-        disallowPlayAsNextInQueueReasons: Set.unmodifiable(_disallowPlayAsNextInQueueReasons),
-        disallowSleepTimerClearReasons: Set.unmodifiable(_disallowSleepTimerClearReasons),
-        disallowSleepTimerDurationReasons: Set.unmodifiable(_disallowSleepTimerDurationReasons),
-        disallowSleepTimerEndOfTrackReasons: Set.unmodifiable(_disallowSleepTimerEndOfTrackReasons),
-        disallowTapToPlayTrackInNextTracksReasons: Set.unmodifiable(_disallowTapToPlayTrackInNextTracksReasons),
-        disallowReorderingTrackInNextTracksReasons: Set.unmodifiable(_disallowReorderingTrackInNextTracksReasons),
-        disallowReorderingEpisodeInNextTracksReasons: Set.unmodifiable(_disallowReorderingEpisodeInNextTracksReasons),
-        disallowReorderingEnqueuedTrackInNextTracksReasons: Set.unmodifiable(_disallowReorderingEnqueuedTrackInNextTracksReasons),
-        disallowReorderingEnqueuedEpisodeInNextTracksReasons: Set.unmodifiable(_disallowReorderingEnqueuedEpisodeInNextTracksReasons),
-        disallowViewingQueueReasons: Set.unmodifiable(_disallowViewingQueueReasons),
-        disallowViewingOrderedTracksInNextTracksReasons: Set.unmodifiable(_disallowViewingOrderedTracksInNextTracksReasons),
+        disallowPausingReasons:
+            UnmodifiableSetView<String>(_disallowPausingReasons),
+        disallowResumingReasons:
+            UnmodifiableSetView<String>(_disallowResumingReasons),
+        disallowSeekingReasons:
+            UnmodifiableSetView<String>(_disallowSeekingReasons),
+        disallowPeekingPrevReasons:
+            UnmodifiableSetView<String>(_disallowPeekingPrevReasons),
+        disallowPeekingNextReasons:
+            UnmodifiableSetView<String>(_disallowPeekingNextReasons),
+        disallowSkippingPrevReasons:
+            UnmodifiableSetView<String>(_disallowSkippingPrevReasons),
+        disallowSkippingNextReasons:
+            UnmodifiableSetView<String>(_disallowSkippingNextReasons),
+        disallowSwipeNextReasons:
+            UnmodifiableSetView<String>(_disallowSwipeNextReasons),
+        disallowSwipePrevReasons:
+            UnmodifiableSetView<String>(_disallowSwipePrevReasons),
+        disallowTogglingRepeatContextReasons:
+            UnmodifiableSetView<String>(_disallowTogglingRepeatContextReasons),
+        disallowTogglingRepeatTrackReasons:
+            UnmodifiableSetView<String>(_disallowTogglingRepeatTrackReasons),
+        disallowTogglingShuffleReasons:
+            UnmodifiableSetView<String>(_disallowTogglingShuffleReasons),
+        disallowSetQueueReasons:
+            UnmodifiableSetView<String>(_disallowSetQueueReasons),
+        disallowAddToQueueReasons:
+            UnmodifiableSetView<String>(_disallowAddToQueueReasons),
+        disallowAddToQueueTrackReasons:
+            UnmodifiableSetView<String>(_disallowAddToQueueTrackReasons),
+        disallowInterruptingPlaybackReasons:
+            UnmodifiableSetView<String>(_disallowInterruptingPlaybackReasons),
+        disallowTransferringPlaybackReasons:
+            UnmodifiableSetView<String>(_disallowTransferringPlaybackReasons),
+        disallowRemoteControlReasons:
+            UnmodifiableSetView<String>(_disallowRemoteControlReasons),
+        disallowInsertingIntoNextTracksReasons:
+            UnmodifiableSetView<String>(_disallowInsertingIntoNextTracksReasons),
+        disallowInsertingIntoContextTracksReasons:
+            UnmodifiableSetView<String>(_disallowInsertingIntoContextTracksReasons),
+        disallowReorderingInNextTracksReasons:
+            UnmodifiableSetView<String>(_disallowReorderingInNextTracksReasons),
+        disallowReorderingInContextTracksReasons:
+            UnmodifiableSetView<String>(_disallowReorderingInContextTracksReasons),
+        disallowRemovingFromNextTracksReasons:
+            UnmodifiableSetView<String>(_disallowRemovingFromNextTracksReasons),
+        disallowRemovingFromContextTracksReasons:
+            UnmodifiableSetView<String>(_disallowRemovingFromContextTracksReasons),
+        disallowUpdatingContextReasons:
+            UnmodifiableSetView<String>(_disallowUpdatingContextReasons),
+        disallowSettingPlaybackSpeedReasons:
+            UnmodifiableSetView<String>(_disallowSettingPlaybackSpeedReasons),
+        disallowSettingModes:
+            UnmodifiableMapView<String, ModeRestrictions>(_disallowSettingModes),
+        disallowSignals:
+            UnmodifiableMapView<String, RestrictionReasons>(_disallowSignals),
+        disallowPlayAsNextInQueueReasons:
+            UnmodifiableSetView<String>(_disallowPlayAsNextInQueueReasons),
+        disallowSleepTimerClearReasons:
+            UnmodifiableSetView<String>(_disallowSleepTimerClearReasons),
+        disallowSleepTimerDurationReasons:
+            UnmodifiableSetView<String>(_disallowSleepTimerDurationReasons),
+        disallowSleepTimerEndOfTrackReasons:
+            UnmodifiableSetView<String>(_disallowSleepTimerEndOfTrackReasons),
+        disallowTapToPlayTrackInNextTracksReasons:
+            UnmodifiableSetView<String>(_disallowTapToPlayTrackInNextTracksReasons),
+        disallowReorderingTrackInNextTracksReasons:
+            UnmodifiableSetView<String>(_disallowReorderingTrackInNextTracksReasons),
+        disallowReorderingEpisodeInNextTracksReasons:
+            UnmodifiableSetView<String>(_disallowReorderingEpisodeInNextTracksReasons),
+        disallowReorderingEnqueuedTrackInNextTracksReasons:
+            UnmodifiableSetView<String>(
+                _disallowReorderingEnqueuedTrackInNextTracksReasons),
+        disallowReorderingEnqueuedEpisodeInNextTracksReasons:
+            UnmodifiableSetView<String>(
+                _disallowReorderingEnqueuedEpisodeInNextTracksReasons),
+        disallowViewingQueueReasons:
+            UnmodifiableSetView<String>(_disallowViewingQueueReasons),
+        disallowViewingOrderedTracksInNextTracksReasons:
+            UnmodifiableSetView<String>(
+                _disallowViewingOrderedTracksInNextTracksReasons),
       );
 }

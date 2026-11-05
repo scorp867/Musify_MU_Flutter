@@ -5,15 +5,16 @@ enum RestorePaused {
   pause,
   resume;
 
-  static RestorePaused fromString(String? value) {
-    switch (value?.toUpperCase()) {
+  static RestorePaused fromString(String value) {
+    switch (value.toUpperCase()) {
+      case 'RESTORE':
+        return RestorePaused.restore;
       case 'PAUSE':
         return RestorePaused.pause;
       case 'RESUME':
         return RestorePaused.resume;
-      case 'RESTORE':
       default:
-        return RestorePaused.restore;
+        throw FormatException('Unknown RestorePaused: $value');
     }
   }
 

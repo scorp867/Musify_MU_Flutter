@@ -28,17 +28,10 @@ message BatchedEntityRequest {
     repeated EntityRequest entity_request = 2;
 }
 
-enum ExtensionType {
-    UNKNOWN = 0;
-    GENERIC = 1;
-    ASSOC = 2;
-}
-
 message EntityExtensionDataArrayHeader {
     int32 provider_error_status = 1;
     int64 cache_ttl_in_seconds = 2;
     int64 offline_ttl_in_seconds = 3;
-    ExtensionType extension_type = 4;
 }
 
 message EntityExtensionDataArray {

@@ -4,20 +4,7 @@ abstract class SleepTimer {
   const SleepTimer();
 }
 
-class SleepTimerNone extends SleepTimer {
-  const SleepTimerNone();
-
-  static SleepTimerNone create() => const SleepTimerNone();
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) || (other is SleepTimerNone);
-
-  @override
-  int get hashCode => runtimeType.hashCode;
-}
-
-class SleepTimerEndOfTrack extends SleepTimer {
+class SleepTimerEndOfTrack implements SleepTimer {
   const SleepTimerEndOfTrack();
 
   static SleepTimerEndOfTrack create() => const SleepTimerEndOfTrack();
@@ -28,9 +15,28 @@ class SleepTimerEndOfTrack extends SleepTimer {
 
   @override
   int get hashCode => runtimeType.hashCode;
+
+  @override
+  String toString() => 'SleepTimer.EndOfTrack{}';
 }
 
-class SleepTimerTimestamp extends SleepTimer {
+class SleepTimerNone implements SleepTimer {
+  const SleepTimerNone();
+
+  static SleepTimerNone create() => const SleepTimerNone();
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || (other is SleepTimerNone);
+
+  @override
+  int get hashCode => runtimeType.hashCode;
+
+  @override
+  String toString() => 'SleepTimer.None{}';
+}
+
+class SleepTimerTimestamp implements SleepTimer {
   final int timestamp;
 
   const SleepTimerTimestamp(this.timestamp);
@@ -44,5 +50,8 @@ class SleepTimerTimestamp extends SleepTimer {
       (other is SleepTimerTimestamp && other.timestamp == timestamp);
 
   @override
-  int get hashCode => timestamp.hashCode;
+  int get hashCode => Object.hash(runtimeType, timestamp);
+
+  @override
+  String toString() => 'SleepTimer.Timestamp{timestamp=$timestamp}';
 }

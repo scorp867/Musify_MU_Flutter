@@ -35,7 +35,7 @@ const SetQueueRequest$json = {
       '6': '.spotify.player.esperanto.proto.ProvidedTrack',
       '10': 'prevTracks'
     },
-    {'1': 'queue_revision', '3': 3, '4': 1, '5': 4, '10': 'queueRevision'},
+    {'1': 'queue_revision', '3': 3, '4': 1, '5': 3, '10': 'queueRevision'},
     {
       '1': 'options',
       '3': 4,
@@ -60,7 +60,7 @@ final $typed_data.Uint8List setQueueRequestDescriptor = $convert.base64Decode(
     'Cg9TZXRRdWV1ZVJlcXVlc3QSTgoLbmV4dF90cmFja3MYASADKAsyLS5zcG90aWZ5LnBsYXllci'
     '5lc3BlcmFudG8ucHJvdG8uUHJvdmlkZWRUcmFja1IKbmV4dFRyYWNrcxJOCgtwcmV2X3RyYWNr'
     'cxgCIAMoCzItLnNwb3RpZnkucGxheWVyLmVzcGVyYW50by5wcm90by5Qcm92aWRlZFRyYWNrUg'
-    'pwcmV2VHJhY2tzEiUKDnF1ZXVlX3JldmlzaW9uGAMgASgEUg1xdWV1ZVJldmlzaW9uEkgKB29w'
+    'pwcmV2VHJhY2tzEiUKDnF1ZXVlX3JldmlzaW9uGAMgASgDUg1xdWV1ZVJldmlzaW9uEkgKB29w'
     'dGlvbnMYBCABKAsyLi5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uQ29tbWFuZE9wdG'
     'lvbnNSB29wdGlvbnMSVAoObG9nZ2luZ19wYXJhbXMYBSABKAsyLS5zcG90aWZ5LnBsYXllci5l'
     'c3BlcmFudG8ucHJvdG8uTG9nZ2luZ1BhcmFtc1INbG9nZ2luZ1BhcmFtcw==');

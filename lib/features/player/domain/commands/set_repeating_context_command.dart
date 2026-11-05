@@ -18,8 +18,12 @@ class SetRepeatingContextCommand implements Command {
   static SetRepeatingContextCommand create(bool value) =>
       builder(value).build();
 
-  static SetRepeatingContextCommandBuilder builder([bool value = false]) =>
-      SetRepeatingContextCommandBuilder(value: value);
+  static SetRepeatingContextCommandBuilder builder([bool? value]) {
+    if (value case final validValue?) {
+      return SetRepeatingContextCommandBuilder(value: validValue);
+    }
+    return SetRepeatingContextCommandBuilder(value: false);
+  }
 
   SetRepeatingContextCommandBuilder toBuilder() =>
       SetRepeatingContextCommandBuilder(
@@ -56,6 +60,9 @@ class SetRepeatingContextCommandBuilder {
   })  : _value = value,
         _options = options,
         _loggingParams = loggingParams;
+
+  static SetRepeatingContextCommandBuilder builder() =>
+      SetRepeatingContextCommand.builder(false);
 
   SetRepeatingContextCommandBuilder value(bool val) {
     _value = val;

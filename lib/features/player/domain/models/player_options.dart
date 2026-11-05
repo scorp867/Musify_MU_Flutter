@@ -17,7 +17,11 @@ class PlayerOptions {
     this.modes = const <String, String>{},
   });
 
-  static PlayerOptionsBuilder builder() => PlayerOptionsBuilder();
+  static PlayerOptionsBuilder builder() => PlayerOptionsBuilder()
+      .shufflingContext(false)
+      .repeatingContext(false)
+      .repeatingTrack(false)
+      .modes(const <String, String>{});
 
   PlayerOptionsBuilder toBuilder() => PlayerOptionsBuilder(
         shufflingContext: shufflingContext,
@@ -78,6 +82,8 @@ class PlayerOptionsBuilder {
         _repeatingTrack = repeatingTrack,
         _playbackSpeed = playbackSpeed,
         _modes = Map<String, String>.from(modes);
+
+  static PlayerOptionsBuilder builder() => PlayerOptions.builder();
 
   PlayerOptionsBuilder shufflingContext(bool val) {
     _shufflingContext = val;

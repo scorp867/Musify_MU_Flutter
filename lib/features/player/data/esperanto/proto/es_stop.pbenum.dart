@@ -15,21 +15,24 @@ import 'dart:core' as $core;
 import 'package:protobuf/protobuf.dart' as $pb;
 
 class StopRequest_Reason extends $pb.ProtobufEnum {
-  static const StopRequest_Reason INTERACTIVE =
-      StopRequest_Reason._(0, _omitEnumNames ? '' : 'INTERACTIVE');
-  static const StopRequest_Reason REMOTE_TRANSFER =
-      StopRequest_Reason._(1, _omitEnumNames ? '' : 'REMOTE_TRANSFER');
-  static const StopRequest_Reason SHUTDOWN =
-      StopRequest_Reason._(2, _omitEnumNames ? '' : 'SHUTDOWN');
+  static const StopRequest_Reason USER =
+      StopRequest_Reason._(0, _omitEnumNames ? '' : 'USER');
+  static const StopRequest_Reason TRACK_DONE =
+      StopRequest_Reason._(1, _omitEnumNames ? '' : 'TRACK_DONE');
+  static const StopRequest_Reason CONTEXT_DONE =
+      StopRequest_Reason._(2, _omitEnumNames ? '' : 'CONTEXT_DONE');
+  static const StopRequest_Reason STOPPED_BY_SKIP =
+      StopRequest_Reason._(3, _omitEnumNames ? '' : 'STOPPED_BY_SKIP');
 
   static const $core.List<StopRequest_Reason> values = <StopRequest_Reason>[
-    INTERACTIVE,
-    REMOTE_TRANSFER,
-    SHUTDOWN,
+    USER,
+    TRACK_DONE,
+    CONTEXT_DONE,
+    STOPPED_BY_SKIP,
   ];
 
   static final $core.List<StopRequest_Reason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 2);
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
   static StopRequest_Reason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

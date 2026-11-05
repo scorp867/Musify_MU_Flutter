@@ -3,18 +3,18 @@
 class SkipToTrack {
   static final SkipToTrack empty = builder().build();
 
-  final int? pageIndex;
   final String? pageUrl;
-  final int? trackIndex;
+  final int? pageIndex;
   final String? trackUid;
   final String? trackUri;
+  final int? trackIndex;
 
   const SkipToTrack({
-    this.pageIndex,
     this.pageUrl,
-    this.trackIndex,
+    this.pageIndex,
     this.trackUid,
     this.trackUri,
+    this.trackIndex,
   });
 
   static SkipToTrackBuilder builder() => SkipToTrackBuilder();
@@ -22,62 +22,64 @@ class SkipToTrack {
   static SkipToTrack fromIndices(int? trackIndex, int? pageIndex) =>
       builder().trackIndex(trackIndex).pageIndex(pageIndex).build();
 
-  static SkipToTrack fromUid(String uid) =>
-      builder().trackUid(uid).build();
+  static SkipToTrack fromUid(String trackUid) =>
+      builder().trackUid(trackUid).build();
 
-  static SkipToTrack fromUri(String uri) =>
-      builder().trackUri(uri).build();
+  static SkipToTrack fromUri(String trackUri) =>
+      builder().trackUri(trackUri).build();
 
   SkipToTrackBuilder toBuilder() => SkipToTrackBuilder(
-        pageIndex: pageIndex,
         pageUrl: pageUrl,
-        trackIndex: trackIndex,
+        pageIndex: pageIndex,
         trackUid: trackUid,
         trackUri: trackUri,
+        trackIndex: trackIndex,
       );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is SkipToTrack &&
-          other.pageIndex == pageIndex &&
           other.pageUrl == pageUrl &&
-          other.trackIndex == trackIndex &&
+          other.pageIndex == pageIndex &&
           other.trackUid == trackUid &&
-          other.trackUri == trackUri);
+          other.trackUri == trackUri &&
+          other.trackIndex == trackIndex);
 
   @override
   int get hashCode => Object.hash(
-        pageIndex,
         pageUrl,
-        trackIndex,
+        pageIndex,
         trackUid,
         trackUri,
+        trackIndex,
       );
 
   @override
   String toString() =>
-      'SkipToTrack{pageIndex=$pageIndex, pageUrl=$pageUrl, trackIndex=$trackIndex, trackUid=$trackUid, trackUri=$trackUri}';
+      'SkipToTrack{pageUrl=$pageUrl, pageIndex=$pageIndex, trackUid=$trackUid, trackUri=$trackUri, trackIndex=$trackIndex}';
 }
 
 class SkipToTrackBuilder {
-  int? _pageIndex;
   String? _pageUrl;
-  int? _trackIndex;
+  int? _pageIndex;
   String? _trackUid;
   String? _trackUri;
+  int? _trackIndex;
 
   SkipToTrackBuilder({
-    int? pageIndex,
     String? pageUrl,
-    int? trackIndex,
+    int? pageIndex,
     String? trackUid,
     String? trackUri,
-  })  : _pageIndex = pageIndex,
-        _pageUrl = pageUrl,
-        _trackIndex = trackIndex,
+    int? trackIndex,
+  })  : _pageUrl = pageUrl,
+        _pageIndex = pageIndex,
         _trackUid = trackUid,
-        _trackUri = trackUri;
+        _trackUri = trackUri,
+        _trackIndex = trackIndex;
+
+  static SkipToTrackBuilder builder() => SkipToTrack.builder();
 
   SkipToTrackBuilder pageIndex(int? val) {
     _pageIndex = val;
@@ -105,10 +107,10 @@ class SkipToTrackBuilder {
   }
 
   SkipToTrack build() => SkipToTrack(
-        pageIndex: _pageIndex,
         pageUrl: _pageUrl,
-        trackIndex: _trackIndex,
+        pageIndex: _pageIndex,
         trackUid: _trackUid,
         trackUri: _trackUri,
+        trackIndex: _trackIndex,
       );
 }

@@ -19,7 +19,7 @@ import 'dart:typed_data' as $typed_data;
 const Queue$json = {
   '1': 'Queue',
   '2': [
-    {'1': 'queue_revision', '3': 1, '4': 1, '5': 4, '10': 'queueRevision'},
+    {'1': 'queue_revision', '3': 1, '4': 1, '5': 3, '10': 'queueRevision'},
     {
       '1': 'track',
       '3': 2,
@@ -49,7 +49,7 @@ const Queue$json = {
 
 /// Descriptor for `Queue`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List queueDescriptor = $convert.base64Decode(
-    'CgVRdWV1ZRIlCg5xdWV1ZV9yZXZpc2lvbhgBIAEoBFINcXVldWVSZXZpc2lvbhJDCgV0cmFjax'
+    'CgVRdWV1ZRIlCg5xdWV1ZV9yZXZpc2lvbhgBIAEoA1INcXVldWVSZXZpc2lvbhJDCgV0cmFjax'
     'gCIAEoCzItLnNwb3RpZnkucGxheWVyLmVzcGVyYW50by5wcm90by5Qcm92aWRlZFRyYWNrUgV0'
     'cmFjaxJOCgtuZXh0X3RyYWNrcxgDIAMoCzItLnNwb3RpZnkucGxheWVyLmVzcGVyYW50by5wcm'
     '90by5Qcm92aWRlZFRyYWNrUgpuZXh0VHJhY2tzEk4KC3ByZXZfdHJhY2tzGAQgAygLMi0uc3Bv'

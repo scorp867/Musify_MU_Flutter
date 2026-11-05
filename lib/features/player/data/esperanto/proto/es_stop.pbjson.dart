@@ -51,9 +51,10 @@ const StopRequest$json = {
 const StopRequest_Reason$json = {
   '1': 'Reason',
   '2': [
-    {'1': 'INTERACTIVE', '2': 0},
-    {'1': 'REMOTE_TRANSFER', '2': 1},
-    {'1': 'SHUTDOWN', '2': 2},
+    {'1': 'USER', '2': 0},
+    {'1': 'TRACK_DONE', '2': 1},
+    {'1': 'CONTEXT_DONE', '2': 2},
+    {'1': 'STOPPED_BY_SKIP', '2': 3},
   ],
 };
 
@@ -63,5 +64,5 @@ final $typed_data.Uint8List stopRequestDescriptor = $convert.base64Decode(
     'RvLnByb3RvLkNvbW1hbmRPcHRpb25zUgdvcHRpb25zEkoKBnJlYXNvbhgCIAEoDjIyLnNwb3Rp'
     'ZnkucGxheWVyLmVzcGVyYW50by5wcm90by5TdG9wUmVxdWVzdC5SZWFzb25SBnJlYXNvbhJUCg'
     '5sb2dnaW5nX3BhcmFtcxgDIAEoCzItLnNwb3RpZnkucGxheWVyLmVzcGVyYW50by5wcm90by5M'
-    'b2dnaW5nUGFyYW1zUg1sb2dnaW5nUGFyYW1zIjwKBlJlYXNvbhIPCgtJTlRFUkFDVElWRRAAEh'
-    'MKD1JFTU9URV9UUkFOU0ZFUhABEgwKCFNIVVRET1dOEAI=');
+    'b2dnaW5nUGFyYW1zUg1sb2dnaW5nUGFyYW1zIkkKBlJlYXNvbhIICgRVU0VSEAASDgoKVFJBQ0'
+    'tfRE9ORRABEhAKDENPTlRFWFRfRE9ORRACEhMKD1NUT1BQRURfQllfU0tJUBAD');

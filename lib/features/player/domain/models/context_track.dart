@@ -53,7 +53,7 @@ class ContextTrack {
 
   @override
   String toString() =>
-      'ContextTrack{uri=$uri, uid=$uid, provider=$provider, metadata=$metadata}';
+      'ContextTrack{uri=$uri, uid=$uid, metadata=$metadata, provider=$provider}';
 
   static bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (identical(a, b)) return true;
@@ -80,6 +80,9 @@ class ContextTrackBuilder {
         _uid = uid,
         _metadata = Map<String, String>.from(metadata),
         _provider = provider;
+
+  static ContextTrackBuilder builder([String uri = '']) =>
+      ContextTrack.builder(uri);
 
   ContextTrackBuilder uri(String val) {
     _uri = val;
@@ -265,14 +268,6 @@ abstract class ContextTrackMetadata {
   static const String keyVideoRenderingEnabled = 'video_rendering_enabled';
   static const String keyVideoSecondsBeforeTrackStuck = 'video.seconds_before_track_stuck';
   static const String keyVisualizationPlaybackSpeed = 'visualization.playback_speed';
-  static const String keyPreviewOggUrl = 'preview_ogg_url';
-  static const String keyHeadFileUrl = 'head_file_url';
-  static const String keyFileId = 'file_id';
-  static const String keyAacFileId = 'aac_file_id';
-  static const String keyCdnAacUrl = 'cdn_aac_url';
-  static const String keyLicenseServerUrl = 'license_server_url';
-  static const String keyDrmAuthHeader = 'drm_auth_header';
-  static const String keyHandoffPositionMs = 'handoff_position_ms';
+  static const String keyVisualizationPositionAsOfTimestamp = 'visualization.position_as_of_timestamp';
   static const String repeatPlayInterruption = 'sas_repeat';
 }
-

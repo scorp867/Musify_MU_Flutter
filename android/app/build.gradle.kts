@@ -31,7 +31,6 @@ android {
                     "-Wextra",
                     "-Werror",
                     "-fno-exceptions",
-                    "-fno-rtti",
                     "-fvisibility=hidden"
                 )
                 arguments += listOf("-DANDROID_STL=c++_shared")

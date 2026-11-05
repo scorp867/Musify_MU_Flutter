@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+option optimize_for = CODE_SIZE;
+
+message ContextTrack {
+    string uri = 1;
+    string uid = 2;
+    map<string, string> metadata = 3;
+}

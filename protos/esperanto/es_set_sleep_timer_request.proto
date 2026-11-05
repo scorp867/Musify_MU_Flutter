@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_command_options.proto";
+import "es_logging_params.proto";
+
+option optimize_for = CODE_SIZE;
+
+message SetSleepTimerRequest {
+    message Clear {
+    }
+
+    message Duration {
+        int64 seconds = 1;
+    }
+
+    message EndOfTrack {
+    }
+
+    CommandOptions options = 1;
+    LoggingParams logging_params = 2;
+    oneof timer_type {
+        Clear clear = 3;
+        Duration duration = 4;
+        EndOfTrack end_of_track = 5;
+    }
+}

@@ -18,8 +18,12 @@ class SetRepeatingTrackCommand implements Command {
   static SetRepeatingTrackCommand create(bool value) =>
       builder(value).build();
 
-  static SetRepeatingTrackCommandBuilder builder([bool value = false]) =>
-      SetRepeatingTrackCommandBuilder(value: value);
+  static SetRepeatingTrackCommandBuilder builder([bool? value]) {
+    if (value case final validValue?) {
+      return SetRepeatingTrackCommandBuilder(value: validValue);
+    }
+    return SetRepeatingTrackCommandBuilder(value: false);
+  }
 
   SetRepeatingTrackCommandBuilder toBuilder() =>
       SetRepeatingTrackCommandBuilder(
@@ -56,6 +60,9 @@ class SetRepeatingTrackCommandBuilder {
   })  : _value = value,
         _options = options,
         _loggingParams = loggingParams;
+
+  static SetRepeatingTrackCommandBuilder builder() =>
+      SetRepeatingTrackCommand.builder(false);
 
   SetRepeatingTrackCommandBuilder value(bool val) {
     _value = val;

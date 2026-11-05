@@ -5,18 +5,18 @@ import 'options/command_options.dart';
 import 'options/logging_params.dart';
 
 class SetOptionsCommand implements Command {
-  final bool? shufflingContext;
-  final bool? repeatingContext;
   final bool? repeatingTrack;
+  final bool? repeatingContext;
+  final bool? shufflingContext;
   final double? playbackSpeed;
   final Map<String, String> modes;
   final CommandOptions? options;
   final LoggingParams? loggingParams;
 
   const SetOptionsCommand({
-    this.shufflingContext,
-    this.repeatingContext,
     this.repeatingTrack,
+    this.repeatingContext,
+    this.shufflingContext,
     this.playbackSpeed,
     this.modes = const <String, String>{},
     this.options,
@@ -28,9 +28,9 @@ class SetOptionsCommand implements Command {
   static SetOptionsCommandBuilder builder() => SetOptionsCommandBuilder();
 
   SetOptionsCommandBuilder toBuilder() => SetOptionsCommandBuilder(
-        shufflingContext: shufflingContext,
-        repeatingContext: repeatingContext,
         repeatingTrack: repeatingTrack,
+        repeatingContext: repeatingContext,
+        shufflingContext: shufflingContext,
         playbackSpeed: playbackSpeed,
         modes: modes,
         options: options,
@@ -41,9 +41,9 @@ class SetOptionsCommand implements Command {
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is SetOptionsCommand &&
-          other.shufflingContext == shufflingContext &&
-          other.repeatingContext == repeatingContext &&
           other.repeatingTrack == repeatingTrack &&
+          other.repeatingContext == repeatingContext &&
+          other.shufflingContext == shufflingContext &&
           other.playbackSpeed == playbackSpeed &&
           other.options == options &&
           other.loggingParams == loggingParams &&
@@ -59,9 +59,9 @@ class SetOptionsCommand implements Command {
 
   @override
   int get hashCode => Object.hash(
-        shufflingContext,
-        repeatingContext,
         repeatingTrack,
+        repeatingContext,
+        shufflingContext,
         playbackSpeed,
         options,
         loggingParams,
@@ -70,36 +70,41 @@ class SetOptionsCommand implements Command {
 
   @override
   String toString() =>
-      'SetOptionsCommand{shufflingContext=$shufflingContext, repeatingContext=$repeatingContext, repeatingTrack=$repeatingTrack, playbackSpeed=$playbackSpeed, modes=$modes, options=$options, loggingParams=$loggingParams}';
+      'SetOptionsCommand{repeatingTrack=$repeatingTrack, repeatingContext=$repeatingContext, shufflingContext=$shufflingContext, playbackSpeed=$playbackSpeed, modes=$modes, options=$options, loggingParams=$loggingParams}';
 }
 
 class SetOptionsCommandBuilder {
-  bool? _shufflingContext;
-  bool? _repeatingContext;
   bool? _repeatingTrack;
+  bool? _repeatingContext;
+  bool? _shufflingContext;
   double? _playbackSpeed;
   Map<String, String> _modes;
   CommandOptions? _options;
   LoggingParams? _loggingParams;
 
   SetOptionsCommandBuilder({
-    bool? shufflingContext,
-    bool? repeatingContext,
     bool? repeatingTrack,
+    bool? repeatingContext,
+    bool? shufflingContext,
     double? playbackSpeed,
     Map<String, String>? modes,
     CommandOptions? options,
     LoggingParams? loggingParams,
-  })  : _shufflingContext = shufflingContext,
+  })  : _repeatingTrack = repeatingTrack,
         _repeatingContext = repeatingContext,
-        _repeatingTrack = repeatingTrack,
+        _shufflingContext = shufflingContext,
         _playbackSpeed = playbackSpeed,
-        _modes = modes != null ? Map<String, String>.from(modes) : const <String, String>{},
+        _modes = switch (modes) {
+          final validModes? => Map<String, String>.from(validModes),
+          null => const <String, String>{},
+        },
         _options = options,
         _loggingParams = loggingParams;
 
-  SetOptionsCommandBuilder shufflingContext(bool val) {
-    _shufflingContext = val;
+  static SetOptionsCommandBuilder builder() => SetOptionsCommand.builder();
+
+  SetOptionsCommandBuilder repeatingTrack(bool val) {
+    _repeatingTrack = val;
     return this;
   }
 
@@ -108,8 +113,8 @@ class SetOptionsCommandBuilder {
     return this;
   }
 
-  SetOptionsCommandBuilder repeatingTrack(bool val) {
-    _repeatingTrack = val;
+  SetOptionsCommandBuilder shufflingContext(bool val) {
+    _shufflingContext = val;
     return this;
   }
 
@@ -134,9 +139,9 @@ class SetOptionsCommandBuilder {
   }
 
   SetOptionsCommand build() => SetOptionsCommand(
-        shufflingContext: _shufflingContext,
-        repeatingContext: _repeatingContext,
         repeatingTrack: _repeatingTrack,
+        repeatingContext: _repeatingContext,
+        shufflingContext: _shufflingContext,
         playbackSpeed: _playbackSpeed,
         modes: _modes,
         options: _options,

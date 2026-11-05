@@ -155,6 +155,23 @@ class Restrictions extends $pb.GeneratedMessage {
         disallowSettingModes,
     $core.Iterable<$core.MapEntry<$core.String, RestrictionReasons>>?
         disallowSignals,
+    $core.Iterable<$core.String>? disallowPlayAsNextInQueueReasons,
+    $core.Iterable<$core.String>? disallowSleepTimerClearReasons,
+    $core.Iterable<$core.String>? disallowSleepTimerDurationReasons,
+    $core.Iterable<$core.String>? disallowSleepTimerEndOfTrackReasons,
+    $core.Iterable<$core.String>? disallowAddToQueueTrackReasons,
+    $core.Iterable<$core.String>? disallowTapToPlayTrackInNextTracksReasons,
+    $core.Iterable<$core.String>? disallowReorderingTrackInNextTracksReasons,
+    $core.Iterable<$core.String>? disallowReorderingEpisodeInNextTracksReasons,
+    $core.Iterable<$core.String>?
+        disallowReorderingEnqueuedTrackInNextTracksReasons,
+    $core.Iterable<$core.String>?
+        disallowReorderingEnqueuedEpisodeInNextTracksReasons,
+    $core.Iterable<$core.String>? disallowViewingQueueReasons,
+    $core.Iterable<$core.String>?
+        disallowViewingOrderedTracksInNextTracksReasons,
+    $core.Iterable<$core.String>? disallowSwipeNextReasons,
+    $core.Iterable<$core.String>? disallowSwipePrevReasons,
   }) {
     final result = Restrictions._();
     if (disallowPausingReasons != null)
@@ -220,6 +237,45 @@ class Restrictions extends $pb.GeneratedMessage {
       result.disallowSettingModes.addEntries(disallowSettingModes);
     if (disallowSignals != null)
       result.disallowSignals.addEntries(disallowSignals);
+    if (disallowPlayAsNextInQueueReasons != null)
+      result.disallowPlayAsNextInQueueReasons
+          .addAll(disallowPlayAsNextInQueueReasons);
+    if (disallowSleepTimerClearReasons != null)
+      result.disallowSleepTimerClearReasons
+          .addAll(disallowSleepTimerClearReasons);
+    if (disallowSleepTimerDurationReasons != null)
+      result.disallowSleepTimerDurationReasons
+          .addAll(disallowSleepTimerDurationReasons);
+    if (disallowSleepTimerEndOfTrackReasons != null)
+      result.disallowSleepTimerEndOfTrackReasons
+          .addAll(disallowSleepTimerEndOfTrackReasons);
+    if (disallowAddToQueueTrackReasons != null)
+      result.disallowAddToQueueTrackReasons
+          .addAll(disallowAddToQueueTrackReasons);
+    if (disallowTapToPlayTrackInNextTracksReasons != null)
+      result.disallowTapToPlayTrackInNextTracksReasons
+          .addAll(disallowTapToPlayTrackInNextTracksReasons);
+    if (disallowReorderingTrackInNextTracksReasons != null)
+      result.disallowReorderingTrackInNextTracksReasons
+          .addAll(disallowReorderingTrackInNextTracksReasons);
+    if (disallowReorderingEpisodeInNextTracksReasons != null)
+      result.disallowReorderingEpisodeInNextTracksReasons
+          .addAll(disallowReorderingEpisodeInNextTracksReasons);
+    if (disallowReorderingEnqueuedTrackInNextTracksReasons != null)
+      result.disallowReorderingEnqueuedTrackInNextTracksReasons
+          .addAll(disallowReorderingEnqueuedTrackInNextTracksReasons);
+    if (disallowReorderingEnqueuedEpisodeInNextTracksReasons != null)
+      result.disallowReorderingEnqueuedEpisodeInNextTracksReasons
+          .addAll(disallowReorderingEnqueuedEpisodeInNextTracksReasons);
+    if (disallowViewingQueueReasons != null)
+      result.disallowViewingQueueReasons.addAll(disallowViewingQueueReasons);
+    if (disallowViewingOrderedTracksInNextTracksReasons != null)
+      result.disallowViewingOrderedTracksInNextTracksReasons
+          .addAll(disallowViewingOrderedTracksInNextTracksReasons);
+    if (disallowSwipeNextReasons != null)
+      result.disallowSwipeNextReasons.addAll(disallowSwipeNextReasons);
+    if (disallowSwipePrevReasons != null)
+      result.disallowSwipePrevReasons.addAll(disallowSwipePrevReasons);
     return result;
   }
 
@@ -277,6 +333,35 @@ class Restrictions extends $pb.GeneratedMessage {
         valueCreator: RestrictionReasons.$_createMessage,
         valueDefaultOrMaker: RestrictionReasons.getDefault,
         packageName: const $pb.PackageName('spotify.player.esperanto.proto'))
+    ..pPS(27, _omitFieldNames ? '' : 'disallowPlayAsNextInQueueReasons')
+    ..pPS(28, _omitFieldNames ? '' : 'disallowSleepTimerClearReasons')
+    ..pPS(29, _omitFieldNames ? '' : 'disallowSleepTimerDurationReasons')
+    ..pPS(30, _omitFieldNames ? '' : 'disallowSleepTimerEndOfTrackReasons')
+    ..pPS(31, _omitFieldNames ? '' : 'disallowAddToQueueTrackReasons')
+    ..pPS(
+        32, _omitFieldNames ? '' : 'disallowTapToPlayTrackInNextTracksReasons')
+    ..pPS(
+        33, _omitFieldNames ? '' : 'disallowReorderingTrackInNextTracksReasons')
+    ..pPS(34,
+        _omitFieldNames ? '' : 'disallowReorderingEpisodeInNextTracksReasons')
+    ..pPS(
+        35,
+        _omitFieldNames
+            ? ''
+            : 'disallowReorderingEnqueuedTrackInNextTracksReasons')
+    ..pPS(
+        36,
+        _omitFieldNames
+            ? ''
+            : 'disallowReorderingEnqueuedEpisodeInNextTracksReasons')
+    ..pPS(37, _omitFieldNames ? '' : 'disallowViewingQueueReasons')
+    ..pPS(
+        38,
+        _omitFieldNames
+            ? ''
+            : 'disallowViewingOrderedTracksInNextTracksReasons')
+    ..pPS(39, _omitFieldNames ? '' : 'disallowSwipeNextReasons')
+    ..pPS(40, _omitFieldNames ? '' : 'disallowSwipePrevReasons')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -388,6 +473,57 @@ class Restrictions extends $pb.GeneratedMessage {
   @$pb.TagNumber(26)
   $pb.PbMap<$core.String, RestrictionReasons> get disallowSignals =>
       $_getMap(24);
+
+  @$pb.TagNumber(27)
+  $pb.PbList<$core.String> get disallowPlayAsNextInQueueReasons =>
+      $_getList(25);
+
+  @$pb.TagNumber(28)
+  $pb.PbList<$core.String> get disallowSleepTimerClearReasons => $_getList(26);
+
+  @$pb.TagNumber(29)
+  $pb.PbList<$core.String> get disallowSleepTimerDurationReasons =>
+      $_getList(27);
+
+  @$pb.TagNumber(30)
+  $pb.PbList<$core.String> get disallowSleepTimerEndOfTrackReasons =>
+      $_getList(28);
+
+  @$pb.TagNumber(31)
+  $pb.PbList<$core.String> get disallowAddToQueueTrackReasons => $_getList(29);
+
+  @$pb.TagNumber(32)
+  $pb.PbList<$core.String> get disallowTapToPlayTrackInNextTracksReasons =>
+      $_getList(30);
+
+  @$pb.TagNumber(33)
+  $pb.PbList<$core.String> get disallowReorderingTrackInNextTracksReasons =>
+      $_getList(31);
+
+  @$pb.TagNumber(34)
+  $pb.PbList<$core.String> get disallowReorderingEpisodeInNextTracksReasons =>
+      $_getList(32);
+
+  @$pb.TagNumber(35)
+  $pb.PbList<$core.String>
+      get disallowReorderingEnqueuedTrackInNextTracksReasons => $_getList(33);
+
+  @$pb.TagNumber(36)
+  $pb.PbList<$core.String>
+      get disallowReorderingEnqueuedEpisodeInNextTracksReasons => $_getList(34);
+
+  @$pb.TagNumber(37)
+  $pb.PbList<$core.String> get disallowViewingQueueReasons => $_getList(35);
+
+  @$pb.TagNumber(38)
+  $pb.PbList<$core.String>
+      get disallowViewingOrderedTracksInNextTracksReasons => $_getList(36);
+
+  @$pb.TagNumber(39)
+  $pb.PbList<$core.String> get disallowSwipeNextReasons => $_getList(37);
+
+  @$pb.TagNumber(40)
+  $pb.PbList<$core.String> get disallowSwipePrevReasons => $_getList(38);
 }
 
 const $core.bool _omitFieldNames =

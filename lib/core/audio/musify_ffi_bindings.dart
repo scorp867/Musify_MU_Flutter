@@ -253,6 +253,59 @@ class MusifyFfiBindings {
         .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
             'musify_context_processor_get_current_index')
         .asFunction(isLeaf: true);
+
+    // --- ContextPlayerImpl (Esperanto bridge) ---
+    _initDartApiDl = lib
+        .lookup<NativeFunction<IntPtr Function(Pointer<Void>)>>('musify_init_dart_api_dl')
+        .asFunction();
+
+    _cpiCreate = lib
+        .lookup<NativeFunction<Pointer<Void> Function(Pointer<Void>)>>('musify_cpi_create')
+        .asFunction();
+
+    _cpiDestroy = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>)>>('musify_cpi_destroy')
+        .asFunction(isLeaf: true);
+
+    _cpiSetAudioEngine = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Pointer<Void>)>>('musify_cpi_set_audio_engine')
+        .asFunction(isLeaf: true);
+
+    _cpiHandleCommand = lib
+        .lookup<NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, Int32)>>('musify_cpi_handle_command')
+        .asFunction();
+
+    _cpiAdvanceToNextTrack = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>)>>('musify_cpi_advance_to_next_track')
+        .asFunction(isLeaf: true);
+
+    _cpiOnTrackLoaded = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Int32)>>('musify_cpi_on_track_loaded')
+        .asFunction(isLeaf: true);
+
+    _cpiGetState = lib
+        .lookup<NativeFunction<Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>)>>('musify_cpi_get_state')
+        .asFunction();
+
+    _cpiGetQueue = lib
+        .lookup<NativeFunction<Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>)>>('musify_cpi_get_queue')
+        .asFunction();
+
+    _cpiSetPlayTrackPort = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>('musify_cpi_set_play_track_port')
+        .asFunction(isLeaf: true);
+
+    _cpiSetStateChangedPort = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>('musify_cpi_set_state_changed_port')
+        .asFunction(isLeaf: true);
+
+    _cpiSetQueueChangedPort = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>('musify_cpi_set_queue_changed_port')
+        .asFunction(isLeaf: true);
+
+    _cpiSetErrorPort = lib
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>('musify_cpi_set_error_port')
+        .asFunction(isLeaf: true);
   }
 
   static const String _libName = 'libmusify_audio.so';
@@ -349,6 +402,21 @@ class MusifyFfiBindings {
   late final Pointer<Utf8> Function(Pointer<Void>) _cpGetNextPageUrl;
   late final int Function(Pointer<Void>) _cpGetCurrentIteration;
   late final int Function(Pointer<Void>) _cpGetCurrentIndex;
+
+  // --- ContextPlayerImpl (Esperanto bridge) ---
+  late final int Function(Pointer<Void>) _initDartApiDl;
+  late final Pointer<Void> Function(Pointer<Void>) _cpiCreate;
+  late final void Function(Pointer<Void>) _cpiDestroy;
+  late final void Function(Pointer<Void>, Pointer<Void>) _cpiSetAudioEngine;
+  late final int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Uint8>, int) _cpiHandleCommand;
+  late final void Function(Pointer<Void>) _cpiAdvanceToNextTrack;
+  late final void Function(Pointer<Void>, int) _cpiOnTrackLoaded;
+  late final Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>) _cpiGetState;
+  late final Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>) _cpiGetQueue;
+  late final void Function(Pointer<Void>, int) _cpiSetPlayTrackPort;
+  late final void Function(Pointer<Void>, int) _cpiSetStateChangedPort;
+  late final void Function(Pointer<Void>, int) _cpiSetQueueChangedPort;
+  late final void Function(Pointer<Void>, int) _cpiSetErrorPort;
 
   // --- Public API ---
 
@@ -490,4 +558,20 @@ class MusifyFfiBindings {
   Pointer<Utf8> cpGetNextPageUrl(Pointer<Void> h) => _cpGetNextPageUrl(h);
   int cpGetCurrentIteration(Pointer<Void> h) => _cpGetCurrentIteration(h);
   int cpGetCurrentIndex(Pointer<Void> h) => _cpGetCurrentIndex(h);
+
+  // --- ContextPlayerImpl (Esperanto bridge) ---
+  int initDartApiDl(Pointer<Void> data) => _initDartApiDl(data);
+  Pointer<Void> cpiCreate(Pointer<Void> engineHandle) => _cpiCreate(engineHandle);
+  void cpiDestroy(Pointer<Void> h) => _cpiDestroy(h);
+  void cpiSetAudioEngine(Pointer<Void> h, Pointer<Void> engineHandle) => _cpiSetAudioEngine(h, engineHandle);
+  int cpiHandleCommand(Pointer<Void> h, Pointer<Utf8> method, Pointer<Uint8> payload, int payloadLen) =>
+      _cpiHandleCommand(h, method, payload, payloadLen);
+  void cpiAdvanceToNextTrack(Pointer<Void> h) => _cpiAdvanceToNextTrack(h);
+  void cpiOnTrackLoaded(Pointer<Void> h, bool success) => _cpiOnTrackLoaded(h, success ? 1 : 0);
+  Pointer<Uint8> cpiGetState(Pointer<Void> h, Pointer<Int32> outLen) => _cpiGetState(h, outLen);
+  Pointer<Uint8> cpiGetQueue(Pointer<Void> h, Pointer<Int32> outLen) => _cpiGetQueue(h, outLen);
+  void cpiSetPlayTrackPort(Pointer<Void> h, int port) => _cpiSetPlayTrackPort(h, port);
+  void cpiSetStateChangedPort(Pointer<Void> h, int port) => _cpiSetStateChangedPort(h, port);
+  void cpiSetQueueChangedPort(Pointer<Void> h, int port) => _cpiSetQueueChangedPort(h, port);
+  void cpiSetErrorPort(Pointer<Void> h, int port) => _cpiSetErrorPort(h, port);
 }

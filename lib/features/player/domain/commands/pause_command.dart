@@ -39,7 +39,7 @@ class PauseCommand implements Command {
 
   @override
   String toString() =>
-      'PauseCommand{pauseOrigin=$pauseOrigin, options=$options, loggingParams=$loggingParams}';
+      'PauseCommand{options=$options, loggingParams=$loggingParams, pauseOrigin=$pauseOrigin}';
 }
 
 class PauseCommandBuilder {
@@ -54,6 +54,8 @@ class PauseCommandBuilder {
   })  : _pauseOrigin = pauseOrigin,
         _options = options,
         _loggingParams = loggingParams;
+
+  static PauseCommandBuilder builder() => PauseCommand.builder();
 
   PauseCommandBuilder pauseOrigin(PauseResumeOrigin val) {
     _pauseOrigin = val;

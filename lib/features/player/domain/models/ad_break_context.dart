@@ -17,13 +17,13 @@ class AdBreakContext {
     this.totalAdsInBreakEstimate = 0,
   });
 
+  static AdBreakContextBuilder builder() => AdBreakContextBuilder();
+
   AdBreakContextBuilder toBuilder() => AdBreakContextBuilder(
         maxSecondsRemaining: maxSecondsRemaining,
         positionInCurrentAdBreak: positionInCurrentAdBreak,
         totalAdsInBreakEstimate: totalAdsInBreakEstimate,
       );
-
-  static AdBreakContextBuilder builder() => AdBreakContextBuilder();
 
   @override
   bool operator ==(Object other) =>
@@ -34,15 +34,18 @@ class AdBreakContext {
           other.totalAdsInBreakEstimate == totalAdsInBreakEstimate);
 
   @override
-  int get hashCode => Object.hash(
-        maxSecondsRemaining,
-        positionInCurrentAdBreak,
-        totalAdsInBreakEstimate,
-      );
+  int get hashCode {
+    var result = (maxSecondsRemaining ^ (maxSecondsRemaining >> 32)) ^ 1000003;
+    result = (result * 1000003) ^ (positionInCurrentAdBreak ^ (positionInCurrentAdBreak >> 32));
+    result = (result * 1000003) ^ (totalAdsInBreakEstimate ^ (totalAdsInBreakEstimate >> 32));
+    return result;
+  }
 
   @override
   String toString() =>
-      'AdBreakContext{maxSecondsRemaining=$maxSecondsRemaining, positionInCurrentAdBreak=$positionInCurrentAdBreak, totalAdsInBreakEstimate=$totalAdsInBreakEstimate}';
+      'AdBreakContext{maxSecondsRemaining=$maxSecondsRemaining, '
+      'positionInCurrentAdBreak=$positionInCurrentAdBreak, '
+      'totalAdsInBreakEstimate=$totalAdsInBreakEstimate}';
 }
 
 class AdBreakContextBuilder {
@@ -58,18 +61,18 @@ class AdBreakContextBuilder {
         _positionInCurrentAdBreak = positionInCurrentAdBreak,
         _totalAdsInBreakEstimate = totalAdsInBreakEstimate;
 
-  AdBreakContextBuilder maxSecondsRemaining(int val) {
-    _maxSecondsRemaining = val;
+  AdBreakContextBuilder maxSecondsRemaining(int j) {
+    _maxSecondsRemaining = j;
     return this;
   }
 
-  AdBreakContextBuilder positionInCurrentAdBreak(int val) {
-    _positionInCurrentAdBreak = val;
+  AdBreakContextBuilder positionInCurrentAdBreak(int j) {
+    _positionInCurrentAdBreak = j;
     return this;
   }
 
-  AdBreakContextBuilder totalAdsInBreakEstimate(int val) {
-    _totalAdsInBreakEstimate = val;
+  AdBreakContextBuilder totalAdsInBreakEstimate(int j) {
+    _totalAdsInBreakEstimate = j;
     return this;
   }
 

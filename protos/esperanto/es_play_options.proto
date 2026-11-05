@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+option optimize_for = CODE_SIZE;
+
+message PlayOptions {
+    enum Reason {
+        INTERACTIVE = 0;
+        REMOTE_TRANSFER = 1;
+        LICENSE_CHANGE = 2;
+    }
+
+    enum Operation {
+        REPLACE = 0;
+        ENQUEUE = 1;
+        PUSH = 2;
+    }
+
+    enum Trigger {
+        IMMEDIATELY = 0;
+        ADVANCED_PAST_TRACK = 1;
+        ADVANCED_PAST_CONTEXT = 2;
+    }
+
+    Reason reason = 1;
+    Operation operation = 2;
+    Trigger trigger = 3;
+    optional float playback_speed = 4;
+}

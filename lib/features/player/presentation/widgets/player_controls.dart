@@ -25,13 +25,32 @@ class PlayerSeekBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentPos = dragPosition ?? position;
+    final currentPos = switch (dragPosition) {
+      final p? => p,
+      null => position,
+    };
     final currentPosMs = currentPos.inMilliseconds.toDouble();
     final durationMs = duration.inMilliseconds.toDouble();
     final bufferedMs = bufferedPosition.inMilliseconds.toDouble();
 
     final maxVal = durationMs > 0 ? durationMs : 1.0;
-    final sliderVal = currentPosMs.clamp(0.0, maxVal);
+    final double sliderVal;
+    if (currentPosMs <= 0.0) {
+      sliderVal = 0.0;
+    } else if (currentPosMs >= maxVal) {
+      sliderVal = maxVal;
+    } else {
+      sliderVal = currentPosMs;
+    }
+
+    final double? secondaryVal;
+    if (bufferedMs <= 0.0) {
+      secondaryVal = null;
+    } else if (bufferedMs >= maxVal) {
+      secondaryVal = maxVal;
+    } else {
+      secondaryVal = bufferedMs;
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -54,7 +73,7 @@ class PlayerSeekBar extends StatelessWidget {
             value: sliderVal,
             min: 0.0,
             max: maxVal,
-            secondaryTrackValue: bufferedMs > 0 ? bufferedMs.clamp(0.0, maxVal) : null,
+            secondaryTrackValue: secondaryVal,
             onChanged: (val) {
               onDragPositionChanged(Duration(milliseconds: val.round()));
             },
@@ -103,6 +122,8 @@ class PlayerPlaybackControls extends StatelessWidget {
     this.isBuffering = false,
     this.shuffleMode = QueueShuffleMode.none,
     this.repeatMode = QueueRepeatMode.none,
+    this.canSkipNext = true,
+    this.canSkipPrevious = true,
     this.onPlayPause,
     this.onNext,
     this.onPrevious,
@@ -114,6 +135,8 @@ class PlayerPlaybackControls extends StatelessWidget {
   final bool isBuffering;
   final QueueShuffleMode shuffleMode;
   final QueueRepeatMode repeatMode;
+  final bool canSkipNext;
+  final bool canSkipPrevious;
   final VoidCallback? onPlayPause;
   final VoidCallback? onNext;
   final VoidCallback? onPrevious;
@@ -141,7 +164,7 @@ class PlayerPlaybackControls extends StatelessWidget {
         _TransportButton(
           icon: Icons.skip_previous_rounded,
           tooltip: 'Previous track',
-          onPressed: onPrevious,
+          onPressed: canSkipPrevious ? onPrevious : null,
           size: 38,
         ),
         _PlayPauseButton(
@@ -152,7 +175,7 @@ class PlayerPlaybackControls extends StatelessWidget {
         _TransportButton(
           icon: Icons.skip_next_rounded,
           tooltip: 'Next track',
-          onPressed: onNext,
+          onPressed: canSkipNext ? onNext : null,
           size: 38,
         ),
         _SpotifyTransportButton(
@@ -235,10 +258,15 @@ class _TransportButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isEnabled = onPressed != null;
     return IconButton(
       onPressed: onPressed,
       tooltip: tooltip,
-      icon: Icon(icon, color: Colors.white, size: size),
+      icon: Icon(
+        icon,
+        color: isEnabled ? Colors.white : Colors.white38,
+        size: size,
+      ),
       padding: const EdgeInsets.all(8),
       constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
     );
@@ -272,7 +300,10 @@ class _SpotifyTransportButton extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
           builder: (context, animatedColor, _) {
-            final color = animatedColor ?? targetColor;
+            final color = switch (animatedColor) {
+              final c? => c,
+              null => targetColor,
+            };
             return IconButton(
               onPressed: onPressed,
               tooltip: tooltip,
@@ -324,7 +355,10 @@ class PlayerUtilityRow extends StatelessWidget {
             tooltip: 'Devices',
             padding: const EdgeInsets.all(8),
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-            onPressed: onDevice ?? () {},
+            onPressed: switch (onDevice) {
+              final cb? => cb,
+              null => () {},
+            },
           ),
           IconButton(
             icon: const Icon(
@@ -380,11 +414,13 @@ class PlayerSecondaryControls extends StatelessWidget {
         _SecondaryButton(
           icon: Icons.queue_music_rounded,
           label: 'Queue',
+          active: false,
           onTap: onQueue,
         ),
         _SecondaryButton(
           icon: Icons.lyrics_outlined,
           label: 'Lyrics',
+          active: false,
           onTap: onLyrics,
         ),
       ],

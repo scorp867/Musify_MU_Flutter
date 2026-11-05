@@ -64,6 +64,8 @@ class SignalCommandBuilder {
         _options = options,
         _loggingParams = loggingParams;
 
+  static SignalCommandBuilder builder() => SignalCommand.builder();
+
   SignalCommandBuilder signalId(String val) {
     _signalId = val;
     return this;
@@ -85,14 +87,14 @@ class SignalCommandBuilder {
   }
 
   SignalCommand build() {
-    if (_signalId == null) {
-      throw StateError('Missing required properties: signalId');
+    if (_signalId case final validSignalId?) {
+      return SignalCommand(
+        signalId: validSignalId,
+        parameters: _parameters,
+        options: _options,
+        loggingParams: _loggingParams,
+      );
     }
-    return SignalCommand(
-      signalId: _signalId!,
-      parameters: _parameters,
-      options: _options,
-      loggingParams: _loggingParams,
-    );
+    throw StateError('Missing required properties: signalId');
   }
 }

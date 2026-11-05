@@ -60,14 +60,6 @@ const SetOptionsRequest$json = {
       '10': 'loggingParams'
     },
     {
-      '1': 'modes',
-      '3': 7,
-      '4': 3,
-      '5': 11,
-      '6': '.spotify.player.esperanto.proto.SetOptionsRequest.ModesEntry',
-      '10': 'modes'
-    },
-    {
       '1': 'playback_speed',
       '3': 6,
       '4': 1,
@@ -75,6 +67,14 @@ const SetOptionsRequest$json = {
       '9': 0,
       '10': 'playbackSpeed',
       '17': true
+    },
+    {
+      '1': 'modes',
+      '3': 7,
+      '4': 3,
+      '5': 11,
+      '6': '.spotify.player.esperanto.proto.SetOptionsRequest.ModesEntry',
+      '10': 'modes'
     },
   ],
   '3': [SetOptionsRequest_ModesEntry$json],
@@ -103,7 +103,7 @@ final $typed_data.Uint8List setOptionsRequestDescriptor = $convert.base64Decode(
     'FuUhBzaHVmZmxpbmdDb250ZXh0EkgKB29wdGlvbnMYBCABKAsyLi5zcG90aWZ5LnBsYXllci5l'
     'c3BlcmFudG8ucHJvdG8uQ29tbWFuZE9wdGlvbnNSB29wdGlvbnMSVAoObG9nZ2luZ19wYXJhbX'
     'MYBSABKAsyLS5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uTG9nZ2luZ1BhcmFtc1IN'
-    'bG9nZ2luZ1BhcmFtcxJSCgVtb2RlcxgHIAMoCzI8LnNwb3RpZnkucGxheWVyLmVzcGVyYW50by'
-    '5wcm90by5TZXRPcHRpb25zUmVxdWVzdC5Nb2Rlc0VudHJ5UgVtb2RlcxIqCg5wbGF5YmFja19z'
-    'cGVlZBgGIAEoAkgAUg1wbGF5YmFja1NwZWVkiAEBGjgKCk1vZGVzRW50cnkSEAoDa2V5GAEgAS'
+    'bG9nZ2luZ1BhcmFtcxIqCg5wbGF5YmFja19zcGVlZBgGIAEoAkgAUg1wbGF5YmFja1NwZWVkiA'
+    'EBElIKBW1vZGVzGAcgAygLMjwuc3BvdGlmeS5wbGF5ZXIuZXNwZXJhbnRvLnByb3RvLlNldE9w'
+    'dGlvbnNSZXF1ZXN0Lk1vZGVzRW50cnlSBW1vZGVzGjgKCk1vZGVzRW50cnkSEAoDa2V5GAEgAS'
     'gJUgNrZXkSFAoFdmFsdWUYAiABKAlSBXZhbHVlOgI4AUIRCg9fcGxheWJhY2tfc3BlZWQ=');

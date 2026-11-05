@@ -77,6 +77,13 @@ class MusifyNativeAudioEngine implements Finalizable {
   late final Pointer<Void> _handle;
   bool _disposed = false;
 
+  /// Exposes the native engine pointer for C++ ContextPlayerImpl binding.
+  /// Only used by NativeEsperantoTransport to pass to musify_cpi_set_audio_engine.
+  Pointer<Void> get handle {
+    _ensureAlive();
+    return _handle;
+  }
+
   // -----------------------------------------------------------------------
   // Control
   // -----------------------------------------------------------------------

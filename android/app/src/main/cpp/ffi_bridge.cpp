@@ -1,9 +1,14 @@
 #include "AudioEngine.h"
 #include "ContextProcessor.h"
 #include "ProtobufWireHelper.h"
+#include "player/ContextPlayerImpl.h"
+
+#include "dart_api_dl.h"
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
+#include <vector>
 
 // Macro for exporting C-ABI symbols visible to Dart FFI.
 #define MUSIFY_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
@@ -376,3 +381,180 @@ MUSIFY_EXPORT int32_t musify_context_processor_get_current_index(void* handle) {
     return cp->get_current_index();
 }
 
+// ===========================================================================
+// Dart DL API Initialization
+// ===========================================================================
+
+MUSIFY_EXPORT intptr_t musify_init_dart_api_dl(void* data) {
+    return Dart_InitializeApiDL(data);
+}
+
+// ===========================================================================
+// ContextPlayerImpl (Esperanto RPC bridge matching liborbit-jni-spotify.so)
+// ===========================================================================
+
+MUSIFY_EXPORT void* musify_cpi_create(void* engine_handle) {
+    auto* engine = static_cast<AudioEngine*>(engine_handle);
+    auto* cpi = new spotify::player::ContextPlayerImpl(engine);
+    return static_cast<void*>(cpi);
+}
+
+MUSIFY_EXPORT void musify_cpi_destroy(void* handle) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    delete cpi;
+}
+
+MUSIFY_EXPORT void musify_cpi_set_audio_engine(void* handle, void* engine_handle) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    auto* engine = static_cast<AudioEngine*>(engine_handle);
+    cpi->set_audio_engine(engine);
+}
+
+MUSIFY_EXPORT int32_t musify_cpi_handle_command(
+        void* handle,
+        const char* method,
+        const uint8_t* payload,
+        int32_t payload_len) {
+    if (!handle || !method) return 0;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    const size_t len = (payload && payload_len > 0) ? static_cast<size_t>(payload_len) : 0;
+    return cpi->handle_command(std::string(method), payload, len) ? 1 : 0;
+}
+
+MUSIFY_EXPORT void musify_cpi_advance_to_next_track(void* handle) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    cpi->advance_to_next_track();
+}
+
+MUSIFY_EXPORT void musify_cpi_on_track_loaded(void* handle, int32_t success) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    cpi->on_track_loaded(success != 0);
+}
+
+MUSIFY_EXPORT uint8_t* musify_cpi_get_state(void* handle, int32_t* out_len) {
+    if (!handle || !out_len) {
+        if (out_len) *out_len = 0;
+        return nullptr;
+    }
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    auto state_vec = cpi->get_state();
+    *out_len = static_cast<int32_t>(state_vec.size());
+    if (state_vec.empty()) {
+        return nullptr;
+    }
+    auto* buffer = static_cast<uint8_t*>(malloc(state_vec.size()));
+    if (!buffer) {
+        *out_len = 0;
+        return nullptr;
+    }
+    std::memcpy(buffer, state_vec.data(), state_vec.size());
+    return buffer;
+}
+
+MUSIFY_EXPORT uint8_t* musify_cpi_get_queue(void* handle, int32_t* out_len) {
+    if (!handle || !out_len) {
+        if (out_len) *out_len = 0;
+        return nullptr;
+    }
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    auto queue_vec = cpi->get_queue();
+    *out_len = static_cast<int32_t>(queue_vec.size());
+    if (queue_vec.empty()) {
+        return nullptr;
+    }
+    auto* buffer = static_cast<uint8_t*>(malloc(queue_vec.size()));
+    if (!buffer) {
+        *out_len = 0;
+        return nullptr;
+    }
+    std::memcpy(buffer, queue_vec.data(), queue_vec.size());
+    return buffer;
+}
+
+// ---------------------------------------------------------------------------
+// Callback registration using Dart NativePorts
+// ---------------------------------------------------------------------------
+
+MUSIFY_EXPORT void musify_cpi_set_play_track_port(void* handle, int64_t dart_port) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    if (dart_port == 0) {
+        cpi->set_play_track_callback(nullptr);
+        return;
+    }
+    cpi->set_play_track_callback([dart_port](const spotify::player::context_view::Entry& track, bool /*play_immediately*/) {
+        auto proto_bytes = spotify::player::encode_context_track(track);
+        if (proto_bytes.empty()) return;
+
+        Dart_CObject cobj;
+        cobj.type = Dart_CObject_kTypedData;
+        cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
+        cobj.value.as_typed_data.length = static_cast<intptr_t>(proto_bytes.size());
+        cobj.value.as_typed_data.values = proto_bytes.data();
+        Dart_PostCObject_DL(dart_port, &cobj);
+    });
+}
+
+MUSIFY_EXPORT void musify_cpi_set_state_changed_port(void* handle, int64_t dart_port) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    if (dart_port == 0) {
+        cpi->set_state_changed_callback(nullptr);
+        return;
+    }
+    cpi->set_state_changed_callback([dart_port](const uint8_t* data, size_t len) {
+        if (!data || len == 0) return;
+        Dart_CObject cobj;
+        cobj.type = Dart_CObject_kTypedData;
+        cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
+        cobj.value.as_typed_data.length = static_cast<intptr_t>(len);
+        cobj.value.as_typed_data.values = data;
+        Dart_PostCObject_DL(dart_port, &cobj);
+    });
+}
+
+MUSIFY_EXPORT void musify_cpi_set_queue_changed_port(void* handle, int64_t dart_port) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    if (dart_port == 0) {
+        cpi->set_queue_changed_callback(nullptr);
+        return;
+    }
+    cpi->set_queue_changed_callback([dart_port](const uint8_t* data, size_t len) {
+        if (!data || len == 0) return;
+        Dart_CObject cobj;
+        cobj.type = Dart_CObject_kTypedData;
+        cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
+        cobj.value.as_typed_data.length = static_cast<intptr_t>(len);
+        cobj.value.as_typed_data.values = data;
+        Dart_PostCObject_DL(dart_port, &cobj);
+    });
+}
+
+MUSIFY_EXPORT void musify_cpi_set_error_port(void* handle, int64_t dart_port) {
+    if (!handle) return;
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
+    if (dart_port == 0) {
+        cpi->set_error_callback(nullptr);
+        return;
+    }
+    cpi->set_error_callback([dart_port](const std::string& error_code, const std::string& message) {
+        std::string err_str = error_code;
+        if (!message.empty()) {
+            if (!err_str.empty()) err_str += ": ";
+            err_str += message;
+        }
+        if (err_str.empty()) return;
+
+        Dart_CObject cobj;
+        cobj.type = Dart_CObject_kTypedData;
+        cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
+        cobj.value.as_typed_data.length = static_cast<intptr_t>(err_str.size());
+        cobj.value.as_typed_data.values = reinterpret_cast<const uint8_t*>(err_str.data());
+        Dart_PostCObject_DL(dart_port, &cobj);
+    });
+}

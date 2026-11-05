@@ -19,10 +19,12 @@ class PlayAsNextInQueueCommand implements Command {
   static PlayAsNextInQueueCommand create(List<ContextTrack> tracks) =>
       builder(tracks).build();
 
-  static PlayAsNextInQueueCommandBuilder builder([
-    List<ContextTrack> tracks = const <ContextTrack>[],
-  ]) =>
-      PlayAsNextInQueueCommandBuilder(tracks: tracks);
+  static PlayAsNextInQueueCommandBuilder builder([List<ContextTrack>? tracks]) {
+    if (tracks case final validTracks?) {
+      return PlayAsNextInQueueCommandBuilder(tracks: validTracks);
+    }
+    return PlayAsNextInQueueCommandBuilder(tracks: const <ContextTrack>[]);
+  }
 
   PlayAsNextInQueueCommandBuilder toBuilder() =>
       PlayAsNextInQueueCommandBuilder(
@@ -72,6 +74,9 @@ class PlayAsNextInQueueCommandBuilder {
   })  : _tracks = List<ContextTrack>.from(tracks),
         _options = options,
         _loggingParams = loggingParams;
+
+  static PlayAsNextInQueueCommandBuilder builder() =>
+      PlayAsNextInQueueCommand.builder();
 
   PlayAsNextInQueueCommandBuilder tracks(List<ContextTrack> val) {
     _tracks = List<ContextTrack>.from(val);

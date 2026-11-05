@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+option optimize_for = CODE_SIZE;
+
+message PauseResumeOrigin {
+    string feature_identifier = 1;
+}

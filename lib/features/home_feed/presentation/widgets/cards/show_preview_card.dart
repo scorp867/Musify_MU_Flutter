@@ -1,8 +1,11 @@
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
 /// Renders a podcast show preview card matching Spotify Android layout:
 ///   ┌────────────────────────────────────────────────────────┐
@@ -50,7 +53,9 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
     ColorExtractionService? service;
     try {
       service = context.read<ColorExtractionService>();
-    } catch (_) {}
+    } catch (e, stack) {
+      dev.log('Failed to read ColorExtractionService: $e', name: 'ShowPreviewCard', error: e, stackTrace: stack);
+    }
 
     if (service != null) {
       final cached = service.getCached(url);
@@ -65,6 +70,8 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
             _extractedColor = _sanitizeColor(color.primary);
           });
         }
+      }).catchError((e, stack) {
+        dev.log('Failed to extract color from url: $e', name: 'ShowPreviewCard', error: e, stackTrace: stack);
       });
     }
   }
@@ -72,9 +79,11 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
   static Color _sanitizeColor(Color color) {
     final hsl = HSLColor.fromColor(color);
     if (hsl.hue >= 260 && hsl.hue <= 325) {
+      final newSat = hsl.saturation * 0.7;
+      final clampedSat = newSat > 1.0 ? 1.0 : (newSat < 0.0 ? 0.0 : newSat);
       return hsl
           .withHue(230)
-          .withSaturation((hsl.saturation * 0.7).clamp(0.0, 1.0))
+          .withSaturation(clampedSat)
           .toColor();
     }
     return color;
@@ -95,13 +104,34 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
         }
         final base = Color(int.parse(argbHex, radix: 16));
         return Color.lerp(base, const Color(0xFF1E1E1E), 0.7) ?? const Color(0xFF282828);
-      } catch (_) {}
+      } catch (e, stack) {
+        dev.log('Failed to parse hex color: $e', name: 'ShowPreviewCard', error: e, stackTrace: stack);
+      }
     }
     if (_extractedColor != null) {
       return Color.lerp(_extractedColor!, const Color(0xFF1E1E1E), 0.7) ??
           const Color(0xFF282828);
     }
     return const Color(0xFF282828);
+  }
+
+  void _playWithMetadata() {
+    final previewTrait = widget.item.getTrait<PreviewCardTrait>();
+    final title = widget.item.cardTitle.isNotEmpty
+        ? widget.item.cardTitle
+        : (previewTrait?.title.isNotEmpty == true ? previewTrait!.title : 'Show');
+    final artworkUrl = widget.item.cardImageUrl ??
+        widget.item.previewImageUrl ??
+        previewTrait?.imageUrl;
+    final track = ContextTrack.builder(widget.item.uri)
+        .metadata({
+          ContextTrackMetadata.keyTitle: title,
+          ContextTrackMetadata.keyArtistName: widget.item.cardSubtitle,
+          if (artworkUrl != null && artworkUrl.isNotEmpty)
+            ContextTrackMetadata.keyImageUrl: artworkUrl,
+        })
+        .build();
+    SpotifyUriNavigator.playUri(context, widget.item.uri, track: track);
   }
 
   @override
@@ -132,31 +162,42 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
 
     final bgColor = _cardBackgroundColor();
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: SizedBox(
-                  width: 88,
-                  height: 88,
-                  child: artworkUrl != null && artworkUrl.isNotEmpty
-                      ? AppNetworkImage(
-                          imageUrl: artworkUrl,
-                          fit: BoxFit.cover,
-                          memCacheWidth: 176,
-                          memCacheHeight: 176,
-                          errorWidget: (_, _, _) => Container(
+    return GestureDetector(
+      onTap: () => SpotifyUriNavigator.openUri(context, widget.item.uri),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 88,
+                    height: 88,
+                    child: artworkUrl != null && artworkUrl.isNotEmpty
+                        ? AppNetworkImage(
+                            imageUrl: artworkUrl,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 176,
+                            memCacheHeight: 176,
+                            errorWidget: (_, _, _) => Container(
+                              color: const Color(0xFF333333),
+                              child: const Icon(
+                                Icons.podcasts,
+                                color: Colors.white24,
+                                size: 36,
+                              ),
+                            ),
+                          )
+                        : Container(
                             color: const Color(0xFF333333),
                             child: const Icon(
                               Icons.podcasts,
@@ -164,134 +205,132 @@ class _ShowPreviewCardState extends State<ShowPreviewCard> {
                               size: 36,
                             ),
                           ),
-                        )
-                      : Container(
-                          color: const Color(0xFF333333),
-                          child: const Icon(
-                            Icons.podcasts,
-                            color: Colors.white24,
-                            size: 36,
-                          ),
-                        ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                              height: 1.25,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                height: 1.25,
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.more_vert,
+                            color: Colors.grey.shade400,
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                      if (publisher.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          publisher,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 12,
+                          ),
                         ),
-                        const SizedBox(width: 4),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            if (description.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.grey.shade300,
+                  fontSize: 12,
+                  height: 1.3,
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: _playWithMetadata,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Icon(
-                          Icons.more_vert,
-                          color: Colors.grey.shade400,
-                          size: 20,
+                          Icons.volume_up_outlined,
+                          color: Colors.white.withValues(alpha: 0.9),
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          previewTrait?.previewLabel.isNotEmpty == true
+                              ? previewTrait!.previewLabel
+                              : 'Preview show',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ],
                     ),
-                    if (publisher.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        publisher,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.grey.shade400,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-
-          if (description.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              description,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.grey.shade300,
-                fontSize: 12,
-                height: 1.3,
-              ),
+                const Spacer(),
+                Icon(
+                  Icons.add_circle_outline_rounded,
+                  color: Colors.white.withValues(alpha: 0.8),
+                  size: 26,
+                ),
+                const SizedBox(width: 14),
+                GestureDetector(
+                  onTap: _playWithMetadata,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.black,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
-
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.volume_up_outlined,
-                      color: Colors.white.withValues(alpha: 0.9),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      previewTrait?.previewLabel.isNotEmpty == true
-                          ? previewTrait!.previewLabel
-                          : 'Preview show',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              Icon(
-                Icons.add_circle_outline_rounded,
-                color: Colors.white.withValues(alpha: 0.8),
-                size: 26,
-              ),
-              const SizedBox(width: 14),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.black,
-                  size: 24,
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }

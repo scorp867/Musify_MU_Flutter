@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_context_track.proto";
+
+option optimize_for = CODE_SIZE;
+
+message ContextPage {
+    repeated ContextTrack tracks = 1;
+    map<string, string> metadata = 2;
+    string page_url = 3;
+    string next_page_url = 4;
+    bool is_loading = 5;
+}

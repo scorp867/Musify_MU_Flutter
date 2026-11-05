@@ -49,7 +49,7 @@ class PlayerOptionOverrides {
 
   @override
   String toString() =>
-      'PlayerOptionOverrides{modes=$modes, playbackSpeed=$playbackSpeed, repeatingContext=$repeatingContext, repeatingTrack=$repeatingTrack, shufflingContext=$shufflingContext}';
+      'PlayerOptionOverrides{repeatingTrack=$repeatingTrack, repeatingContext=$repeatingContext, shufflingContext=$shufflingContext, playbackSpeed=$playbackSpeed, modes=$modes}';
 
   static bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (identical(a, b)) return true;
@@ -79,6 +79,9 @@ class PlayerOptionOverridesBuilder {
         _repeatingContext = repeatingContext,
         _repeatingTrack = repeatingTrack,
         _shufflingContext = shufflingContext;
+
+  static PlayerOptionOverridesBuilder builder() =>
+      PlayerOptionOverrides.builder();
 
   PlayerOptionOverridesBuilder modes(Map<String, String> val) {
     _modes = Map<String, String>.from(val);

@@ -29,8 +29,8 @@ class SpotifyLicenseResolver {
   /// Falls back to `$baseHost$defaultLicensePath` on network/parsing failure.
   Future<String> resolveLicenseUrl() async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (_cachedLicenseUrl != null && now < _cachedExpiryMs) {
-      return _cachedLicenseUrl!;
+    if (_cachedLicenseUrl case final cachedUrl? when now < _cachedExpiryMs) {
+      return cachedUrl;
     }
 
     try {
@@ -59,7 +59,10 @@ class SpotifyLicenseResolver {
         final body = jsonDecode(jsonStr);
         if (body is Map<String, dynamic>) {
           final uri = body['uri'] as String?;
-          final expires = body['expires'] as int? ?? 0;
+          final expires = switch (body['expires']) {
+            final int exp => exp,
+            _ => 0,
+          };
 
           if (uri != null && uri.isNotEmpty) {
             final cleanUri = uri.startsWith('/') ? uri.substring(1) : uri;

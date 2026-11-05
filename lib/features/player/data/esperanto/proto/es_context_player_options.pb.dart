@@ -129,7 +129,7 @@ class ContextPlayerOptionOverrides extends $pb.GeneratedMessage {
     $0.OptionalBoolean? shufflingContext,
     $0.OptionalBoolean? repeatingContext,
     $0.OptionalBoolean? repeatingTrack,
-    $core.double? playbackSpeed,
+    $0.OptionalDouble? playbackSpeed,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>? modes,
   }) {
     final result = ContextPlayerOptionOverrides._();
@@ -161,8 +161,8 @@ class ContextPlayerOptionOverrides extends $pb.GeneratedMessage {
         subBuilder: $0.OptionalBoolean.$_createMessage)
     ..aOM<$0.OptionalBoolean>(3, _omitFieldNames ? '' : 'repeatingTrack',
         subBuilder: $0.OptionalBoolean.$_createMessage)
-    ..aD(4, _omitFieldNames ? '' : 'playbackSpeed',
-        fieldType: $pb.PbFieldType.OF)
+    ..aOM<$0.OptionalDouble>(4, _omitFieldNames ? '' : 'playbackSpeed',
+        subBuilder: $0.OptionalDouble.$_createMessage)
     ..m<$core.String, $core.String>(5, _omitFieldNames ? '' : 'modes',
         entryClassName: 'ContextPlayerOptionOverrides.ModesEntry',
         keyFieldType: $pb.PbFieldType.OS,
@@ -232,13 +232,15 @@ class ContextPlayerOptionOverrides extends $pb.GeneratedMessage {
   $0.OptionalBoolean ensureRepeatingTrack() => $_ensure(2);
 
   @$pb.TagNumber(4)
-  $core.double get playbackSpeed => $_getN(3);
+  $0.OptionalDouble get playbackSpeed => $_getN(3);
   @$pb.TagNumber(4)
-  set playbackSpeed($core.double value) => $_setFloat(3, value);
+  set playbackSpeed($0.OptionalDouble value) => $_setField(4, value);
   @$pb.TagNumber(4)
   $core.bool hasPlaybackSpeed() => $_has(3);
   @$pb.TagNumber(4)
   void clearPlaybackSpeed() => $_clearField(4);
+  @$pb.TagNumber(4)
+  $0.OptionalDouble ensurePlaybackSpeed() => $_ensure(3);
 
   @$pb.TagNumber(5)
   $pb.PbMap<$core.String, $core.String> get modes => $_getMap(4);

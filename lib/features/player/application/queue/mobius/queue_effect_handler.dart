@@ -9,7 +9,9 @@ import '../../../data/queue/queue_remove_handler.dart';
 import '../../../data/queue/queue_reorder_handler.dart';
 import '../../../domain/commands/add_to_queue_command.dart';
 import '../../../domain/commands/options/command_options.dart';
+import '../../../domain/commands/options/player_option_overrides.dart';
 import '../../../domain/commands/options/prepare_play_options.dart';
+import '../../../domain/commands/options/skip_to_track.dart';
 import '../../../domain/commands/pause_command.dart';
 import '../../../domain/commands/play_command.dart';
 import '../../../domain/commands/resume_command.dart';
@@ -24,13 +26,14 @@ import '../../../domain/commands/update_context_command.dart';
 import '../../../domain/commands/update_track_command.dart';
 import '../../../domain/models/context.dart';
 import '../../../domain/models/context_page.dart';
+import '../../../domain/models/context_track.dart';
 import '../../../domain/models/play_origin.dart';
 import '../../../domain/models/player_queue.dart';
 import '../player_queue_event.dart';
 import 'mobius_types.dart';
 import 'queue_effects.dart';
 
-/// 1:1 replica of Spotify Mobius Queue Effect Handler (p.mwp0, p.dwp0, p.hwp0).
+/// 1:1 replica of Spotify Mobius Queue Effect Handler (p.mwp0, p.dwp0, p.hwp0, p.tbx0, p.ibx0).
 /// Dispatches asynchronous commands to ContextPlayer clients and reports back events.
 class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, PlayerQueueEvent> {
   final ContextPlayerQueueClient? queueClient;
@@ -50,257 +53,301 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Playe
   @override
   Future<PlayerQueueEvent?> handleEffect(QueueEffect effect) async {
     try {
-      if (effect is AddTracksEffect) {
-        final qc = queueClient;
-        if (qc == null) return null;
+      switch (effect) {
+        case AddTracksEffect(:final tracks, :final mode):
+          final qc = queueClient;
+          if (qc == null) return null;
 
-        // 1:1 with Spotify dwp0 lines 28-33:
-        if (effect.tracks.length == 1 &&
-            effect.mode == QueueInsertMode.addToEndOfQueue) {
-          await qc.addToQueue(AddToQueueCommand.create(effect.tracks.first));
-        } else {
-          final updated = QueueAddHandler.addTracks(
+          // 1:1 with Spotify dwp0 lines 28-33 / hbx0 case 0:
+          if (tracks.length == 1 && mode == QueueInsertMode.addToEndOfQueue) {
+            await qc.addToQueue(AddToQueueCommand.create(tracks.first));
+          } else {
+            final updated = QueueAddHandler.addTracks(
+              getCurrentQueue(),
+              tracks,
+              mode: mode,
+            );
+            final command = QueueHelpers.createSetQueueCommand(updated);
+            await qc.setQueue(command);
+          }
+          return null;
+
+        case SetQueueTracksEffect(:final nextTracks, :final prevTracks):
+          final qc = queueClient;
+          if (qc != null) {
+            final current = getCurrentQueue();
+            final updated = current.toBuilder()
+                .nextTracks(nextTracks)
+                .prevTracks(switch (prevTracks) {
+                  final t? => t,
+                  null => current.prevTracks,
+                })
+                .build();
+            final command = SetQueueCommand.builder(playerQueue: updated)
+                .options(CommandOptions.builder().overrideRestrictions(true).build())
+                .build();
+            await qc.setQueue(command);
+          }
+          return null;
+
+        case PlayContextEffect(:final context, :final options, :final playOrigin):
+          final pc = playClient;
+          if (pc != null) {
+            final resolvedOptions = switch (options) {
+              final opts? => opts,
+              null => PreparePlayOptions.empty,
+            };
+            final effectivePlayOrigin = playOrigin.featureIdentifier.isNotEmpty
+                ? playOrigin
+                : PlayOrigin.builder(
+                    switch (context.metadata['play_origin_feature']) {
+                      final f? when f.isNotEmpty => f,
+                      _ => switch (context.uri) {
+                          final cu when cu.startsWith('spotify:playlist:') => 'playlist',
+                          final cu when cu.startsWith('spotify:album:') => 'album',
+                          final cu when cu.startsWith('spotify:artist:') => 'artist',
+                          final cu when cu.contains('local') => 'local_files',
+                          _ => 'context-play-handler',
+                        },
+                    },
+                  )
+                  .viewUri(context.uri)
+                  .build();
+
+            final playCommand = PlayCommand.builder(context, effectivePlayOrigin)
+                .options(resolvedOptions)
+                .build();
+            await pc.play(playCommand);
+          }
+          return null;
+
+        case RemoveTracksEffect(:final tracks):
+          final qc = queueClient;
+          if (qc == null) return null;
+
+          final updated = QueueRemoveHandler.removeTracks(
             getCurrentQueue(),
-            effect.tracks,
-            mode: effect.mode,
+            tracks,
           );
           final command = QueueHelpers.createSetQueueCommand(updated);
           await qc.setQueue(command);
-        }
-        return null;
-      }
+          return null;
 
-      if (effect is SetQueueTracksEffect) {
-        final qc = queueClient;
-        if (qc != null) {
-          final current = getCurrentQueue();
-          final updated = current.toBuilder()
-              .nextTracks(effect.nextTracks)
-              .prevTracks(effect.prevTracks ?? current.prevTracks)
-              .build();
-          final command = SetQueueCommand.builderFromQueue(updated)
-              .options(CommandOptions.builder().overrideRestrictions(true).build())
-              .build();
-          await qc.setQueue(command);
-        }
-        return null;
-      }
+        case ReorderTrackEffect(:final track, :final destinationIndex):
+          final qc = queueClient;
+          if (qc == null) return null;
 
-      if (effect is PlayContextEffect) {
-        final pc = playClient;
-        if (pc != null) {
-          final playCommand = PlayCommand.builder(effect.context, effect.playOrigin)
-              .options(effect.options ?? PreparePlayOptions.empty)
-              .build();
-          await pc.play(playCommand);
-        }
-        return null;
-      }
-
-      if (effect is RemoveTracksEffect) {
-        final qc = queueClient;
-        if (qc == null) return null;
-
-        final updated = QueueRemoveHandler.removeTracks(
-          getCurrentQueue(),
-          effect.tracks,
-        );
-        final command = QueueHelpers.createSetQueueCommand(updated);
-        await qc.setQueue(command);
-        return null;
-      }
-
-      if (effect is ReorderTrackEffect) {
-        final qc = queueClient;
-        if (qc == null) return null;
-
-        // 1:1 with Spotify gxl0 / lr5
-        final updated = QueueReorderHandler.reorderTrack(
-          playerQueue: getCurrentQueue(),
-          trackToMove: effect.track,
-          destinationVisibleIndex: effect.destinationIndex,
-        );
-        final command = QueueHelpers.createSetQueueCommand(updated);
-        await qc.setQueue(command);
-        return null;
-      }
-
-      if (effect is ClearQueueEffect) {
-        final qc = queueClient;
-        if (qc == null) return null;
-
-        // 1:1 with Spotify hwp0 case 0 / pml0 case 2
-        final updated = QueueClearHandler.clearUserQueue(getCurrentQueue());
-        final command = QueueHelpers.createSetQueueCommand(updated);
-        await qc.setQueue(command);
-        return null;
-      }
-
-      if (effect is ToggleShuffleEffect) {
-        final oc = optionsClient;
-        if (oc != null) {
-          final builder = SetShufflingContextCommand.builder(effect.nextShuffle);
-          if (effect.loggingParams != null) {
-            builder.loggingParams(effect.loggingParams!);
-          }
-          await oc.setShufflingContext(builder.build());
-        }
-        return null;
-      }
-
-      if (effect is ToggleRepeatEffect) {
-        final oc = optionsClient;
-        if (oc != null) {
-          final builder = SetOptionsCommand.builder()
-              .repeatingContext(effect.nextRepeatContext)
-              .repeatingTrack(effect.nextRepeatTrack);
-          if (effect.loggingParams != null) {
-            builder.loggingParams(effect.loggingParams!);
-          }
-          await oc.setOptions(builder.build());
-        }
-        return null;
-      }
-
-      if (effect is PlayPauseEffect) {
-        final cc = controlClient;
-        if (cc != null) {
-          if (effect.currentlyPlaying) {
-            final builder = PauseCommand.builder();
-            if (effect.loggingParams != null) {
-              builder.loggingParams(effect.loggingParams!);
-            }
-            await cc.pause(builder.build());
-          } else {
-            final builder = ResumeCommand.builder();
-            if (effect.loggingParams != null) {
-              builder.loggingParams(effect.loggingParams!);
-            }
-            await cc.resume(builder.build());
-          }
-        }
-        return null;
-      }
-
-      if (effect is SkipNextEffect) {
-        final cc = controlClient;
-        if (cc != null) {
-          final builder = SkipToNextTrackCommand.builder();
-          if (effect.loggingParams != null) {
-            builder.loggingParams(effect.loggingParams!);
-          }
-          await cc.skipToNext(builder.build());
-        }
-        return null;
-      }
-
-      if (effect is SkipPrevEffect) {
-        final cc = controlClient;
-        if (cc != null) {
-          final builder = SkipToPrevTrackCommand.builder();
-          if (effect.loggingParams != null) {
-            builder.loggingParams(effect.loggingParams!);
-          }
-          await cc.skipToPrev(builder.build());
-        }
-        return null;
-      }
-
-      if (effect is PlayTrackEffect) {
-        final cc = controlClient;
-        final pc = playClient;
-        final currentQueue = getCurrentQueue();
-
-        final isInNextTracks = currentQueue.nextTracks.any(
-          (t) => (t.uid.isNotEmpty && t.uid == effect.track.uid) ||
-                 (t.uri.isNotEmpty && t.uri == effect.track.uri),
-        );
-
-        if (isInNextTracks && cc != null) {
-          // 1:1 with Spotify x0j0 case 25: Skip to specific queued track
-          await cc.skipToNext(SkipToNextTrackCommand.builder().track(effect.track).build());
-        } else if (pc != null) {
-          // Play standalone or context track with full metadata and pages
-          final page = ContextPage.builder().tracks([effect.track]).build();
-          final context = Context.builder(effect.track.uri)
-              .url('context://${effect.track.uri}')
-              .metadata(effect.track.metadata)
-              .pages([page])
-              .build();
-          final playCommand = PlayCommand.create(
-            context,
-            const PlayOrigin(featureIdentifier: 'local_files'),
+          // 1:1 with Spotify gxl0 / lr5 / wos0
+          final updated = QueueReorderHandler.reorderTrack(
+            playerQueue: getCurrentQueue(),
+            trackToMove: track,
+            destinationVisibleIndex: destinationIndex,
           );
-          await pc.play(playCommand);
-        }
-        return null;
-      }
+          final command = QueueHelpers.createSetQueueCommand(updated);
+          await qc.setQueue(command);
+          return null;
 
-      if (effect is SeekToEffect) {
-        final cc = controlClient;
-        if (cc != null) {
-          final builder = SeekToCommand.builder(effect.positionMs);
-          if (effect.loggingParams != null) {
-            builder.loggingParams(effect.loggingParams!);
+        case ClearQueueEffect():
+          final qc = queueClient;
+          if (qc == null) return null;
+
+          // 1:1 with Spotify hwp0 case 0 / pml0 case 2 / w9x0 / kbx0 case 0
+          final updated = QueueClearHandler.clearUserQueue(getCurrentQueue());
+          final command = QueueHelpers.createSetQueueCommand(updated);
+          await qc.setQueue(command);
+          return null;
+
+        case ToggleShuffleEffect(:final nextShuffle, :final loggingParams):
+          final oc = optionsClient;
+          if (oc != null) {
+            final builder = SetShufflingContextCommand.builder(nextShuffle);
+            if (loggingParams case final params?) {
+              builder.loggingParams(params);
+            }
+            await oc.setShufflingContext(builder.build());
           }
-          await cc.seekTo(builder.build());
-        }
-        return null;
-      }
+          return null;
 
-      if (effect is StopEffect) {
-        final cc = controlClient;
-        if (cc != null) {
-          await cc.stop(StopCommand.create());
-        }
-        return null;
-      }
+        case ToggleRepeatEffect(:final nextRepeatContext, :final nextRepeatTrack, :final loggingParams):
+          final oc = optionsClient;
+          if (oc != null) {
+            final builder = SetOptionsCommand.builder()
+                .repeatingContext(nextRepeatContext)
+                .repeatingTrack(nextRepeatTrack);
+            if (loggingParams case final params?) {
+              builder.loggingParams(params);
+            }
+            await oc.setOptions(builder.build());
+          }
+          return null;
 
-      if (effect is SignalEffect) {
-        final cc = controlClient;
-        if (cc != null) {
-          await cc.signal(effect.command);
-        }
-        return null;
-      }
+        case PlayPauseEffect(:final currentlyPlaying, :final loggingParams):
+          final cc = controlClient;
+          if (cc != null) {
+            if (currentlyPlaying) {
+              final builder = PauseCommand.builder();
+              if (loggingParams case final params?) {
+                builder.loggingParams(params);
+              }
+              await cc.pause(builder.build());
+            } else {
+              final builder = ResumeCommand.builder();
+              if (loggingParams case final params?) {
+                builder.loggingParams(params);
+              }
+              await cc.resume(builder.build());
+            }
+          }
+          return null;
 
-      if (effect is SetSleepTimerEffect) {
-        final oc = optionsClient;
-        if (oc != null) {
-          await oc.setSleepTimer(effect.command);
-        }
-        return null;
-      }
+        case SkipNextEffect(:final loggingParams):
+          final cc = controlClient;
+          if (cc != null) {
+            final builder = SkipToNextTrackCommand.builder();
+            if (loggingParams case final params?) {
+              builder.loggingParams(params);
+            }
+            await cc.skipToNext(builder.build());
+          }
+          return null;
 
-      if (effect is PlayAsNextInQueueEffect) {
-        final updated = QueueAddHandler.addTracks(
-          getCurrentQueue(),
-          effect.tracks,
-          mode: QueueInsertMode.playNext,
-        );
-        final command = QueueHelpers.createSetQueueCommand(updated);
-        await queueClient?.setQueue(command);
-        return null;
-      }
+        case SkipPrevEffect(:final loggingParams):
+          final cc = controlClient;
+          if (cc != null) {
+            final builder = SkipToPrevTrackCommand.builder();
+            if (loggingParams case final params?) {
+              builder.loggingParams(params);
+            }
+            await cc.skipToPrev(builder.build());
+          }
+          return null;
 
-      if (effect is UpdateContextEffect) {
-        final pc = playClient;
-        if (pc != null) {
-          await pc.updateContext(UpdateContextCommand.create(effect.context));
-        }
-        return null;
-      }
+        case PlayTrackEffect(:final track, :final playOrigin):
+          final cc = controlClient;
+          final pc = playClient;
+          final currentQueue = getCurrentQueue();
 
-      if (effect is UpdateTrackEffect) {
-        final pc = playClient;
-        if (pc != null) {
-          await pc.updateTrack(UpdateTrackCommand.create(effect.track));
-        }
-        return null;
+          final isInNextTracks = currentQueue.nextTracks.any(
+            (t) => (t.uid.isNotEmpty && t.uid == track.uid) ||
+                   (t.uri.isNotEmpty && t.uri == track.uri),
+          );
+
+          if (isInNextTracks && cc != null) {
+            // 1:1 with Spotify x0j0 case 25 / kax0 / jbx0 case 1: Skip to specific queued track
+            await cc.skipToNext(SkipToNextTrackCommand.builder().track(track).build());
+          } else if (pc != null) {
+            // Play standalone or context track with full metadata and pages
+            final page = ContextPage.builder()
+                .pageUrl('context://${track.uri}')
+                .tracks([track])
+                .build();
+            final context = Context.builder(track.uri)
+                .url('context://${track.uri}')
+                .metadata(track.metadata)
+                .pages([page])
+                .build();
+
+            final effectivePlayOrigin = playOrigin.featureIdentifier.isNotEmpty
+                ? playOrigin
+                : PlayOrigin.builder(
+                    switch (track.metadata['play_origin_feature']) {
+                      final f? when f.isNotEmpty => f,
+                      _ => switch (track.metadata['is_local']) {
+                          'true' => 'local_files',
+                          _ => switch (track.metadata[ContextTrackMetadata.keyContextUri]) {
+                              final cu? when cu.startsWith('spotify:playlist:') => 'playlist',
+                              final cu? when cu.startsWith('spotify:album:') => 'album',
+                              final cu? when cu.startsWith('spotify:artist:') => 'artist',
+                              _ => 'track_playback_manager',
+                            },
+                        },
+                    },
+                  )
+                  .viewUri(
+                    switch (track.metadata[ContextTrackMetadata.keyContextUri]) {
+                      final cu? when cu.isNotEmpty => cu,
+                      _ => track.uri,
+                    },
+                  )
+                  .build();
+
+            final playOptions = PreparePlayOptions.builder()
+                .skipTo(SkipToTrack.fromUri(track.uri))
+                .playerOptionsOverride(
+                  PlayerOptionOverrides.builder()
+                      .modes({'media': 'audio'})
+                      .build(),
+                )
+                .build();
+
+            final playCommand = PlayCommand.builder(context, effectivePlayOrigin)
+                .options(playOptions)
+                .build();
+            await pc.play(playCommand);
+          }
+          return null;
+
+        case SeekToEffect(:final positionMs, :final loggingParams):
+          final cc = controlClient;
+          if (cc != null) {
+            final builder = SeekToCommand.builder(positionMs);
+            if (loggingParams case final params?) {
+              builder.loggingParams(params);
+            }
+            await cc.seekTo(builder.build());
+          }
+          return null;
+
+        case StopEffect():
+          final cc = controlClient;
+          if (cc != null) {
+            await cc.stop(StopCommand.create());
+          }
+          return null;
+
+        case SignalEffect(:final command):
+          final cc = controlClient;
+          if (cc != null) {
+            await cc.signal(command);
+          }
+          return null;
+
+        case SetSleepTimerEffect(:final command):
+          final oc = optionsClient;
+          if (oc != null) {
+            await oc.setSleepTimer(command);
+          }
+          return null;
+
+        case PlayAsNextInQueueEffect(:final tracks):
+          final updated = QueueAddHandler.addTracks(
+            getCurrentQueue(),
+            tracks,
+            mode: QueueInsertMode.playNext,
+          );
+          final command = QueueHelpers.createSetQueueCommand(updated);
+          final qc = queueClient;
+          if (qc != null) {
+            await qc.setQueue(command);
+          }
+          return null;
+
+        case UpdateContextEffect(:final context):
+          final pc = playClient;
+          if (pc != null) {
+            await pc.updateContext(UpdateContextCommand.create(context));
+          }
+          return null;
+
+        case UpdateTrackEffect(:final track):
+          final pc = playClient;
+          if (pc != null) {
+            await pc.updateTrack(UpdateTrackCommand.create(track));
+          }
+          return null;
       }
     } catch (e) {
       return QueueErrorOccurred(e.toString());
     }
-    return null;
   }
 }

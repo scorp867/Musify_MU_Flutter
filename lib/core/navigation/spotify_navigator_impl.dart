@@ -1,6 +1,11 @@
 library;
 
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
+import '../../app/di/injection.dart';
+import '../../features/player/application/queue/player_queue_bloc.dart';
+import '../../features/player/domain/models/context_track.dart';
+import '../../features/player/domain/models/play_origin.dart';
 import '../ubi/data/lifecycle/page_instance_id_holder.dart';
 import '../ubi/domain/logging/ubi_logger.dart';
 import '../ubi/domain/models/interaction_logging_result.dart';
@@ -32,6 +37,11 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
   }
 
   @override
+  Future<bool> playUri(BuildContext context, String uri, {ContextTrack? track}) {
+    return SpotifyUriNavigator.playUri(context, uri, track: track);
+  }
+
+  @override
   bool navigateToUri(
     BuildContext context,
     String uri, {
@@ -59,7 +69,14 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
             actionName: 'navigate',
           ),
         );
-      } catch (_) {}
+      } catch (e, stack) {
+        dev.log(
+          'Failed to log interaction for $uri: $e',
+          name: 'SpotifyNavigatorImpl',
+          error: e,
+          stackTrace: stack,
+        );
+      }
     }
 
     if (SpotifyUriNavigator.isPlaylistUri(uri)) {
@@ -69,6 +86,18 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
         ),
       );
       return true;
+    }
+
+    if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
+      if (getIt.isRegistered<PlayerQueueBloc>()) {
+        final track = ContextTrack.builder(uri).build();
+        final origin = PlayOrigin.builder('navigator')
+            .viewUri(uri)
+            .referrerIdentifier('navigator')
+            .build();
+        getIt<PlayerQueueBloc>().add(PlayTrack(track, playOrigin: origin));
+        return true;
+      }
     }
 
     return false;
@@ -83,7 +112,14 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
           actionName: 'navigate_back',
         ),
       );
-    } catch (_) {}
+    } catch (e, stack) {
+      dev.log(
+        'Failed to log back navigation: $e',
+        name: 'SpotifyNavigatorImpl',
+        error: e,
+        stackTrace: stack,
+      );
+    }
     Navigator.of(context).maybePop();
     return true;
   }

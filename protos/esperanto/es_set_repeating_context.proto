@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_command_options.proto";
+import "es_logging_params.proto";
+
+option optimize_for = CODE_SIZE;
+
+message SetRepeatingContextRequest {
+    bool repeating_context = 1;
+    CommandOptions options = 2;
+    LoggingParams logging_params = 3;
+}

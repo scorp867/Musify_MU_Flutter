@@ -17,16 +17,16 @@ import 'package:protobuf/protobuf.dart' as $pb;
 class SeekToRequest_Relative extends $pb.ProtobufEnum {
   static const SeekToRequest_Relative BEGINNING =
       SeekToRequest_Relative._(0, _omitEnumNames ? '' : 'BEGINNING');
-  static const SeekToRequest_Relative END =
-      SeekToRequest_Relative._(1, _omitEnumNames ? '' : 'END');
   static const SeekToRequest_Relative CURRENT =
-      SeekToRequest_Relative._(2, _omitEnumNames ? '' : 'CURRENT');
+      SeekToRequest_Relative._(1, _omitEnumNames ? '' : 'CURRENT');
+  static const SeekToRequest_Relative END =
+      SeekToRequest_Relative._(2, _omitEnumNames ? '' : 'END');
 
   static const $core.List<SeekToRequest_Relative> values =
       <SeekToRequest_Relative>[
     BEGINNING,
-    END,
     CURRENT,
+    END,
   ];
 
   static final $core.List<SeekToRequest_Relative?> _byValue =

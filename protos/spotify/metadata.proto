@@ -1,5 +1,5 @@
-// Spotify Metadata protobuf - extended for audio file and preview extraction.
-// Source: Spotify 1.2.52.442 (windows) & Android liborbit-jni-spotify
+// Spotify Metadata protobuf - 100% Android Spotify APK Parity
+// Source: Spotify Android com.spotify.metadata.proto.Metadata$*
 
 syntax = "proto2";
 
@@ -7,33 +7,147 @@ package spotify.metadata;
 
 option optimize_for = CODE_SIZE;
 
-message Artist {
-    optional bytes gid = 1;
-    optional string name = 2;
-    optional sint32 popularity = 3;
-    optional ImageGroup portrait_group = 17;
+message Date {
+    optional sint32 year = 1;
+    optional sint32 month = 2;
+    optional sint32 day = 3;
+    optional sint32 hour = 4;
+    optional sint32 minute = 5;
 }
 
-message Album {
-    optional bytes gid = 1;
-    optional string name = 2;
-    repeated Artist artist = 3;
-
-    optional Type type = 4;
-    enum Type {
-        ALBUM = 1;
-        SINGLE = 2;
-        COMPILATION = 3;
-        EP = 4;
-        AUDIOBOOK = 5;
-        PODCAST = 6;
+message Image {
+    enum Size {
+        DEFAULT = 0;
+        SMALL = 1;
+        LARGE = 2;
+        XLARGE = 3;
     }
 
-    optional string label = 5;
-    optional Date date = 6;
-    optional sint32 popularity = 7;
-    optional ImageGroup cover_group = 17;
-    optional string type_str = 20;
+    optional bytes file_id = 1;
+    optional Size size = 2;
+    optional sint32 width = 3;
+    optional sint32 height = 4;
+}
+
+message ImageGroup {
+    repeated Image image = 1;
+}
+
+message ExternalId {
+    optional string type = 1;
+    optional string id = 2;
+}
+
+message Restriction {
+    repeated sint32 catalogue = 1;
+    optional sint32 type = 4;
+    repeated string catalogue_str = 5;
+}
+
+message Licensor {
+    optional bytes uuid = 1;
+}
+
+message Audio {
+    enum Format {
+        UNKNOWN = 0;
+        DEFAULT = 1;
+        PARROT = 2;
+    }
+
+    optional bytes uuid = 1;
+    optional Format format = 2;
+}
+
+message TrackAudioFormat {
+    optional Audio original_audio = 1;
+}
+
+message Video {
+    optional bytes gid = 1;
+}
+
+message ContentRating {
+    optional string country = 1;
+    repeated string tag = 2;
+}
+
+message ArtistWithRole {
+    enum Role {
+        ARTIST_ROLE_UNKNOWN = 0;
+        ARTIST_ROLE_MAIN_ARTIST = 1;
+        ARTIST_ROLE_FEATURED_ARTIST = 2;
+        ARTIST_ROLE_REMIXER = 3;
+        ARTIST_ROLE_ACTOR = 4;
+        ARTIST_ROLE_COMPOSER = 5;
+        ARTIST_ROLE_CONDUCTOR = 6;
+        ARTIST_ROLE_ORCHESTRA = 7;
+    }
+
+    optional bytes artist_gid = 1;
+    optional string artist_name = 2;
+    optional Role role = 3;
+}
+
+message ContentWindowing {
+}
+
+message ContentGated {
+}
+
+message ContentAccessStatus {
+    oneof status {
+        ContentWindowing content_windowing = 1;
+        ContentGated content_gated = 2;
+    }
+}
+
+message Availability {
+    repeated string catalogue_str = 1;
+    optional Date start = 2;
+}
+
+message SalePeriod {
+    repeated Restriction restriction = 1;
+    optional Date start = 2;
+    optional Date end = 3;
+}
+
+message Copyright {
+    enum Type {
+        P_COPYRIGHT = 0;
+        C_COPYRIGHT = 1;
+    }
+
+    optional Type type = 1;
+    optional string text = 2;
+}
+
+message Disc {
+    optional sint32 number = 1;
+    optional string name = 2;
+    repeated Track track = 3;
+}
+
+message ActivityPeriod {
+    optional sint32 start_year = 1;
+    optional sint32 end_year = 2;
+    optional sint32 decade = 3;
+}
+
+message Biography {
+    optional string text = 1;
+    repeated Image portrait = 2;
+    repeated ImageGroup portrait_group = 3;
+}
+
+message TopTracks {
+    optional string country = 1;
+    repeated Track track = 2;
+}
+
+message AlbumGroup {
+    repeated Album album = 1;
 }
 
 message AudioFile {
@@ -62,6 +176,62 @@ message AudioFile {
     optional Format format = 2;
 }
 
+message Artist {
+    optional bytes gid = 1;
+    optional string name = 2;
+    optional sint32 popularity = 3;
+    repeated TopTracks top_track = 4;
+    repeated AlbumGroup album_group = 5;
+    repeated AlbumGroup single_group = 6;
+    repeated AlbumGroup compilation_group = 7;
+    repeated AlbumGroup appears_on_group = 8;
+    repeated ExternalId external_id = 10;
+    repeated Image portrait = 11;
+    repeated Biography biography = 12;
+    repeated ActivityPeriod activity_period = 13;
+    repeated Restriction restriction = 14;
+    repeated Artist related = 15;
+    optional bool is_portrait_album_cover = 16;
+    optional ImageGroup portrait_group = 17;
+    repeated SalePeriod sale_period = 18;
+    repeated Availability availability = 20;
+}
+
+message Album {
+    optional bytes gid = 1;
+    optional string name = 2;
+    repeated Artist artist = 3;
+
+    optional Type type = 4;
+    enum Type {
+        ALBUM = 1;
+        SINGLE = 2;
+        COMPILATION = 3;
+        EP = 4;
+        AUDIOBOOK = 5;
+        PODCAST = 6;
+    }
+
+    optional string label = 5;
+    optional Date date = 6;
+    optional sint32 popularity = 7;
+    repeated Image cover = 9;
+    repeated ExternalId external_id = 10;
+    repeated Disc disc = 11;
+    repeated string review = 12;
+    repeated Copyright copyright = 13;
+    repeated Restriction restriction = 14;
+    repeated Album related = 15;
+    repeated SalePeriod sale_period = 16;
+    optional ImageGroup cover_group = 17;
+    optional string original_title = 18;
+    optional string version_title = 19;
+    optional string type_str = 20;
+    repeated Availability availability = 23;
+    optional int64 prerelease_end_date = 42;
+    optional ContentAccessStatus content_access_status = 44;
+}
+
 message Track {
     optional bytes gid = 1;
     optional string name = 2;
@@ -72,11 +242,27 @@ message Track {
     optional sint32 duration = 7;
     optional sint32 popularity = 8;
     optional bool explicit = 9;
+    repeated ExternalId external_id = 10;
+    repeated Restriction restriction = 11;
     repeated AudioFile file = 12;
     repeated Track alternative = 13;
+    repeated SalePeriod sale_period = 14;
     repeated AudioFile preview = 15;
+    repeated string tags = 16;
     optional int64 earliest_live_timestamp = 17;
+    optional bool has_lyrics = 18;
+    repeated Availability availability = 19;
+    optional Licensor licensor = 21;
+    repeated string language_of_performance = 22;
+    optional Audio original_audio = 24;
+    repeated ContentRating content_rating = 25;
+    optional string original_title = 27;
+    optional string version_title = 28;
+    repeated ArtistWithRole artist_with_role = 32;
     optional string canonical_uri = 36;
+    repeated Video original_video = 38;
+    repeated TrackAudioFormat audio_formats = 41;
+    optional ContentAccessStatus content_access_status = 51;
 }
 
 message Show {
@@ -100,28 +286,4 @@ message Episode {
     optional string language = 69;
     optional bool explicit = 70;
     optional Show show = 71;
-}
-
-message Date {
-    optional sint32 year = 1;
-    optional sint32 month = 2;
-    optional sint32 day = 3;
-}
-
-message Image {
-    enum Size {
-        DEFAULT = 0;
-        SMALL = 1;
-        LARGE = 2;
-        XLARGE = 3;
-    }
-
-    optional bytes file_id = 1;
-    optional Size size = 2;
-    optional sint32 width = 3;
-    optional sint32 height = 4;
-}
-
-message ImageGroup {
-    repeated Image image = 1;
 }

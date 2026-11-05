@@ -9,11 +9,15 @@ class UpdateViewUriCommand implements Command {
     required this.viewUri,
   });
 
-  static UpdateViewUriCommand create([String viewUri = '']) =>
+  static UpdateViewUriCommand create([String? viewUri]) =>
       builder(viewUri).build();
 
-  static UpdateViewUriCommandBuilder builder([String viewUri = '']) =>
-      UpdateViewUriCommandBuilder(viewUri: viewUri);
+  static UpdateViewUriCommandBuilder builder([String? viewUri]) {
+    if (viewUri case final validUri?) {
+      return UpdateViewUriCommandBuilder(viewUri: validUri);
+    }
+    return UpdateViewUriCommandBuilder(viewUri: '');
+  }
 
   UpdateViewUriCommandBuilder toBuilder() =>
       UpdateViewUriCommandBuilder(viewUri: viewUri);
@@ -34,6 +38,9 @@ class UpdateViewUriCommandBuilder {
   String _viewUri;
 
   UpdateViewUriCommandBuilder({String viewUri = ''}) : _viewUri = viewUri;
+
+  static UpdateViewUriCommandBuilder builder() =>
+      UpdateViewUriCommand.builder('');
 
   UpdateViewUriCommandBuilder viewUri(String val) {
     _viewUri = val;

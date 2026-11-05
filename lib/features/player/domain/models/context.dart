@@ -55,7 +55,10 @@ class Context {
         uri,
         url,
         Object.hashAll(metadata.entries.map((e) => Object.hash(e.key, e.value))),
-        pages != null ? Object.hashAll(pages!) : null,
+        switch (pages) {
+          final p? => Object.hashAll(p),
+          null => null,
+        },
         restrictions,
       );
 
@@ -99,8 +102,13 @@ class ContextBuilder {
   })  : _uri = uri,
         _url = url,
         _metadata = Map<String, String>.from(metadata),
-        _pages = pages != null ? List<ContextPage>.from(pages) : null,
+        _pages = switch (pages) {
+          final p? => List<ContextPage>.from(p),
+          null => null,
+        },
         _restrictions = restrictions;
+
+  static ContextBuilder builder([String uri = '']) => Context.builder(uri);
 
   ContextBuilder uri(String val) {
     _uri = val;
@@ -131,7 +139,10 @@ class ContextBuilder {
         uri: _uri,
         url: _url,
         metadata: Map<String, String>.unmodifiable(_metadata),
-        pages: _pages != null ? List<ContextPage>.unmodifiable(_pages!) : null,
+        pages: switch (_pages) {
+          final p? => List<ContextPage>.unmodifiable(p),
+          null => null,
+        },
         restrictions: _restrictions,
       );
 }

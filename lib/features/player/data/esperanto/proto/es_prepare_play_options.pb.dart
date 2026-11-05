@@ -39,6 +39,7 @@ class PreparePlayOptions extends $pb.GeneratedMessage {
     $core.String? license,
     $core.Iterable<$core.MapEntry<$core.String, $core.String>>?
         configurationOverride,
+    $core.String? seekToCreatorTimestamp,
   }) {
     final result = PreparePlayOptions._();
     if (playbackId != null) result.playbackId = playbackId;
@@ -57,6 +58,8 @@ class PreparePlayOptions extends $pb.GeneratedMessage {
     if (license != null) result.license = license;
     if (configurationOverride != null)
       result.configurationOverride.addEntries(configurationOverride);
+    if (seekToCreatorTimestamp != null)
+      result.seekToCreatorTimestamp = seekToCreatorTimestamp;
     return result;
   }
 
@@ -101,6 +104,7 @@ class PreparePlayOptions extends $pb.GeneratedMessage {
         keyFieldType: $pb.PbFieldType.OS,
         valueFieldType: $pb.PbFieldType.OS,
         packageName: const $pb.PackageName('spotify.player.esperanto.proto'))
+    ..aOS(14, _omitFieldNames ? '' : 'seekToCreatorTimestamp')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -239,6 +243,15 @@ class PreparePlayOptions extends $pb.GeneratedMessage {
   @$pb.TagNumber(13)
   $pb.PbMap<$core.String, $core.String> get configurationOverride =>
       $_getMap(12);
+
+  @$pb.TagNumber(14)
+  $core.String get seekToCreatorTimestamp => $_getSZ(13);
+  @$pb.TagNumber(14)
+  set seekToCreatorTimestamp($core.String value) => $_setString(13, value);
+  @$pb.TagNumber(14)
+  $core.bool hasSeekToCreatorTimestamp() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearSeekToCreatorTimestamp() => $_clearField(14);
 }
 
 const $core.bool _omitFieldNames =

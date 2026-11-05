@@ -4,22 +4,23 @@ enum PrefetchLevel {
   none,
   media;
 
-  static PrefetchLevel fromString(String? value) {
-    switch (value?.toUpperCase()) {
+  static PrefetchLevel fromString(String value) {
+    switch (value.toUpperCase()) {
+      case 'NONE':
+        return PrefetchLevel.none;
       case 'MEDIA':
         return PrefetchLevel.media;
-      case 'NONE':
       default:
-        return PrefetchLevel.none;
+        throw FormatException('Unknown PrefetchLevel: $value');
     }
   }
 
   String toJson() {
     switch (this) {
-      case PrefetchLevel.media:
-        return 'MEDIA';
       case PrefetchLevel.none:
         return 'NONE';
+      case PrefetchLevel.media:
+        return 'MEDIA';
     }
   }
 }

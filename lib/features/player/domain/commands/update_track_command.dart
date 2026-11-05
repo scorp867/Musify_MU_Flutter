@@ -12,8 +12,12 @@ class UpdateTrackCommand implements Command {
 
   static UpdateTrackCommand create(ContextTrack track) => builder(track).build();
 
-  static UpdateTrackCommandBuilder builder([ContextTrack? track]) =>
-      UpdateTrackCommandBuilder(track: track);
+  static UpdateTrackCommandBuilder builder([ContextTrack? track]) {
+    if (track case final validTrack?) {
+      return UpdateTrackCommandBuilder(track: validTrack);
+    }
+    return UpdateTrackCommandBuilder(track: ContextTrack.create(''));
+  }
 
   UpdateTrackCommandBuilder toBuilder() =>
       UpdateTrackCommandBuilder(track: track);
@@ -35,12 +39,18 @@ class UpdateTrackCommandBuilder {
 
   UpdateTrackCommandBuilder({ContextTrack? track}) : _track = track;
 
+  static UpdateTrackCommandBuilder builder() =>
+      UpdateTrackCommand.builder(ContextTrack.create(''));
+
   UpdateTrackCommandBuilder track(ContextTrack val) {
     _track = val;
     return this;
   }
 
-  UpdateTrackCommand build() => UpdateTrackCommand(
-        track: _track ?? ContextTrack.create(''),
-      );
+  UpdateTrackCommand build() {
+    if (_track case final validTrack?) {
+      return UpdateTrackCommand(track: validTrack);
+    }
+    return UpdateTrackCommand(track: ContextTrack.create(''));
+  }
 }

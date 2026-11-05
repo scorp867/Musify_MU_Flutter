@@ -8,46 +8,66 @@ import 'options/logging_params.dart';
 
 class SetQueueCommand implements Command {
   final String queueRevision;
-  final List<ContextTrack> nextTracks;
   final List<ContextTrack> prevTracks;
+  final List<ContextTrack> nextTracks;
   final CommandOptions? options;
   final LoggingParams? loggingParams;
 
   const SetQueueCommand({
     required this.queueRevision,
-    this.nextTracks = const <ContextTrack>[],
     this.prevTracks = const <ContextTrack>[],
+    this.nextTracks = const <ContextTrack>[],
     this.options,
     this.loggingParams,
   });
 
-  static SetQueueCommand create(
-    String queueRevision,
-    List<ContextTrack> nextTracks,
-    List<ContextTrack> prevTracks,
-  ) =>
-      builder(queueRevision, nextTracks, prevTracks).build();
+  static SetQueueCommand create({
+    PlayerQueue? playerQueue,
+    String? queueRevision,
+    List<ContextTrack>? nextTracks,
+    List<ContextTrack>? prevTracks,
+  }) {
+    if (playerQueue case final validQueue?) {
+      return builder(playerQueue: validQueue).build();
+    }
+    return builder(
+      queueRevision: queueRevision,
+      nextTracks: nextTracks,
+      prevTracks: prevTracks,
+    ).build();
+  }
 
-  static SetQueueCommand fromQueue(PlayerQueue playerQueue) =>
-      builderFromQueue(playerQueue).build();
-
-  static SetQueueCommandBuilder builder([
-    String queueRevision = '',
-    List<ContextTrack> nextTracks = const <ContextTrack>[],
-    List<ContextTrack> prevTracks = const <ContextTrack>[],
-  ]) =>
-      SetQueueCommandBuilder(
-        queueRevision: queueRevision,
-        nextTracks: nextTracks,
-        prevTracks: prevTracks,
+  static SetQueueCommandBuilder builder({
+    PlayerQueue? playerQueue,
+    String? queueRevision,
+    List<ContextTrack>? nextTracks,
+    List<ContextTrack>? prevTracks,
+  }) {
+    if (playerQueue case final validQueue?) {
+      return SetQueueCommandBuilder(
+        queueRevision: validQueue.revision,
+        nextTracks: validQueue.nextTracks,
+        prevTracks: validQueue.prevTracks,
       );
-
-  static SetQueueCommandBuilder builderFromQueue(PlayerQueue playerQueue) =>
-      SetQueueCommandBuilder(
-        queueRevision: playerQueue.revision,
-        nextTracks: playerQueue.nextTracks,
-        prevTracks: playerQueue.prevTracks,
-      );
+    }
+    final rev = switch (queueRevision) {
+      final valid? => valid,
+      null => '',
+    };
+    final next = switch (nextTracks) {
+      final valid? => valid,
+      null => const <ContextTrack>[],
+    };
+    final prev = switch (prevTracks) {
+      final valid? => valid,
+      null => const <ContextTrack>[],
+    };
+    return SetQueueCommandBuilder(
+      queueRevision: rev,
+      nextTracks: next,
+      prevTracks: prev,
+    );
+  }
 
   SetQueueCommandBuilder toBuilder() => SetQueueCommandBuilder(
         queueRevision: queueRevision,
@@ -64,21 +84,21 @@ class SetQueueCommand implements Command {
           other.queueRevision == queueRevision &&
           other.options == options &&
           other.loggingParams == loggingParams &&
-          _listEquals(other.nextTracks, nextTracks) &&
-          _listEquals(other.prevTracks, prevTracks));
+          _listEquals(other.prevTracks, prevTracks) &&
+          _listEquals(other.nextTracks, nextTracks));
 
   @override
   int get hashCode => Object.hash(
         queueRevision,
         options,
         loggingParams,
-        Object.hashAll(nextTracks),
         Object.hashAll(prevTracks),
+        Object.hashAll(nextTracks),
       );
 
   @override
   String toString() =>
-      'SetQueueCommand{queueRevision=$queueRevision, nextTracks=$nextTracks, prevTracks=$prevTracks, options=$options, loggingParams=$loggingParams}';
+      'SetQueueCommand{queueRevision=$queueRevision, prevTracks=$prevTracks, nextTracks=$nextTracks, options=$options, loggingParams=$loggingParams}';
 
   static bool _listEquals(List<ContextTrack> a, List<ContextTrack> b) {
     if (identical(a, b)) return true;
@@ -109,6 +129,8 @@ class SetQueueCommandBuilder {
         _options = options,
         _loggingParams = loggingParams;
 
+  static SetQueueCommandBuilder builder() => SetQueueCommand.builder();
+
   SetQueueCommandBuilder queueRevision(String val) {
     _queueRevision = val;
     return this;
@@ -136,8 +158,8 @@ class SetQueueCommandBuilder {
 
   SetQueueCommand build() => SetQueueCommand(
         queueRevision: _queueRevision,
-        nextTracks: List<ContextTrack>.unmodifiable(_nextTracks),
         prevTracks: List<ContextTrack>.unmodifiable(_prevTracks),
+        nextTracks: List<ContextTrack>.unmodifiable(_nextTracks),
         options: _options,
         loggingParams: _loggingParams,
       );

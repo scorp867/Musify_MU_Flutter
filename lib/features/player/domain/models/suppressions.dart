@@ -1,14 +1,19 @@
 // 1:1 replica of com.spotify.player.model.Suppressions
 
+import 'dart:collection';
+
 class Suppressions {
-  static const Suppressions empty = Suppressions(<String>{});
+  static const Suppressions empty = Suppressions._(<String>{});
 
   final Set<String> providers;
 
-  const Suppressions(this.providers);
+  const Suppressions._(this.providers);
 
   static Suppressions create([Set<String>? providers]) {
-    return Suppressions(providers != null ? Set<String>.unmodifiable(providers) : const <String>{});
+    if (providers == null || providers.isEmpty) {
+      return empty;
+    }
+    return Suppressions._(UnmodifiableSetView<String>(Set<String>.from(providers)));
   }
 
   @override
@@ -19,13 +24,13 @@ class Suppressions {
           other.providers.containsAll(providers));
 
   @override
-  int get hashCode => providers.fold(0, (prev, element) => prev ^ element.hashCode);
+  int get hashCode => Object.hashAll(providers) ^ 1000003;
 
   @override
   String toString() => 'Suppressions{providers=$providers}';
 }
 
-abstract class SuppressionsProviders {
+abstract final class SuppressionsProviders {
   static const String ads = 'ad';
   static const String mft = 'mft';
   static const String mftDisallowRestartPlay = 'mft/disallow_restart_play';

@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_optional.proto";
+
+option optimize_for = CODE_SIZE;
+
+message GetStateRequest {
+    OptionalInt64 prev_tracks_cap = 1;
+    OptionalInt64 next_tracks_cap = 2;
+}

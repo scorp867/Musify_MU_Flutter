@@ -14,7 +14,7 @@ class SkipToPrevTrackOptions {
   });
 
   static SkipToPrevTrackOptionsBuilder builder() =>
-      SkipToPrevTrackOptionsBuilder();
+      SkipToPrevTrackOptionsBuilder().commandOptions(CommandOptions.empty);
 
   SkipToPrevTrackOptionsBuilder toBuilder() => SkipToPrevTrackOptionsBuilder(
         allowSeeking: allowSeeking,
@@ -45,6 +45,9 @@ class SkipToPrevTrackOptionsBuilder {
     CommandOptions commandOptions = const CommandOptions(),
   })  : _allowSeeking = allowSeeking,
         _commandOptions = commandOptions;
+
+  static SkipToPrevTrackOptionsBuilder builder() =>
+      SkipToPrevTrackOptions.builder();
 
   SkipToPrevTrackOptionsBuilder allowSeeking(bool? val) {
     _allowSeeking = val;

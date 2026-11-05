@@ -15,17 +15,17 @@ import 'dart:convert' as $convert;
 import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
-@$core.Deprecated('Use optionalInt64Descriptor instead')
-const OptionalInt64$json = {
-  '1': 'OptionalInt64',
+@$core.Deprecated('Use optionalBooleanDescriptor instead')
+const OptionalBoolean$json = {
+  '1': 'OptionalBoolean',
   '2': [
-    {'1': 'value', '3': 1, '4': 1, '5': 3, '10': 'value'},
+    {'1': 'value', '3': 1, '4': 1, '5': 8, '10': 'value'},
   ],
 };
 
-/// Descriptor for `OptionalInt64`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List optionalInt64Descriptor = $convert
-    .base64Decode('Cg1PcHRpb25hbEludDY0EhQKBXZhbHVlGAEgASgDUgV2YWx1ZQ==');
+/// Descriptor for `OptionalBoolean`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List optionalBooleanDescriptor = $convert
+    .base64Decode('Cg9PcHRpb25hbEJvb2xlYW4SFAoFdmFsdWUYASABKAhSBXZhbHVl');
 
 @$core.Deprecated('Use optionalDoubleDescriptor instead')
 const OptionalDouble$json = {
@@ -39,14 +39,14 @@ const OptionalDouble$json = {
 final $typed_data.Uint8List optionalDoubleDescriptor = $convert
     .base64Decode('Cg5PcHRpb25hbERvdWJsZRIUCgV2YWx1ZRgBIAEoAVIFdmFsdWU=');
 
-@$core.Deprecated('Use optionalBooleanDescriptor instead')
-const OptionalBoolean$json = {
-  '1': 'OptionalBoolean',
+@$core.Deprecated('Use optionalInt64Descriptor instead')
+const OptionalInt64$json = {
+  '1': 'OptionalInt64',
   '2': [
-    {'1': 'value', '3': 1, '4': 1, '5': 8, '10': 'value'},
+    {'1': 'value', '3': 1, '4': 1, '5': 3, '10': 'value'},
   ],
 };
 
-/// Descriptor for `OptionalBoolean`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List optionalBooleanDescriptor = $convert
-    .base64Decode('Cg9PcHRpb25hbEJvb2xlYW4SFAoFdmFsdWUYASABKAhSBXZhbHVl');
+/// Descriptor for `OptionalInt64`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List optionalInt64Descriptor = $convert
+    .base64Decode('Cg1PcHRpb25hbEludDY0EhQKBXZhbHVlGAEgASgDUgV2YWx1ZQ==');

@@ -37,6 +37,25 @@ const LoggingParams$json = {
     },
     {'1': 'page_instance_ids', '3': 3, '4': 3, '5': 9, '10': 'pageInstanceIds'},
     {'1': 'interaction_ids', '3': 4, '4': 3, '5': 9, '10': 'interactionIds'},
+    {
+      '1': 'device_identifier',
+      '3': 5,
+      '4': 1,
+      '5': 9,
+      '10': 'deviceIdentifier'
+    },
+    {
+      '1': 'command_id',
+      '3': 6,
+      '4': 1,
+      '5': 9,
+      '9': 0,
+      '10': 'commandId',
+      '17': true
+    },
+  ],
+  '8': [
+    {'1': '_command_id'},
   ],
 };
 
@@ -47,4 +66,6 @@ final $typed_data.Uint8List loggingParamsDescriptor = $convert.base64Decode(
     'ZFRpbWUSYQoVY29tbWFuZF9yZWNlaXZlZF90aW1lGAIgASgLMi0uc3BvdGlmeS5wbGF5ZXIuZX'
     'NwZXJhbnRvLnByb3RvLk9wdGlvbmFsSW50NjRSE2NvbW1hbmRSZWNlaXZlZFRpbWUSKgoRcGFn'
     'ZV9pbnN0YW5jZV9pZHMYAyADKAlSD3BhZ2VJbnN0YW5jZUlkcxInCg9pbnRlcmFjdGlvbl9pZH'
-    'MYBCADKAlSDmludGVyYWN0aW9uSWRz');
+    'MYBCADKAlSDmludGVyYWN0aW9uSWRzEisKEWRldmljZV9pZGVudGlmaWVyGAUgASgJUhBkZXZp'
+    'Y2VJZGVudGlmaWVyEiIKCmNvbW1hbmRfaWQYBiABKAlIAFIJY29tbWFuZElkiAEBQg0KC19jb2'
+    '1tYW5kX2lk');

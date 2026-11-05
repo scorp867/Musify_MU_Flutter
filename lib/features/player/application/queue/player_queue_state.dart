@@ -1,6 +1,7 @@
 import '../../data/esperanto/context_player_options_client.dart';
 import '../../data/queue/queue_helpers.dart';
 import '../../data/queue/queue_track_filter.dart';
+import '../../domain/models/audio_stream_metadata_keys.dart';
 import '../../domain/models/context_track.dart';
 import '../../domain/models/player_queue.dart';
 import '../../domain/models/player_state.dart';
@@ -19,39 +20,80 @@ class PlayerQueueState {
   });
 
   /// The currently active/playing track
-  ContextTrack? get nowPlaying => queue.track ?? playerState?.track;
+  ContextTrack? get nowPlaying {
+    if (queue.track case final track?) {
+      return track;
+    }
+    return playerState?.track;
+  }
 
   /// Alias for nowPlaying for UI convenience
   ContextTrack? get currentTrack => nowPlaying;
 
   /// Whether playback is active
-  bool get isPlaying => playerState?.isPlaying ?? false;
+  bool get isPlaying {
+    final ps = playerState;
+    if (ps == null) return false;
+    return ps.isPlaying;
+  }
 
   /// Whether playback is currently paused
-  bool get isPaused => playerState?.isPaused ?? false;
+  bool get isPaused {
+    final ps = playerState;
+    if (ps == null) return false;
+    return ps.isPaused;
+  }
 
   /// Whether playback is currently buffering
-  bool get isBuffering => playerState?.isBuffering ?? false;
+  bool get isBuffering {
+    final ps = playerState;
+    if (ps == null) return false;
+    return ps.isBuffering;
+  }
 
   /// Whether shuffle is active
-  bool get isShuffling =>
-      playerState?.options.shufflingContext ?? false;
+  bool get isShuffling {
+    final ps = playerState;
+    if (ps == null) return false;
+    return ps.options.shufflingContext;
+  }
 
   /// Whether repeating track is active
-  bool get repeatTrack =>
-      playerState?.options.repeatingTrack ?? false;
+  bool get repeatTrack {
+    final ps = playerState;
+    if (ps == null) return false;
+    return ps.options.repeatingTrack;
+  }
 
   /// Whether repeating context is active
-  bool get repeatContext =>
-      playerState?.options.repeatingContext ?? false;
+  bool get repeatContext {
+    final ps = playerState;
+    if (ps == null) return false;
+    return ps.options.repeatingContext;
+  }
 
   /// Repeat mode resolved from PlayerOptions
   RepeatMode get repeatMode {
-    final options = playerState?.options;
-    if (options == null) return RepeatMode.none;
+    final ps = playerState;
+    if (ps == null) return RepeatMode.none;
+    final options = ps.options;
     if (options.repeatingTrack) return RepeatMode.track;
     if (options.repeatingContext) return RepeatMode.context;
     return RepeatMode.none;
+  }
+
+  /// Whether skipping to next track is allowed by active player restrictions
+  bool get canSkipNext {
+    final ps = playerState;
+    if (ps == null) return true;
+    return ps.restrictions.disallowSkippingNextReasons.isEmpty;
+  }
+
+  /// Whether skipping to previous track is allowed by active player restrictions
+  bool get canSkipPrevious {
+    final ps = playerState;
+    if (ps == null) return true;
+    return ps.restrictions.disallowSkippingPrevReasons.isEmpty;
   }
 
   /// Drift-free current playback position in milliseconds.
@@ -62,25 +104,30 @@ class PlayerQueueState {
     if (ps == null) return 0;
     final calculated = ps.position(DateTime.now().millisecondsSinceEpoch);
     if (calculated != null && calculated >= 0) return calculated;
-    return ps.positionAsOfTimestamp ?? 0;
+    return switch (ps.positionAsOfTimestamp) {
+      final pos? => pos,
+      null => 0,
+    };
   }
 
   /// Total duration of the current track in milliseconds
   int get durationMs {
-    final rawDuration = nowPlaying?.metadata[ContextTrackMetadata.keyDuration];
-    if (rawDuration != null && rawDuration.isNotEmpty) {
-      final parsed = int.tryParse(rawDuration);
-      if (parsed != null && parsed > 0) return parsed;
+    final track = nowPlaying;
+    if (track != null) {
+      if (track.metadata[ContextTrackMetadata.keyDuration] case final rawDuration? when rawDuration.isNotEmpty) {
+        final parsed = int.tryParse(rawDuration);
+        if (parsed != null && parsed > 0) return parsed;
+      }
     }
     final ps = playerState;
-    final psDur = ps?.duration;
-    if (psDur != null && psDur > 0) {
-      // If we only have head audio without full CDN stream, don't report the 6-second head chunk
-      final cdnAac = nowPlaying?.metadata[ContextTrackMetadata.keyCdnAacUrl];
-      if ((cdnAac == null || cdnAac.isEmpty) && psDur <= 15000) {
-        return 0;
+    if (ps != null) {
+      if (ps.duration case final psDur? when psDur > 0) {
+        final cdnAac = track?.metadata[AudioStreamMetadataKeys.keyCdnAacUrl];
+        if ((cdnAac == null || cdnAac.isEmpty) && psDur <= 15000) {
+          return 0;
+        }
+        return psDur;
       }
-      return psDur;
     }
     return 0;
   }
@@ -91,45 +138,68 @@ class PlayerQueueState {
   /// Track duration as Duration
   Duration get currentDuration => Duration(milliseconds: durationMs);
 
-  /// Normalized playback progress clamped to [0.0, 1.0]
+  /// Normalized playback progress bounded to [0.0, 1.0] without using clamp AST
   double get playbackProgress {
     final total = durationMs;
     if (total <= 0) return 0.0;
-    return (positionMs / total).clamp(0.0, 1.0);
+    final pos = positionMs;
+    if (pos <= 0) return 0.0;
+    if (pos >= total) return 1.0;
+    return pos / total;
   }
 
   /// Display title for the active track
   String get title {
-    final t = nowPlaying?.metadata[ContextTrackMetadata.keyTitle];
+    final track = nowPlaying;
+    if (track == null) return '';
+    final t = track.metadata[ContextTrackMetadata.keyTitle];
     if (t != null && t.isNotEmpty) return t;
-    return nowPlaying?.uri ?? '';
+    return track.uri;
   }
 
   /// Display artist for the active track
   String get artist {
-    return nowPlaying?.metadata[ContextTrackMetadata.keyArtistName] ?? '';
+    final track = nowPlaying;
+    if (track == null) return '';
+    return switch (track.metadata[ContextTrackMetadata.keyArtistName]) {
+      final a? => a,
+      null => '',
+    };
   }
 
   /// Display album for the active track
   String get album {
-    return nowPlaying?.metadata[ContextTrackMetadata.keyAlbumTitle] ?? '';
+    final track = nowPlaying;
+    if (track == null) return '';
+    return switch (track.metadata[ContextTrackMetadata.keyAlbumTitle]) {
+      final a? => a,
+      null => '',
+    };
   }
 
   /// Image URL for the active track
   String? get imageUrl {
-    return nowPlaying?.metadata[ContextTrackMetadata.keyImageLargeUrl] ??
-        nowPlaying?.metadata[ContextTrackMetadata.keyImageUrl];
+    final track = nowPlaying;
+    if (track == null) return null;
+    if (track.metadata[ContextTrackMetadata.keyImageLargeUrl] case final large? when large.isNotEmpty) {
+      return large;
+    }
+    if (track.metadata[ContextTrackMetadata.keyImageUrl] case final normal? when normal.isNotEmpty) {
+      return normal;
+    }
+    return null;
   }
 
   /// Device song ID for offline/local music artwork
   int? get songId {
-    final raw = nowPlaying?.metadata[ContextTrackMetadata.keySongId];
-    if (raw != null && raw.isNotEmpty) {
+    final track = nowPlaying;
+    if (track == null) return null;
+    if (track.metadata[ContextTrackMetadata.keySongId] case final raw? when raw.isNotEmpty) {
       final parsed = int.tryParse(raw);
       if (parsed != null) return parsed;
     }
-    final uid = nowPlaying?.uid;
-    if (uid != null && uid.isNotEmpty) {
+    final uid = track.uid;
+    if (uid.isNotEmpty) {
       final parsed = int.tryParse(uid);
       if (parsed != null) return parsed;
     }
@@ -161,10 +231,22 @@ class PlayerQueueState {
     String? errorMessage,
   }) {
     return PlayerQueueState(
-      queue: queue ?? this.queue,
-      playerState: playerState ?? this.playerState,
-      isLoading: isLoading ?? this.isLoading,
-      errorMessage: errorMessage ?? this.errorMessage,
+      queue: switch (queue) {
+        final q? => q,
+        null => this.queue,
+      },
+      playerState: switch (playerState) {
+        final ps? => ps,
+        null => this.playerState,
+      },
+      isLoading: switch (isLoading) {
+        final l? => l,
+        null => this.isLoading,
+      },
+      errorMessage: switch (errorMessage) {
+        final em? => em,
+        null => this.errorMessage,
+      },
     );
   }
 

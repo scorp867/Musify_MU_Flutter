@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
 import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
 import 'package:musify_mu/features/player/presentation/scroll/scroll_card_registry.dart';
-import 'package:musify_mu/features/player/presentation/widgets/sections/lyrics_card.dart';
-import 'package:musify_mu/features/player/presentation/widgets/sections/lyrics_color_parser.dart';
 import 'package:musify_mu/features/player/presentation/widgets/sections/about_artist_card.dart';
 import 'package:musify_mu/features/player/presentation/widgets/sections/credits_card.dart';
 import 'package:musify_mu/features/player/presentation/widgets/sections/events_card.dart';
+import 'package:musify_mu/features/player/presentation/widgets/sections/lyrics_card.dart';
+import 'package:musify_mu/features/player/presentation/widgets/sections/lyrics_color_parser.dart';
 import 'package:musify_mu/features/player/presentation/widgets/sections/merch_card.dart';
 
 /// Debug screen for testing the NowPlaying scroll cards + lyrics pipeline
@@ -22,7 +21,7 @@ class DebugNowPlayingScreen extends StatefulWidget {
 }
 
 class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
-  late final NowPlayingScrollBloc _bloc;
+  late final NowPlayingScrollController _bloc;
   ScrollCardRegistry? _registry;
   DataPool? _pool;
 
@@ -32,18 +31,14 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
   @override
   void initState() {
     super.initState();
-    _bloc = getIt<NowPlayingScrollBloc>();
+    _bloc = getIt<NowPlayingScrollController>();
     _resolveDataPool();
     _initRegistry();
   }
 
   void _resolveDataPool() {
-    try {
-      _pool = context.read<DataPool>();
-    } catch (_) {
-      try {
-        _pool = getIt<DataPool>();
-      } catch (_) {}
+    if (getIt.isRegistered<DataPool>()) {
+      _pool = getIt<DataPool>();
     }
   }
 
@@ -126,9 +121,9 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
 
           // Results
           Expanded(
-            child: BlocBuilder<NowPlayingScrollBloc, NowPlayingScrollState>(
-              bloc: _bloc,
-              builder: (context, state) {
+            child: ValueListenableBuilder<NowPlayingScrollState>(
+              valueListenable: _bloc,
+              builder: (context, state, _) {
                 if (state is NowPlayingScrollInitial) {
                   return const Center(
                     child: Text(
@@ -191,36 +186,38 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
   }
 
   Widget _buildLoadedView(NowPlayingScrollLoaded state) {
+    final lyrics = state.lyrics;
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
         // Status header
         _sectionHeader('PIPELINE STATUS'),
         _statusRow('Scroll cards', '${state.cards.length} received'),
-        _statusRow('Lyrics', state.lyrics != null ? 'received' : 'null'),
-        if (state.lyrics != null) ...[
+        _statusRow('Lyrics', lyrics != null ? 'received' : 'null'),
+
+        if (lyrics != null) ...[
           _statusRow(
             'Lyrics lines',
-            state.lyrics!.hasLyrics()
-                ? '${state.lyrics!.lyrics.lines.length} lines'
+            lyrics.hasLyrics()
+                ? '${lyrics.lyrics.lines.length} lines'
                 : 'no lyrics payload',
           ),
           _statusRow(
             'Colors',
-            state.lyrics!.hasColors() ? 'has colors' : 'no colors',
+            lyrics.hasColors() ? 'has colors' : 'no colors',
           ),
-          if (state.lyrics!.hasColors()) ...[
+          if (lyrics.hasColors()) ...[
             _colorSwatch(
               'Background',
-              parseProtoColor(state.lyrics!.colors.background),
+              parseProtoColor(lyrics.colors.background),
             ),
             _colorSwatch(
               'Text',
-              parseProtoColor(state.lyrics!.colors.text),
+              parseProtoColor(lyrics.colors.text),
             ),
             _colorSwatch(
               'Highlight',
-              parseProtoColor(state.lyrics!.colors.highlightText),
+              parseProtoColor(lyrics.colors.highlightText),
             ),
           ],
         ],
@@ -260,6 +257,10 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
     final bg = colorLyrics != null && colorLyrics.hasColors()
         ? parseProtoColor(colorLyrics.colors.background)
         : const Color(0xFF121212);
+    final trackUri = switch (state.trackId) {
+      final id? => id,
+      null => '',
+    };
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -268,7 +269,7 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
         backgroundColor: bg,
         colorLyrics: colorLyrics,
         dataPool: _pool,
-        trackUri: state.trackId ?? '',
+        trackUri: trackUri,
       ),
     );
   }

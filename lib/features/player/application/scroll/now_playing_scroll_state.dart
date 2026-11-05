@@ -2,7 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
 
-/// States for [NowPlayingScrollBloc].
+/// States for Now Playing scroll cards and lyrics pipeline.
 sealed class NowPlayingScrollState extends Equatable {
   const NowPlayingScrollState();
 
@@ -43,7 +43,10 @@ final class NowPlayingScrollLoaded extends NowPlayingScrollState {
     this.lyrics,
   });
 
-  bool get hasLyrics => lyrics != null && lyrics!.hasLyrics();
+  bool get hasLyrics => switch (lyrics) {
+        final l? => l.hasLyrics(),
+        null => false,
+      };
 
   @override
   List<Object?> get props => [trackId, cards, lyrics];

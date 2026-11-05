@@ -12,8 +12,12 @@ class UpdatePageCommand implements Command {
 
   static UpdatePageCommand create(ContextPage page) => builder(page).build();
 
-  static UpdatePageCommandBuilder builder([ContextPage? page]) =>
-      UpdatePageCommandBuilder(page: page);
+  static UpdatePageCommandBuilder builder([ContextPage? page]) {
+    if (page case final validPage?) {
+      return UpdatePageCommandBuilder(page: validPage);
+    }
+    return UpdatePageCommandBuilder(page: ContextPage.empty);
+  }
 
   UpdatePageCommandBuilder toBuilder() => UpdatePageCommandBuilder(page: page);
 
@@ -34,12 +38,18 @@ class UpdatePageCommandBuilder {
 
   UpdatePageCommandBuilder({ContextPage? page}) : _page = page;
 
+  static UpdatePageCommandBuilder builder() =>
+      UpdatePageCommand.builder(ContextPage.empty);
+
   UpdatePageCommandBuilder page(ContextPage val) {
     _page = val;
     return this;
   }
 
-  UpdatePageCommand build() => UpdatePageCommand(
-        page: _page ?? ContextPage.empty,
-      );
+  UpdatePageCommand build() {
+    if (_page case final validPage?) {
+      return UpdatePageCommand(page: validPage);
+    }
+    return UpdatePageCommand(page: ContextPage.empty);
+  }
 }

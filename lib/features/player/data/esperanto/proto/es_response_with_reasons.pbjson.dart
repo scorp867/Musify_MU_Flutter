@@ -37,9 +37,9 @@ const ResponseWithReasons_Error$json = {
   '1': 'Error',
   '2': [
     {'1': 'OK', '2': 0},
-    {'1': 'FORBIDDEN', '2': 1},
-    {'1': 'NOT_FOUND', '2': 2},
-    {'1': 'CONFLICT', '2': 3},
+    {'1': 'RESTRICTED', '2': 1},
+    {'1': 'IGNORING', '2': 2},
+    {'1': 'FAILED', '2': 3},
   ],
 };
 
@@ -47,5 +47,5 @@ const ResponseWithReasons_Error$json = {
 final $typed_data.Uint8List responseWithReasonsDescriptor = $convert.base64Decode(
     'ChNSZXNwb25zZVdpdGhSZWFzb25zEk8KBWVycm9yGAEgASgOMjkuc3BvdGlmeS5wbGF5ZXIuZX'
     'NwZXJhbnRvLnByb3RvLlJlc3BvbnNlV2l0aFJlYXNvbnMuRXJyb3JSBWVycm9yEhgKB3JlYXNv'
-    'bnMYAiABKAlSB3JlYXNvbnMiOwoFRXJyb3ISBgoCT0sQABINCglGT1JCSURERU4QARINCglOT1'
-    'RfRk9VTkQQAhIMCghDT05GTElDVBAD');
+    'bnMYAiABKAlSB3JlYXNvbnMiOQoFRXJyb3ISBgoCT0sQABIOCgpSRVNUUklDVEVEEAESDAoISU'
+    'dOT1JJTkcQAhIKCgZGQUlMRUQQAw==');

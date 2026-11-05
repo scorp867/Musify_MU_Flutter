@@ -24,6 +24,8 @@ class LoggingParams extends $pb.GeneratedMessage {
     $0.OptionalInt64? commandReceivedTime,
     $core.Iterable<$core.String>? pageInstanceIds,
     $core.Iterable<$core.String>? interactionIds,
+    $core.String? deviceIdentifier,
+    $core.String? commandId,
   }) {
     final result = LoggingParams._();
     if (commandInitiatedTime != null)
@@ -32,6 +34,8 @@ class LoggingParams extends $pb.GeneratedMessage {
       result.commandReceivedTime = commandReceivedTime;
     if (pageInstanceIds != null) result.pageInstanceIds.addAll(pageInstanceIds);
     if (interactionIds != null) result.interactionIds.addAll(interactionIds);
+    if (deviceIdentifier != null) result.deviceIdentifier = deviceIdentifier;
+    if (commandId != null) result.commandId = commandId;
     return result;
   }
 
@@ -55,6 +59,8 @@ class LoggingParams extends $pb.GeneratedMessage {
         subBuilder: $0.OptionalInt64.$_createMessage)
     ..pPS(3, _omitFieldNames ? '' : 'pageInstanceIds')
     ..pPS(4, _omitFieldNames ? '' : 'interactionIds')
+    ..aOS(5, _omitFieldNames ? '' : 'deviceIdentifier')
+    ..aOS(6, _omitFieldNames ? '' : 'commandId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -106,6 +112,24 @@ class LoggingParams extends $pb.GeneratedMessage {
 
   @$pb.TagNumber(4)
   $pb.PbList<$core.String> get interactionIds => $_getList(3);
+
+  @$pb.TagNumber(5)
+  $core.String get deviceIdentifier => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set deviceIdentifier($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasDeviceIdentifier() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearDeviceIdentifier() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.String get commandId => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set commandId($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasCommandId() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearCommandId() => $_clearField(6);
 }
 
 const $core.bool _omitFieldNames =

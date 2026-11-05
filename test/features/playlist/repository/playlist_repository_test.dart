@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +9,8 @@ import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
+import 'package:musify_mu/features/player/data/esperanto/proto/es_play.pb.dart'
+    as proto_play;
 import 'package:musify_mu/features/playlist/data/client/playlist_data_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_modification_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dart';
@@ -254,25 +255,27 @@ void main() {
       expect(transport.lastMethod, equals('Play'));
       expect(transport.lastPayload, isNotNull);
 
-      final payloadJson = jsonDecode(utf8.decode(transport.lastPayload!)) as Map<String, dynamic>;
-      final prep = payloadJson['prepare_play_request'] as Map<String, dynamic>;
-      final ctx = prep['context'] as Map<String, dynamic>;
-      expect(ctx['uri'], equals(playlistUri));
-      expect(ctx['metadata']['context_description'], equals('Pop Hits'));
+      final payload = transport.lastPayload;
+      if (payload != null) {
+        final playReq = proto_play.PlayRequest.fromBuffer(payload);
+        final prep = playReq.preparePlayRequest;
+        final ctx = prep.context;
+        expect(ctx.uri, equals(playlistUri));
+        expect(ctx.metadata['context_description'], equals('Pop Hits'));
 
-      final pages = ctx['pages'] as List;
-      expect(pages.isNotEmpty, isTrue);
-      final tracks = (pages.first as Map<String, dynamic>)['tracks'] as List;
-      expect(tracks.length, equals(1));
-      final firstTrack = tracks.first as Map<String, dynamic>;
-      expect(firstTrack['uri'], equals('spotify:track:track1'));
-      expect(firstTrack['metadata'], isNotNull);
-      final trackMeta = firstTrack['metadata'] as Map<String, dynamic>;
-      expect(trackMeta['context_uri'], equals(playlistUri));
+        final pages = ctx.pages;
+        expect(pages.isNotEmpty, isTrue);
+        final tracks = pages.first.tracks;
+        expect(tracks.length, equals(1));
+        final firstTrack = tracks.first;
+        expect(firstTrack.uri, equals('spotify:track:track1'));
+        expect(firstTrack.metadata, isNotNull);
+        expect(firstTrack.metadata['context_uri'], equals(playlistUri));
 
-      final opts = prep['options'] as Map<String, dynamic>;
-      expect((opts['skip_to'] as Map<String, dynamic>)['track_uri'], equals('spotify:track:track1'));
-      expect((opts['player_options_override'] as Map<String, dynamic>)['shuffling_context'], isTrue);
+        final opts = prep.options;
+        expect(opts.skipTo.trackUri, equals('spotify:track:track1'));
+        expect(opts.playerOptionsOverride.shufflingContext.value, isTrue);
+      }
     });
   });
 }

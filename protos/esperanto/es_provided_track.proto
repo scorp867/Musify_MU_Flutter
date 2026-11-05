@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_context_track.proto";
+
+option optimize_for = CODE_SIZE;
+
+message ProvidedTrack {
+    ContextTrack context_track = 1;
+    repeated string removed = 2;
+    repeated string blocked = 3;
+    string provider = 4;
+}

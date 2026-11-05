@@ -39,7 +39,7 @@ class ResumeCommand implements Command {
 
   @override
   String toString() =>
-      'ResumeCommand{resumeOrigin=$resumeOrigin, options=$options, loggingParams=$loggingParams}';
+      'ResumeCommand{options=$options, loggingParams=$loggingParams, resumeOrigin=$resumeOrigin}';
 }
 
 class ResumeCommandBuilder {
@@ -54,6 +54,12 @@ class ResumeCommandBuilder {
   })  : _resumeOrigin = resumeOrigin,
         _options = options,
         _loggingParams = loggingParams;
+
+  static ResumeCommandBuilder builder() => ResumeCommand.builder();
+
+  PauseResumeOrigin? get resumeOriginValue => _resumeOrigin;
+  CommandOptions? get optionsValue => _options;
+  LoggingParams? get loggingParamsValue => _loggingParams;
 
   ResumeCommandBuilder resumeOrigin(PauseResumeOrigin val) {
     _resumeOrigin = val;

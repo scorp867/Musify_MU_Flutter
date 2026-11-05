@@ -55,6 +55,9 @@ class SkipToPrevTrackCommandBuilder {
         _options = options,
         _loggingParams = loggingParams;
 
+  static SkipToPrevTrackCommandBuilder builder() =>
+      SkipToPrevTrackCommand.builder();
+
   SkipToPrevTrackCommandBuilder track(ContextTrack val) {
     _track = val;
     return this;

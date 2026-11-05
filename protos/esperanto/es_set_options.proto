@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_optional.proto";
+import "es_command_options.proto";
+import "es_logging_params.proto";
+
+option optimize_for = CODE_SIZE;
+
+message SetOptionsRequest {
+    OptionalBoolean repeating_track = 1;
+    OptionalBoolean repeating_context = 2;
+    OptionalBoolean shuffling_context = 3;
+    CommandOptions options = 4;
+    LoggingParams logging_params = 5;
+    optional float playback_speed = 6;
+    map<string, string> modes = 7;
+}

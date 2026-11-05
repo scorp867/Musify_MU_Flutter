@@ -18,8 +18,12 @@ class SetShufflingContextCommand implements Command {
   static SetShufflingContextCommand create(bool value) =>
       builder(value).build();
 
-  static SetShufflingContextCommandBuilder builder([bool value = false]) =>
-      SetShufflingContextCommandBuilder(value: value);
+  static SetShufflingContextCommandBuilder builder([bool? value]) {
+    if (value case final validValue?) {
+      return SetShufflingContextCommandBuilder(value: validValue);
+    }
+    return SetShufflingContextCommandBuilder(value: false);
+  }
 
   SetShufflingContextCommandBuilder toBuilder() =>
       SetShufflingContextCommandBuilder(
@@ -56,6 +60,9 @@ class SetShufflingContextCommandBuilder {
   })  : _value = value,
         _options = options,
         _loggingParams = loggingParams;
+
+  static SetShufflingContextCommandBuilder builder() =>
+      SetShufflingContextCommand.builder(false);
 
   SetShufflingContextCommandBuilder value(bool val) {
     _value = val;

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_context_page.proto";
+import "es_restrictions.proto";
+
+option optimize_for = CODE_SIZE;
+
+message Context {
+    repeated ContextPage pages = 1;
+    map<string, string> metadata = 2;
+    string uri = 3;
+    string url = 4;
+    bool is_loading = 5;
+    Restrictions restrictions = 6;
+}

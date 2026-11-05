@@ -44,6 +44,14 @@ const SeekToRequest$json = {
       '6': '.spotify.player.esperanto.proto.SeekToRequest.Relative',
       '10': 'relative'
     },
+    {
+      '1': 'creator_timestamp_position_ms',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.spotify.player.esperanto.proto.OptionalInt64',
+      '10': 'creatorTimestampPositionMs'
+    },
   ],
   '4': [SeekToRequest_Relative$json],
 };
@@ -53,8 +61,8 @@ const SeekToRequest_Relative$json = {
   '1': 'Relative',
   '2': [
     {'1': 'BEGINNING', '2': 0},
-    {'1': 'END', '2': 1},
-    {'1': 'CURRENT', '2': 2},
+    {'1': 'CURRENT', '2': 1},
+    {'1': 'END', '2': 2},
   ],
 };
 
@@ -65,5 +73,7 @@ final $typed_data.Uint8List seekToRequestDescriptor = $convert.base64Decode(
     'KAsyLS5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uTG9nZ2luZ1BhcmFtc1INbG9nZ2'
     'luZ1BhcmFtcxIaCghwb3NpdGlvbhgDIAEoA1IIcG9zaXRpb24SUgoIcmVsYXRpdmUYBCABKA4y'
     'Ni5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uU2Vla1RvUmVxdWVzdC5SZWxhdGl2ZV'
-    'IIcmVsYXRpdmUiLwoIUmVsYXRpdmUSDQoJQkVHSU5OSU5HEAASBwoDRU5EEAESCwoHQ1VSUkVO'
-    'VBAC');
+    'IIcmVsYXRpdmUScAodY3JlYXRvcl90aW1lc3RhbXBfcG9zaXRpb25fbXMYBSABKAsyLS5zcG90'
+    'aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uT3B0aW9uYWxJbnQ2NFIaY3JlYXRvclRpbWVzdG'
+    'FtcFBvc2l0aW9uTXMiLwoIUmVsYXRpdmUSDQoJQkVHSU5OSU5HEAASCwoHQ1VSUkVOVBABEgcK'
+    'A0VORBAC');

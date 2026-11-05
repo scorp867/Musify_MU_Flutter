@@ -43,11 +43,23 @@ const PlayOptions$json = {
       '6': '.spotify.player.esperanto.proto.PlayOptions.Trigger',
       '10': 'trigger'
     },
+    {
+      '1': 'playback_speed',
+      '3': 4,
+      '4': 1,
+      '5': 2,
+      '9': 0,
+      '10': 'playbackSpeed',
+      '17': true
+    },
   ],
   '4': [
     PlayOptions_Reason$json,
     PlayOptions_Operation$json,
     PlayOptions_Trigger$json
+  ],
+  '8': [
+    {'1': '_playback_speed'},
   ],
 };
 
@@ -87,8 +99,9 @@ final $typed_data.Uint8List playOptionsDescriptor = $convert.base64Decode(
     '8ucHJvdG8uUGxheU9wdGlvbnMuUmVhc29uUgZyZWFzb24SUwoJb3BlcmF0aW9uGAIgASgOMjUu'
     'c3BvdGlmeS5wbGF5ZXIuZXNwZXJhbnRvLnByb3RvLlBsYXlPcHRpb25zLk9wZXJhdGlvblIJb3'
     'BlcmF0aW9uEk0KB3RyaWdnZXIYAyABKA4yMy5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJv'
-    'dG8uUGxheU9wdGlvbnMuVHJpZ2dlclIHdHJpZ2dlciJCCgZSZWFzb24SDwoLSU5URVJBQ1RJVk'
-    'UQABITCg9SRU1PVEVfVFJBTlNGRVIQARISCg5MSUNFTlNFX0NIQU5HRRACIi8KCU9wZXJhdGlv'
-    'bhILCgdSRVBMQUNFEAASCwoHRU5RVUVVRRABEggKBFBVU0gQAiJOCgdUcmlnZ2VyEg8KC0lNTU'
-    'VESUFURUxZEAASFwoTQURWQU5DRURfUEFTVF9UUkFDSxABEhkKFUFEVkFOQ0VEX1BBU1RfQ09O'
-    'VEVYVBAC');
+    'dG8uUGxheU9wdGlvbnMuVHJpZ2dlclIHdHJpZ2dlchIqCg5wbGF5YmFja19zcGVlZBgEIAEoAk'
+    'gAUg1wbGF5YmFja1NwZWVkiAEBIkIKBlJlYXNvbhIPCgtJTlRFUkFDVElWRRAAEhMKD1JFTU9U'
+    'RV9UUkFOU0ZFUhABEhIKDkxJQ0VOU0VfQ0hBTkdFEAIiLwoJT3BlcmF0aW9uEgsKB1JFUExBQ0'
+    'UQABILCgdFTlFVRVVFEAESCAoEUFVTSBACIk4KB1RyaWdnZXISDwoLSU1NRURJQVRFTFkQABIX'
+    'ChNBRFZBTkNFRF9QQVNUX1RSQUNLEAESGQoVQURWQU5DRURfUEFTVF9DT05URVhUEAJCEQoPX3'
+    'BsYXliYWNrX3NwZWVk');

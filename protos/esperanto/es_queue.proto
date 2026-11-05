@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_provided_track.proto";
+
+option optimize_for = CODE_SIZE;
+
+message Queue {
+    int64 queue_revision = 1;
+    ProvidedTrack track = 2;
+    repeated ProvidedTrack next_tracks = 3;
+    repeated ProvidedTrack prev_tracks = 4;
+}

@@ -17,58 +17,58 @@ import 'package:protobuf/protobuf.dart' as $pb;
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
-class OptionalInt64 extends $pb.GeneratedMessage {
-  factory OptionalInt64({
-    $fixnum.Int64? value,
+class OptionalBoolean extends $pb.GeneratedMessage {
+  factory OptionalBoolean({
+    $core.bool? value,
   }) {
-    final result = OptionalInt64._();
+    final result = OptionalBoolean._();
     if (value != null) result.value = value;
     return result;
   }
 
-  OptionalInt64._();
+  OptionalBoolean._();
 
-  factory OptionalInt64.fromBuffer($core.List<$core.int> data,
+  factory OptionalBoolean.fromBuffer($core.List<$core.int> data,
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      OptionalInt64()..mergeFromBuffer(data, registry);
-  factory OptionalInt64.fromJson($core.String json,
+      OptionalBoolean()..mergeFromBuffer(data, registry);
+  factory OptionalBoolean.fromJson($core.String json,
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      OptionalInt64()..mergeFromJson(json, registry);
+      OptionalBoolean()..mergeFromJson(json, registry);
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'OptionalInt64',
+      _omitMessageNames ? '' : 'OptionalBoolean',
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.player.esperanto.proto'),
-      createEmptyInstance: OptionalInt64.$_createMessage)
-    ..aInt64(1, _omitFieldNames ? '' : 'value')
+      createEmptyInstance: OptionalBoolean.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'value')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  OptionalInt64 clone() => deepCopy();
+  OptionalBoolean clone() => deepCopy();
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  OptionalInt64 copyWith(void Function(OptionalInt64) updates) =>
-      super.copyWith((message) => updates(message as OptionalInt64))
-          as OptionalInt64;
+  OptionalBoolean copyWith(void Function(OptionalBoolean) updates) =>
+      super.copyWith((message) => updates(message as OptionalBoolean))
+          as OptionalBoolean;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
 
   @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use OptionalInt64() / OptionalInt64.new instead')
-  static OptionalInt64 create() => OptionalInt64._();
-  static $pb.GeneratedMessage $_createMessage() => OptionalInt64._();
+  @$core.Deprecated('Use OptionalBoolean() / OptionalBoolean.new instead')
+  static OptionalBoolean create() => OptionalBoolean._();
+  static $pb.GeneratedMessage $_createMessage() => OptionalBoolean._();
   @$core.override
-  OptionalInt64 createEmptyInstance() => OptionalInt64._();
+  OptionalBoolean createEmptyInstance() => OptionalBoolean._();
   @$core.pragma('dart2js:noInline')
-  static OptionalInt64 getDefault() =>
-      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<OptionalInt64>(
-          OptionalInt64.$_createMessage);
-  static OptionalInt64? _defaultInstance;
+  static OptionalBoolean getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<OptionalBoolean>(
+          OptionalBoolean.$_createMessage);
+  static OptionalBoolean? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $fixnum.Int64 get value => $_getI64(0);
+  $core.bool get value => $_getBF(0);
   @$pb.TagNumber(1)
-  set value($fixnum.Int64 value) => $_setInt64(0, value);
+  set value($core.bool value) => $_setBool(0, value);
   @$pb.TagNumber(1)
   $core.bool hasValue() => $_has(0);
   @$pb.TagNumber(1)
@@ -133,58 +133,58 @@ class OptionalDouble extends $pb.GeneratedMessage {
   void clearValue() => $_clearField(1);
 }
 
-class OptionalBoolean extends $pb.GeneratedMessage {
-  factory OptionalBoolean({
-    $core.bool? value,
+class OptionalInt64 extends $pb.GeneratedMessage {
+  factory OptionalInt64({
+    $fixnum.Int64? value,
   }) {
-    final result = OptionalBoolean._();
+    final result = OptionalInt64._();
     if (value != null) result.value = value;
     return result;
   }
 
-  OptionalBoolean._();
+  OptionalInt64._();
 
-  factory OptionalBoolean.fromBuffer($core.List<$core.int> data,
+  factory OptionalInt64.fromBuffer($core.List<$core.int> data,
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      OptionalBoolean()..mergeFromBuffer(data, registry);
-  factory OptionalBoolean.fromJson($core.String json,
+      OptionalInt64()..mergeFromBuffer(data, registry);
+  factory OptionalInt64.fromJson($core.String json,
           [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
-      OptionalBoolean()..mergeFromJson(json, registry);
+      OptionalInt64()..mergeFromJson(json, registry);
 
   static final $pb.BuilderInfo _i = $pb.BuilderInfo(
-      _omitMessageNames ? '' : 'OptionalBoolean',
+      _omitMessageNames ? '' : 'OptionalInt64',
       package: const $pb.PackageName(
           _omitMessageNames ? '' : 'spotify.player.esperanto.proto'),
-      createEmptyInstance: OptionalBoolean.$_createMessage)
-    ..aOB(1, _omitFieldNames ? '' : 'value')
+      createEmptyInstance: OptionalInt64.$_createMessage)
+    ..aInt64(1, _omitFieldNames ? '' : 'value')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  OptionalBoolean clone() => deepCopy();
+  OptionalInt64 clone() => deepCopy();
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
-  OptionalBoolean copyWith(void Function(OptionalBoolean) updates) =>
-      super.copyWith((message) => updates(message as OptionalBoolean))
-          as OptionalBoolean;
+  OptionalInt64 copyWith(void Function(OptionalInt64) updates) =>
+      super.copyWith((message) => updates(message as OptionalInt64))
+          as OptionalInt64;
 
   @$core.override
   $pb.BuilderInfo get info_ => _i;
 
   @$core.pragma('dart2js:noInline')
-  @$core.Deprecated('Use OptionalBoolean() / OptionalBoolean.new instead')
-  static OptionalBoolean create() => OptionalBoolean._();
-  static $pb.GeneratedMessage $_createMessage() => OptionalBoolean._();
+  @$core.Deprecated('Use OptionalInt64() / OptionalInt64.new instead')
+  static OptionalInt64 create() => OptionalInt64._();
+  static $pb.GeneratedMessage $_createMessage() => OptionalInt64._();
   @$core.override
-  OptionalBoolean createEmptyInstance() => OptionalBoolean._();
+  OptionalInt64 createEmptyInstance() => OptionalInt64._();
   @$core.pragma('dart2js:noInline')
-  static OptionalBoolean getDefault() =>
-      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<OptionalBoolean>(
-          OptionalBoolean.$_createMessage);
-  static OptionalBoolean? _defaultInstance;
+  static OptionalInt64 getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<OptionalInt64>(
+          OptionalInt64.$_createMessage);
+  static OptionalInt64? _defaultInstance;
 
   @$pb.TagNumber(1)
-  $core.bool get value => $_getBF(0);
+  $fixnum.Int64 get value => $_getI64(0);
   @$pb.TagNumber(1)
-  set value($core.bool value) => $_setBool(0, value);
+  set value($fixnum.Int64 value) => $_setInt64(0, value);
   @$pb.TagNumber(1)
   $core.bool hasValue() => $_has(0);
   @$pb.TagNumber(1)

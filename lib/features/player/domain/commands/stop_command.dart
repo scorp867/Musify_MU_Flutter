@@ -33,6 +33,8 @@ class StopCommandBuilder {
   StopCommandBuilder({LoggingParams? loggingParams})
       : _loggingParams = loggingParams;
 
+  static StopCommandBuilder builder() => StopCommand.builder();
+
   StopCommandBuilder loggingParams(LoggingParams val) {
     _loggingParams = val;
     return this;

@@ -6,12 +6,13 @@ class PlayerSession {
   const PlayerSession({required this.session});
 
   static PlayerSession create(String session) =>
-      PlayerSession(session: session);
+      builder(session).build();
 
   static PlayerSessionBuilder builder([String session = '']) =>
-      PlayerSessionBuilder(session);
+      PlayerSessionBuilder(session: session);
 
-  PlayerSessionBuilder toBuilder() => PlayerSessionBuilder(session);
+  PlayerSessionBuilder toBuilder() =>
+      PlayerSessionBuilder(session: session);
 
   @override
   bool operator ==(Object other) =>
@@ -19,7 +20,7 @@ class PlayerSession {
       (other is PlayerSession && other.session == session);
 
   @override
-  int get hashCode => session.hashCode;
+  int get hashCode => session.hashCode ^ 1000003;
 
   @override
   String toString() => 'PlayerSession{session=$session}';
@@ -28,10 +29,10 @@ class PlayerSession {
 class PlayerSessionBuilder {
   String _session;
 
-  PlayerSessionBuilder([this._session = '']);
+  PlayerSessionBuilder({String session = ''}) : _session = session;
 
-  PlayerSessionBuilder session(String val) {
-    _session = val;
+  PlayerSessionBuilder session(String str) {
+    _session = str;
     return this;
   }
 

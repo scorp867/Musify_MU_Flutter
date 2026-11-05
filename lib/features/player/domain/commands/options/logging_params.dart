@@ -3,18 +3,18 @@
 class LoggingParams {
   static final LoggingParams empty = builder().build();
 
-  final String? commandId;
   final int? commandInitiatedTime;
   final int? commandReceivedTime;
   final Set<String> pageInstanceIds;
   final Set<String> interactionIds;
+  final String? commandId;
 
   const LoggingParams({
-    this.commandId,
     this.commandInitiatedTime,
     this.commandReceivedTime,
     this.pageInstanceIds = const <String>{},
     this.interactionIds = const <String>{},
+    this.commandId,
   });
 
   static LoggingParamsBuilder builder() => LoggingParamsBuilder();
@@ -26,20 +26,20 @@ class LoggingParams {
       pageInstanceIds.isNotEmpty ? pageInstanceIds.first : null;
 
   LoggingParamsBuilder toBuilder() => LoggingParamsBuilder(
-        commandId: commandId,
         commandInitiatedTime: commandInitiatedTime,
         commandReceivedTime: commandReceivedTime,
         pageInstanceIds: pageInstanceIds,
         interactionIds: interactionIds,
+        commandId: commandId,
       );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is LoggingParams &&
-          other.commandId == commandId &&
           other.commandInitiatedTime == commandInitiatedTime &&
           other.commandReceivedTime == commandReceivedTime &&
+          other.commandId == commandId &&
           other.pageInstanceIds.length == pageInstanceIds.length &&
           other.pageInstanceIds.containsAll(pageInstanceIds) &&
           other.interactionIds.length == interactionIds.length &&
@@ -47,41 +47,38 @@ class LoggingParams {
 
   @override
   int get hashCode => Object.hash(
-        commandId,
         commandInitiatedTime,
         commandReceivedTime,
+        commandId,
         Object.hashAll(pageInstanceIds),
         Object.hashAll(interactionIds),
       );
 
   @override
   String toString() =>
-      'LoggingParams{commandId=$commandId, commandInitiatedTime=$commandInitiatedTime, commandReceivedTime=$commandReceivedTime, pageInstanceIds=$pageInstanceIds, interactionIds=$interactionIds}';
+      'LoggingParams{commandInitiatedTime=$commandInitiatedTime, commandReceivedTime=$commandReceivedTime, pageInstanceIds=$pageInstanceIds, interactionIds=$interactionIds, commandId=$commandId}';
 }
 
 class LoggingParamsBuilder {
-  String? _commandId;
   int? _commandInitiatedTime;
   int? _commandReceivedTime;
   Set<String> _pageInstanceIds;
   Set<String> _interactionIds;
+  String? _commandId;
 
   LoggingParamsBuilder({
-    String? commandId,
     int? commandInitiatedTime,
     int? commandReceivedTime,
     Set<String> pageInstanceIds = const <String>{},
     Set<String> interactionIds = const <String>{},
-  })  : _commandId = commandId,
-        _commandInitiatedTime = commandInitiatedTime,
+    String? commandId,
+  })  : _commandInitiatedTime = commandInitiatedTime,
         _commandReceivedTime = commandReceivedTime,
         _pageInstanceIds = Set<String>.from(pageInstanceIds),
-        _interactionIds = Set<String>.from(interactionIds);
+        _interactionIds = Set<String>.from(interactionIds),
+        _commandId = commandId;
 
-  LoggingParamsBuilder commandId(String val) {
-    _commandId = val;
-    return this;
-  }
+  static LoggingParamsBuilder builder() => LoggingParams.builder();
 
   LoggingParamsBuilder commandInitiatedTime(int val) {
     _commandInitiatedTime = val;
@@ -113,11 +110,16 @@ class LoggingParamsBuilder {
     return this;
   }
 
+  LoggingParamsBuilder commandId(String val) {
+    _commandId = val;
+    return this;
+  }
+
   LoggingParams build() => LoggingParams(
-        commandId: _commandId,
         commandInitiatedTime: _commandInitiatedTime,
         commandReceivedTime: _commandReceivedTime,
         pageInstanceIds: Set<String>.unmodifiable(_pageInstanceIds),
         interactionIds: Set<String>.unmodifiable(_interactionIds),
+        commandId: _commandId,
       );
 }

@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_optional.proto";
+
+option optimize_for = CODE_SIZE;
+
+message ContextPlayerOptions {
+    bool shuffling_context = 1;
+    bool repeating_context = 2;
+    bool repeating_track = 3;
+    optional float playback_speed = 4;
+    map<string, string> modes = 5;
+}
+
+message ContextPlayerOptionOverrides {
+    OptionalBoolean shuffling_context = 1;
+    OptionalBoolean repeating_context = 2;
+    OptionalBoolean repeating_track = 3;
+    OptionalDouble playback_speed = 4;
+    map<string, string> modes = 5;
+}

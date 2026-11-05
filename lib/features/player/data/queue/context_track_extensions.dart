@@ -1,19 +1,33 @@
 import '../../domain/models/context_track.dart';
 
 extension ContextTrackExtensions on ContextTrack {
-  /// Compounded unique key identifying a track instance in the queue (from Spotify ybb1.W).
+  /// Compounded unique key identifying a track instance in the queue (from Spotify ock1.m68168i0).
   /// Format: uid + uri + provider + iteration
-  String get queueKey =>
-      '$uid$uri$provider${metadata[ContextTrackMetadata.keyIteration] ?? ''}';
+  String get queueKey {
+    final iter = switch (metadata[ContextTrackMetadata.keyIteration]) {
+      final val? => val,
+      null => '',
+    };
+    return '$uid$uri$provider$iter';
+  }
 
   /// Title resolved from metadata (from Spotify ybb1.X).
-  String get title => metadata[ContextTrackMetadata.keyTitle] ?? '';
+  String get title => switch (metadata[ContextTrackMetadata.keyTitle]) {
+    final t? => t,
+    null => '',
+  };
 
   /// Artist name resolved from metadata.
-  String get artist => metadata[ContextTrackMetadata.keyArtistName] ?? '';
+  String get artist => switch (metadata[ContextTrackMetadata.keyArtistName]) {
+    final a? => a,
+    null => '',
+  };
 
   /// Album title resolved from metadata.
-  String get album => metadata[ContextTrackMetadata.keyAlbumTitle] ?? '';
+  String get album => switch (metadata[ContextTrackMetadata.keyAlbumTitle]) {
+    final a? => a,
+    null => '',
+  };
 
   /// MediaStore / OnAudioQuery song ID resolved from metadata.
   int? get songId {
@@ -28,21 +42,32 @@ extension ContextTrackExtensions on ContextTrack {
   }
 
   /// Artwork URL resolved from metadata (prioritizes large, xlarge, small).
-  String? get imageUrl =>
-      metadata[ContextTrackMetadata.keyImageLargeUrl] ??
-      metadata[ContextTrackMetadata.keyImageXlargeUrl] ??
-      metadata[ContextTrackMetadata.keyImageSmallUrl];
+  String? get imageUrl {
+    if (metadata[ContextTrackMetadata.keyImageLargeUrl] case final large? when large.isNotEmpty) {
+      return large;
+    }
+    if (metadata[ContextTrackMetadata.keyImageXlargeUrl] case final xlarge? when xlarge.isNotEmpty) {
+      return xlarge;
+    }
+    if (metadata[ContextTrackMetadata.keyImageSmallUrl] case final small? when small.isNotEmpty) {
+      return small;
+    }
+    return null;
+  }
 
   /// Duration parsed from metadata.
   Duration get duration {
-    final durationMs = int.tryParse(metadata[ContextTrackMetadata.keyDuration] ?? '');
-    if (durationMs != null) {
-      return Duration(milliseconds: durationMs);
+    final raw = metadata[ContextTrackMetadata.keyDuration];
+    if (raw != null && raw.isNotEmpty) {
+      final durationMs = int.tryParse(raw);
+      if (durationMs != null && durationMs >= 0) {
+        return Duration(milliseconds: durationMs);
+      }
     }
     return Duration.zero;
   }
 
-  /// Returns true if this track was explicitly queued by the user (from Spotify ybb1.L).
+  /// Returns true if this track was explicitly queued by the user (from Spotify ock1.m68146V / ybb1.L).
   bool get isQueued =>
       metadata[ContextTrackMetadata.keyIsQueued]?.toLowerCase() == 'true';
 
@@ -54,7 +79,7 @@ extension ContextTrackExtensions on ContextTrack {
   bool get isExplicit =>
       metadata[ContextTrackMetadata.keyIsExplicit]?.toLowerCase() == 'true';
 
-  /// Returns true if this track is a podcast ad (from Spotify ybb1.K).
+  /// Returns true if this track is a podcast ad (from Spotify ock1.m68145U / ybb1.K).
   bool get isPodcastAdvertisement =>
       metadata[ContextTrackMetadata.keyIsPodcastAdvertisement]?.toLowerCase() ==
       'true';

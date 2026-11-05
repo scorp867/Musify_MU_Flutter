@@ -34,8 +34,11 @@ class MobiusLoop<M, E, F> {
   /// Current snapshot of the Mobius state model.
   M get currentModel => _currentModel;
 
-  /// Observable stream of state changes.
-  Stream<M> get models => _modelController.stream;
+  /// Observable stream of state changes with replay(1) semantics (1:1 with Spotify RxJava replay(1)).
+  Stream<M> get models async* {
+    yield _currentModel;
+    yield* _modelController.stream;
+  }
 
   /// Dispatches an event into the Mobius state loop.
   void dispatchEvent(E event) {

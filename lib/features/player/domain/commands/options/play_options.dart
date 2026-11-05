@@ -17,7 +17,8 @@ class PlayOptions {
     this.trigger,
   });
 
-  static PlayOptionsBuilder builder() => PlayOptionsBuilder();
+  static PlayOptionsBuilder builder() =>
+      PlayOptionsBuilder().commandOptions(CommandOptions.empty);
 
   PlayOptionsBuilder toBuilder() => PlayOptionsBuilder(
         commandOptions: commandOptions,
@@ -38,7 +39,7 @@ class PlayOptions {
 
   @override
   String toString() =>
-      'PlayOptions{commandOptions=$commandOptions, operation=$operation, trigger=$trigger}';
+      'PlayOptions{operation=$operation, trigger=$trigger, commandOptions=$commandOptions}';
 }
 
 class PlayOptionsBuilder {
@@ -53,6 +54,8 @@ class PlayOptionsBuilder {
   })  : _commandOptions = commandOptions,
         _operation = operation,
         _trigger = trigger;
+
+  static PlayOptionsBuilder builder() => PlayOptions.builder();
 
   PlayOptionsBuilder commandOptions(CommandOptions val) {
     _commandOptions = val;

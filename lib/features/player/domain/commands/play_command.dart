@@ -25,8 +25,17 @@ class PlayCommand implements Command {
   static PlayCommand create(Context context, PlayOrigin playOrigin) =>
       builder(context, playOrigin).build();
 
-  static PlayCommandBuilder builder(Context context, PlayOrigin playOrigin) =>
-      PlayCommandBuilder(context: context, playOrigin: playOrigin);
+  static PlayCommandBuilder builder([Context? context, PlayOrigin? playOrigin]) {
+    final c = switch (context) {
+      final valid? => valid,
+      null => Context.builder('').build(),
+    };
+    final o = switch (playOrigin) {
+      final valid? => valid,
+      null => PlayOrigin.create(''),
+    };
+    return PlayCommandBuilder(context: c, playOrigin: o);
+  }
 
   PlayCommandBuilder toBuilder() => PlayCommandBuilder(
         context: context,
@@ -78,6 +87,8 @@ class PlayCommandBuilder {
         _options = options,
         _playOptions = playOptions,
         _loggingParams = loggingParams;
+
+  static PlayCommandBuilder builder() => PlayCommand.builder();
 
   PlayCommandBuilder context(Context val) {
     _context = val;

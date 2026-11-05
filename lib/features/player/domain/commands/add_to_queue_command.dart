@@ -19,8 +19,12 @@ class AddToQueueCommand implements Command {
   static AddToQueueCommand create(ContextTrack track) =>
       builder(track).build();
 
-  static AddToQueueCommandBuilder builder(ContextTrack track) =>
-      AddToQueueCommandBuilder(track: track);
+  static AddToQueueCommandBuilder builder([ContextTrack? track]) {
+    if (track case final validTrack?) {
+      return AddToQueueCommandBuilder(track: validTrack);
+    }
+    return AddToQueueCommandBuilder(track: ContextTrack.create(''));
+  }
 
   AddToQueueCommandBuilder toBuilder() => AddToQueueCommandBuilder(
         track: track,
@@ -56,6 +60,9 @@ class AddToQueueCommandBuilder {
   })  : _track = track,
         _options = options,
         _loggingParams = loggingParams;
+
+  static AddToQueueCommandBuilder builder() =>
+      AddToQueueCommand.builder();
 
   AddToQueueCommandBuilder track(ContextTrack val) {
     _track = val;

@@ -1,6 +1,7 @@
 library;
 
 import 'dart:async';
+import 'dart:developer' as dev;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -9,6 +10,7 @@ import 'package:musify_mu/features/library/data/cache/library_cache.dart';
 import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
+import 'package:musify_mu/features/player/data/services/spotify_head_resolver.dart';
 import 'package:musify_mu/features/player/domain/commands/options/logging_params.dart';
 import 'package:musify_mu/features/player/domain/commands/options/player_option_overrides.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
@@ -16,8 +18,10 @@ import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.
 import 'package:musify_mu/features/player/domain/commands/play_command.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
+import 'package:musify_mu/features/player/domain/models/audio_stream_metadata_keys.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
+import 'package:musify_mu/features/player/domain/models/player_response.dart';
 import 'package:musify_mu/features/playlist/domain/models/playlist_entity.dart';
 import 'package:musify_mu/features/playlist/domain/models/playlist_metadata.dart';
 import 'package:musify_mu/features/playlist/domain/models/sort_order.dart';
@@ -176,7 +180,13 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             throw StateError('Empty playlist response for $playlistUri');
           }
         }
-      } catch (e) {
+      } catch (e, stack) {
+        dev.log(
+          'Failed to fetch remote playlist: $e',
+          name: 'PlaylistRepository',
+          error: e,
+          stackTrace: stack,
+        );
         if (!hasEmittedData) {
           if (isLiked && _libraryCache != null) {
             final colBytes = await _libraryCache.getStructureBytes('col_collection');
@@ -264,8 +274,13 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           yield decoratedEntity;
         }
       }
-    } catch (_) {
-      // Esperanto live stream ended or unsupported; existing emitted state remains active
+    } catch (e, stack) {
+      dev.log(
+        'Esperanto live stream ended for $playlistUri: $e',
+        name: 'PlaylistRepository',
+        error: e,
+        stackTrace: stack,
+      );
     }
   }
 
@@ -302,7 +317,14 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           _memoryCache[playlistUri] = result;
           return result;
         }
-      } catch (_) {}
+      } catch (e, stack) {
+        dev.log(
+          'Failed remote getPlaylist: $e',
+          name: 'PlaylistRepository',
+          error: e,
+          stackTrace: stack,
+        );
+      }
     }
 
     if (_cache != null) {
@@ -316,8 +338,8 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         );
 
         final result = _kodiakDecorator != null
-            ? await _kodiakDecorator.decorate(rawEntity)
-            : rawEntity;
+              ? await _kodiakDecorator.decorate(rawEntity)
+              : rawEntity;
         _memoryCache[playlistId] = result;
         _memoryCache[playlistUri] = result;
         return result;
@@ -335,8 +357,8 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         );
 
         final result = _kodiakDecorator != null
-            ? await _kodiakDecorator.decorate(rawEntity)
-            : rawEntity;
+              ? await _kodiakDecorator.decorate(rawEntity)
+              : rawEntity;
         _memoryCache[playlistId] = result;
         _memoryCache[playlistUri] = result;
         return result;
@@ -433,7 +455,14 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         entity = await getPlaylist(playlistUri);
         _memoryCache[playlistId] = entity;
         _memoryCache[playlistUri] = entity;
-      } catch (_) {}
+      } catch (e, stack) {
+        dev.log(
+          'Failed getPlaylist in playPlaylist: $e',
+          name: 'PlaylistRepository',
+          error: e,
+          stackTrace: stack,
+        );
+      }
     }
 
     List<ContextPage>? pages;
@@ -460,16 +489,19 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             metadata[ContextTrackMetadata.keyArtistUri] = trackMeta.artistUris.first;
           }
           if (trackMeta.fileId.isNotEmpty) {
-            metadata[ContextTrackMetadata.keyFileId] = trackMeta.fileId;
+            metadata[AudioStreamMetadataKeys.keyFileId] = trackMeta.fileId;
           }
           if (trackMeta.aacFileId.isNotEmpty) {
-            metadata[ContextTrackMetadata.keyAacFileId] = trackMeta.aacFileId;
+            metadata[AudioStreamMetadataKeys.keyAacFileId] = trackMeta.aacFileId;
           }
           if (trackMeta.headUrl.isNotEmpty) {
-            metadata[ContextTrackMetadata.keyHeadFileUrl] = trackMeta.headUrl;
+            metadata[AudioStreamMetadataKeys.keyHeadFileUrl] = trackMeta.headUrl;
+          } else if (trackMeta.fileId.isNotEmpty) {
+            metadata[AudioStreamMetadataKeys.keyHeadFileUrl] =
+                SpotifyHeadResolver.instance.buildHeadUrl(trackMeta.fileId);
           }
           if (trackMeta.cdnUrl.isNotEmpty) {
-            metadata[ContextTrackMetadata.keyCdnAacUrl] = trackMeta.cdnUrl;
+            metadata[AudioStreamMetadataKeys.keyCdnAacUrl] = trackMeta.cdnUrl;
           }
         }
         return ContextTrack.builder(item.uri)
@@ -506,9 +538,10 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         },
         pages: pages,
       ),
-      playOrigin: const PlayOrigin(
+      playOrigin: PlayOrigin(
         featureIdentifier: 'playlist',
-        viewUri: 'spotify:app:playlist',
+        viewUri: playlistUri,
+        referrerIdentifier: 'playlist',
       ),
       options: PreparePlayOptions(
         skipTo: skipToUri != null
@@ -521,10 +554,28 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
       loggingParams: loggingParams,
     );
 
-    // Route through both ContextPlayerPlayClient and PlaylistPlayClient
+    // Route through ContextPlayerPlayClient, fallback to PlaylistPlayClient if rejected or failed
     try {
-      await _contextPlayerPlayClient.play(command);
-    } catch (_) {
+      final resp = await _contextPlayerPlayClient.play(command);
+      if (resp is PlayerResponseFailure) {
+        dev.log(
+          'ContextPlayer play returned failure: ${resp.reasons}. Falling back to PlaylistPlayClient.',
+          name: 'PlaylistRepository',
+        );
+        final playRequest = PlaylistPlayRequest(
+          playlistQuery: PlaylistQuery(
+            textFilter: playlistUri,
+          ),
+        );
+        await _playClient.play(playRequest);
+      }
+    } catch (e, stack) {
+      dev.log(
+        'ContextPlayer play threw: $e. Falling back to PlaylistPlayClient.',
+        name: 'PlaylistRepository',
+        error: e,
+        stackTrace: stack,
+      );
       final playRequest = PlaylistPlayRequest(
         playlistQuery: PlaylistQuery(
           textFilter: playlistUri,

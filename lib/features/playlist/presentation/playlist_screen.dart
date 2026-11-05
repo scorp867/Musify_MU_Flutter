@@ -1,5 +1,6 @@
 library;
 
+import 'dart:developer' as dev;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
@@ -15,7 +16,9 @@ import '../../../core/ubi/domain/models/page_instance_id.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
+import '../../../features/player/data/services/spotify_head_resolver.dart';
 import '../../../features/player/domain/commands/play_as_next_in_queue_command.dart';
+import '../../../features/player/domain/models/audio_stream_metadata_keys.dart';
 import '../../../features/player/domain/models/context_track.dart';
 import '../../player/presentation/widgets/spotify_scroll_physics.dart';
 import '../application/mobius/playlist_effect_handler.dart';
@@ -39,17 +42,11 @@ import 'components/playlist_track_tile.dart';
 ///
 /// Features:
 /// 1. Top Search Bar: Find in playlist positioned at the top of header content
-/// 2. Album Artwork Motion: Scales down (1.0 -> 0.75) and fades out smoothly with scroll
-/// 3. Collapsing AppBar with dynamic fading dark translucent bubbles (`back_button_background.xml`)
+/// 2. Header: Dynamic Matte EasedGradient color extracted from album cover
+/// 3. Collapsing Pinned App Bar: with title opacity fading in as header scrolls out,
 ///    and outward sliding buttons (8dp slide, zero button fade, zero play button in top bar)
-/// 4. Action Row: Download, Share (Owner) / Heart (Viewer), Shuffle with active dot, and 56x56 layout slot
-/// 5. Floating PlayButtonBehavior FAB: 56x56 green FAB with 20dp shuffle badge that moves smoothly
-///    with the Action Row and pins at (topInset + kToolbarHeight - 28dp) directly overlapping the toolbar bottom
-/// 6. Permission-Governed Curation Action Chips: `+ Add`, `Edit`, `Name & details`, `Sort` for owners; `Sort` for viewers
-/// 7. Track Tiles: Wrapped with Dismissible swipe-to-queue (`ItemTouchHelper`), 48x48 art, 12dp download badge, explicit "E" badge, animated 3-bar green equalizer
-/// 8. High-Performance Zero-Jank Rendering:
-///    - Isolated scroll listeners using [ValueNotifier<double>] to eliminate full-tree setState rebuilds
-///    - Memoized gradients and zero redundant Mobius loop dispatches during scroll ticks
+/// 4. 56x56 Round Play FAB with 1:1 PlayButtonBehavior docking physics: pins at (topInset + kToolbarHeight - 28dp)
+/// 5. Sorting bottom sheet, curation action chips, sticky filter headers, swipe to queue
 class PlaylistScreen extends StatefulWidget {
   final String playlistUri;
 
@@ -64,22 +61,22 @@ class PlaylistScreen extends StatefulWidget {
 
 class _PlaylistScreenState extends State<PlaylistScreen>
     with TickerProviderStateMixin {
-  late final PageInstanceId _pageInstanceId;
-  late final PlaylistMobiusLoop _loop;
   late final ScrollController _scrollController;
   late final ValueNotifier<double> _scrollOffsetNotifier;
   late final SpotifyStretchController _stretchController;
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
 
+  late final PlaylistMobiusLoop _loop;
+  late final PageInstanceId _pageInstanceId;
+
   final GlobalKey _actionRowKey = GlobalKey();
   double _initialActionRowTop = 0.0;
 
-  bool _isSearchActive = false;
-  Color _dominantHeaderColor = const Color(0xFF535353); // Default Spotify encore_header_background_default
-  String? _lastExtractedCoverUrl;
-
   static const double _headerHeight = 360.0;
+  Color _dominantHeaderColor = const Color(0xFF535353);
+  String _lastExtractedCoverUrl = '';
+  bool _isSearchActive = false;
 
   @override
   void initState() {
@@ -94,8 +91,8 @@ class _PlaylistScreenState extends State<PlaylistScreen>
     final optionsClient = getIt<ContextPlayerOptionsClient>();
     final controlClient = getIt<ContextPlayerControlClient>();
     final stateClient = getIt<ContextPlayerStateClient>();
-
     final pageInstanceHolder = getIt<PageInstanceIdHolder>();
+
     _pageInstanceId = PageInstanceIdHolder.generateNew();
     pageInstanceHolder.update(_pageInstanceId);
 
@@ -109,7 +106,9 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           ),
         );
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      dev.log('Failed to log screen impression: $e', name: 'PlaylistScreen', error: e, stackTrace: stack);
+    }
 
     final effectHandler = PlaylistMobiusEffectHandler(
       repository: repo,
@@ -153,8 +152,12 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             _dominantHeaderColor = extracted;
           });
         }
-      }).catchError((_) {});
-    } catch (_) {}
+      }).catchError((e, stack) {
+        dev.log('Failed to extract dominant color: $e', name: 'PlaylistScreen', error: e, stackTrace: stack);
+      });
+    } catch (e, stack) {
+      dev.log('Failed to get ColorExtractionService: $e', name: 'PlaylistScreen', error: e, stackTrace: stack);
+    }
   }
 
   void _handlePlayFabTapped() {
@@ -216,13 +219,16 @@ class _PlaylistScreenState extends State<PlaylistScreen>
             ContextTrackMetadata.keyInteractionId: result.interactionId.value,
             ContextTrackMetadata.keyPageInstanceId: _pageInstanceId.value,
             if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
-              ContextTrackMetadata.keyFileId: meta.fileId,
+              AudioStreamMetadataKeys.keyFileId: meta.fileId,
             if (item.trackMetadata case final meta? when meta.aacFileId.isNotEmpty)
-              ContextTrackMetadata.keyAacFileId: meta.aacFileId,
+              AudioStreamMetadataKeys.keyAacFileId: meta.aacFileId,
             if (item.trackMetadata case final meta? when meta.headUrl.isNotEmpty)
-              ContextTrackMetadata.keyHeadFileUrl: meta.headUrl,
+              AudioStreamMetadataKeys.keyHeadFileUrl: meta.headUrl
+            else if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
+              AudioStreamMetadataKeys.keyHeadFileUrl:
+                  SpotifyHeadResolver.instance.buildHeadUrl(meta.fileId),
             if (item.trackMetadata case final meta? when meta.cdnUrl.isNotEmpty)
-              ContextTrackMetadata.keyCdnAacUrl: meta.cdnUrl,
+              AudioStreamMetadataKeys.keyCdnAacUrl: meta.cdnUrl,
           })
           .build();
 
@@ -241,7 +247,9 @@ class _PlaylistScreenState extends State<PlaylistScreen>
           ),
         );
       }
-    } catch (_) {}
+    } catch (e, stack) {
+      dev.log('Swipe to queue failed: $e', name: 'PlaylistScreen', error: e, stackTrace: stack);
+    }
   }
 
   @override

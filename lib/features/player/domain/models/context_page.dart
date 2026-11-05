@@ -17,7 +17,10 @@ class ContextPage {
     this.tracks,
   });
 
-  static ContextPageBuilder builder() => ContextPageBuilder();
+  static ContextPageBuilder builder() => ContextPageBuilder()
+      .pageUrl('')
+      .nextPageUrl('')
+      .metadata(const <String, String>{});
 
   ContextPageBuilder toBuilder() => ContextPageBuilder(
         pageUrl: pageUrl,
@@ -40,12 +43,15 @@ class ContextPage {
         pageUrl,
         nextPageUrl,
         Object.hashAll(metadata.entries.map((e) => Object.hash(e.key, e.value))),
-        tracks != null ? Object.hashAll(tracks!) : null,
+        switch (tracks) {
+          final t? => Object.hashAll(t),
+          null => null,
+        },
       );
 
   @override
   String toString() =>
-      'ContextPage{pageUrl=$pageUrl, nextPageUrl=$nextPageUrl, metadata=$metadata, tracks=$tracks}';
+      'ContextPage{pageUrl=$pageUrl, nextPageUrl=$nextPageUrl, tracks=$tracks, metadata=$metadata}';
 
   static bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (identical(a, b)) return true;
@@ -81,7 +87,12 @@ class ContextPageBuilder {
   })  : _pageUrl = pageUrl,
         _nextPageUrl = nextPageUrl,
         _metadata = Map<String, String>.from(metadata),
-        _tracks = tracks != null ? List<ContextTrack>.from(tracks) : null;
+        _tracks = switch (tracks) {
+          final t? => List<ContextTrack>.from(t),
+          null => null,
+        };
+
+  static ContextPageBuilder builder() => ContextPage.builder();
 
   ContextPageBuilder pageUrl(String val) {
     _pageUrl = val;
@@ -107,6 +118,9 @@ class ContextPageBuilder {
         pageUrl: _pageUrl,
         nextPageUrl: _nextPageUrl,
         metadata: Map<String, String>.unmodifiable(_metadata),
-        tracks: _tracks != null ? List<ContextTrack>.unmodifiable(_tracks!) : null,
+        tracks: switch (_tracks) {
+          final t? => List<ContextTrack>.unmodifiable(t),
+          null => null,
+        },
       );
 }

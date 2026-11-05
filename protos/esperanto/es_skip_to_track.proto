@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package spotify.player.esperanto.proto;
+
+import "es_optional.proto";
+
+option optimize_for = CODE_SIZE;
+
+message SkipToTrack {
+    string page_url = 1;
+    OptionalInt64 page_index = 2;
+    string track_uid = 3;
+    string track_uri = 4;
+    OptionalInt64 track_index = 5;
+}

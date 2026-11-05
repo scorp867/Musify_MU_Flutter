@@ -250,6 +250,104 @@ const Restrictions$json = {
       '6': '.spotify.player.esperanto.proto.Restrictions.DisallowSignalsEntry',
       '10': 'disallowSignals'
     },
+    {
+      '1': 'disallow_play_as_next_in_queue_reasons',
+      '3': 27,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowPlayAsNextInQueueReasons'
+    },
+    {
+      '1': 'disallow_sleep_timer_clear_reasons',
+      '3': 28,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowSleepTimerClearReasons'
+    },
+    {
+      '1': 'disallow_sleep_timer_duration_reasons',
+      '3': 29,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowSleepTimerDurationReasons'
+    },
+    {
+      '1': 'disallow_sleep_timer_end_of_track_reasons',
+      '3': 30,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowSleepTimerEndOfTrackReasons'
+    },
+    {
+      '1': 'disallow_add_to_queue_track_reasons',
+      '3': 31,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowAddToQueueTrackReasons'
+    },
+    {
+      '1': 'disallow_tap_to_play_track_in_next_tracks_reasons',
+      '3': 32,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowTapToPlayTrackInNextTracksReasons'
+    },
+    {
+      '1': 'disallow_reordering_track_in_next_tracks_reasons',
+      '3': 33,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowReorderingTrackInNextTracksReasons'
+    },
+    {
+      '1': 'disallow_reordering_episode_in_next_tracks_reasons',
+      '3': 34,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowReorderingEpisodeInNextTracksReasons'
+    },
+    {
+      '1': 'disallow_reordering_enqueued_track_in_next_tracks_reasons',
+      '3': 35,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowReorderingEnqueuedTrackInNextTracksReasons'
+    },
+    {
+      '1': 'disallow_reordering_enqueued_episode_in_next_tracks_reasons',
+      '3': 36,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowReorderingEnqueuedEpisodeInNextTracksReasons'
+    },
+    {
+      '1': 'disallow_viewing_queue_reasons',
+      '3': 37,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowViewingQueueReasons'
+    },
+    {
+      '1': 'disallow_viewing_ordered_tracks_in_next_tracks_reasons',
+      '3': 38,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowViewingOrderedTracksInNextTracksReasons'
+    },
+    {
+      '1': 'disallow_swipe_next_reasons',
+      '3': 39,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowSwipeNextReasons'
+    },
+    {
+      '1': 'disallow_swipe_prev_reasons',
+      '3': 40,
+      '4': 3,
+      '5': 9,
+      '10': 'disallowSwipePrevReasons'
+    },
   ],
   '3': [
     Restrictions_DisallowSettingModesEntry$json,
@@ -329,9 +427,31 @@ final $typed_data.Uint8List restrictionsDescriptor = $convert.base64Decode(
     'MYGSADKAsyRi5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uUmVzdHJpY3Rpb25zLkRp'
     'c2FsbG93U2V0dGluZ01vZGVzRW50cnlSFGRpc2FsbG93U2V0dGluZ01vZGVzEmwKEGRpc2FsbG'
     '93X3NpZ25hbHMYGiADKAsyQS5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uUmVzdHJp'
-    'Y3Rpb25zLkRpc2FsbG93U2lnbmFsc0VudHJ5Ug9kaXNhbGxvd1NpZ25hbHMaeQoZRGlzYWxsb3'
-    'dTZXR0aW5nTW9kZXNFbnRyeRIQCgNrZXkYASABKAlSA2tleRJGCgV2YWx1ZRgCIAEoCzIwLnNw'
-    'b3RpZnkucGxheWVyLmVzcGVyYW50by5wcm90by5Nb2RlUmVzdHJpY3Rpb25zUgV2YWx1ZToCOA'
-    'EadgoURGlzYWxsb3dTaWduYWxzRW50cnkSEAoDa2V5GAEgASgJUgNrZXkSSAoFdmFsdWUYAiAB'
-    'KAsyMi5zcG90aWZ5LnBsYXllci5lc3BlcmFudG8ucHJvdG8uUmVzdHJpY3Rpb25SZWFzb25zUg'
-    'V2YWx1ZToCOAE=');
+    'Y3Rpb25zLkRpc2FsbG93U2lnbmFsc0VudHJ5Ug9kaXNhbGxvd1NpZ25hbHMSUAomZGlzYWxsb3'
+    'dfcGxheV9hc19uZXh0X2luX3F1ZXVlX3JlYXNvbnMYGyADKAlSIGRpc2FsbG93UGxheUFzTmV4'
+    'dEluUXVldWVSZWFzb25zEkoKImRpc2FsbG93X3NsZWVwX3RpbWVyX2NsZWFyX3JlYXNvbnMYHC'
+    'ADKAlSHmRpc2FsbG93U2xlZXBUaW1lckNsZWFyUmVhc29ucxJQCiVkaXNhbGxvd19zbGVlcF90'
+    'aW1lcl9kdXJhdGlvbl9yZWFzb25zGB0gAygJUiFkaXNhbGxvd1NsZWVwVGltZXJEdXJhdGlvbl'
+    'JlYXNvbnMSVgopZGlzYWxsb3dfc2xlZXBfdGltZXJfZW5kX29mX3RyYWNrX3JlYXNvbnMYHiAD'
+    'KAlSI2Rpc2FsbG93U2xlZXBUaW1lckVuZE9mVHJhY2tSZWFzb25zEksKI2Rpc2FsbG93X2FkZF'
+    '90b19xdWV1ZV90cmFja19yZWFzb25zGB8gAygJUh5kaXNhbGxvd0FkZFRvUXVldWVUcmFja1Jl'
+    'YXNvbnMSZAoxZGlzYWxsb3dfdGFwX3RvX3BsYXlfdHJhY2tfaW5fbmV4dF90cmFja3NfcmVhc2'
+    '9ucxggIAMoCVIpZGlzYWxsb3dUYXBUb1BsYXlUcmFja0luTmV4dFRyYWNrc1JlYXNvbnMSZAow'
+    'ZGlzYWxsb3dfcmVvcmRlcmluZ190cmFja19pbl9uZXh0X3RyYWNrc19yZWFzb25zGCEgAygJUi'
+    'pkaXNhbGxvd1Jlb3JkZXJpbmdUcmFja0luTmV4dFRyYWNrc1JlYXNvbnMSaAoyZGlzYWxsb3df'
+    'cmVvcmRlcmluZ19lcGlzb2RlX2luX25leHRfdHJhY2tzX3JlYXNvbnMYIiADKAlSLGRpc2FsbG'
+    '93UmVvcmRlcmluZ0VwaXNvZGVJbk5leHRUcmFja3NSZWFzb25zEnUKOWRpc2FsbG93X3Jlb3Jk'
+    'ZXJpbmdfZW5xdWV1ZWRfdHJhY2tfaW5fbmV4dF90cmFja3NfcmVhc29ucxgjIAMoCVIyZGlzYW'
+    'xsb3dSZW9yZGVyaW5nRW5xdWV1ZWRUcmFja0luTmV4dFRyYWNrc1JlYXNvbnMSeQo7ZGlzYWxs'
+    'b3dfcmVvcmRlcmluZ19lbnF1ZXVlZF9lcGlzb2RlX2luX25leHRfdHJhY2tzX3JlYXNvbnMYJC'
+    'ADKAlSNGRpc2FsbG93UmVvcmRlcmluZ0VucXVldWVkRXBpc29kZUluTmV4dFRyYWNrc1JlYXNv'
+    'bnMSQwoeZGlzYWxsb3dfdmlld2luZ19xdWV1ZV9yZWFzb25zGCUgAygJUhtkaXNhbGxvd1ZpZX'
+    'dpbmdRdWV1ZVJlYXNvbnMSbwo2ZGlzYWxsb3dfdmlld2luZ19vcmRlcmVkX3RyYWNrc19pbl9u'
+    'ZXh0X3RyYWNrc19yZWFzb25zGCYgAygJUi9kaXNhbGxvd1ZpZXdpbmdPcmRlcmVkVHJhY2tzSW'
+    '5OZXh0VHJhY2tzUmVhc29ucxI9ChtkaXNhbGxvd19zd2lwZV9uZXh0X3JlYXNvbnMYJyADKAlS'
+    'GGRpc2FsbG93U3dpcGVOZXh0UmVhc29ucxI9ChtkaXNhbGxvd19zd2lwZV9wcmV2X3JlYXNvbn'
+    'MYKCADKAlSGGRpc2FsbG93U3dpcGVQcmV2UmVhc29ucxp5ChlEaXNhbGxvd1NldHRpbmdNb2Rl'
+    'c0VudHJ5EhAKA2tleRgBIAEoCVIDa2V5EkYKBXZhbHVlGAIgASgLMjAuc3BvdGlmeS5wbGF5ZX'
+    'IuZXNwZXJhbnRvLnByb3RvLk1vZGVSZXN0cmljdGlvbnNSBXZhbHVlOgI4ARp2ChREaXNhbGxv'
+    'd1NpZ25hbHNFbnRyeRIQCgNrZXkYASABKAlSA2tleRJICgV2YWx1ZRgCIAEoCzIyLnNwb3RpZn'
+    'kucGxheWVyLmVzcGVyYW50by5wcm90by5SZXN0cmljdGlvblJlYXNvbnNSBXZhbHVlOgI4AQ==');

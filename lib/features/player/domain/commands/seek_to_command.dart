@@ -27,8 +27,12 @@ class SeekToCommand implements Command {
 
   static SeekToCommand create(int value) => builder(value).build();
 
-  static SeekToCommandBuilder builder([int value = 0]) =>
-      SeekToCommandBuilder(value: value);
+  static SeekToCommandBuilder builder([int? value]) {
+    if (value case final validValue?) {
+      return SeekToCommandBuilder(value: validValue);
+    }
+    return SeekToCommandBuilder(value: 0);
+  }
 
   SeekToCommandBuilder toBuilder() => SeekToCommandBuilder(
         value: value,
@@ -80,6 +84,8 @@ class SeekToCommandBuilder {
         _options = options,
         _loggingParams = loggingParams,
         _creatorTimestampPositionMs = creatorTimestampPositionMs;
+
+  static SeekToCommandBuilder builder() => SeekToCommand.builder(0);
 
   SeekToCommandBuilder value(int val) {
     _value = val;

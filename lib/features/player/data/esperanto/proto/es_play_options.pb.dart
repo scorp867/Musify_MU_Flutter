@@ -25,11 +25,13 @@ class PlayOptions extends $pb.GeneratedMessage {
     PlayOptions_Reason? reason,
     PlayOptions_Operation? operation,
     PlayOptions_Trigger? trigger,
+    $core.double? playbackSpeed,
   }) {
     final result = PlayOptions._();
     if (reason != null) result.reason = reason;
     if (operation != null) result.operation = operation;
     if (trigger != null) result.trigger = trigger;
+    if (playbackSpeed != null) result.playbackSpeed = playbackSpeed;
     return result;
   }
 
@@ -53,6 +55,8 @@ class PlayOptions extends $pb.GeneratedMessage {
         enumValues: PlayOptions_Operation.values)
     ..aE<PlayOptions_Trigger>(3, _omitFieldNames ? '' : 'trigger',
         enumValues: PlayOptions_Trigger.values)
+    ..aD(4, _omitFieldNames ? '' : 'playbackSpeed',
+        fieldType: $pb.PbFieldType.OF)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -103,6 +107,15 @@ class PlayOptions extends $pb.GeneratedMessage {
   $core.bool hasTrigger() => $_has(2);
   @$pb.TagNumber(3)
   void clearTrigger() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.double get playbackSpeed => $_getN(3);
+  @$pb.TagNumber(4)
+  set playbackSpeed($core.double value) => $_setFloat(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPlaybackSpeed() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPlaybackSpeed() => $_clearField(4);
 }
 
 const $core.bool _omitFieldNames =

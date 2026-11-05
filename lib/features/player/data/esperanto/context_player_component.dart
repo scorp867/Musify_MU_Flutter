@@ -5,37 +5,35 @@ import 'context_player_queue_client.dart';
 import 'context_player_state_client.dart';
 import 'esperanto_transport.dart';
 
-/// 1:1 replica of Spotify ContextPlayer Dagger Component / Factory (p.t0m).
+/// 1:1 replica of Spotify ContextPlayer Dagger Component & Factory (p.afs0).
 /// Instantiates, wires, and provides all ContextPlayer client subcomponents.
 class ContextPlayerComponent {
   final EsperantoTransport transport;
+  final ContextPlayerControlClient controlsClient;
+  final ContextPlayerOptionsClient optionsClient;
+  final ContextPlayerPlayClient playClient;
+  final ContextPlayerQueueClient queueClient;
+  final ContextPlayerStateClient stateClient;
 
-  late final ContextPlayerControlClient controlsClient;
-  late final ContextPlayerOptionsClient optionsClient;
-  late final ContextPlayerPlayClient playClient;
-  late final ContextPlayerQueueClient queueClient;
-  late final ContextPlayerStateClient stateClient;
+  ContextPlayerComponent(this.transport)
+      : controlsClient = ContextPlayerControlClient(transport),
+        optionsClient = ContextPlayerOptionsClient(transport),
+        playClient = ContextPlayerPlayClient(transport),
+        queueClient = ContextPlayerQueueClient(transport),
+        stateClient = ContextPlayerStateClient(transport);
 
-  ContextPlayerComponent(this.transport) {
-    controlsClient = ContextPlayerControlClient(transport);
-    optionsClient = ContextPlayerOptionsClient(transport);
-    playClient = ContextPlayerPlayClient(transport);
-    queueClient = ContextPlayerQueueClient(transport);
-    stateClient = ContextPlayerStateClient(transport);
-  }
+  /// 1:1 with afs0.m26810s -> ContextPlayerControlClient (p.nvy)
+  ContextPlayerControlClient getControlsClient() => controlsClient;
 
-  /// 1:1 with t0m.a() -> ContextPlayerControlClient (p.j4v)
-  ContextPlayerControlClient a() => controlsClient;
+  /// 1:1 with afs0.m26811t -> ContextPlayerOptionsClient (p.ovy)
+  ContextPlayerOptionsClient getOptionsClient() => optionsClient;
 
-  /// 1:1 with t0m.c() -> ContextPlayerOptionsClient (p.k4v)
-  ContextPlayerOptionsClient c() => optionsClient;
+  /// 1:1 with ContextPlayerPlayClient (p.avy)
+  ContextPlayerPlayClient getPlayClient() => playClient;
 
-  /// 1:1 with t0m.d() -> ContextPlayerPlayClient (p.y3v)
-  ContextPlayerPlayClient d() => playClient;
+  /// 1:1 with afs0.m26813v -> ContextPlayerQueueClient (p.pvy)
+  ContextPlayerQueueClient getQueueClient() => queueClient;
 
-  /// 1:1 with t0m.e() -> ContextPlayerQueueClient (p.l4v)
-  ContextPlayerQueueClient e() => queueClient;
-
-  /// ContextPlayerStateClient (p.n4v)
-  ContextPlayerStateClient state() => stateClient;
+  /// 1:1 with afs0.m26817z -> ContextPlayerStateClient (p.rvy / urs0)
+  ContextPlayerStateClient getStateClient() => stateClient;
 }

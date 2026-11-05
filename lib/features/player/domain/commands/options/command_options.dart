@@ -4,24 +4,24 @@ class CommandOptions {
   static final CommandOptions empty = builder().build();
 
   final bool? overrideRestrictions;
-  final String? onlyForPlaybackId;
-  final bool? systemInitiated;
   final bool? onlyForLocalDevice;
+  final bool? systemInitiated;
+  final String? onlyForPlaybackId;
 
   const CommandOptions({
     this.overrideRestrictions,
-    this.onlyForPlaybackId,
-    this.systemInitiated,
     this.onlyForLocalDevice,
+    this.systemInitiated,
+    this.onlyForPlaybackId,
   });
 
   static CommandOptionsBuilder builder() => CommandOptionsBuilder();
 
   CommandOptionsBuilder toBuilder() => CommandOptionsBuilder(
         overrideRestrictions: overrideRestrictions,
-        onlyForPlaybackId: onlyForPlaybackId,
-        systemInitiated: systemInitiated,
         onlyForLocalDevice: onlyForLocalDevice,
+        systemInitiated: systemInitiated,
+        onlyForPlaybackId: onlyForPlaybackId,
       );
 
   @override
@@ -29,51 +29,43 @@ class CommandOptions {
       identical(this, other) ||
       (other is CommandOptions &&
           other.overrideRestrictions == overrideRestrictions &&
-          other.onlyForPlaybackId == onlyForPlaybackId &&
+          other.onlyForLocalDevice == onlyForLocalDevice &&
           other.systemInitiated == systemInitiated &&
-          other.onlyForLocalDevice == onlyForLocalDevice);
+          other.onlyForPlaybackId == onlyForPlaybackId);
 
   @override
   int get hashCode => Object.hash(
         overrideRestrictions,
-        onlyForPlaybackId,
-        systemInitiated,
         onlyForLocalDevice,
+        systemInitiated,
+        onlyForPlaybackId,
       );
 
   @override
   String toString() =>
-      'CommandOptions{overrideRestrictions=$overrideRestrictions, onlyForPlaybackId=$onlyForPlaybackId, systemInitiated=$systemInitiated, onlyForLocalDevice=$onlyForLocalDevice}';
+      'CommandOptions{overrideRestrictions=$overrideRestrictions, onlyForLocalDevice=$onlyForLocalDevice, systemInitiated=$systemInitiated, onlyForPlaybackId=$onlyForPlaybackId}';
 }
 
 class CommandOptionsBuilder {
   bool? _overrideRestrictions;
-  String? _onlyForPlaybackId;
-  bool? _systemInitiated;
   bool? _onlyForLocalDevice;
+  bool? _systemInitiated;
+  String? _onlyForPlaybackId;
 
   CommandOptionsBuilder({
     bool? overrideRestrictions,
-    String? onlyForPlaybackId,
-    bool? systemInitiated,
     bool? onlyForLocalDevice,
+    bool? systemInitiated,
+    String? onlyForPlaybackId,
   })  : _overrideRestrictions = overrideRestrictions,
-        _onlyForPlaybackId = onlyForPlaybackId,
+        _onlyForLocalDevice = onlyForLocalDevice,
         _systemInitiated = systemInitiated,
-        _onlyForLocalDevice = onlyForLocalDevice;
+        _onlyForPlaybackId = onlyForPlaybackId;
+
+  static CommandOptionsBuilder builder() => CommandOptions.builder();
 
   CommandOptionsBuilder overrideRestrictions(bool val) {
     _overrideRestrictions = val;
-    return this;
-  }
-
-  CommandOptionsBuilder onlyForPlaybackId(String val) {
-    _onlyForPlaybackId = val;
-    return this;
-  }
-
-  CommandOptionsBuilder systemInitiated(bool val) {
-    _systemInitiated = val;
     return this;
   }
 
@@ -82,10 +74,20 @@ class CommandOptionsBuilder {
     return this;
   }
 
+  CommandOptionsBuilder systemInitiated(bool val) {
+    _systemInitiated = val;
+    return this;
+  }
+
+  CommandOptionsBuilder onlyForPlaybackId(String val) {
+    _onlyForPlaybackId = val;
+    return this;
+  }
+
   CommandOptions build() => CommandOptions(
         overrideRestrictions: _overrideRestrictions,
-        onlyForPlaybackId: _onlyForPlaybackId,
-        systemInitiated: _systemInitiated,
         onlyForLocalDevice: _onlyForLocalDevice,
+        systemInitiated: _systemInitiated,
+        onlyForPlaybackId: _onlyForPlaybackId,
       );
 }

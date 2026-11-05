@@ -13,8 +13,12 @@ class UpdateContextCommand implements Command {
   static UpdateContextCommand create(Context context) =>
       builder(context).build();
 
-  static UpdateContextCommandBuilder builder([Context? context]) =>
-      UpdateContextCommandBuilder(context: context);
+  static UpdateContextCommandBuilder builder([Context? context]) {
+    if (context case final validContext?) {
+      return UpdateContextCommandBuilder(context: validContext);
+    }
+    return UpdateContextCommandBuilder(context: Context.builder('').build());
+  }
 
   UpdateContextCommandBuilder toBuilder() =>
       UpdateContextCommandBuilder(context: context);
@@ -36,12 +40,18 @@ class UpdateContextCommandBuilder {
 
   UpdateContextCommandBuilder({Context? context}) : _context = context;
 
+  static UpdateContextCommandBuilder builder() =>
+      UpdateContextCommand.builder(Context.builder('').build());
+
   UpdateContextCommandBuilder context(Context val) {
     _context = val;
     return this;
   }
 
-  UpdateContextCommand build() => UpdateContextCommand(
-        context: _context ?? Context.builder('').build(),
-      );
+  UpdateContextCommand build() {
+    if (_context case final validContext?) {
+      return UpdateContextCommand(context: validContext);
+    }
+    return UpdateContextCommand(context: Context.builder('').build());
+  }
 }

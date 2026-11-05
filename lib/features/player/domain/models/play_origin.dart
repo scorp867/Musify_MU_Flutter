@@ -1,5 +1,7 @@
 // 1:1 replica of com.spotify.player.model.PlayOrigin
 
+import 'dart:collection';
+
 class PlayOrigin {
   final String featureIdentifier;
   final String featureVersion;
@@ -53,20 +55,28 @@ class PlayOrigin {
           other.featureClasses.containsAll(featureClasses));
 
   @override
-  int get hashCode => Object.hash(
-        featureIdentifier,
-        featureVersion,
-        viewUri,
-        externalReferrer,
-        referrerIdentifier,
-        deviceIdentifier,
-        restrictionIdentifier,
-        Object.hashAll(featureClasses),
-      );
+  int get hashCode {
+    var result = featureIdentifier.hashCode ^ 1000003;
+    result = (result * 1000003) ^ featureVersion.hashCode;
+    result = (result * 1000003) ^ viewUri.hashCode;
+    result = (result * 1000003) ^ externalReferrer.hashCode;
+    result = (result * 1000003) ^ referrerIdentifier.hashCode;
+    result = (result * 1000003) ^ deviceIdentifier.hashCode;
+    result = (result * 1000003) ^ Object.hashAll(featureClasses);
+    result = (result * 1000003) ^ restrictionIdentifier.hashCode;
+    return result;
+  }
 
   @override
   String toString() =>
-      'PlayOrigin{featureIdentifier=$featureIdentifier, featureVersion=$featureVersion, viewUri=$viewUri, externalReferrer=$externalReferrer, referrerIdentifier=$referrerIdentifier, deviceIdentifier=$deviceIdentifier, featureClasses=$featureClasses, restrictionIdentifier=$restrictionIdentifier}';
+      'PlayOrigin{featureIdentifier=$featureIdentifier, '
+      'featureVersion=$featureVersion, '
+      'viewUri=$viewUri, '
+      'externalReferrer=$externalReferrer, '
+      'referrerIdentifier=$referrerIdentifier, '
+      'deviceIdentifier=$deviceIdentifier, '
+      'featureClasses=$featureClasses, '
+      'restrictionIdentifier=$restrictionIdentifier}';
 }
 
 class PlayOriginBuilder {
@@ -97,43 +107,43 @@ class PlayOriginBuilder {
         _featureClasses = Set<String>.from(featureClasses),
         _restrictionIdentifier = restrictionIdentifier;
 
-  PlayOriginBuilder featureIdentifier(String val) {
-    _featureIdentifier = val;
+  PlayOriginBuilder featureIdentifier(String str) {
+    _featureIdentifier = str;
     return this;
   }
 
-  PlayOriginBuilder featureVersion(String val) {
-    _featureVersion = val;
+  PlayOriginBuilder featureVersion(String str) {
+    _featureVersion = str;
     return this;
   }
 
-  PlayOriginBuilder viewUri(String val) {
-    _viewUri = val;
+  PlayOriginBuilder viewUri(String str) {
+    _viewUri = str;
     return this;
   }
 
-  PlayOriginBuilder externalReferrer(String val) {
-    _externalReferrer = val;
+  PlayOriginBuilder externalReferrer(String str) {
+    _externalReferrer = str;
     return this;
   }
 
-  PlayOriginBuilder referrerIdentifier(String val) {
-    _referrerIdentifier = val;
+  PlayOriginBuilder referrerIdentifier(String str) {
+    _referrerIdentifier = str;
     return this;
   }
 
-  PlayOriginBuilder deviceIdentifier(String val) {
-    _deviceIdentifier = val;
+  PlayOriginBuilder deviceIdentifier(String str) {
+    _deviceIdentifier = str;
     return this;
   }
 
-  PlayOriginBuilder featureClasses(Set<String> val) {
-    _featureClasses = Set<String>.from(val);
+  PlayOriginBuilder featureClasses(Set<String> set) {
+    _featureClasses = Set<String>.from(set);
     return this;
   }
 
-  PlayOriginBuilder restrictionIdentifier(String val) {
-    _restrictionIdentifier = val;
+  PlayOriginBuilder restrictionIdentifier(String str) {
+    _restrictionIdentifier = str;
     return this;
   }
 
@@ -144,7 +154,7 @@ class PlayOriginBuilder {
         externalReferrer: _externalReferrer,
         referrerIdentifier: _referrerIdentifier,
         deviceIdentifier: _deviceIdentifier,
-        featureClasses: Set<String>.unmodifiable(_featureClasses),
+        featureClasses: UnmodifiableSetView<String>(_featureClasses),
         restrictionIdentifier: _restrictionIdentifier,
       );
 }
