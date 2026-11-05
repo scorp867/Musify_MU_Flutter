@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 
 /// Item data model for Now Playing merch rows (`merch_row_now_playing.xml`).
 class MerchItem {
@@ -115,10 +116,14 @@ class _MerchRow extends StatelessWidget {
                 height: 48,
                 color: const Color(0xFF333333),
                 child: item.imageUrl != null && item.imageUrl!.isNotEmpty
-                    ? Image.network(
-                        item.imageUrl!,
+                    ? AppNetworkImage(
+                        imageUrl: item.imageUrl!,
+                        width: 48,
+                        height: 48,
+                        memCacheWidth: 48,
+                        memCacheHeight: 48,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
+                        errorWidget: (context, url, error) =>
                             const Icon(
                           Icons.shopping_bag_outlined,
                           color: Colors.white38,

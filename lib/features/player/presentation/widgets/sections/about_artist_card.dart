@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/on_platform_reputation_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/visual_identity_trait.dart';
@@ -114,12 +115,13 @@ class _PlayerAboutArtistSectionState extends State<PlayerAboutArtistSection> {
               fit: StackFit.expand,
               children: [
                 if (bannerImageUrl != null && bannerImageUrl.isNotEmpty)
-                  Image.network(
-                    bannerImageUrl,
+                  AppNetworkImage(
+                    imageUrl: bannerImageUrl,
                     fit: BoxFit.cover,
                     width: double.infinity,
                     height: 190,
-                    errorBuilder: (context, error, stackTrace) => const PlayerArtworkImage(
+                    memCacheHeight: 190,
+                    errorWidget: (context, url, error) => const PlayerArtworkImage(
                       artworkWidth: double.infinity,
                       artworkHeight: 190,
                     ),

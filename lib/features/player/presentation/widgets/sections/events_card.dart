@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/concert_trait.dart';
 
 /// Spotify-identical On Tour / Live Events card
@@ -85,10 +86,10 @@ class PlayerEventsSection extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 if (bannerImageUrl != null && bannerImageUrl!.isNotEmpty)
-                  Image.network(
-                    bannerImageUrl!,
+                  AppNetworkImage(
+                    imageUrl: bannerImageUrl!,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
+                    errorWidget: (context, url, error) =>
                         _buildBannerPlaceholder(),
                   )
                 else
