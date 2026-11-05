@@ -2,7 +2,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -30,6 +32,8 @@
 class AudioEngine : public oboe::AudioStreamDataCallback,
                     public oboe::AudioStreamErrorCallback {
 public:
+    using EosCallback = std::function<void()>;
+
     AudioEngine();
     ~AudioEngine();
 
@@ -39,6 +43,9 @@ public:
     // -----------------------------------------------------------------------
     // Control API (called from Dart FFI / main thread)
     // -----------------------------------------------------------------------
+
+    /// Register callback invoked when playback naturally finishes and ring buffer drains (EOS).
+    void setEosCallback(EosCallback cb);
 
     /// Load a local audio file. Transitions: * -> Loading -> Prebuffering.
     EngineStatus loadLocal(const char* filePath);
@@ -188,4 +195,9 @@ private:
     std::thread mMonitorThread;
     std::atomic<bool> mMonitorShouldStop{false};
     bool mIsEncryptedSource{false};
+
+    // --- EOS Notification Callback ---
+    std::mutex mEosMutex;
+    EosCallback mEosCallback;
+    std::atomic<bool> mEosNotified{false};
 };

@@ -1,4 +1,4 @@
-// Preserved audio streaming, CDN, and DRM metadata keys used across audio transport pipelines.
+// Preserved audio streaming, CDN, and DRM metadata keys used across private audio transport pipelines.
 
 abstract final class AudioStreamMetadataKeys {
   static const String keyPreviewOggUrl = 'preview_ogg_url';

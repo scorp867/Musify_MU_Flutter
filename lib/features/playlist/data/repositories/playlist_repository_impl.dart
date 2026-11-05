@@ -18,8 +18,8 @@ import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.
 import 'package:musify_mu/features/player/domain/commands/play_command.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
-import 'package:musify_mu/features/player/domain/models/audio_stream_metadata_keys.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
+import 'package:musify_mu/features/player/data/services/spotify_audio_stream_registry.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:musify_mu/features/player/domain/models/player_response.dart';
 import 'package:musify_mu/features/playlist/domain/models/playlist_entity.dart';
@@ -488,21 +488,20 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
           if (trackMeta.artistUris.isNotEmpty) {
             metadata[ContextTrackMetadata.keyArtistUri] = trackMeta.artistUris.first;
           }
-          if (trackMeta.fileId.isNotEmpty) {
-            metadata[AudioStreamMetadataKeys.keyFileId] = trackMeta.fileId;
-          }
-          if (trackMeta.aacFileId.isNotEmpty) {
-            metadata[AudioStreamMetadataKeys.keyAacFileId] = trackMeta.aacFileId;
-          }
-          if (trackMeta.headUrl.isNotEmpty) {
-            metadata[AudioStreamMetadataKeys.keyHeadFileUrl] = trackMeta.headUrl;
-          } else if (trackMeta.fileId.isNotEmpty) {
-            metadata[AudioStreamMetadataKeys.keyHeadFileUrl] =
-                SpotifyHeadResolver.instance.buildHeadUrl(trackMeta.fileId);
-          }
-          if (trackMeta.cdnUrl.isNotEmpty) {
-            metadata[AudioStreamMetadataKeys.keyCdnAacUrl] = trackMeta.cdnUrl;
-          }
+          final resolvedHeadUrl = trackMeta.headUrl.isNotEmpty
+              ? trackMeta.headUrl
+              : (trackMeta.fileId.isNotEmpty
+                  ? SpotifyHeadResolver.instance.buildHeadUrl(trackMeta.fileId)
+                  : null);
+          SpotifyAudioStreamRegistry.instance.register(
+            item.uri,
+            TrackStreamInfo(
+              fileId: trackMeta.fileId.isNotEmpty ? trackMeta.fileId : null,
+              aacFileId: trackMeta.aacFileId.isNotEmpty ? trackMeta.aacFileId : null,
+              headUrl: resolvedHeadUrl,
+              cdnUrl: trackMeta.cdnUrl.isNotEmpty ? trackMeta.cdnUrl : null,
+            ),
+          );
         }
         return ContextTrack.builder(item.uri)
             .uid(item.uid)

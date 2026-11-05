@@ -16,10 +16,6 @@ import '../../../core/ubi/domain/models/page_instance_id.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
-import '../../../features/player/data/services/spotify_head_resolver.dart';
-import '../../../features/player/domain/commands/play_as_next_in_queue_command.dart';
-import '../../../features/player/domain/models/audio_stream_metadata_keys.dart';
-import '../../../features/player/domain/models/context_track.dart';
 import '../../player/presentation/widgets/spotify_scroll_physics.dart';
 import '../application/mobius/playlist_effect_handler.dart';
 import '../application/mobius/playlist_mobius_loop.dart';
@@ -201,42 +197,8 @@ class _PlaylistScreenState extends State<PlaylistScreen>
         ),
       );
       final loggingParams = coordinator.buildLoggingParams(result);
-      final controlClient = getIt<ContextPlayerControlClient>();
-      final queuedTrack = ContextTrack.builder(item.uri)
-          .uid(item.uid.isNotEmpty ? item.uid : item.uri)
-          .metadata({
-            ContextTrackMetadata.keyTitle: item.title,
-            ContextTrackMetadata.keyArtistName: item.subtitle,
-            ContextTrackMetadata.keyAlbumTitle: item.albumName,
-            if (item.coverUrl.isNotEmpty) ContextTrackMetadata.keyImageUrl: item.coverUrl,
-            if (item.coverUrl.isNotEmpty) ContextTrackMetadata.keyImageLargeUrl: item.coverUrl,
-            if (item.coverUrl.isNotEmpty) ContextTrackMetadata.keyThumbnailImageUrl: item.coverUrl,
-            if (item.durationMs > 0) ContextTrackMetadata.keyDuration: item.durationMs.toString(),
-            ContextTrackMetadata.keyIsExplicit: item.isExplicit ? 'true' : 'false',
-            ContextTrackMetadata.keyEntityUri: item.uri,
-            ContextTrackMetadata.keyContextUri: widget.playlistUri,
-            ContextTrackMetadata.keyIsQueued: 'true',
-            ContextTrackMetadata.keyInteractionId: result.interactionId.value,
-            ContextTrackMetadata.keyPageInstanceId: _pageInstanceId.value,
-            if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
-              AudioStreamMetadataKeys.keyFileId: meta.fileId,
-            if (item.trackMetadata case final meta? when meta.aacFileId.isNotEmpty)
-              AudioStreamMetadataKeys.keyAacFileId: meta.aacFileId,
-            if (item.trackMetadata case final meta? when meta.headUrl.isNotEmpty)
-              AudioStreamMetadataKeys.keyHeadFileUrl: meta.headUrl
-            else if (item.trackMetadata case final meta? when meta.fileId.isNotEmpty)
-              AudioStreamMetadataKeys.keyHeadFileUrl:
-                  SpotifyHeadResolver.instance.buildHeadUrl(meta.fileId),
-            if (item.trackMetadata case final meta? when meta.cdnUrl.isNotEmpty)
-              AudioStreamMetadataKeys.keyCdnAacUrl: meta.cdnUrl,
-          })
-          .build();
+      _loop.onSwipeToQueue(item, loggingParams: loggingParams);
 
-      final command = PlayAsNextInQueueCommand.builder([queuedTrack])
-          .loggingParams(loggingParams)
-          .build();
-
-      controlClient.playAsNextInQueue(command);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

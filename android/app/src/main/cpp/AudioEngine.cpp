@@ -116,6 +116,11 @@ AudioEngine::~AudioEngine() {
     stopPlayback();
 }
 
+void AudioEngine::setEosCallback(EosCallback cb) {
+    std::lock_guard<std::mutex> lock(mEosMutex);
+    mEosCallback = std::move(cb);
+}
+
 // ===========================================================================
 // Internal: stop all playback components
 // ===========================================================================
@@ -155,6 +160,7 @@ void AudioEngine::stopPlayback() {
     }
     closeActiveDrmSession();
 
+    mMonitorShouldStop.store(true, std::memory_order_release);
     if (mMonitorThread.joinable()) {
         mMonitorThread.join();
     }
@@ -183,6 +189,7 @@ void AudioEngine::stopPlayback() {
     mHandoffCompleted.store(false, std::memory_order_release);
     mHandoffTargetMs.store(-1, std::memory_order_release);
     mHandoffActualMs.store(0, std::memory_order_release);
+    mEosNotified.store(false, std::memory_order_relaxed);
 }
 
 // ===========================================================================
@@ -279,6 +286,10 @@ EngineStatus AudioEngine::loadTrackWithHead(const char* fileIdHex,
     LOGI("Head chunk ready. Loading primary decoder (full stream: %s)", (fullTrackUrl && fullTrackUrl[0] != '\0') ? fullTrackUrl : "none");
     EngineStatus status = loadDualSource(std::move(primarySource), fullTrackUrl, licenseServerUrl, authHeader, -1);
     if (status == EngineStatus::Ok) {
+        if (!fullTrackUrl || fullTrackUrl[0] == '\0') {
+            mSecondaryPending.store(true, std::memory_order_release);
+        }
+        mDecoderEndOfStream.store(false, std::memory_order_release);
         if (trackDurationMs > 0) {
             mDurationMs = trackDurationMs;
         } else if (!fullTrackUrl || fullTrackUrl[0] == '\0') {
@@ -773,6 +784,7 @@ EngineStatus AudioEngine::attachSecondaryStream(const char* secondaryUrl,
     mSecondaryReady.store(false, std::memory_order_release);
     mSecondaryFailed.store(false, std::memory_order_release);
     mSecondaryWorkerShouldStop.store(false, std::memory_order_release);
+    mDecoderEndOfStream.store(false, std::memory_order_release);
 
     mSecondaryWorkerThread = std::thread(
         &AudioEngine::secondaryWorkerFunc,
@@ -941,14 +953,14 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
             attempts++;
         }
         int64_t primaryFrames = mPrimaryDecoder->getDecodedFrames();
-        if (mSampleRate > 0) {
-            targetSeekMs = (primaryFrames * 1000) / mSampleRate;
-        }
+        int32_t sr = mSampleRate > 0 ? mSampleRate : 44100;
+        targetSeekMs = (primaryFrames * 1000) / sr;
     }
 
     int64_t handoffUs = targetSeekMs * 1000LL;
-    if (handoffUs <= 0 && mPrimaryDecoder && mSampleRate > 0) {
-        handoffUs = (mPrimaryDecoder->getDecodedFrames() * 1000000LL) / mSampleRate;
+    if (handoffUs <= 0 && mPrimaryDecoder) {
+        int32_t sr = mSampleRate > 0 ? mSampleRate : 44100;
+        handoffUs = (mPrimaryDecoder->getDecodedFrames() * 1000000LL) / sr;
     }
 
     if (handoffUs > 0) {
@@ -1000,12 +1012,13 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
     mSecondaryReady.store(true, std::memory_order_release);
     mSecondaryPending.store(false, std::memory_order_release);
     mHandoffCompleted.store(true, std::memory_order_release);
+    mDecoderEndOfStream.store(false, std::memory_order_release);
     LOGI("Seamless dual-source handoff initiated: secondary decoder actively buffering ahead at %lld ms",
          static_cast<long long>(targetSeekMs));
 
     // Ensure audio playback continues or resumes if a buffer gap occurred
     const EngineState currentEngineState = mState.load(std::memory_order_acquire);
-    if (currentEngineState == EngineState::Paused || currentEngineState == EngineState::Prebuffering) {
+    if (currentEngineState == EngineState::Paused || currentEngineState == EngineState::Prebuffering || currentEngineState == EngineState::Stopped) {
         mState.store(EngineState::Playing, std::memory_order_release);
         if (mStream) {
             mStream->requestStart();
@@ -1358,30 +1371,58 @@ void AudioEngine::decoderMonitorFunc() {
                     LOGI("Pausing at handoff boundary due to secondary source/DRM failure");
                     if (mStream) mStream->requestPause();
                     mState.store(EngineState::Paused, std::memory_order_release);
-                    break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    continue;
                 }
             } else if (mPrimaryDecoder && mPrimaryDecoder->isEndOfStream() && !mSecondaryWorkerThread.joinable() && !mSecondaryPending.load(std::memory_order_acquire)) {
                 // Secondary source was never attached or worker thread stopped, and no secondary stream is pending.
-                // When primary buffer drains, pause cleanly at chunk 0 boundary.
+                // When primary buffer drains, pause cleanly at chunk 0 boundary without exiting monitor thread.
                 if (mRingBuffer.availableToRead() == 0) {
                     LOGI("Pausing cleanly at chunk 0 EOF (no secondary stream attached or pending)");
                     if (mStream) mStream->requestPause();
                     mState.store(EngineState::Paused, std::memory_order_release);
-                    break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    continue;
                 }
             }
         }
 
         // Propagate EOS for terminal audio callback
         if (mIsDualSource.load(std::memory_order_relaxed)) {
-            if (mHandoffCompleted.load(std::memory_order_relaxed) &&
-                mSecondaryDecoder && mSecondaryDecoder->isEndOfStream()) {
+            if (mHandoffCompleted.load(std::memory_order_relaxed)) {
+                const bool secEos = mSecondaryDecoder && mSecondaryDecoder->isEndOfStream();
+                mDecoderEndOfStream.store(secEos, std::memory_order_release);
+            } else if (!mSecondaryPending.load(std::memory_order_acquire) &&
+                       !mSecondaryWorkerThread.joinable() &&
+                       mPrimaryDecoder && mPrimaryDecoder->isEndOfStream()) {
                 mDecoderEndOfStream.store(true, std::memory_order_release);
+            } else {
+                mDecoderEndOfStream.store(false, std::memory_order_release);
             }
         } else {
             if (mDecoder && mDecoder->isEndOfStream()) {
                 mDecoderEndOfStream.store(true, std::memory_order_release);
             }
+        }
+
+        // Handle EOS hardware drain completion
+        if (currentState == EngineState::Stopped) {
+            if (!mEosNotified.load(std::memory_order_relaxed)) {
+                mEosNotified.store(true, std::memory_order_relaxed);
+                LOGI("AudioEngine: EOS reached, triggering EOS callback");
+                EosCallback cb;
+                {
+                    std::lock_guard<std::mutex> lock(mEosMutex);
+                    cb = mEosCallback;
+                }
+                if (cb) {
+                    cb();
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            continue;
+        } else {
+            mEosNotified.store(false, std::memory_order_relaxed);
         }
 
         if (currentState == EngineState::Faulted || currentState == EngineState::Idle) {

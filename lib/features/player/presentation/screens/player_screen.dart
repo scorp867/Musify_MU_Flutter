@@ -14,9 +14,9 @@ import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
 import '../../application/queue/player_queue_bloc.dart';
 import '../../application/scroll/now_playing_scroll_bloc.dart';
 import '../../data/logging/player_logging_params_factory.dart';
-import '../../data/queue/context_track_extensions.dart';
 import '../../domain/commands/options/logging_params.dart';
 import '../../domain/models/context_track.dart';
+import '../../domain/models/now_playing_view_model.dart';
 import '../../domain/models/scroll_card_descriptor.dart';
 import '../scroll/scroll_card_registry.dart';
 import '../widgets/peek_scroll_view.dart';
@@ -189,6 +189,19 @@ class _PlayerScreenState extends State<PlayerScreen>
     return null;
   }
 
+  NowPlayingViewModel _computeViewModel(PlayerQueueState? queueState) {
+    return NowPlayingViewModel.fromPlayerQueueState(
+      queueState,
+      fallbackTrack: widget.currentTrack,
+      fallbackTitle: widget.title,
+      fallbackArtist: widget.artist,
+      fallbackAlbum: widget.album,
+      fallbackDuration: widget.duration,
+      fallbackImageUrl: widget.imageUrl,
+      fallbackSongId: widget.songId,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -208,17 +221,14 @@ class _PlayerScreenState extends State<PlayerScreen>
         ),
       );
     }
-    _positionNotifier = ValueNotifier<Duration>(Duration.zero);
+
+    final initialVm = _computeViewModel(_effectiveBloc?.state);
+    _positionNotifier = ValueNotifier<Duration>(initialVm.position);
+    _isPlaying = initialVm.isPlaying;
 
     _scrollBloc = getIt<NowPlayingScrollController>();
     _dataPool = getIt.isRegistered<DataPool>() ? getIt<DataPool>() : null;
     _cardRegistry = ScrollCardRegistry(dataPool: _dataPool);
-
-    final bloc = _effectiveBloc;
-    if (bloc != null) {
-      _isPlaying = bloc.state.isPlaying;
-      _positionNotifier.value = bloc.state.currentPosition;
-    }
 
     _positionTicker = createTicker((elapsed) {
       if (elapsed - _lastTick > const Duration(milliseconds: 250)) {
@@ -234,15 +244,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       _positionTicker.start();
     }
 
-    final initialTrack = switch (_effectiveBloc?.state.currentTrack) {
-      final t? => t,
-      null => widget.currentTrack,
-    };
-    final initialSongId = switch (_effectiveBloc?.state.songId) {
-      final id? => id,
-      null => widget.songId,
-    };
-    _currentTrackId = _extractTrackId(initialTrack, initialSongId);
+    _currentTrackId = initialVm.trackId;
     if (_currentTrackId.isNotEmpty) {
       _scrollBloc.add(FetchNowPlayingScroll(_currentTrackId));
     }
@@ -262,54 +264,23 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _onQueueStateChanged() {
     if (_effectiveBloc case final bloc?) {
-      final state = bloc.state;
-      if (state.isPlaying != _isPlaying) {
+      final vm = _computeViewModel(bloc.state);
+      if (vm.isPlaying != _isPlaying) {
         setState(() {
-          _isPlaying = state.isPlaying;
+          _isPlaying = vm.isPlaying;
         });
-        _updatePositionTicker(state.isPlaying);
+        _updatePositionTicker(vm.isPlaying);
       }
       if (_dragNotifier.value == null) {
-        _positionNotifier.value = state.currentPosition;
+        _positionNotifier.value = vm.position;
       }
-      final newTrack = state.currentTrack;
-      final newTrackId = _extractTrackId(newTrack, state.songId);
-      if (newTrackId.isNotEmpty && newTrackId != _currentTrackId) {
-        _currentTrackId = newTrackId;
-        _scrollBloc.add(FetchNowPlayingScroll(newTrackId));
+      if (vm.trackId.isNotEmpty && vm.trackId != _currentTrackId) {
+        _currentTrackId = vm.trackId;
+        _scrollBloc.add(FetchNowPlayingScroll(vm.trackId));
       }
     }
   }
 
-  /// URI prefixes that must never trigger ScrollSita or lyrics fetches.
-  /// Matches Spotify's wi21.java blocklist + ock1.m68144T episode filter.
-  static const _nonMusicUriPrefixes = [
-    'spotify:ad:',
-    'spotify:interruption:',
-    'spotify:delimiter',
-    'spotify:local:',
-    'spotify:meta:',
-    'spotify:episode:',
-    'spotify:podcast-chapter:',
-    'spotify:clip:',
-  ];
-
-  String _extractTrackId(ContextTrack? track, int? songId) {
-    if (track != null && track.uri.isNotEmpty) {
-      // Block non-music URIs from triggering scroll/lyrics network calls
-      for (final prefix in _nonMusicUriPrefixes) {
-        if (track.uri.startsWith(prefix)) return '';
-      }
-      if (track.uri.startsWith('spotify:track:')) {
-        return track.uri.substring('spotify:track:'.length);
-      }
-      return track.uri;
-    }
-    if (songId != null && songId > 0) {
-      return songId.toString();
-    }
-    return '';
-  }
 
   int _resolveActiveLyricsLine(
     ColorLyricsResponse? colorLyrics,
@@ -360,83 +331,32 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Widget _buildContent(BuildContext context, {PlayerQueueState? queueState}) {
+    final vm = _computeViewModel(queueState);
     final activeTrack = switch (queueState?.currentTrack) {
       final track? => track,
       null => widget.currentTrack,
     };
     final track = activeTrack;
-    final displayTitle = switch (track?.title) {
-      final t? when t.isNotEmpty => t,
-      _ => switch (queueState?.title) {
-        final t? when t.isNotEmpty => t,
-        _ => widget.title,
-      },
-    };
-    final displayArtist = switch (track?.artist) {
-      final a? when a.isNotEmpty => a,
-      _ => switch (queueState?.artist) {
-        final a? when a.isNotEmpty => a,
-        _ => widget.artist,
-      },
-    };
-    final displayAlbum = switch (track?.album) {
-      final a? when a.isNotEmpty => a,
-      _ => switch (queueState?.album) {
-        final a? when a.isNotEmpty => a,
-        _ => widget.album,
-      },
-    };
-    final displayDuration = switch (queueState) {
-      final q? when q.durationMs > 0 => q.currentDuration,
-      _ => switch (track?.duration) {
-        final dur? => dur,
-        null => widget.duration,
-      },
-    };
-    final displayImageUrl = switch (track?.imageUrl) {
-      final url? when url.isNotEmpty => url,
-      _ => switch (queueState?.imageUrl) {
-        final url? when url.isNotEmpty => url,
-        _ => widget.imageUrl,
-      },
-    };
-    final displaySongId = switch (track?.songId) {
-      final id? when id > 0 => id,
-      _ => switch (queueState?.songId) {
-        final id? when id > 0 => id,
-        _ => widget.songId,
-      },
-    };
+    final displayTitle = vm.title;
+    final displayArtist = vm.artist;
+    final displayAlbum = vm.album;
+    final displayDuration = vm.duration;
+    final displayImageUrl = vm.imageUrl;
+    final displaySongId = vm.songId;
 
-    final isPlaying = switch (queueState?.isPlaying) {
-      final playing? => playing,
-      null => _isPlaying,
-    };
-    final shuffleMode = switch (queueState?.isShuffling) {
-      true => QueueShuffleMode.all,
-      false => QueueShuffleMode.none,
-      null => _shuffleMode,
-    };
-    final repeatMode = switch (queueState) {
-      final q? when q.repeatTrack => QueueRepeatMode.one,
-      final q? when q.repeatContext => QueueRepeatMode.all,
-      _? => QueueRepeatMode.none,
-      null => _repeatMode,
-    };
+    final isPlaying = vm.isPlaying;
+    final shuffleMode = vm.shuffleMode;
+    final repeatMode = vm.repeatMode;
 
     return ValueListenableBuilder<NowPlayingScrollState>(
       valueListenable: _scrollBloc,
       builder: (context, scrollState, _) {
-        final activeTrackUri = switch (track?.uri) {
-          final uri? when uri.isNotEmpty => uri,
-          _ => _currentTrackId.isNotEmpty
-              ? 'spotify:track:$_currentTrackId'
-              : 'spotify:track:default',
-        };
-        final activeArtistUri = switch (track?.metadata[ContextTrackMetadata.keyArtistUri]) {
-          final uri? => uri,
-          null => '',
-        };
+        final activeTrackUri = vm.trackUri.isNotEmpty
+            ? vm.trackUri
+            : (_currentTrackId.isNotEmpty
+                ? 'spotify:track:$_currentTrackId'
+                : 'spotify:track:default');
+        final activeArtistUri = vm.artistUri;
 
         ColorLyricsResponse? colorLyrics;
         List<ScrollCardDescriptor> cards = const [];

@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/player/data/services/spotify_head_resolver.dart';
-import 'package:musify_mu/features/player/domain/models/audio_stream_metadata_keys.dart';
-import 'package:musify_mu/features/player/domain/models/context_track.dart';
+import 'package:musify_mu/features/player/data/services/spotify_audio_stream_registry.dart';
 
 void main() {
   group('SpotifyHeadResolver Unit Tests', () {
@@ -50,17 +49,18 @@ void main() {
       expect(SpotifyHeadResolver.headFileSizeBytes, equals(131072));
     });
 
-    test('AudioStreamMetadataKeys holds head_file_url and file_id keys', () {
-      final track = ContextTrack.builder('spotify:track:123')
-          .metadata({
-            AudioStreamMetadataKeys.keyFileId: testFileId,
-            AudioStreamMetadataKeys.keyHeadFileUrl: resolver.buildHeadUrl(testFileId),
-          })
-          .build();
+    test('SpotifyAudioStreamRegistry stores and retrieves head_file_url and file_id', () {
+      final info = TrackStreamInfo(
+        fileId: testFileId,
+        headUrl: resolver.buildHeadUrl(testFileId),
+      );
+      SpotifyAudioStreamRegistry.instance.register('spotify:track:123', info);
 
-      expect(track.metadata[AudioStreamMetadataKeys.keyFileId], equals(testFileId));
+      final retrieved = SpotifyAudioStreamRegistry.instance.get('spotify:track:123');
+      expect(retrieved, isNotNull);
+      expect(retrieved?.fileId, equals(testFileId));
       expect(
-        track.metadata[AudioStreamMetadataKeys.keyHeadFileUrl],
+        retrieved?.headUrl,
         equals('https://heads-fa-tls13.spotifycdn.com/head/d3d7b90c569dd52c0c5ec812ba0b583a8ab8a7ef'),
       );
     });

@@ -5,8 +5,8 @@ import '../../../../core/audio/musify_native_audio_engine.dart';
 import '../../../../core/media/extended_metadata_service.dart';
 import '../../../../core/network/spotify/auth/auth_session_provider.dart';
 import '../../../../core/network/spotify/auth/spotify_client_token.dart';
-import '../../domain/models/audio_stream_metadata_keys.dart';
 import '../../domain/models/context_track.dart';
+import 'spotify_audio_stream_registry.dart';
 import 'spotify_head_resolver.dart';
 import 'spotify_license_resolver.dart';
 import 'spotify_storage_resolver.dart';
@@ -14,15 +14,9 @@ import 'spotify_storage_resolver.dart';
 /// Coordinator for Spotify audio streaming pipelines, head-chunk prefetching,
 /// secondary stream attaching, Widevine DRM licensing, and handover.
 ///
-/// Preserves all metadata keys defined in AudioStreamMetadataKeys:
-/// - [AudioStreamMetadataKeys.keyPreviewOggUrl]
-/// - [AudioStreamMetadataKeys.keyHeadFileUrl]
-/// - [AudioStreamMetadataKeys.keyFileId]
-/// - [AudioStreamMetadataKeys.keyAacFileId]
-/// - [AudioStreamMetadataKeys.keyCdnAacUrl]
-/// - [AudioStreamMetadataKeys.keyLicenseServerUrl]
-/// - [AudioStreamMetadataKeys.keyDrmAuthHeader]
-/// - [AudioStreamMetadataKeys.keyHandoffPositionMs]
+/// Handles audio stream transport metadata (file IDs, CDN URLs, DRM auth headers)
+/// privately via [SpotifyAudioStreamRegistry], preserving Spotify's canonical
+/// [ContextTrack] domain models cleanly without pollution.
 class SpotifyAudioStreamCoordinator {
   final MusifyNativeAudioEngine _engine;
   final ExtendedMetadataService? _metadataService;
@@ -34,7 +28,7 @@ class SpotifyAudioStreamCoordinator {
   Timer? _secondaryStreamDebounceTimer;
   String? _currentlyResolvingUri;
 
-  /// Callback fired when JIT metadata resolution resolves full metadata for an active track.
+  /// Callback fired when JIT metadata resolution resolves full canonical metadata for an active track.
   Future<void> Function(ContextTrack updatedTrack)? onTrackMetadataResolved;
 
   SpotifyAudioStreamCoordinator({
@@ -69,11 +63,16 @@ class SpotifyAudioStreamCoordinator {
     cancelPendingResolutions();
     _currentlyResolvingUri = track.uri;
 
-    final localPath = switch (track.metadata['local_path']) {
-      final p? when p.isNotEmpty => p,
-      _ => switch (track.metadata['offline_path']) {
-          final op? when op.isNotEmpty => op,
-          _ => null,
+    final streamInfo = SpotifyAudioStreamRegistry.instance.get(track.uri);
+
+    final localPath = switch (streamInfo?.localPath) {
+      final lp? when lp.isNotEmpty => lp,
+      _ => switch (track.metadata['local_path']) {
+          final p? when p.isNotEmpty => p,
+          _ => switch (track.metadata['offline_path']) {
+              final op? when op.isNotEmpty => op,
+              _ => null,
+            },
         },
     };
 
@@ -81,8 +80,10 @@ class SpotifyAudioStreamCoordinator {
       final status = _engine.loadLocal(path);
       if (status == NativeEngineStatus.ok) {
         _engine.play();
-        final handoffStr = track.metadata[AudioStreamMetadataKeys.keyHandoffPositionMs];
-        if (handoffStr case final str?) {
+        final handoffPos = streamInfo?.handoffPositionMs;
+        if (handoffPos case final validPos? when validPos > 0) {
+          _engine.seekMs(validPos);
+        } else if (track.metadata['handoff_position_ms'] case final str? when str.isNotEmpty) {
           final parsed = int.tryParse(str);
           if (parsed case final validParsed? when validParsed > 0) {
             _engine.seekMs(validParsed);
@@ -93,7 +94,7 @@ class SpotifyAudioStreamCoordinator {
       return false;
     }
 
-    String? fileId = switch (track.metadata[AudioStreamMetadataKeys.keyFileId]) {
+    String? fileId = switch (streamInfo?.fileId) {
       final fid? when fid.isNotEmpty => fid,
       _ => switch (track.metadata['file_id']) {
           final fid? when fid.isNotEmpty => fid,
@@ -104,7 +105,7 @@ class SpotifyAudioStreamCoordinator {
         },
     };
 
-    String? aacFileId = switch (track.metadata[AudioStreamMetadataKeys.keyAacFileId]) {
+    String? aacFileId = switch (streamInfo?.aacFileId) {
       final fid? when fid.isNotEmpty => fid,
       _ => switch (track.metadata['aac_file_id']) {
           final fid? when fid.isNotEmpty => fid,
@@ -112,7 +113,7 @@ class SpotifyAudioStreamCoordinator {
         },
     };
 
-    String? headUrl = switch (track.metadata[AudioStreamMetadataKeys.keyHeadFileUrl]) {
+    String? headUrl = switch (streamInfo?.headUrl) {
       final url? when url.isNotEmpty => url,
       _ => switch (track.metadata['head_url']) {
           final url? when url.isNotEmpty => url,
@@ -131,7 +132,7 @@ class SpotifyAudioStreamCoordinator {
       }
     }
 
-    // JIT Metadata Resolution if required fields are missing
+    // JIT Metadata Resolution if required canonical fields are missing
     final durationMeta = track.metadata[ContextTrackMetadata.keyDuration];
     final bool hasDuration = durationMeta != null && durationMeta.isNotEmpty;
 
@@ -149,6 +150,16 @@ class SpotifyAudioStreamCoordinator {
               headUrl = SpotifyHeadResolver.instance.buildHeadUrl(validMeta.fileId);
             }
             if (validMeta.aacFileId.isNotEmpty) aacFileId = validMeta.aacFileId;
+
+            SpotifyAudioStreamRegistry.instance.register(
+              track.uri,
+              TrackStreamInfo(
+                fileId: validMeta.fileId.isNotEmpty ? validMeta.fileId : null,
+                aacFileId: validMeta.aacFileId.isNotEmpty ? validMeta.aacFileId : null,
+                headUrl: headUrl,
+                cdnUrl: validMeta.cdnUrl.isNotEmpty ? validMeta.cdnUrl : null,
+              ),
+            );
 
             final updatedMetadata = Map<String, String>.from(track.metadata);
             if (validMeta.title.isNotEmpty) {
@@ -168,18 +179,6 @@ class SpotifyAudioStreamCoordinator {
             }
             if (validMeta.durationMs > 0) {
               updatedMetadata[ContextTrackMetadata.keyDuration] = validMeta.durationMs.toString();
-            }
-            if (validMeta.fileId.isNotEmpty) {
-              updatedMetadata[AudioStreamMetadataKeys.keyFileId] = validMeta.fileId;
-            }
-            if (validMeta.aacFileId.isNotEmpty) {
-              updatedMetadata[AudioStreamMetadataKeys.keyAacFileId] = validMeta.aacFileId;
-            }
-            if (headUrl != null && headUrl.isNotEmpty) {
-              updatedMetadata[AudioStreamMetadataKeys.keyHeadFileUrl] = headUrl;
-            }
-            if (validMeta.cdnUrl.isNotEmpty) {
-              updatedMetadata[AudioStreamMetadataKeys.keyCdnAacUrl] = validMeta.cdnUrl;
             }
 
             final updatedTrack = ContextTrack.builder(track.uri)
@@ -214,9 +213,20 @@ class SpotifyAudioStreamCoordinator {
       await SpotifyHeadResolver.instance.resolveOrPrefetchHead(fileId);
       final headsCacheParentDir = await SpotifyHeadResolver.instance.getCacheParentDirectory();
 
-      final cdnAac = track.metadata[AudioStreamMetadataKeys.keyCdnAacUrl];
-      final licenseUrl = track.metadata[AudioStreamMetadataKeys.keyLicenseServerUrl];
-      final cachedAuth = track.metadata[AudioStreamMetadataKeys.keyDrmAuthHeader];
+      final currentStreamInfo = SpotifyAudioStreamRegistry.instance.get(track.uri);
+
+      final cdnAac = switch (currentStreamInfo?.cdnUrl) {
+        final cdn? when cdn.isNotEmpty => cdn,
+        _ => track.metadata['cdn_aac_url'],
+      };
+      final licenseUrl = switch (currentStreamInfo?.licenseServerUrl) {
+        final lic? when lic.isNotEmpty => lic,
+        _ => track.metadata['license_server_url'],
+      };
+      final cachedAuth = switch (currentStreamInfo?.drmAuthHeader) {
+        final auth? when auth.isNotEmpty => auth,
+        _ => track.metadata['drm_auth_header'],
+      };
 
       String fullTrackUrl = '';
       if (cdnAac case final validAac? when validAac.isNotEmpty) {
@@ -224,8 +234,9 @@ class SpotifyAudioStreamCoordinator {
       }
 
       int handoffMs = -1;
-      final handoffStr = track.metadata[AudioStreamMetadataKeys.keyHandoffPositionMs];
-      if (handoffStr case final str?) {
+      if (currentStreamInfo?.handoffPositionMs case final pos? when pos > 0) {
+        handoffMs = pos;
+      } else if (track.metadata['handoff_position_ms'] case final str? when str.isNotEmpty) {
         final parsed = int.tryParse(str);
         if (parsed case final validParsed?) {
           handoffMs = validParsed;
@@ -285,7 +296,8 @@ class SpotifyAudioStreamCoordinator {
   }
 
   Future<void> prefetchHead(ContextTrack track) async {
-    final fileId = switch (track.metadata[AudioStreamMetadataKeys.keyFileId]) {
+    final streamInfo = SpotifyAudioStreamRegistry.instance.get(track.uri);
+    final fileId = switch (streamInfo?.fileId) {
       final fid? when fid.isNotEmpty => fid,
       _ => switch (track.metadata['file_id']) {
           final fid? when fid.isNotEmpty => fid,
@@ -318,41 +330,61 @@ class SpotifyAudioStreamCoordinator {
     if (storageResolver == null) return;
 
     try {
-      final targetAacId = switch (aacFileId) {
+      var streamInfo = SpotifyAudioStreamRegistry.instance.get(track.uri);
+
+      // Robust target file ID resolution:
+      // Priority: aacFileId param -> registry aacFileId -> registry fileId -> track metadata file_id
+      String? targetId = switch (aacFileId) {
         final id? when id.isNotEmpty => id,
-        _ => null,
+        _ => switch (streamInfo?.aacFileId) {
+          final id? when id.isNotEmpty => id,
+          _ => switch (streamInfo?.fileId) {
+            final fid? when fid.isNotEmpty => fid,
+            _ => switch (track.metadata['file_id']) {
+              final fid? when fid.isNotEmpty => fid,
+              _ => null,
+            },
+          },
+        },
       };
 
-      if (targetAacId == null) return;
-
-      final resolvedCdn = await storageResolver.resolveCdnUrl(targetAacId);
-      if (resolvedCdn == null || resolvedCdn.isEmpty) return;
-
-      String? resolvedLicense;
-      if (licenseResolver != null) {
-        resolvedLicense = await licenseResolver.resolveLicenseUrl();
-      }
-
-      String? authHeader;
-      final authProvider = _authSessionProvider;
-      if (authProvider != null) {
-        final token = await authProvider.getAccessToken();
-        if (token != null && token.isNotEmpty) {
-          authHeader = 'Bearer $token';
+      int trackDurationMs = -1;
+      final metaDurationStr = track.metadata[ContextTrackMetadata.keyDuration];
+      if (metaDurationStr != null && metaDurationStr.isNotEmpty) {
+        final parsed = int.tryParse(metaDurationStr);
+        if (parsed != null && parsed > 0) {
+          trackDurationMs = parsed;
         }
       }
 
-      if (authHeader == null) {
-        final clientFetcher = _clientTokenFetcher;
-        if (clientFetcher != null) {
+      // If targetId is missing or duration is unknown, perform JIT metadata resolution
+      if (targetId == null || trackDurationMs <= 0) {
+        final metadataService = _metadataService;
+        if (metadataService != null && track.uri.startsWith('spotify:track:')) {
           try {
-            final clientToken = await clientFetcher.getClientToken();
-            if (clientToken != null && clientToken.isNotEmpty) {
-              authHeader = 'client-token $clientToken';
+            final meta = await metadataService.resolve(track.uri).timeout(const Duration(seconds: 4));
+            if (meta case final validMeta? when (validMeta.fileId.isNotEmpty || validMeta.aacFileId.isNotEmpty)) {
+              targetId = switch (targetId) {
+                final id? when id.isNotEmpty => id,
+                _ => validMeta.aacFileId.isNotEmpty ? validMeta.aacFileId : validMeta.fileId,
+              };
+              if (trackDurationMs <= 0 && validMeta.durationMs > 0) {
+                trackDurationMs = validMeta.durationMs;
+              }
+              SpotifyAudioStreamRegistry.instance.register(
+                track.uri,
+                TrackStreamInfo(
+                  fileId: validMeta.fileId.isNotEmpty ? validMeta.fileId : null,
+                  aacFileId: validMeta.aacFileId.isNotEmpty ? validMeta.aacFileId : null,
+                  headUrl: validMeta.headUrl.isNotEmpty ? validMeta.headUrl : null,
+                  cdnUrl: validMeta.cdnUrl.isNotEmpty ? validMeta.cdnUrl : null,
+                ),
+              );
+              streamInfo = SpotifyAudioStreamRegistry.instance.get(track.uri);
             }
           } catch (e, stack) {
             dev.log(
-              'SpotifyAudioStreamCoordinator: Failed to fetch client token: $e',
+              'SpotifyAudioStreamCoordinator: Secondary JIT resolve failed for ${track.uri}: $e',
               name: 'AudioStreamCoordinator',
               error: e,
               stackTrace: stack,
@@ -361,21 +393,96 @@ class SpotifyAudioStreamCoordinator {
         }
       }
 
-      final handoffStr = track.metadata[AudioStreamMetadataKeys.keyHandoffPositionMs];
+      if (targetId == null || targetId.isEmpty) {
+        dev.log(
+          'SpotifyAudioStreamCoordinator: No target file ID available for secondary attach (${track.uri})',
+          name: 'AudioStreamCoordinator',
+        );
+        return;
+      }
+
+      // Parallel resolution of CDN URL, Widevine license URL, access token, and client token
+      final authProvider = _authSessionProvider;
+      final clientFetcher = _clientTokenFetcher;
+
+      final results = await Future.wait([
+        storageResolver.resolveCdnUrl(targetId),
+        licenseResolver != null ? licenseResolver.resolveLicenseUrl() : Future<String>.value(''),
+        authProvider != null ? authProvider.getAccessToken() : Future<String?>.value(null),
+        clientFetcher != null ? clientFetcher.getClientToken() : Future<String?>.value(null),
+      ]);
+
+      final resolvedCdn = results[0];
+      if (resolvedCdn == null || resolvedCdn.isEmpty) {
+        dev.log(
+          'SpotifyAudioStreamCoordinator: Failed to resolve CDN URL for $targetId (${track.uri})',
+          name: 'AudioStreamCoordinator',
+        );
+        return;
+      }
+
+      final rawLicense = results[1];
+      final resolvedLicense = (rawLicense != null && rawLicense.isNotEmpty) ? rawLicense : null;
+      final token = results[2];
+      final clientToken = results[3];
+
+      final authHeaderBuffer = StringBuffer();
+      if (token != null && token.isNotEmpty) {
+        authHeaderBuffer.write('Bearer $token');
+      }
+      if (clientToken != null && clientToken.isNotEmpty) {
+        if (authHeaderBuffer.isNotEmpty) {
+          authHeaderBuffer.write('\n');
+        }
+        authHeaderBuffer.write('client-token: $clientToken');
+      }
+      final authHeader = authHeaderBuffer.isNotEmpty ? authHeaderBuffer.toString() : null;
+
+      // Abort if user switched tracks while resolving
+      if (_currentlyResolvingUri != track.uri) {
+        dev.log(
+          'SpotifyAudioStreamCoordinator: Track changed during secondary attach (${track.uri} -> $_currentlyResolvingUri), discarding',
+          name: 'AudioStreamCoordinator',
+        );
+        return;
+      }
+
       int handoffMs = -1;
-      if (handoffStr case final str?) {
+      if (streamInfo?.handoffPositionMs case final pos? when pos > 0) {
+        handoffMs = pos;
+      } else if (track.metadata['handoff_position_ms'] case final str? when str.isNotEmpty) {
         final parsed = int.tryParse(str);
-        if (parsed case final validParsed?) {
+        if (parsed case final validParsed? when validParsed > 0) {
           handoffMs = validParsed;
         }
       }
 
-      _engine.attachSecondaryStream(
+      final status = _engine.attachSecondaryStream(
         secondaryUrl: resolvedCdn,
         licenseServerUrl: resolvedLicense,
         authHeader: authHeader,
         handoffPositionMs: handoffMs,
       );
+
+      if (status == NativeEngineStatus.ok && _currentlyResolvingUri == track.uri) {
+        SpotifyAudioStreamRegistry.instance.updateSecondaryStream(
+          track.uri,
+          cdnUrl: resolvedCdn,
+          licenseServerUrl: resolvedLicense,
+          drmAuthHeader: authHeader,
+        );
+
+        // Update C++ ContextPlayerImpl with canonical duration if known
+        if (trackDurationMs > 0) {
+          final updatedMetadata = Map<String, String>.from(track.metadata);
+          updatedMetadata[ContextTrackMetadata.keyDuration] = trackDurationMs.toString();
+          final updatedTrack = ContextTrack.builder(track.uri)
+              .uid(track.uid)
+              .metadata(updatedMetadata)
+              .build();
+          unawaited(onTrackMetadataResolved?.call(updatedTrack));
+        }
+      }
     } catch (e, stack) {
       dev.log(
         'SpotifyAudioStreamCoordinator: Failed to attach secondary stream: $e',
@@ -392,7 +499,9 @@ class SpotifyAudioStreamCoordinator {
     String? aacFileId,
     String? headUrl,
   }) async {
-    final previewOgg = switch (track.metadata[AudioStreamMetadataKeys.keyPreviewOggUrl]) {
+    final streamInfo = SpotifyAudioStreamRegistry.instance.get(track.uri);
+
+    final previewOgg = switch (streamInfo?.previewOggUrl) {
       final p? when p.isNotEmpty => p,
       _ => switch (track.metadata['preview_url']) {
           final p? when p.isNotEmpty => p,
@@ -400,8 +509,14 @@ class SpotifyAudioStreamCoordinator {
         },
     };
 
-    var cdnAac = track.metadata[AudioStreamMetadataKeys.keyCdnAacUrl];
-    var licenseUrl = track.metadata[AudioStreamMetadataKeys.keyLicenseServerUrl];
+    var cdnAac = switch (streamInfo?.cdnUrl) {
+      final cdn? when cdn.isNotEmpty => cdn,
+      _ => track.metadata['cdn_aac_url'],
+    };
+    var licenseUrl = switch (streamInfo?.licenseServerUrl) {
+      final lic? when lic.isNotEmpty => lic,
+      _ => track.metadata['license_server_url'],
+    };
 
     final storageResolver = _storageResolver;
     if (storageResolver != null && (cdnAac == null || cdnAac.isEmpty)) {
@@ -447,33 +562,46 @@ class SpotifyAudioStreamCoordinator {
       }
     }
 
-    String? authHeader = track.metadata[AudioStreamMetadataKeys.keyDrmAuthHeader];
+    String? authHeader = switch (streamInfo?.drmAuthHeader) {
+      final auth? when auth.isNotEmpty => auth,
+      _ => track.metadata['drm_auth_header'],
+    };
+
     if (authHeader == null || authHeader.isEmpty) {
       final authProvider = _authSessionProvider;
+      final clientFetcher = _clientTokenFetcher;
+
+      String? token;
       if (authProvider != null) {
-        final token = await authProvider.getAccessToken();
-        if (token != null && token.isNotEmpty) {
-          authHeader = 'Bearer $token';
+        token = await authProvider.getAccessToken();
+      }
+
+      String? clientToken;
+      if (clientFetcher != null) {
+        try {
+          clientToken = await clientFetcher.getClientToken();
+        } catch (e, stack) {
+          dev.log(
+            'SpotifyAudioStreamCoordinator: Failed clientFetcher.getClientToken: $e',
+            name: 'AudioStreamCoordinator',
+            error: e,
+            stackTrace: stack,
+          );
         }
       }
 
-      if (authHeader == null) {
-        final clientFetcher = _clientTokenFetcher;
-        if (clientFetcher != null) {
-          try {
-            final clientToken = await clientFetcher.getClientToken();
-            if (clientToken != null && clientToken.isNotEmpty) {
-              authHeader = 'client-token $clientToken';
-            }
-          } catch (e, stack) {
-            dev.log(
-              'SpotifyAudioStreamCoordinator: Failed clientFetcher.getClientToken: $e',
-              name: 'AudioStreamCoordinator',
-              error: e,
-              stackTrace: stack,
-            );
-          }
+      final authHeaderBuffer = StringBuffer();
+      if (token != null && token.isNotEmpty) {
+        authHeaderBuffer.write('Bearer $token');
+      }
+      if (clientToken != null && clientToken.isNotEmpty) {
+        if (authHeaderBuffer.isNotEmpty) {
+          authHeaderBuffer.write('\n');
         }
+        authHeaderBuffer.write('client-token: $clientToken');
+      }
+      if (authHeaderBuffer.isNotEmpty) {
+        authHeader = authHeaderBuffer.toString();
       }
     }
 

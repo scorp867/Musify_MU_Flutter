@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_loop.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
 import 'package:musify_mu/features/player/domain/commands/options/logging_params.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_item.dart';
 import 'package:musify_mu/features/playlist/domain/models/playlist_screen_state.dart';
 import 'package:musify_mu/features/playlist/domain/models/sort_order.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
@@ -122,6 +123,15 @@ class PlaylistMobiusLoop {
 
   void onRemoveTrack(String trackUri) {
     _loop.dispatchEvent(PlaylistRemoveTrackEvent(trackUri));
+  }
+
+  void onSwipeToQueue(PlaylistItem item, {LoggingParams? loggingParams}) {
+    _loop.dispatchEvent(
+      PlaylistSwipeToQueueEvent(
+        item,
+        loggingParams: loggingParams,
+      ),
+    );
   }
 
   void dispose() {

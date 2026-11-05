@@ -181,4 +181,32 @@ void main() {
       expect(next.effects, contains(const PausePlaybackEffect()));
     });
   });
+
+  group('Swipe to Queue Mobius Pipeline (Spotify Parity)', () {
+    test('PlaylistSwipeToQueueEvent emits AddToQueueEffect with item and logging params', () {
+      final item = PlaylistItem(
+        uri: 'spotify:track:swipe_track',
+        uid: 'uid_swipe',
+        rowPosition: 1,
+        trackMetadata: const TrackItemMetadata(
+          title: 'Swiped Song',
+          uri: 'spotify:track:swipe_track',
+          artists: ['Artist B'],
+        ),
+      );
+      final initialState = PlaylistLoadingState(playlistUri: 'spotify:playlist:test');
+
+      final next = playlistMobiusUpdate(
+        initialState,
+        PlaylistSwipeToQueueEvent(item),
+      );
+
+      expect(next.hasModel, isFalse);
+      expect(next.effects, hasLength(1));
+      final effect = next.effects.first as AddToQueueEffect;
+      expect(effect.item.uri, equals('spotify:track:swipe_track'));
+      expect(effect.item.title, equals('Swiped Song'));
+    });
+  });
 }
+

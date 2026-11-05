@@ -1,7 +1,7 @@
 import '../../data/esperanto/context_player_options_client.dart';
 import '../../data/queue/queue_helpers.dart';
 import '../../data/queue/queue_track_filter.dart';
-import '../../domain/models/audio_stream_metadata_keys.dart';
+import '../../data/services/spotify_audio_stream_registry.dart';
 import '../../domain/models/context_track.dart';
 import '../../domain/models/player_queue.dart';
 import '../../domain/models/player_state.dart';
@@ -122,7 +122,10 @@ class PlayerQueueState {
     final ps = playerState;
     if (ps != null) {
       if (ps.duration case final psDur? when psDur > 0) {
-        final cdnAac = track?.metadata[AudioStreamMetadataKeys.keyCdnAacUrl];
+        final cdnAac = switch (track?.uri) {
+          final uri? when uri.isNotEmpty => SpotifyAudioStreamRegistry.instance.get(uri)?.cdnUrl,
+          _ => null,
+        };
         if ((cdnAac == null || cdnAac.isEmpty) && psDur <= 15000) {
           return 0;
         }

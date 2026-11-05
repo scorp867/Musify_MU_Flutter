@@ -3,6 +3,7 @@
 #include <android/log.h>
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 
 #define LOG_TAG "ContextPlayer"
@@ -559,15 +560,31 @@ inline bool decode_single_string(const uint8_t* data, size_t size, std::string& 
 ContextPlayerImpl::ContextPlayerImpl(AudioEngine* engine)
     : audio_engine_(engine) {
     LOGI("ContextPlayerImpl initialized (engine=%p)", audio_engine_);
+    if (audio_engine_) {
+        audio_engine_->setEosCallback([this]() {
+            advance_to_next_track();
+        });
+    }
 }
 
 ContextPlayerImpl::~ContextPlayerImpl() {
+    if (audio_engine_) {
+        audio_engine_->setEosCallback(nullptr);
+    }
     LOGI("ContextPlayerImpl destroying session_id=%s", session_id_.c_str());
 }
 
 void ContextPlayerImpl::set_audio_engine(AudioEngine* engine) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (audio_engine_) {
+        audio_engine_->setEosCallback(nullptr);
+    }
     audio_engine_ = engine;
+    if (audio_engine_) {
+        audio_engine_->setEosCallback([this]() {
+            advance_to_next_track();
+        });
+    }
     LOGI("ContextPlayerImpl attached AudioEngine=%p", audio_engine_);
 }
 
@@ -1219,6 +1236,14 @@ void ContextPlayerImpl::on_track_loaded(bool success) {
                 int64_t dur = audio_engine_->getDurationMs();
                 if (dur > 0) duration_ms_ = dur;
             }
+            if (duration_ms_ <= 0 && current_track_.has_value()) {
+                auto it = current_track_->metadata.find("duration");
+                if (it != current_track_->metadata.end() && !it->second.empty()) {
+                    char* end = nullptr;
+                    int64_t d = std::strtoll(it->second.c_str(), &end, 10);
+                    if (end != it->second.c_str() && d > 0) duration_ms_ = d;
+                }
+            }
             LOGI("did_advance_to_track: %s",
                  current_track_.has_value() ? current_track_->uri.c_str() : "unknown");
         } else {
@@ -1604,6 +1629,12 @@ bool ContextPlayerImpl::update_track(const uint8_t* payload, size_t len) {
                 for (const auto& [k, v] : entry.metadata) {
                     current_track_->metadata[k] = v;
                 }
+                auto it = current_track_->metadata.find("duration");
+                if (it != current_track_->metadata.end() && !it->second.empty()) {
+                    char* end = nullptr;
+                    int64_t d = std::strtoll(it->second.c_str(), &end, 10);
+                    if (end != it->second.c_str() && d > 0) duration_ms_ = d;
+                }
                 emit_state_locked();
                 sc_cb = state_changed_callback_;
                 sc_bytes = cached_state_bytes_;
@@ -1776,6 +1807,14 @@ void ContextPlayerImpl::update_position_and_duration_locked() {
         if (engine_pos >= 0) position_ms_ = engine_pos;
         int64_t engine_dur = audio_engine_->getDurationMs();
         if (engine_dur > 0) duration_ms_ = engine_dur;
+    }
+    if (duration_ms_ <= 0 && current_track_.has_value()) {
+        auto it = current_track_->metadata.find("duration");
+        if (it != current_track_->metadata.end() && !it->second.empty()) {
+            char* end = nullptr;
+            int64_t d = std::strtoll(it->second.c_str(), &end, 10);
+            if (end != it->second.c_str() && d > 0) duration_ms_ = d;
+        }
     }
 }
 

@@ -83,6 +83,12 @@ final class PlaylistRemoveTrackEvent extends PlaylistEvent {
   const PlaylistRemoveTrackEvent(this.trackUri);
 }
 
+final class PlaylistSwipeToQueueEvent extends PlaylistEvent {
+  final PlaylistItem item;
+  final LoggingParams? loggingParams;
+  const PlaylistSwipeToQueueEvent(this.item, {this.loggingParams});
+}
+
 /// Sealed hierarchy of all side effects triggered by Mobius state transitions.
 @immutable
 sealed class PlaylistEffect {
@@ -138,6 +144,12 @@ final class ModifyTracksEffect extends PlaylistEffect {
     this.addUris = const [],
     this.removeUris = const [],
   });
+}
+
+final class AddToQueueEffect extends PlaylistEffect {
+  final PlaylistItem item;
+  final LoggingParams? loggingParams;
+  const AddToQueueEffect(this.item, {this.loggingParams});
 }
 
 /// Pure state transition function: `(Model, Event) -> Next<Model, Effect>`.
@@ -205,9 +217,13 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
             {const PausePlaybackEffect()},
           );
         }
-        final targetTrack = trackUri ??
-            (state.activeTrackUri ??
-                (state.displayItems.isNotEmpty ? state.displayItems.first.uri : null));
+        final targetTrack = switch (trackUri) {
+          final uri? => uri,
+          null => switch (state.activeTrackUri) {
+              final active? => active,
+              null => state.displayItems.isNotEmpty ? state.displayItems.first.uri : null,
+            },
+        };
         return Next.next(
           state.copyWith(
             activeTrackUri: targetTrack,
@@ -321,6 +337,11 @@ Next<PlaylistScreenState, PlaylistEffect> playlistMobiusUpdate(
         });
       }
       return Next.noChange();
+
+    case PlaylistSwipeToQueueEvent(:final item, :final loggingParams):
+      return Next.dispatch({
+        AddToQueueEffect(item, loggingParams: loggingParams),
+      });
   }
 }
 
