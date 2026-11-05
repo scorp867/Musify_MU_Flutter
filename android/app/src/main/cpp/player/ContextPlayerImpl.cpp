@@ -955,24 +955,20 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
             bool found_in_user_queue = false;
             std::vector<context_view::Entry>::iterator it = user_queue_.end();
 
-            // 1. If UID is non-empty, prioritize exact UID match in user_queue_
             if (!target_track.uid.empty()) {
+                // Strict UID matching
                 if (target_track.provider != "context") {
                     it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
                         return e.uid == target_track.uid;
                     });
                     found_in_user_queue = (it != user_queue_.end());
                 }
-            }
-
-            // 2. Fallback to URI match in user_queue_ if provider is not "context"
-            if (!found_in_user_queue && target_track.provider != "context" && !target_track.uri.empty()) {
-                if (target_track.uid.empty() || target_track.provider == "queue") {
-                    it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
-                        return e.uri == target_track.uri;
-                    });
-                    found_in_user_queue = (it != user_queue_.end());
-                }
+            } else if (!target_track.uri.empty() && (target_track.provider == "queue" || target_track.provider.empty())) {
+                // Fallback to URI match ONLY if UID was empty
+                it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
+                    return e.uri == target_track.uri;
+                });
+                found_in_user_queue = (it != user_queue_.end());
             }
 
             if (found_in_user_queue) {
@@ -991,8 +987,7 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                 bool found = false;
                 if (!target_track.uid.empty()) {
                     found = context_processor_.skip_to_uid(target_track.uid);
-                }
-                if (!found && !target_track.uri.empty() && target_track.provider != "queue") {
+                } else if (!target_track.uri.empty() && target_track.provider != "queue") {
                     found = context_processor_.skip_to_uri(target_track.uri);
                 }
                 if (found) {
@@ -1437,9 +1432,7 @@ bool ContextPlayerImpl::add_to_queue(const uint8_t* payload, size_t len) {
         std::vector<uint8_t> sc_bytes;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (entry.uid.empty()) {
-                entry.uid = generate_track_uid();
-            }
+            entry.uid = generate_track_uid();
             entry.metadata["is_queued"] = "true";
             entry.provider = "queue";
             entry.metadata["provider"] = "queue";
@@ -1542,9 +1535,7 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (auto& t : tracks) {
-                if (t.uid.empty()) {
-                    t.uid = generate_track_uid();
-                }
+                t.uid = generate_track_uid();
                 t.metadata["is_queued"] = "true";
                 t.provider = "queue";
                 t.metadata["provider"] = "queue";
@@ -1966,6 +1957,7 @@ void ContextPlayerImpl::emit_state_locked() {
     data.play_origin = play_origin_;
     data.page_index = 0;
     data.track_index = context_processor_.get_current_index();
+    data.queue_revision = queue_revision_;
 
     cached_state_bytes_ = StateEmitter::encode_player_state(data);
 }

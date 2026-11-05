@@ -236,64 +236,35 @@ void ContextProcessor::set_next_tracks_slice(const std::vector<context_view::Ent
         std::vector<context_view::Entry> tail(list.begin() + (index_ + 1), list.end());
         list.erase(list.begin() + (index_ + 1), list.end());
 
-        std::vector<bool> used(tail.size(), false);
-        std::vector<context_view::Entry> new_tail;
-        new_tail.reserve(tail.size() + reordered_next.size());
-
+        // Index incoming UIDs for fast lookup of lookahead slice items
+        std::unordered_set<std::string> incoming_uids;
+        incoming_uids.reserve(reordered_next.size());
         for (const auto& req : reordered_next) {
-            int32_t match_idx = -1;
-            // 1. If UID is non-empty, strictly match tail by UID
             if (!req.uid.empty()) {
-                for (size_t i = 0; i < tail.size(); ++i) {
-                    if (!used[i] && tail[i].uid == req.uid) {
-                        match_idx = static_cast<int32_t>(i);
-                        break;
-                    }
-                }
-            } else if (!req.uri.empty()) {
-                // 2. Only if UID is empty, attempt fallback to match tail by URI
-                for (size_t i = 0; i < tail.size(); ++i) {
-                    if (!used[i] && tail[i].uri == req.uri) {
-                        match_idx = static_cast<int32_t>(i);
-                        break;
-                    }
-                }
-            }
-
-            if (match_idx != -1) {
-                used[static_cast<size_t>(match_idx)] = true;
-                auto track = tail[static_cast<size_t>(match_idx)];
-                // Preserve the UID from req if req already had a non-empty UID
-                if (!req.uid.empty()) {
-                    track.uid = req.uid;
-                }
-                for (const auto& kv : req.metadata) {
-                    track.metadata[kv.first] = kv.second;
-                }
-                track.provider = req.provider.empty() ? "context" : req.provider;
-                track.metadata["provider"] = track.provider;
-                new_tail.push_back(std::move(track));
-            } else {
-                auto track = req;
-                if (track.uid.empty()) {
-                    track.uid = generate_track_uid();
-                }
-                if (track.provider.empty()) {
-                    track.provider = "context";
-                }
-                track.metadata["provider"] = track.provider;
-                new_tail.push_back(std::move(track));
+                incoming_uids.insert(req.uid);
             }
         }
 
-        // Preserve trailing tracks from tail that were not replaced by reordered_next slice
-        for (size_t i = 0; i < tail.size(); ++i) {
-            if (tail[i].is_delimiter() || tail[i].is_placeholder() || !used[i]) {
-                new_tail.push_back(std::move(tail[i]));
+        // 1. Directly adopt the client's resolved reordered slice
+        for (const auto& req : reordered_next) {
+            auto track = req;
+            if (track.uid.empty()) {
+                track.uid = generate_track_uid();
             }
+            track.provider = "context";
+            track.metadata["provider"] = "context";
+            track.metadata["is_queued"] = "false";
+            list.push_back(std::move(track));
         }
 
-        list.insert(list.end(), new_tail.begin(), new_tail.end());
+        // 2. Preserve unexposed trailing tail items (delimiters, placeholders, and tracks beyond lookahead)
+        for (auto& item : tail) {
+            if (item.is_delimiter() || item.is_placeholder()) {
+                list.push_back(std::move(item));
+            } else if (!item.uid.empty() && incoming_uids.find(item.uid) == incoming_uids.end()) {
+                list.push_back(std::move(item));
+            }
+        }
     };
 
     update_list(loaded_tracks_);

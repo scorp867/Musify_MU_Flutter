@@ -48,6 +48,7 @@ struct PlayerStateData {
     std::string session_id;
     std::vector<std::string> signals;
     std::string session_command_id;
+    int64_t queue_revision{0};
 };
 
 /// 1:1 replica of Spotify Esperanto StateEmitter
@@ -283,6 +284,12 @@ public:
         // Field 24: session_id (string) - SESSION_ID_FIELD_NUMBER = 24
         if (!data.session_id.empty()) {
             encode_string_field(buf, 24, data.session_id);
+        }
+
+        // Field 25: queue_revision (uint64) - QUEUE_REVISION_FIELD_NUMBER = 25
+        if (data.queue_revision != 0) {
+            encode_varint(buf, (25 << 3) | 0);
+            encode_varint(buf, static_cast<uint64_t>(data.queue_revision));
         }
 
         // Field 27: signals (repeated bytes) - SIGNALS_FIELD_NUMBER = 27

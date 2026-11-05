@@ -3,7 +3,6 @@ import '../../../data/esperanto/context_player_options_client.dart';
 import '../../../data/esperanto/context_player_play_client.dart';
 import '../../../data/esperanto/context_player_queue_client.dart';
 import '../../../data/queue/queue_key_resolver.dart';
-import '../../../data/queue/queue_uid_generator.dart';
 import '../../../domain/commands/add_to_queue_command.dart';
 import '../../../domain/commands/options/command_options.dart';
 import '../../../domain/commands/pause_command.dart';
@@ -121,13 +120,8 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
           updatedMetadata[ContextTrackMetadata.keyIsQueued] = targetIsQueued ? 'true' : 'false';
           updatedMetadata['provider'] = targetIsQueued ? 'queue' : 'context';
 
-          final effectiveUid = movedItem.uid.isNotEmpty
-              ? movedItem.uid
-              : QueueUidGenerator.generateTrackUid();
-
           final mutatedTrack = movedItem
               .toBuilder()
-              .uid(effectiveUid)
               .provider(targetIsQueued ? 'queue' : 'context')
               .metadata(updatedMetadata)
               .build();
@@ -148,26 +142,14 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
           final ctrl = controlClient;
           final qc = queueClient;
 
-          final effectiveUid = QueueUidGenerator.generateTrackUid();
-          final meta = Map<String, String>.from(track.metadata);
-          meta[ContextTrackMetadata.keyIsQueued] = 'true';
-          meta['provider'] = 'queue';
-
-          final queuedTrack = track
-              .toBuilder()
-              .uid(effectiveUid)
-              .provider('queue')
-              .metadata(meta)
-              .build();
-
           if (playNext && ctrl != null) {
-            final builder = PlayAsNextInQueueCommand.builder([queuedTrack]);
+            final builder = PlayAsNextInQueueCommand.builder([track]);
             if (loggingParams case final lp?) {
               builder.loggingParams(lp);
             }
             await ctrl.playAsNextInQueue(builder.build());
           } else if (qc != null) {
-            final builder = AddToQueueCommand.builder(queuedTrack);
+            final builder = AddToQueueCommand.builder(track);
             if (loggingParams case final lp?) {
               builder.loggingParams(lp);
             }
