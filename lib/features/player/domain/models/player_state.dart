@@ -141,7 +141,7 @@ class PlayerState {
     if (positionAsOfTimestamp case final pos?) {
       final speed = switch (playbackSpeed) {
         final s? => s,
-        null => 0.0,
+        null => (isPlaying && !isPaused) ? 1.0 : 0.0,
       };
       final diff = currentTimestamp - timestamp;
       return (pos + (speed * diff)).round();

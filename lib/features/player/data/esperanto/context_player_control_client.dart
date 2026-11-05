@@ -320,6 +320,9 @@ class ContextPlayerControlClient extends EsperantoClientBase {
     if (track.metadata.isNotEmpty) {
       p.metadata.addAll(track.metadata);
     }
+    if (track.provider.isNotEmpty) {
+      p.metadata['provider'] = track.provider;
+    }
     return p;
   }
 

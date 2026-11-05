@@ -53,15 +53,20 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
           case meta_pb.Image_Size.SMALL:
             imageUrls['small'] = url;
             break;
-          case meta_pb.Image_Size.LARGE:
+          case meta_pb.Image_Size.DEFAULT:
+            imageUrls['default'] = url;
             imageUrls['medium'] = url;
+            break;
+          case meta_pb.Image_Size.LARGE:
+            imageUrls['large'] = url;
             largeImageHex ??= hex;
             break;
           case meta_pb.Image_Size.XLARGE:
-            imageUrls['large'] = url;
+            imageUrls['xlarge'] = url;
             largeImageHex = hex;
             break;
           default:
+            imageUrls.putIfAbsent('default', () => url);
             imageUrls.putIfAbsent('medium', () => url);
             largeImageHex ??= hex;
         }

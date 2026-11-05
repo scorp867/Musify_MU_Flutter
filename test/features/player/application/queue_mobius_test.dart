@@ -1,10 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_loop.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_types.dart';
-import 'package:musify_mu/features/player/application/queue/mobius/queue_effects.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/queue_effect.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/queue_event.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/queue_mobius_update.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_event.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_state.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/queue_model.dart';
+import 'package:musify_mu/features/player/data/queue/queue_key_resolver.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_options.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';
@@ -27,6 +28,7 @@ void main() {
           .build();
       userTrack = ContextTrack.builder('spotify:track:u')
           .uid('uid_u')
+          .provider('queue')
           .metadata({
             ContextTrackMetadata.keyTitle: 'User Track',
             ContextTrackMetadata.keyIsQueued: 'true',
@@ -34,75 +36,81 @@ void main() {
           .build();
     });
 
-    test('AddTracksToQueue updates model and dispatches AddTracksEffect', () {
-      final initial = PlayerQueueState(queue: PlayerQueue(nextTracks: [track1]));
-      final next = queueMobiusUpdate(initial, AddTracksToQueue([track2]));
+    test('AddToQueueEvent emits AddToQueueEffect', () {
+      final initial = QueueModel(
+        playerQueue: PlayerQueue(nextTracks: [track1]),
+        contextTracks: [track1],
+      );
+      final next = queueMobiusUpdate(initial, AddToQueueEvent(track: track2));
 
-      expect(next.hasModel, true);
-      expect(next.model!.queue.nextTracks.length, 2);
-      expect(next.hasEffects, true);
-      expect(next.effects.first, isA<AddTracksEffect>());
+      expect(next.hasEffects, isTrue);
+      expect(next.effects.first, isA<AddToQueueEffect>());
     });
 
-    test('RemoveTracksFromQueue updates model and dispatches RemoveTracksEffect', () {
-      final initial = PlayerQueueState(
-        queue: PlayerQueue(nextTracks: [track1, track2]),
+    test('RemoveTrackEvent marks pending removal and emits RemoveTracksEffect', () {
+      final initial = QueueModel(
+        playerQueue: PlayerQueue(nextTracks: [userTrack, track1]),
+        userQueue: [userTrack],
+        contextTracks: [track1],
       );
-      final next = queueMobiusUpdate(initial, RemoveTracksFromQueue([track1]));
+      final next = queueMobiusUpdate(initial, RemoveTrackEvent(userTrack));
 
-      expect(next.hasModel, true);
-      expect(next.model!.queue.nextTracks.length, 1);
-      expect(next.model!.queue.nextTracks.first.uid, 'uid2');
-      expect(next.hasEffects, true);
+      expect(next.hasModel, isTrue);
+      final model = next.model;
+      expect(model, isNotNull);
+      if (model != null) {
+        final key = QueueKeyResolver.resolveKey(userTrack);
+        expect(model.pendingRemovalKeys.contains(key), isTrue);
+        expect(model.visibleTracks.contains(userTrack), isFalse);
+      }
+      expect(next.hasEffects, isTrue);
       expect(next.effects.first, isA<RemoveTracksEffect>());
     });
 
-    test('ReorderQueueTrack updates model and dispatches ReorderTrackEffect', () {
-      final initial = PlayerQueueState(
-        queue: PlayerQueue(nextTracks: [track1, track2]),
+    test('ReorderTrackEvent dispatches ReorderTrackEffect without premature state mutation', () {
+      final initial = QueueModel(
+        playerQueue: PlayerQueue(nextTracks: [track1, track2]),
+        contextTracks: [track1, track2],
       );
       final next = queueMobiusUpdate(
         initial,
-        ReorderQueueTrack(track: track2, destinationVisibleIndex: 0),
+        ReorderTrackEvent(track: track2, destinationVisibleIndex: 0),
       );
 
-      expect(next.hasModel, true);
-      expect(next.model!.queue.nextTracks.first.uid, 'uid2');
-      expect(next.hasEffects, true);
+      expect(next.hasModel, isFalse);
+      expect(next.hasEffects, isTrue);
       expect(next.effects.first, isA<ReorderTrackEffect>());
     });
 
-    test('ClearQueue removes user tracks and dispatches ClearQueueEffect', () {
-      final initial = PlayerQueueState(
-        queue: PlayerQueue(nextTracks: [userTrack, track1]),
+    test('ClearQueueEvent dispatches ClearQueueEffect', () {
+      final initial = QueueModel(
+        playerQueue: PlayerQueue(nextTracks: [userTrack, track1]),
+        userQueue: [userTrack],
+        contextTracks: [track1],
       );
-      final next = queueMobiusUpdate(initial, const ClearQueue());
+      final next = queueMobiusUpdate(initial, const ClearQueueEvent());
 
-      expect(next.hasModel, true);
-      expect(next.model!.queue.nextTracks.length, 1);
-      expect(next.model!.queue.nextTracks.first.uid, 'uid1');
-      expect(next.hasEffects, true);
+      expect(next.hasModel, isFalse);
+      expect(next.hasEffects, isTrue);
       expect(next.effects.first, isA<ClearQueueEffect>());
     });
 
-    test('ToggleShuffle cycles shuffle mode and dispatches ToggleShuffleEffect', () {
-      final initial = PlayerQueueState(
+    test('ToggleShuffleEvent computes next shuffle mode and dispatches ToggleShuffleEffect', () {
+      final initial = QueueModel(
         playerState: PlayerState(
           options: const PlayerOptions(shufflingContext: false),
         ),
       );
-      final next = queueMobiusUpdate(initial, const ToggleShuffle());
+      final next = queueMobiusUpdate(initial, const ToggleShuffleEvent());
 
-      expect(next.hasModel, true);
-      expect(next.model!.isShuffling, true);
-      expect(next.hasEffects, true);
+      expect(next.hasEffects, isTrue);
       final effect = next.effects.first as ToggleShuffleEffect;
-      expect(effect.nextShuffle, true);
+      expect(effect.enableShuffle, isTrue);
     });
 
-    test('ToggleRepeat cycles None -> Context -> Track -> None', () {
+    test('ToggleRepeatEvent cycles None -> Context -> Track -> None', () {
       // 1. None -> Context
-      final state0 = PlayerQueueState(
+      final state0 = QueueModel(
         playerState: PlayerState(
           options: const PlayerOptions(
             repeatingContext: false,
@@ -110,46 +118,63 @@ void main() {
           ),
         ),
       );
-      final next1 = queueMobiusUpdate(state0, const ToggleRepeat());
-      expect(next1.model!.repeatContext, true);
-      expect(next1.model!.repeatTrack, false);
+      final next1 = queueMobiusUpdate(state0, const ToggleRepeatEvent());
+      final effect1 = next1.effects.first as ToggleRepeatEffect;
+      expect(effect1.repeatingContext, isTrue);
+      expect(effect1.repeatingTrack, isFalse);
 
       // 2. Context -> Track
-      final next2 = queueMobiusUpdate(next1.model!, const ToggleRepeat());
-      expect(next2.model!.repeatContext, false);
-      expect(next2.model!.repeatTrack, true);
+      final state1 = QueueModel(
+        playerState: PlayerState(
+          options: const PlayerOptions(
+            repeatingContext: true,
+            repeatingTrack: false,
+          ),
+        ),
+      );
+      final next2 = queueMobiusUpdate(state1, const ToggleRepeatEvent());
+      final effect2 = next2.effects.first as ToggleRepeatEffect;
+      expect(effect2.repeatingContext, isFalse);
+      expect(effect2.repeatingTrack, isTrue);
 
       // 3. Track -> None
-      final next3 = queueMobiusUpdate(next2.model!, const ToggleRepeat());
-      expect(next3.model!.repeatContext, false);
-      expect(next3.model!.repeatTrack, false);
+      final state2 = QueueModel(
+        playerState: PlayerState(
+          options: const PlayerOptions(
+            repeatingContext: false,
+            repeatingTrack: true,
+          ),
+        ),
+      );
+      final next3 = queueMobiusUpdate(state2, const ToggleRepeatEvent());
+      final effect3 = next3.effects.first as ToggleRepeatEffect;
+      expect(effect3.repeatingContext, isFalse);
+      expect(effect3.repeatingTrack, isFalse);
     });
 
-    test('TogglePlayPause toggles isPlaying and dispatches PlayPauseEffect', () {
-      final initial = PlayerQueueState(
+    test('TogglePlayPauseEvent dispatches TogglePlayPauseEffect without premature state mutation', () {
+      final initial = QueueModel(
         playerState: const PlayerState(isPlaying: false),
       );
-      final next = queueMobiusUpdate(initial, const TogglePlayPause());
+      final next = queueMobiusUpdate(initial, const TogglePlayPauseEvent());
 
-      expect(next.hasModel, true);
-      expect(next.model!.isPlaying, true);
-      expect(next.hasEffects, true);
-      final effect = next.effects.first as PlayPauseEffect;
-      expect(effect.currentlyPlaying, false);
+      expect(next.hasModel, isFalse);
+      expect(next.hasEffects, isTrue);
+      expect(next.effects.first, isA<TogglePlayPauseEffect>());
     });
 
-    test('SkipToNextTrack and SkipToPrevTrack dispatch effects without model change', () {
-      final initial = PlayerQueueState();
+    test('SkipToNextTrackEvent and SkipToPrevTrackEvent dispatch effects without model change', () {
+      final initial = QueueModel.empty();
 
-      final nextSkip = queueMobiusUpdate(initial, const SkipToNextTrack());
-      expect(nextSkip.hasModel, false);
-      expect(nextSkip.hasEffects, true);
-      expect(nextSkip.effects.first, isA<SkipNextEffect>());
+      final nextSkip = queueMobiusUpdate(initial, const SkipToNextTrackEvent());
+      expect(nextSkip.hasModel, isFalse);
+      expect(nextSkip.hasEffects, isTrue);
+      expect(nextSkip.effects.first, isA<SkipToNextTrackEffect>());
 
-      final prevSkip = queueMobiusUpdate(initial, const SkipToPrevTrack());
-      expect(prevSkip.hasModel, false);
-      expect(prevSkip.hasEffects, true);
-      expect(prevSkip.effects.first, isA<SkipPrevEffect>());
+      final prevSkip = queueMobiusUpdate(initial, const SkipToPrevTrackEvent());
+      expect(prevSkip.hasModel, isFalse);
+      expect(prevSkip.hasEffects, isTrue);
+      expect(prevSkip.effects.first, isA<SkipToPrevTrackEffect>());
     });
   });
 
@@ -164,29 +189,29 @@ void main() {
       final effectHandler = _MockEffectHandler((effect) async {
         handledEffects.add(effect);
         if (effect is ClearQueueEffect) {
-          return const QueueUpdated(PlayerQueue.empty);
+          return const QueueUpdatedEvent(PlayerQueue.empty);
         }
         return null;
       });
 
-      final loop = MobiusLoop<PlayerQueueState, PlayerQueueEvent, QueueEffect>(
-        initialModel: PlayerQueueState(
-          queue: PlayerQueue(nextTracks: [sampleTrack]),
+      final loop = MobiusLoop<QueueModel, QueueEvent, QueueEffect>(
+        initialModel: QueueModel(
+          playerQueue: PlayerQueue(nextTracks: [sampleTrack]),
         ),
         update: queueMobiusUpdate,
         effectHandler: effectHandler,
       );
 
-      final emissions = <PlayerQueueState>[];
+      final emissions = <QueueModel>[];
       final sub = loop.models.listen(emissions.add);
 
-      loop.dispatchEvent(const ClearQueue());
+      loop.dispatchEvent(const ClearQueueEvent());
 
       await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(handledEffects.length, 1);
+      expect(handledEffects.length, equals(1));
       expect(handledEffects.first, isA<ClearQueueEffect>());
-      expect(emissions.isNotEmpty, true);
+      expect(emissions.isNotEmpty, isTrue);
 
       await sub.cancel();
       loop.dispose();
@@ -194,10 +219,10 @@ void main() {
   });
 }
 
-class _MockEffectHandler implements MobiusEffectHandler<QueueEffect, PlayerQueueEvent> {
-  final Future<PlayerQueueEvent?> Function(QueueEffect) _handler;
+class _MockEffectHandler implements MobiusEffectHandler<QueueEffect, QueueEvent> {
+  final Future<QueueEvent?> Function(QueueEffect) _handler;
   _MockEffectHandler(this._handler);
 
   @override
-  Future<PlayerQueueEvent?> handleEffect(QueueEffect effect) => _handler(effect);
+  Future<QueueEvent?> handleEffect(QueueEffect effect) => _handler(effect);
 }

@@ -171,10 +171,22 @@ class SpotifyAudioStreamCoordinator {
             if (validMeta.albumName.isNotEmpty) {
               updatedMetadata[ContextTrackMetadata.keyAlbumTitle] = validMeta.albumName;
             }
-            if (validMeta.imageUrl.isNotEmpty) {
+            if (validMeta.imageUrls['xlarge'] case final xlarge? when xlarge.isNotEmpty) {
+              updatedMetadata[ContextTrackMetadata.keyImageXlargeUrl] = xlarge;
+            }
+            if (validMeta.imageUrls['large'] case final large? when large.isNotEmpty) {
+              updatedMetadata[ContextTrackMetadata.keyImageLargeUrl] = large;
+            }
+            final defaultImg = validMeta.imageUrls['default'] ?? validMeta.imageUrls['medium'];
+            if (defaultImg != null && defaultImg.isNotEmpty) {
+              updatedMetadata[ContextTrackMetadata.keyImageUrl] = defaultImg;
+            } else if (validMeta.imageUrl.isNotEmpty) {
               updatedMetadata[ContextTrackMetadata.keyImageUrl] = validMeta.imageUrl;
             }
-            if (validMeta.thumbnailImageUrl.isNotEmpty) {
+            if (validMeta.imageUrls['small'] case final small? when small.isNotEmpty) {
+              updatedMetadata[ContextTrackMetadata.keyImageSmallUrl] = small;
+              updatedMetadata[ContextTrackMetadata.keyThumbnailImageUrl] = small;
+            } else if (validMeta.thumbnailImageUrl.isNotEmpty) {
               updatedMetadata[ContextTrackMetadata.keyThumbnailImageUrl] = validMeta.thumbnailImageUrl;
             }
             if (validMeta.durationMs > 0) {

@@ -100,26 +100,35 @@ class PlaylistKodiakDecorator {
             ? [meta.subtitle]
             : (existingMeta?.artists ?? const []);
 
-        // Use lightweight thumbnail (~64px) for track tiles; retain high-res for header
-        final thumbnailCover = meta.thumbnailImageUrl.isNotEmpty
-            ? meta.thumbnailImageUrl
-            : meta.imageUrl;
-        final highResCover = meta.imageUrl;
+        final imageXlarge = meta.imageXlargeUrl;
+        final imageLarge = meta.imageLargeUrl;
+        final imageDefault = meta.imageUrl;
+        final imageSmall = meta.imageSmallUrl;
 
-        final albumCovers = thumbnailCover.isNotEmpty
-            ? [
-                thumbnailCover,
-                if (highResCover.isNotEmpty && highResCover != thumbnailCover)
-                  highResCover,
-              ]
-            : (existingMeta?.albumCovers ?? const []);
+        final albumCovers = <String>[
+          if (imageXlarge.isNotEmpty) imageXlarge,
+          if (imageLarge.isNotEmpty && imageLarge != imageXlarge) imageLarge,
+          if (imageDefault.isNotEmpty && imageDefault != imageLarge && imageDefault != imageXlarge) imageDefault,
+          if (imageSmall.isNotEmpty && imageSmall != imageDefault) imageSmall,
+        ];
 
         final durationMs = meta.durationMs > 0
             ? meta.durationMs
-            : (existingMeta?.durationMs ?? 0);
+            : switch (existingMeta?.durationMs) {
+                final d? => d,
+                null => 0,
+              };
 
-        if (derivedFirstCover == null && highResCover.isNotEmpty) {
-          derivedFirstCover = highResCover;
+        final primaryCover = switch (imageXlarge) {
+          final u when u.isNotEmpty => u,
+          _ => switch (imageLarge) {
+            final u when u.isNotEmpty => u,
+            _ => imageDefault,
+          },
+        };
+
+        if (derivedFirstCover == null && primaryCover.isNotEmpty) {
+          derivedFirstCover = primaryCover;
         } else if (derivedFirstCover == null && albumCovers.isNotEmpty) {
           derivedFirstCover = albumCovers.first;
         }
@@ -128,22 +137,44 @@ class PlaylistKodiakDecorator {
         final headUrl = meta.headUrl;
         final cdnUrl = meta.cdnUrl.isNotEmpty
             ? meta.cdnUrl
-            : (existingMeta?.cdnUrl ?? '');
+            : switch (existingMeta?.cdnUrl) {
+                final c? => c,
+                null => '',
+              };
         final aacFileId = meta.aacFileId.isNotEmpty
             ? meta.aacFileId
-            : (existingMeta?.aacFileId ?? '');
-        final canonicalUri = existingMeta?.canonicalUri.isNotEmpty == true
-            ? existingMeta!.canonicalUri
-            : '';
+            : switch (existingMeta?.aacFileId) {
+                final a? => a,
+                null => '',
+              };
+        final canonicalUri = switch (existingMeta?.canonicalUri) {
+          final c? when c.isNotEmpty => c,
+          _ => '',
+        };
 
         final enrichedMetadata = TrackItemMetadata(
           title: title,
           uri: item.uri,
-          isPlayable: existingMeta?.isPlayable ?? true,
-          isExplicit: existingMeta?.isExplicit ?? false,
+          isPlayable: switch (existingMeta?.isPlayable) {
+            final p? => p,
+            null => true,
+          },
+          isExplicit: switch (existingMeta?.isExplicit) {
+            final e? => e,
+            null => false,
+          },
           durationMs: durationMs,
           albumName: albumName,
-          albumCovers: albumCovers,
+          albumCovers: albumCovers.isNotEmpty
+              ? albumCovers
+              : switch (existingMeta?.albumCovers) {
+                  final c? => c,
+                  null => const [],
+                },
+          imageXlargeUrl: imageXlarge,
+          imageLargeUrl: imageLarge,
+          imageUrl: imageDefault,
+          imageSmallUrl: imageSmall,
           artists: artists,
           fileId: fileId,
           aacFileId: aacFileId,

@@ -1,11 +1,24 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace spotify::player::context_view {
+
+inline std::string generate_track_uid() {
+    static std::atomic<uint64_t> counter{1};
+    uint64_t cnt = counter.fetch_add(1, std::memory_order_relaxed);
+    auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    uint64_t val = (static_cast<uint64_t>(now) ^ (cnt * 0x9e3779b97f4a7c15ULL));
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(val));
+    return std::string(buf, 16);
+}
 
 /// 1:1 replica of spotify.player.context_view.proto.Entry.Type (decoded from liborbit.so 0x3cf28c)
 enum class EntryType : int32_t {
@@ -69,3 +82,7 @@ struct ContextView {
 };
 
 } // namespace spotify::player::context_view
+
+namespace spotify::player {
+using context_view::generate_track_uid;
+}

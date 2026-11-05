@@ -3,9 +3,8 @@ library;
 import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import '../../app/di/injection.dart';
-import '../../features/player/application/queue/player_queue_bloc.dart';
+import '../../features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import '../../features/player/domain/models/context_track.dart';
-import '../../features/player/domain/models/play_origin.dart';
 import '../ubi/data/lifecycle/page_instance_id_holder.dart';
 import '../ubi/domain/logging/ubi_logger.dart';
 import '../ubi/domain/models/interaction_logging_result.dart';
@@ -89,13 +88,9 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
     }
 
     if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
-      if (getIt.isRegistered<PlayerQueueBloc>()) {
+      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
         final track = ContextTrack.builder(uri).build();
-        final origin = PlayOrigin.builder('navigator')
-            .viewUri(uri)
-            .referrerIdentifier('navigator')
-            .build();
-        getIt<PlayerQueueBloc>().add(PlayTrack(track, playOrigin: origin));
+        getIt<PlayerQueueMobiusController>().dispatch(TrackTappedEvent(track));
         return true;
       }
     }

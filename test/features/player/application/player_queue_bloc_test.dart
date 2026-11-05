@@ -1,12 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_options.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';
 import 'package:musify_mu/features/player/domain/models/player_state.dart';
 
 void main() {
-  group('PlayerQueueBloc Parity & Reactive State Tests', () {
+  group('PlayerQueueMobiusController Reactive State Tests', () {
     late ContextTrack track1;
     late ContextTrack track2;
 
@@ -28,84 +28,81 @@ void main() {
           .build();
     });
 
-    test('initial state matches empty PlayerQueue defaults', () {
-      final bloc = PlayerQueueBloc();
-      expect(bloc.state.queue.nextTracks, isEmpty);
-      expect(bloc.state.isLoading, false);
-      expect(bloc.state.isPlaying, false);
-      expect(bloc.state.isShuffling, false);
-      bloc.close();
+    test('initial state matches empty QueueModel defaults', () {
+      final controller = PlayerQueueMobiusController(
+        initialModel: QueueModel.empty(),
+      );
+      expect(controller.state.visibleTracks, isEmpty);
+      expect(controller.state.isLoading, isFalse);
+      expect(controller.state.isPlaying, isFalse);
+      expect(controller.state.isShuffling, isFalse);
+      controller.close();
     });
 
-    test('QueueUpdated event updates queue and clears loading', () async {
-      final bloc = PlayerQueueBloc();
+    test('QueueUpdatedEvent updates queue and partitions user queue and context tracks', () async {
+      final controller = PlayerQueueMobiusController(
+        initialModel: QueueModel.empty(),
+      );
       final newQueue = PlayerQueue(
         track: track1,
         nextTracks: [track2],
       );
 
-      bloc.add(QueueUpdated(newQueue));
+      controller.dispatch(QueueUpdatedEvent(newQueue));
       await expectLater(
-        bloc.stream,
-        emits(isA<PlayerQueueState>()
+        controller.stream,
+        emits(isA<QueueModel>()
             .having((s) => s.nowPlaying?.uid, 'nowPlaying', 'uid1')
-            .having((s) => s.queue.nextTracks.length, 'nextTracks.length', 1)),
+            .having((s) => s.visibleTracks.length, 'visibleTracks.length', 1)),
       );
-      bloc.close();
+      controller.close();
     });
 
-    test('PlayerStateChanged event updates player state, isPlaying and options', () async {
-      final bloc = PlayerQueueBloc();
+    test('PlayerStateChangedEvent updates player state, isPlaying and options', () async {
+      final controller = PlayerQueueMobiusController(
+        initialModel: QueueModel.empty(),
+      );
       final playerState = PlayerState(
         isPlaying: true,
         isPaused: false,
-        options: PlayerOptions(
+        options: const PlayerOptions(
           shufflingContext: true,
           repeatingContext: true,
         ),
       );
 
-      bloc.add(PlayerStateChanged(playerState));
+      controller.dispatch(PlayerStateChangedEvent(playerState));
       await expectLater(
-        bloc.stream,
-        emits(isA<PlayerQueueState>()
-            .having((s) => s.isPlaying, 'isPlaying', true)
-            .having((s) => s.isShuffling, 'isShuffling', true)
-            .having((s) => s.repeatContext, 'repeatContext', true)),
+        controller.stream,
+        emits(isA<QueueModel>()
+            .having((s) => s.isPlaying, 'isPlaying', isTrue)
+            .having((s) => s.isShuffling, 'isShuffling', isTrue)
+            .having((s) => s.repeatContext, 'repeatContext', isTrue)),
       );
-      bloc.close();
+      controller.close();
     });
 
-    test('AddTracksToQueue performs optimistic update in state', () async {
-      final bloc = PlayerQueueBloc();
-      bloc.add(AddTracksToQueue([track1, track2]));
+    test('RemoveTrackEvent marks pending removal in state for instant UI animation', () async {
+      final initialQueue = PlayerQueue(
+        track: track1,
+        nextTracks: [track2],
+      );
+      final controller = PlayerQueueMobiusController(
+        initialModel: QueueModel(
+          playerQueue: initialQueue,
+          contextTracks: [track2],
+        ),
+      );
+
+      controller.dispatch(RemoveTrackEvent(track2));
 
       await expectLater(
-        bloc.stream,
-        emits(isA<PlayerQueueState>()
-            .having((s) => s.queue.nextTracks.length, 'nextTracks.length', 2)),
+        controller.stream,
+        emits(isA<QueueModel>()
+            .having((s) => s.visibleTracks, 'visibleTracks', isEmpty)
+            .having((s) => s.pendingRemovalKeys.isNotEmpty, 'pendingRemovalKeys', isTrue)),
       );
-      bloc.close();
-    });
-
-    test('ClearQueue clears all user-queued items optimistically', () async {
-      final userTrack = ContextTrack.builder('spotify:track:u')
-          .uid('user_uid')
-          .metadata({ContextTrackMetadata.keyIsQueued: 'true'})
-          .build();
-
-      final bloc = PlayerQueueBloc(
-        initialQueue: PlayerQueue(nextTracks: [userTrack, track1]),
-      );
-
-      bloc.add(const ClearQueue());
-      await expectLater(
-        bloc.stream,
-        emits(isA<PlayerQueueState>()
-            .having((s) => s.queue.nextTracks.length, 'nextTracks.length', 1)
-            .having((s) => s.hasUserQueue, 'hasUserQueue', false)),
-      );
-      bloc.close();
+      controller.close();
     });
   });
 }

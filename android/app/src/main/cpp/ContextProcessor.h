@@ -57,6 +57,12 @@ public:
     /// Returns previous tracks up to active index in reverse order
     [[nodiscard]] std::vector<context_view::Entry> get_prev_tracks() const;
 
+    /// Filters lookahead context tracks following active index to sync with queue deletions
+    void filter_next_tracks(const std::vector<context_view::Entry>& valid_next);
+
+    /// Synchronizes and reorders lookahead context tracks following active index (1:1 with liborbit.so QueueImpl::setQueueWithinSlice)
+    void set_next_tracks_slice(const std::vector<context_view::Entry>& reordered_next);
+
     /// Navigation controls
     bool skip_next();
     bool skip_prev();

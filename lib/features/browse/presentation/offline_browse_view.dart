@@ -7,7 +7,7 @@ import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
 import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
@@ -15,7 +15,7 @@ import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
-/// Offline browse view -- search and explore local music files by artist/album.
+/// Offline browse view - search and explore local music files by artist/album.
 /// Displayed when the app is in offline mode on the Browse tab.
 class OfflineBrowseView extends StatefulWidget {
   final VoidCallback? onMenuPressed;
@@ -166,18 +166,16 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
   }
 
   Widget _buildBrowseGrid(List<DomainTrack> tracks) {
-    // Group by artist
     final artistMap = <String, List<DomainTrack>>{};
     for (final t in tracks) {
       final a = t.artist.isNotEmpty ? t.artist : 'Unknown Artist';
       artistMap.putIfAbsent(a, () => []).add(t);
     }
 
-    // Group by album
     final albumMap = <String, List<DomainTrack>>{};
     for (final t in tracks) {
-      if (t.album != null && t.album!.isNotEmpty) {
-        albumMap.putIfAbsent(t.album!, () => []).add(t);
+      if (t.album case final album? when album.isNotEmpty) {
+        albumMap.putIfAbsent(album, () => []).add(t);
       }
     }
 
@@ -186,9 +184,10 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
     final topAlbums = albumMap.entries.toList()
       ..sort((a, b) => b.value.length.compareTo(a.value.length));
 
+    final displayCount = tracks.length > 10 ? 10 : tracks.length;
+
     return SliverList(
       delegate: SliverChildListDelegate([
-        // Artists section
         if (topArtists.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -222,7 +221,6 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
           ),
         ],
 
-        // Albums section
         if (topAlbums.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
@@ -256,9 +254,8 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
           ),
         ],
 
-        // Quick play all section
         const Padding(
-          padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
+            padding: EdgeInsets.fromLTRB(16, 20, 16, 12),
           child: Text(
             'All Songs',
             style: TextStyle(
@@ -272,7 +269,7 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: tracks.length.clamp(0, 10),
+          itemCount: displayCount,
           itemBuilder: (context, index) {
             final track = tracks[index];
             return _buildTrackRow(track, () => _playTrack(tracks, index));
@@ -290,7 +287,7 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
         .where((t) =>
             t.title.toLowerCase().contains(q) ||
             t.artist.toLowerCase().contains(q) ||
-            (t.album?.toLowerCase().contains(q) ?? false))
+            (t.album != null && t.album!.toLowerCase().contains(q)))
         .toList();
 
     if (results.isEmpty) {
@@ -321,6 +318,14 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
   }
 
   Widget _buildTrackRow(DomainTrack track, VoidCallback onTap) {
+    final songIdResolved = switch (track.songId) {
+      final id? => id,
+      null => switch (int.tryParse(track.id)) {
+          final parsed? => parsed,
+          null => 0,
+        },
+    };
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -331,7 +336,7 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: QueryArtworkWidget(
-                id: track.songId ?? int.tryParse(track.id) ?? 0,
+                id: songIdResolved,
                 type: ArtworkType.AUDIO,
                 artworkHeight: 48,
                 artworkWidth: 48,
@@ -362,7 +367,10 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${track.artist}${track.album != null ? " \u2022 ${track.album}" : ""}',
+                    switch (track.album) {
+                      final album? when album.isNotEmpty => '${track.artist} \u2022 $album',
+                      _ => track.artist,
+                    },
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -370,9 +378,9 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
                 ],
               ),
             ),
-            if (track.duration != null)
+            if (track.duration case final dur?)
               Text(
-                DurationFormatter.milliseconds(track.duration!),
+                DurationFormatter.milliseconds(dur),
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
               ),
           ],
@@ -384,27 +392,38 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
   void _playTrack(List<DomainTrack> tracks, int index) {
     if (index >= 0 && index < tracks.length) {
       final contextTracks = tracks.map((t) {
-        final uri = t.isLocal
-            ? (t.dataPath != null && t.dataPath!.isNotEmpty
-                ? 'spotify:local:${Uri.encodeComponent(t.dataPath!)}'
-                : 'spotify:local:${t.id}')
-            : 'spotify:track:${t.id}';
+        final uri = switch (t.isLocal) {
+          true => switch (t.dataPath) {
+              final path? when path.isNotEmpty =>
+                'spotify:local:${Uri.encodeComponent(path)}',
+              _ => 'spotify:local:${t.id}',
+            },
+          false => 'spotify:track:${t.id}',
+        };
+        final metadata = <String, String>{
+          ContextTrackMetadata.keyTitle: t.title,
+          ContextTrackMetadata.keyArtistName:
+              t.artist.isNotEmpty ? t.artist : 'Local Artist',
+          ContextTrackMetadata.keyIsQueued: 'false',
+        };
+        if (t.album case final album? when album.isNotEmpty) {
+          metadata[ContextTrackMetadata.keyAlbumTitle] = album;
+        }
+        if (t.duration case final dur? when dur > 0) {
+          metadata[ContextTrackMetadata.keyDuration] = dur.toString();
+        }
+        if (t.dataPath case final path? when path.isNotEmpty) {
+          metadata[ContextTrackMetadata.keyLocalFilePath] = path;
+        }
+        if (t.songId case final sId? when sId > 0) {
+          metadata[ContextTrackMetadata.keySongId] = sId.toString();
+        }
+        if (t.artUri case final art? when art.isNotEmpty) {
+          metadata[ContextTrackMetadata.keyImageUrl] = art;
+        }
         return ContextTrack.builder(uri)
             .uid(t.id)
-            .metadata({
-              ContextTrackMetadata.keyTitle: t.title,
-              ContextTrackMetadata.keyArtistName:
-                  t.artist.isNotEmpty ? t.artist : 'Local Artist',
-              if (t.album != null) ContextTrackMetadata.keyAlbumTitle: t.album!,
-              if (t.duration != null)
-                ContextTrackMetadata.keyDuration: t.duration.toString(),
-              if (t.dataPath != null)
-                ContextTrackMetadata.keyLocalFilePath: t.dataPath!,
-              if (t.songId != null)
-                ContextTrackMetadata.keySongId: t.songId.toString(),
-              if (t.artUri != null) ContextTrackMetadata.keyImageUrl: t.artUri!,
-              ContextTrackMetadata.keyIsQueued: 'false',
-            })
+            .metadata(metadata)
             .build();
       }).toList(growable: false);
 
@@ -428,19 +447,20 @@ class _OfflineBrowseViewState extends State<OfflineBrowseView> {
               .build())
           .build();
 
-      final bloc =
-          getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null;
-      if (bloc != null) {
-        bloc.add(PlayContext(
-          context: playContext,
+      final controller = getIt.isRegistered<PlayerQueueMobiusController>()
+          ? getIt<PlayerQueueMobiusController>()
+          : null;
+      if (controller != null) {
+        controller.playContext(
+          playContext,
           options: options,
-        ));
+        );
       }
     }
   }
 }
 
-// ---- Cards for the browse grid ----
+// Cards for the browse grid
 
 class _ArtistCard extends StatelessWidget {
   final String name;
@@ -455,6 +475,14 @@ class _ArtistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final songIdResolved = switch (sampleTrack.songId) {
+      final id? => id,
+      null => switch (int.tryParse(sampleTrack.id)) {
+          final parsed? => parsed,
+          null => 0,
+        },
+    };
+
     return Container(
       width: 130,
       margin: const EdgeInsets.only(right: 12),
@@ -463,7 +491,7 @@ class _ArtistCard extends StatelessWidget {
         children: [
           ClipOval(
             child: QueryArtworkWidget(
-              id: sampleTrack.songId ?? int.tryParse(sampleTrack.id) ?? 0,
+              id: songIdResolved,
               type: ArtworkType.AUDIO,
               artworkHeight: 100,
               artworkWidth: 100,
@@ -511,6 +539,14 @@ class _AlbumCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final songIdResolved = switch (sampleTrack.songId) {
+      final id? => id,
+      null => switch (int.tryParse(sampleTrack.id)) {
+          final parsed? => parsed,
+          null => 0,
+        },
+    };
+
     return Container(
       width: 150,
       margin: const EdgeInsets.only(right: 12),
@@ -521,7 +557,7 @@ class _AlbumCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: QueryArtworkWidget(
-              id: sampleTrack.songId ?? int.tryParse(sampleTrack.id) ?? 0,
+              id: songIdResolved,
               type: ArtworkType.AUDIO,
               artworkHeight: 150,
               artworkWidth: 150,

@@ -31,6 +31,11 @@ class TrackItemMetadata {
   final int playbackPositionMs;
   final String showName;
 
+  final String imageXlargeUrl;
+  final String imageLargeUrl;
+  final String imageUrl;
+  final String imageSmallUrl;
+
   const TrackItemMetadata({
     required this.title,
     required this.uri,
@@ -41,6 +46,10 @@ class TrackItemMetadata {
     this.albumName = '',
     this.albumUri = '',
     this.albumCovers = const [],
+    this.imageXlargeUrl = '',
+    this.imageLargeUrl = '',
+    this.imageUrl = '',
+    this.imageSmallUrl = '',
     this.artists = const [],
     this.artistUris = const [],
     this.offlineState = 0,
@@ -60,8 +69,29 @@ class TrackItemMetadata {
   String get artistNamesString =>
       artists.isNotEmpty ? artists.join(', ') : (showName.isNotEmpty ? showName : albumName);
 
-  String get primaryCoverUrl =>
-      albumCovers.isNotEmpty ? albumCovers.first : '';
+  String get primaryCoverUrl => switch (imageLargeUrl) {
+    final u when u.isNotEmpty => u,
+    _ => switch (imageUrl) {
+      final u when u.isNotEmpty => u,
+      _ => albumCovers.isNotEmpty ? albumCovers.first : '',
+    },
+  };
+
+  String get highResCoverUrl => switch (imageXlargeUrl) {
+    final u when u.isNotEmpty => u,
+    _ => switch (imageLargeUrl) {
+      final u when u.isNotEmpty => u,
+      _ => primaryCoverUrl,
+    },
+  };
+
+  String get thumbnailCoverUrl => switch (imageSmallUrl) {
+    final u when u.isNotEmpty => u,
+    _ => switch (imageUrl) {
+      final u when u.isNotEmpty => u,
+      _ => albumCovers.length > 1 ? albumCovers.last : primaryCoverUrl,
+    },
+  };
 
   @override
   bool operator ==(Object other) =>

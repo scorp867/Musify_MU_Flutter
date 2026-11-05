@@ -7,7 +7,7 @@ import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
 import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
@@ -15,7 +15,7 @@ import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
-/// Offline library view -- shows local music files in a library layout.
+/// Offline library view - shows local music files in a library layout.
 /// Displayed when the app is in offline mode on the Library tab.
 class OfflineLibraryView extends StatefulWidget {
   final VoidCallback? onMenuPressed;
@@ -41,7 +41,7 @@ class _OfflineLibraryViewState extends State<OfflineLibraryView> {
         .where((t) =>
             t.title.toLowerCase().contains(q) ||
             t.artist.toLowerCase().contains(q) ||
-            (t.album?.toLowerCase().contains(q) ?? false))
+            (t.album != null && t.album!.toLowerCase().contains(q)))
         .toList();
   }
 
@@ -188,27 +188,38 @@ class _OfflineLibraryViewState extends State<OfflineLibraryView> {
   void _playTrack(List<DomainTrack> tracks, int index) {
     if (index >= 0 && index < tracks.length) {
       final contextTracks = tracks.map((t) {
-        final uri = t.isLocal
-            ? (t.dataPath != null && t.dataPath!.isNotEmpty
-                ? 'spotify:local:${Uri.encodeComponent(t.dataPath!)}'
-                : 'spotify:local:${t.id}')
-            : 'spotify:track:${t.id}';
+        final uri = switch (t.isLocal) {
+          true => switch (t.dataPath) {
+              final path? when path.isNotEmpty =>
+                'spotify:local:${Uri.encodeComponent(path)}',
+              _ => 'spotify:local:${t.id}',
+            },
+          false => 'spotify:track:${t.id}',
+        };
+        final metadata = <String, String>{
+          ContextTrackMetadata.keyTitle: t.title,
+          ContextTrackMetadata.keyArtistName:
+              t.artist.isNotEmpty ? t.artist : 'Local Artist',
+          ContextTrackMetadata.keyIsQueued: 'false',
+        };
+        if (t.album case final album? when album.isNotEmpty) {
+          metadata[ContextTrackMetadata.keyAlbumTitle] = album;
+        }
+        if (t.duration case final dur? when dur > 0) {
+          metadata[ContextTrackMetadata.keyDuration] = dur.toString();
+        }
+        if (t.dataPath case final path? when path.isNotEmpty) {
+          metadata[ContextTrackMetadata.keyLocalFilePath] = path;
+        }
+        if (t.songId case final sId? when sId > 0) {
+          metadata[ContextTrackMetadata.keySongId] = sId.toString();
+        }
+        if (t.artUri case final art? when art.isNotEmpty) {
+          metadata[ContextTrackMetadata.keyImageUrl] = art;
+        }
         return ContextTrack.builder(uri)
             .uid(t.id)
-            .metadata({
-              ContextTrackMetadata.keyTitle: t.title,
-              ContextTrackMetadata.keyArtistName:
-                  t.artist.isNotEmpty ? t.artist : 'Local Artist',
-              if (t.album != null) ContextTrackMetadata.keyAlbumTitle: t.album!,
-              if (t.duration != null)
-                ContextTrackMetadata.keyDuration: t.duration.toString(),
-              if (t.dataPath != null)
-                ContextTrackMetadata.keyLocalFilePath: t.dataPath!,
-              if (t.songId != null)
-                ContextTrackMetadata.keySongId: t.songId.toString(),
-              if (t.artUri != null) ContextTrackMetadata.keyImageUrl: t.artUri!,
-              ContextTrackMetadata.keyIsQueued: 'false',
-            })
+            .metadata(metadata)
             .build();
       }).toList(growable: false);
 
@@ -232,13 +243,14 @@ class _OfflineLibraryViewState extends State<OfflineLibraryView> {
               .build())
           .build();
 
-      final bloc =
-          getIt.isRegistered<PlayerQueueBloc>() ? getIt<PlayerQueueBloc>() : null;
-      if (bloc != null) {
-        bloc.add(PlayContext(
-          context: playContext,
+      final controller = getIt.isRegistered<PlayerQueueMobiusController>()
+          ? getIt<PlayerQueueMobiusController>()
+          : null;
+      if (controller != null) {
+        controller.playContext(
+          playContext,
           options: options,
-        ));
+        );
       }
     }
   }
@@ -252,6 +264,14 @@ class _TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final songIdResolved = switch (track.songId) {
+      final id? => id,
+      null => switch (int.tryParse(track.id)) {
+          final parsed? => parsed,
+          null => 0,
+        },
+    };
+
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
@@ -260,7 +280,7 @@ class _TrackTile extends StatelessWidget {
         child: Row(
           children: [
             QueryArtworkWidget(
-              id: track.songId ?? int.tryParse(track.id) ?? 0,
+              id: songIdResolved,
               type: ArtworkType.AUDIO,
               artworkHeight: 50,
               artworkWidth: 50,
@@ -307,9 +327,9 @@ class _TrackTile extends StatelessWidget {
                 ],
               ),
             ),
-            if (track.duration != null)
+            if (track.duration case final dur?)
               Text(
-                DurationFormatter.milliseconds(track.duration!),
+                DurationFormatter.milliseconds(dur),
                 style: TextStyle(
                   color: Colors.grey.shade500,
                   fontSize: 12,

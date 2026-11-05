@@ -274,21 +274,26 @@ class _MainScreenState extends State<MainScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   RepaintBoundary(
-                    child: BlocBuilder<PlayerQueueBloc, PlayerQueueState>(
-                      builder: (context, queueState) {
+                    child: ValueListenableBuilder<QueueModel>(
+                      valueListenable: getIt<PlayerQueueMobiusController>(),
+                      builder: (context, queueState, _) {
                         final track = queueState.nowPlaying;
-                        final bloc = context.read<PlayerQueueBloc>();
+                        final controller = getIt<PlayerQueueMobiusController>();
+                        final title = switch (track?.title) {
+                          final t? when t.isNotEmpty => t,
+                          _ => 'Starboy',
+                        };
+                        final artist = switch (track?.artist) {
+                          final a? when a.isNotEmpty => a,
+                          _ => 'The Weeknd, Daft Punk',
+                        };
                         return MiniPlayer(
-                          title: (track?.title.isNotEmpty == true)
-                              ? track!.title
-                              : 'Starboy',
-                          artist: (track?.artist.isNotEmpty == true)
-                              ? track!.artist
-                              : 'The Weeknd, Daft Punk',
+                          title: title,
+                          artist: artist,
                           imageUrl: track?.imageUrl,
                           songId: track?.songId,
                           isPlaying: queueState.isPlaying,
-                          queueBloc: bloc,
+                          queueBloc: controller,
                           currentTrack: track,
                           colorService: context.read<ColorExtractionService>(),
                         );

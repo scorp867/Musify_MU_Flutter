@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
@@ -59,12 +60,15 @@ class MiniPlayer extends StatefulWidget {
   State<MiniPlayer> createState() => _MiniPlayerState();
 }
 
-class _MiniPlayerState extends State<MiniPlayer> {
+class _MiniPlayerState extends State<MiniPlayer>
+    with SingleTickerProviderStateMixin {
   Color _currentColor = const Color(0xFF242424);
   bool _isFavorite = false;
   late bool _isPlaying;
   String? _lastExtractedKey;
   late final PageInstanceId _pageInstanceId;
+  late final ValueNotifier<double> _progressNotifier;
+  late final Ticker _progressTicker;
 
   LoggingParams? _logMiniPlayerInteraction(
     String elementPath, [
@@ -107,17 +111,47 @@ class _MiniPlayerState extends State<MiniPlayer> {
         ),
       );
     }
-    _isPlaying = widget.isPlaying;
+    _isPlaying = switch (widget.queueBloc?.state.isPlaying) {
+      final playing? => playing,
+      null => widget.isPlaying,
+    };
 
     final initialSongId = _resolveSongId(widget.queueBloc?.state);
     final initialImageUrl = _resolveImageUrl(widget.queueBloc?.state);
     _extractColor(songId: initialSongId, imageUrl: initialImageUrl);
+
+    final initialProgress = _boundProgress(switch (widget.queueBloc?.state.playbackProgress) {
+      final p? => p,
+      null => widget.progress,
+    });
+    _progressNotifier = ValueNotifier<double>(initialProgress);
+
+    _progressTicker = createTicker((elapsed) {
+      if (mounted) {
+        final bloc = widget.queueBloc;
+        if (bloc != null) {
+          final state = bloc.state;
+          if (state.isPlaying) {
+            final currentProgress = _boundProgress(state.playbackProgress);
+            if ((currentProgress - _progressNotifier.value).abs() >= 0.0005) {
+              _progressNotifier.value = currentProgress;
+            }
+          }
+        }
+      }
+    });
+
+    if (_isPlaying) {
+      _progressTicker.start();
+    }
 
     widget.queueBloc?.addListener(_onQueueStateChanged);
   }
 
   @override
   void dispose() {
+    _progressTicker.dispose();
+    _progressNotifier.dispose();
     widget.queueBloc?.removeListener(_onQueueStateChanged);
     super.dispose();
   }
@@ -131,6 +165,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
     }
     if (oldWidget.isPlaying != widget.isPlaying) {
       _isPlaying = widget.isPlaying;
+      if (_isPlaying) {
+        if (!_progressTicker.isActive) _progressTicker.start();
+      } else {
+        if (_progressTicker.isActive) _progressTicker.stop();
+      }
+    }
+    if (oldWidget.progress != widget.progress && widget.queueBloc == null) {
+      _progressNotifier.value = _boundProgress(widget.progress);
     }
     if (oldWidget.songId != widget.songId || oldWidget.imageUrl != widget.imageUrl) {
       _extractColor(songId: widget.songId, imageUrl: widget.imageUrl);
@@ -144,7 +186,13 @@ class _MiniPlayerState extends State<MiniPlayer> {
         setState(() {
           _isPlaying = state.isPlaying;
         });
+        if (_isPlaying) {
+          if (!_progressTicker.isActive) _progressTicker.start();
+        } else {
+          if (_progressTicker.isActive) _progressTicker.stop();
+        }
       }
+      _progressNotifier.value = _boundProgress(state.playbackProgress);
       final resolvedSongId = _resolveSongId(state);
       final resolvedImageUrl = _resolveImageUrl(state);
       _extractColor(songId: resolvedSongId, imageUrl: resolvedImageUrl);
@@ -167,11 +215,17 @@ class _MiniPlayerState extends State<MiniPlayer> {
 
   String? _resolveImageUrl(PlayerQueueState? state) {
     if (state != null) {
+      if (state.thumbnailImageUrl case final url? when url.isNotEmpty) {
+        return url;
+      }
       if (state.imageUrl case final url? when url.isNotEmpty) {
         return url;
       }
     }
     if (widget.currentTrack case final track?) {
+      if (track.thumbnailImageUrl case final url? when url.isNotEmpty) {
+        return url;
+      }
       if (track.imageUrl case final url? when url.isNotEmpty) {
         return url;
       }
@@ -259,7 +313,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
       final a? when a.isNotEmpty => a,
       _ => widget.artist,
     };
-    final displayImageUrl = switch (state?.imageUrl) {
+    final displayThumbnailUrl = switch (state?.thumbnailImageUrl) {
+      final url? when url.isNotEmpty => url,
+      _ => switch (state?.imageUrl) {
+        final url? when url.isNotEmpty => url,
+        _ => widget.imageUrl,
+      },
+    };
+    final highResImageUrl = switch (state?.imageUrl) {
       final url? when url.isNotEmpty => url,
       _ => widget.imageUrl,
     };
@@ -271,11 +332,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
       final playing? => playing,
       null => _isPlaying,
     };
-    final rawProgress = switch (state?.playbackProgress) {
-      final p? => p,
-      null => widget.progress,
-    };
-    final progress = _boundProgress(rawProgress);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -295,7 +351,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
               },
               title: displayTitle,
               artist: displayArtist,
-              imageUrl: displayImageUrl,
+              imageUrl: highResImageUrl,
               songId: displaySongId,
             );
           }
@@ -310,14 +366,14 @@ class _MiniPlayerState extends State<MiniPlayer> {
             if (widget.onNext case final onNextAction?) {
               onNextAction();
             } else if (widget.queueBloc case final bloc?) {
-              bloc.add(SkipToNextTrack(loggingParams: lp));
+              bloc.add(SkipToNextTrackEvent(loggingParams: lp));
             }
           } else if (velocity > 250) {
             final lp = _logMiniPlayerInteraction('swipe_skip_prev', 'swipe');
             if (widget.onPrevious case final onPrevAction?) {
               onPrevAction();
             } else if (widget.queueBloc case final bloc?) {
-              bloc.add(SkipToPrevTrack(loggingParams: lp));
+              bloc.add(SkipToPrevTrackEvent(loggingParams: lp));
             }
           }
         },
@@ -346,7 +402,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                       borderRadius: BorderRadius.circular(4),
                       child: PlayerArtworkImage(
                         songId: displaySongId,
-                        imageUrl: displayImageUrl,
+                        imageUrl: displayThumbnailUrl,
                         artworkWidth: 40,
                         artworkHeight: 40,
                         placeholderIconSize: 20,
@@ -426,7 +482,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                         if (widget.onPlayPause case final onPlayPauseAction?) {
                           onPlayPauseAction();
                         } else if (widget.queueBloc case final bloc?) {
-                          bloc.add(TogglePlayPause(loggingParams: lp));
+                          bloc.add(TogglePlayPauseEvent(loggingParams: lp));
                         }
                       },
                     ),
@@ -439,13 +495,18 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   bottomRight: Radius.circular(8),
                 ),
                 child: RepaintBoundary(
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: Colors.white.withValues(alpha: 0.15),
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                      Colors.white,
-                    ),
-                    minHeight: 2,
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: _progressNotifier,
+                    builder: (context, currentProgress, _) {
+                      return LinearProgressIndicator(
+                        value: currentProgress,
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          Colors.white,
+                        ),
+                        minHeight: 2,
+                      );
+                    },
                   ),
                 ),
               ),

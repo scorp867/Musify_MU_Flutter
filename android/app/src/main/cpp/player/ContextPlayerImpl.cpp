@@ -363,19 +363,23 @@ inline bool parse_prepare_play_request(const uint8_t* data, size_t size, Decoded
     return decode_prepare_play_request_body(data, size, out);
 }
 
+inline bool is_ascii_printable_uri(const std::string& uri) {
+    if (uri.empty()) return false;
+    for (unsigned char c : uri) {
+        if (c < 32 || c >= 127) return false;
+    }
+    return true;
+}
+
 inline bool decode_track_or_provided_track(const uint8_t* data, size_t size, context_view::Entry& out_entry) {
     if (!data || size == 0) return false;
 
-    // Try decoding directly as ContextTrack
-    context_view::Entry direct;
-    if (decode_context_track(data, size, direct) && !direct.uri.empty()) {
-        out_entry = std::move(direct);
-        return true;
-    }
-
-    // Try decoding as ProvidedTrack (field 1 = ContextTrack)
+    // 1. Try decoding as wrapped request/ProvidedTrack (field 1 = ContextTrack, field 4 = provider)
     const uint8_t* ptr = data;
     const uint8_t* end = data + size;
+    bool found_track = false;
+    context_view::Entry inner;
+    std::string provider;
     while (ptr < end) {
         uint64_t tag = 0;
         if (!decode_varint(ptr, end, tag)) break;
@@ -384,14 +388,40 @@ inline bool decode_track_or_provided_track(const uint8_t* data, size_t size, con
         if (f == 1 && w == 2) {
             uint64_t len = 0;
             if (!decode_varint(ptr, end, len) || ptr + len > end) break;
-            if (decode_context_track(ptr, static_cast<size_t>(len), out_entry)) {
-                return true;
+            if (decode_context_track(ptr, static_cast<size_t>(len), inner) && is_ascii_printable_uri(inner.uri)) {
+                found_track = true;
             }
+            ptr += len;
+        } else if (f == 4 && w == 2) {
+            uint64_t len = 0;
+            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
+            provider.assign(reinterpret_cast<const char*>(ptr), static_cast<size_t>(len));
             ptr += len;
         } else {
             if (!skip_field(ptr, end, w)) break;
         }
     }
+    if (found_track) {
+        if (!provider.empty()) {
+            inner.provider = provider;
+            inner.metadata["provider"] = provider;
+        } else if (!inner.metadata["provider"].empty()) {
+            inner.provider = inner.metadata["provider"];
+        }
+        out_entry = std::move(inner);
+        return true;
+    }
+
+    // 2. Try decoding directly as bare ContextTrack
+    context_view::Entry direct;
+    if (decode_context_track(data, size, direct) && is_ascii_printable_uri(direct.uri)) {
+        if (!direct.metadata["provider"].empty()) {
+            direct.provider = direct.metadata["provider"];
+        }
+        out_entry = std::move(direct);
+        return true;
+    }
+
     return false;
 }
 
@@ -922,11 +952,30 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
         // Target track requested (1:1 with Spotify x0j0 case 25 / kax0)
         bool handled_target = false;
         if (!target_track.uri.empty() || !target_track.uid.empty()) {
-            auto it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
-                return (!target_track.uid.empty() && e.uid == target_track.uid) ||
-                       (!target_track.uri.empty() && e.uri == target_track.uri);
-            });
-            if (it != user_queue_.end()) {
+            bool found_in_user_queue = false;
+            std::vector<context_view::Entry>::iterator it = user_queue_.end();
+
+            // 1. If UID is non-empty, prioritize exact UID match in user_queue_
+            if (!target_track.uid.empty()) {
+                if (target_track.provider != "context") {
+                    it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
+                        return e.uid == target_track.uid;
+                    });
+                    found_in_user_queue = (it != user_queue_.end());
+                }
+            }
+
+            // 2. Fallback to URI match in user_queue_ if provider is not "context"
+            if (!found_in_user_queue && target_track.provider != "context" && !target_track.uri.empty()) {
+                if (target_track.uid.empty() || target_track.provider == "queue") {
+                    it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
+                        return e.uri == target_track.uri;
+                    });
+                    found_in_user_queue = (it != user_queue_.end());
+                }
+            }
+
+            if (found_in_user_queue) {
                 current_track_ = *it;
                 user_queue_.erase(user_queue_.begin(), it + 1);
                 queue_revision_++;
@@ -942,12 +991,14 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                 bool found = false;
                 if (!target_track.uid.empty()) {
                     found = context_processor_.skip_to_uid(target_track.uid);
-                } else if (!target_track.uri.empty()) {
+                }
+                if (!found && !target_track.uri.empty() && target_track.provider != "queue") {
                     found = context_processor_.skip_to_uri(target_track.uri);
                 }
                 if (found) {
                     auto track = context_processor_.get_current_track();
                     if (track.has_value()) {
+                        queue_revision_++;
                         current_track_ = *track;
                         is_playing_ = true;
                         is_paused_ = false;
@@ -1382,15 +1433,27 @@ bool ContextPlayerImpl::add_to_queue(const uint8_t* payload, size_t len) {
     if (decode_track_or_provided_track(payload, len, entry)) {
         QueueChangedCallback qc_cb;
         std::vector<uint8_t> qc_bytes;
+        StateChangedCallback sc_cb;
+        std::vector<uint8_t> sc_bytes;
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            if (entry.uid.empty()) {
+                entry.uid = generate_track_uid();
+            }
+            entry.metadata["is_queued"] = "true";
+            entry.provider = "queue";
+            entry.metadata["provider"] = "queue";
             user_queue_.push_back(std::move(entry));
             queue_revision_++;
             emit_queue_locked();
+            emit_state_locked();
             qc_cb = queue_changed_callback_;
             qc_bytes = cached_queue_bytes_;
+            sc_cb = state_changed_callback_;
+            sc_bytes = cached_state_bytes_;
         }
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
         return true;
     }
     return false;
@@ -1403,15 +1466,41 @@ bool ContextPlayerImpl::set_queue(const uint8_t* payload, size_t len) {
     if (decode_set_queue_request(payload, len, tracks, rev)) {
         QueueChangedCallback qc_cb;
         std::vector<uint8_t> qc_bytes;
+        StateChangedCallback sc_cb;
+        std::vector<uint8_t> sc_bytes;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            user_queue_ = std::move(tracks);
+            user_queue_.clear();
+            std::vector<context_view::Entry> remaining_context;
+            for (auto& t : tracks) {
+                if (t.uid.empty()) {
+                    t.uid = generate_track_uid();
+                }
+                auto it = t.metadata.find("is_queued");
+                if ((it != t.metadata.end() && (it->second == "true" || it->second == "True")) ||
+                    t.provider == "queue") {
+                    t.provider = "queue";
+                    t.metadata["is_queued"] = "true";
+                    t.metadata["provider"] = "queue";
+                    user_queue_.push_back(std::move(t));
+                } else {
+                    t.provider = "context";
+                    t.metadata["is_queued"] = "false";
+                    t.metadata["provider"] = "context";
+                    remaining_context.push_back(std::move(t));
+                }
+            }
+            context_processor_.set_next_tracks_slice(remaining_context);
             queue_revision_++;
             emit_queue_locked();
+            emit_state_locked();
             qc_cb = queue_changed_callback_;
             qc_bytes = cached_queue_bytes_;
+            sc_cb = state_changed_callback_;
+            sc_bytes = cached_state_bytes_;
         }
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
         return true;
     }
     return false;
@@ -1448,15 +1537,29 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
     if (!tracks.empty()) {
         QueueChangedCallback qc_cb;
         std::vector<uint8_t> qc_bytes;
+        StateChangedCallback sc_cb;
+        std::vector<uint8_t> sc_bytes;
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            for (auto& t : tracks) {
+                if (t.uid.empty()) {
+                    t.uid = generate_track_uid();
+                }
+                t.metadata["is_queued"] = "true";
+                t.provider = "queue";
+                t.metadata["provider"] = "queue";
+            }
             user_queue_.insert(user_queue_.begin(), tracks.begin(), tracks.end());
             queue_revision_++;
             emit_queue_locked();
+            emit_state_locked();
             qc_cb = queue_changed_callback_;
             qc_bytes = cached_queue_bytes_;
+            sc_cb = state_changed_callback_;
+            sc_bytes = cached_state_bytes_;
         }
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
         return true;
     }
     return false;
@@ -1849,7 +1952,7 @@ void ContextPlayerImpl::emit_state_locked() {
     data.duration_ms = duration_ms_;
     data.is_playing = is_playing_;
     data.is_paused = is_paused_;
-    data.playback_speed = playback_speed_;
+    data.playback_speed = (is_playing_ && !is_paused_) ? playback_speed_ : 0.0;
     data.position_as_of_timestamp = position_ms_;
     data.shuffling_context = shuffling_;
     data.repeating_context = repeating_context_;

@@ -88,9 +88,12 @@ class NowPlayingViewModel {
     String? fallbackImageUrl,
     int? fallbackSongId,
   }) {
-    final track = switch (state?.currentTrack) {
+    final track = switch (state?.nowPlaying) {
       final t? => t,
-      null => fallbackTrack,
+      null => switch (state?.currentTrack) {
+        final t? => t,
+        null => fallbackTrack,
+      },
     };
 
     final title = switch (track?.title) {

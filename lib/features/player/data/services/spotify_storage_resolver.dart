@@ -78,8 +78,9 @@ class SpotifyStorageResolver {
         if (cdnUrls is List && cdnUrls.isNotEmpty) {
           final firstUrl = cdnUrls.first;
           if (firstUrl is String && firstUrl.isNotEmpty) {
+            final logLen = firstUrl.length < 60 ? firstUrl.length : 60;
             dev.log(
-              'StorageResolver: Resolved CDN URL for $cleanFileId: ${firstUrl.substring(0, firstUrl.length.clamp(0, 60))}...',
+              'StorageResolver: Resolved CDN URL for $cleanFileId: ${firstUrl.substring(0, logLen)}...',
               name: 'StorageResolver',
             );
             _cache[cacheKey] = firstUrl;

@@ -5,7 +5,7 @@ import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
 import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
@@ -105,16 +105,29 @@ class LocalMusicScreen extends StatelessWidget {
                   child: GestureDetector(
                     onTap: () {
                       final allContextTracks = tracks.map((t) {
+                        final albumTitle = switch (t.album) {
+                          final a? when a.isNotEmpty => a,
+                          _ => 'Local Music',
+                        };
+                        final durationStr = switch (t.duration) {
+                          final d? when d > 0 => d.toString(),
+                          _ => '0',
+                        };
+                        final dataPathStr = switch (t.dataPath) {
+                          final p? => p,
+                          null => '',
+                        };
+
                         return ContextTrack.builder('spotify:local:${t.id}')
                             .uid('local_${t.id}')
                             .metadata({
                               ContextTrackMetadata.keyTitle: t.title,
                               ContextTrackMetadata.keyArtistName: t.artist,
-                              ContextTrackMetadata.keyAlbumTitle: t.album ?? 'Local Music',
-                              ContextTrackMetadata.keyDuration: t.duration?.toString() ?? '0',
-                              ContextTrackMetadata.keyLocalFilePath: t.dataPath ?? '',
-                              if (t.songId != null)
-                                ContextTrackMetadata.keySongId: t.songId.toString(),
+                              ContextTrackMetadata.keyAlbumTitle: albumTitle,
+                              ContextTrackMetadata.keyDuration: durationStr,
+                              ContextTrackMetadata.keyLocalFilePath: dataPathStr,
+                              if (t.songId case final sId?)
+                                ContextTrackMetadata.keySongId: sId.toString(),
                               ContextTrackMetadata.keyIsQueued: 'false',
                             })
                             .build();
@@ -122,8 +135,8 @@ class LocalMusicScreen extends StatelessWidget {
 
                       final tappedTrack = allContextTracks[index];
 
-                      if (getIt.isRegistered<PlayerQueueBloc>()) {
-                        final activeBloc = getIt<PlayerQueueBloc>();
+                      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
+                        final controller = getIt<PlayerQueueMobiusController>();
 
                         final page = ContextPage.builder()
                             .tracks(allContextTracks)
@@ -141,14 +154,14 @@ class LocalMusicScreen extends StatelessWidget {
                             .skipTo(SkipToTrack.fromUri(tappedTrack.uri))
                             .build();
 
-                        activeBloc.add(PlayContext(
-                          context: contextModel,
+                        controller.playContext(
+                          contextModel,
                           options: playOptions,
                           playOrigin: const PlayOrigin(
                             featureIdentifier: 'local_files',
                             viewUri: 'spotify:internal:local-files',
                           ),
-                        ));
+                        );
                       }
                     },
                     behavior: HitTestBehavior.opaque,
@@ -202,9 +215,9 @@ class LocalMusicScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (track.duration != null)
+                        if (track.duration case final dur?)
                           Text(
-                            _formatDuration(track.duration!),
+                            _formatDuration(dur),
                             style: TextStyle(
                               color: Colors.grey.shade500,
                               fontSize: 12,

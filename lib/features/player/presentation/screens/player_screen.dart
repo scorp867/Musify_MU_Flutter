@@ -281,7 +281,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
-
   int _resolveActiveLyricsLine(
     ColorLyricsResponse? colorLyrics,
     Duration currentPos,
@@ -598,7 +597,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _dragNotifier.value = null;
     final lp = _logPlayerInteraction('seek_bar', 'drag');
     if (_effectiveBloc case final bloc?) {
-      bloc.add(SeekToTrackPosition(pos.inMilliseconds, loggingParams: lp));
+      bloc.dispatch(SeekToPositionEvent(pos, loggingParams: lp));
     } else {
       _positionNotifier.value = pos;
     }
@@ -607,7 +606,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _handlePlayPause() {
     final lp = _logPlayerInteraction('play_pause_button');
     if (_effectiveBloc case final bloc?) {
-      bloc.add(TogglePlayPause(loggingParams: lp));
+      bloc.dispatch(TogglePlayPauseEvent(loggingParams: lp));
     } else {
       setState(() {
         _isPlaying = !_isPlaying;
@@ -619,7 +618,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _handleShuffle() {
     final lp = _logPlayerInteraction('shuffle_button');
     if (_effectiveBloc case final bloc?) {
-      bloc.add(ToggleShuffle(loggingParams: lp));
+      bloc.dispatch(ToggleShuffleEvent(loggingParams: lp));
     } else {
       setState(() {
         _shuffleMode = _shuffleMode == QueueShuffleMode.all
@@ -632,7 +631,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _handleRepeat() {
     final lp = _logPlayerInteraction('repeat_button');
     if (_effectiveBloc case final bloc?) {
-      bloc.add(ToggleRepeat(loggingParams: lp));
+      bloc.dispatch(ToggleRepeatEvent(loggingParams: lp));
     } else {
       setState(() {
         if (_repeatMode == QueueRepeatMode.none) {
@@ -651,7 +650,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
     final lp = _logPlayerInteraction('skip_next_button');
-    _effectiveBloc?.add(SkipToNextTrack(loggingParams: lp));
+    _effectiveBloc?.dispatch(SkipToNextTrackEvent(loggingParams: lp));
   }
 
   void _handlePrevious() {
@@ -659,7 +658,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
     final lp = _logPlayerInteraction('skip_previous_button');
-    _effectiveBloc?.add(SkipToPrevTrack(loggingParams: lp));
+    _effectiveBloc?.dispatch(SkipToPrevTrackEvent(loggingParams: lp));
   }
 
   void _onExpandLyrics() {

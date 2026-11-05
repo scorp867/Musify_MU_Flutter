@@ -205,18 +205,24 @@ class _QueueTrackRowState extends State<QueueTrackRow>
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
     if (_isRemoving) return;
     final width = context.size?.width ?? 360.0;
-    _rawDragX += details.primaryDelta ?? 0.0;
+    final delta = switch (details.primaryDelta) {
+      final d? => d,
+      null => 0.0,
+    };
+    _rawDragX += delta;
 
     if (_rawDragX >= 0.0) {
       // Exact l1q0.java line 110 & 122: clamp right swipe to 0.45 * width
       final maxRight = width * 0.45;
-      final clampedDx = _rawDragX.clamp(0.0, maxRight);
+      final clampedDx = _rawDragX > maxRight ? maxRight : (_rawDragX < 0.0 ? 0.0 : _rawDragX);
       // Exact l1q0.java line 185-193: arm when abs(f3)/width > 0.25f
       _armedAddToQueue = (clampedDx / width) > 0.25;
       _dragOffsetX.value = clampedDx;
     } else {
       _armedAddToQueue = false;
-      _dragOffsetX.value = _rawDragX.clamp(-width, 0.0);
+      final minLeft = -width;
+      final clampedDx = _rawDragX < minLeft ? minLeft : (_rawDragX > 0.0 ? 0.0 : _rawDragX);
+      _dragOffsetX.value = clampedDx;
     }
   }
 
@@ -224,7 +230,10 @@ class _QueueTrackRowState extends State<QueueTrackRow>
     if (_isRemoving) return;
     final width = context.size?.width ?? 360.0;
     final currentDx = _dragOffsetX.value;
-    final velocityX = details.primaryVelocity ?? 0.0;
+    final velocityX = switch (details.primaryVelocity) {
+      final v? => v,
+      null => 0.0,
+    };
 
     if (currentDx == 0.0) return;
 

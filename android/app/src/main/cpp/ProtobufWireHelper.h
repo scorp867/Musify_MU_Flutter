@@ -93,10 +93,31 @@ inline std::vector<uint8_t> encode_context_track(const Entry& entry) {
     if (!entry.uid.empty()) {
         encode_string_field(buf, 2, entry.uid);
     }
+    std::string prov = entry.provider;
+    if (prov.empty()) {
+        auto it = entry.metadata.find("provider");
+        if (it != entry.metadata.end()) {
+            prov = it->second;
+        } else {
+            auto itq = entry.metadata.find("is_queued");
+            if (itq != entry.metadata.end() && (itq->second == "true" || itq->second == "True")) {
+                prov = "queue";
+            } else {
+                prov = "context";
+            }
+        }
+    }
     for (const auto& [k, v] : entry.metadata) {
+        if (k == "provider") continue;
         std::vector<uint8_t> map_entry;
         encode_string_field(map_entry, 1, k);
         encode_string_field(map_entry, 2, v);
+        encode_submessage_field(buf, 3, map_entry);
+    }
+    {
+        std::vector<uint8_t> map_entry;
+        encode_string_field(map_entry, 1, "provider");
+        encode_string_field(map_entry, 2, prov);
         encode_submessage_field(buf, 3, map_entry);
     }
     return buf;
@@ -157,6 +178,15 @@ inline bool decode_context_track(const uint8_t* data, size_t size, Entry& out_en
     } else {
         out_entry.type = EntryType::TRACK;
     }
+    auto it_p = out_entry.metadata.find("provider");
+    if (it_p != out_entry.metadata.end()) {
+        out_entry.provider = it_p->second;
+    }
+    auto it_q = out_entry.metadata.find("is_queued");
+    if (it_q != out_entry.metadata.end() && (it_q->second == "true" || it_q->second == "True")) {
+        out_entry.provider = "queue";
+        out_entry.metadata["provider"] = "queue";
+    }
     return true;
 }
 
@@ -170,7 +200,16 @@ inline std::vector<uint8_t> encode_provided_track(const Entry& entry) {
     std::vector<uint8_t> buf;
     auto track_buf = encode_context_track(entry);
     encode_submessage_field(buf, 1, track_buf);
-    encode_string_field(buf, 4, "context");
+    std::string prov = entry.provider;
+    if (prov.empty()) {
+        auto it = entry.metadata.find("is_queued");
+        if (it != entry.metadata.end() && (it->second == "true" || it->second == "True")) {
+            prov = "queue";
+        } else {
+            prov = "context";
+        }
+    }
+    encode_string_field(buf, 4, prov);
     return buf;
 }
 

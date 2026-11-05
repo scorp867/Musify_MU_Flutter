@@ -77,13 +77,13 @@ abstract class PlayerStateProtoMappers {
     if (p.hasPlaybackQuality()) {
       builder.playbackQuality(mapPlaybackQuality(p.playbackQuality));
     }
-    if (p.hasPlaybackSpeed() && p.playbackSpeed.hasValue()) {
+    if (p.hasPlaybackSpeed()) {
       builder.playbackSpeed(p.playbackSpeed.value);
     }
-    if (p.hasPositionAsOfTimestamp() && p.positionAsOfTimestamp.hasValue()) {
+    if (p.hasPositionAsOfTimestamp()) {
       builder.positionAsOfTimestamp(p.positionAsOfTimestamp.value.toInt());
     }
-    if (p.hasDuration() && p.duration.hasValue()) {
+    if (p.hasDuration()) {
       builder.duration(p.duration.value.toInt());
     }
     if (p.hasIsPlaying()) {

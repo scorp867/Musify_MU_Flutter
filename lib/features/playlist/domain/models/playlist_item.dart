@@ -61,19 +61,72 @@ class PlaylistItem {
   bool get isShow => itemType == PlaylistItemType.show;
   bool get isTrack => itemType == PlaylistItemType.track;
 
-  String get title => trackMetadata?.title ?? '';
-  String get subtitle => trackMetadata?.artistNamesString ?? '';
-  String get albumName => trackMetadata?.albumName ?? '';
-  String get showName => trackMetadata?.showName.isNotEmpty == true
-      ? trackMetadata!.showName
-      : albumName;
-  String get coverUrl => trackMetadata?.primaryCoverUrl ?? '';
-  int get durationMs => trackMetadata?.durationMs ?? 0;
-  bool get isPlayable => trackMetadata?.isPlayable ?? true;
-  bool get isExplicit => trackMetadata?.isExplicit ?? false;
-  String get description => trackMetadata?.description ?? '';
-  String get publishDate => trackMetadata?.publishDate ?? '';
-  int get playbackPositionMs => trackMetadata?.playbackPositionMs ?? 0;
+  String get title => switch (trackMetadata?.title) {
+    final t? => t,
+    null => '',
+  };
+  String get subtitle => switch (trackMetadata?.artistNamesString) {
+    final s? => s,
+    null => '',
+  };
+  String get albumName => switch (trackMetadata?.albumName) {
+    final a? => a,
+    null => '',
+  };
+  String get showName {
+    if (trackMetadata case final meta? when meta.showName.isNotEmpty) {
+      return meta.showName;
+    }
+    return albumName;
+  }
+  String get coverUrl => switch (trackMetadata?.highResCoverUrl) {
+    final c? => c,
+    null => '',
+  };
+  String get imageXlargeUrl => switch (trackMetadata?.imageXlargeUrl) {
+    final u? when u.isNotEmpty => u,
+    _ => coverUrl,
+  };
+  String get imageLargeUrl => switch (trackMetadata?.imageLargeUrl) {
+    final u? when u.isNotEmpty => u,
+    _ => coverUrl,
+  };
+  String get imageUrl => switch (trackMetadata?.imageUrl) {
+    final u? when u.isNotEmpty => u,
+    _ => coverUrl,
+  };
+  String get imageSmallUrl => switch (trackMetadata?.imageSmallUrl) {
+    final u? when u.isNotEmpty => u,
+    _ => thumbnailUrl,
+  };
+  String get thumbnailUrl => switch (trackMetadata?.thumbnailCoverUrl) {
+    final t? when t.isNotEmpty => t,
+    _ => coverUrl,
+  };
+  int get durationMs => switch (trackMetadata?.durationMs) {
+    final d? => d,
+    null => 0,
+  };
+  bool get isPlayable => switch (trackMetadata?.isPlayable) {
+    final p? => p,
+    null => true,
+  };
+  bool get isExplicit => switch (trackMetadata?.isExplicit) {
+    final e? => e,
+    null => false,
+  };
+  String get description => switch (trackMetadata?.description) {
+    final d? => d,
+    null => '',
+  };
+  String get publishDate => switch (trackMetadata?.publishDate) {
+    final p? => p,
+    null => '',
+  };
+  int get playbackPositionMs => switch (trackMetadata?.playbackPositionMs) {
+    final p? => p,
+    null => 0,
+  };
 
   PlaylistItem copyWith({
     String? uri,

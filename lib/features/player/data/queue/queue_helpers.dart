@@ -30,6 +30,10 @@ abstract class QueueHelpers {
   static ContextTrack setQueuedMetadata(ContextTrack contextTrack, bool isQueued) {
     final updatedMetadata = Map<String, String>.from(contextTrack.metadata);
     updatedMetadata[ContextTrackMetadata.keyIsQueued] = isQueued.toString();
-    return contextTrack.toBuilder().metadata(updatedMetadata).build();
+    updatedMetadata['provider'] = isQueued ? 'queue' : 'context';
+    return contextTrack.toBuilder()
+        .provider(isQueued ? 'queue' : 'context')
+        .metadata(updatedMetadata)
+        .build();
   }
 }

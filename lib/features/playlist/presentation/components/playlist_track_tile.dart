@@ -76,9 +76,9 @@ class PlaylistTrackTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               clipBehavior: Clip.antiAlias,
-              child: item.coverUrl.isNotEmpty
+              child: item.thumbnailUrl.isNotEmpty
                   ? AppNetworkImage(
-                      imageUrl: item.coverUrl,
+                      imageUrl: item.thumbnailUrl,
                       width: 48,
                       height: 48,
                       fit: BoxFit.cover,
@@ -234,9 +234,9 @@ class PlaylistTrackTile extends StatelessWidget {
                   child: Stack(
                     children: [
                       Positioned.fill(
-                        child: item.coverUrl.isNotEmpty
+                        child: item.thumbnailUrl.isNotEmpty
                             ? AppNetworkImage(
-                                imageUrl: item.coverUrl,
+                                imageUrl: item.thumbnailUrl,
                                 width: 64,
                                 height: 64,
                                 fit: BoxFit.cover,
@@ -480,9 +480,9 @@ class PlaylistTrackTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
               ),
               clipBehavior: Clip.antiAlias,
-              child: item.coverUrl.isNotEmpty
+              child: item.thumbnailUrl.isNotEmpty
                   ? AppNetworkImage(
-                      imageUrl: item.coverUrl,
+                      imageUrl: item.thumbnailUrl,
                       width: 64,
                       height: 64,
                       fit: BoxFit.cover,

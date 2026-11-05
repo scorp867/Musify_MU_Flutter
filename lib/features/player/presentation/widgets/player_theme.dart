@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Dark-minimal Spotify design tokens — #121212 background, #1ED760 green accent.
+/// Dark-minimal Spotify design tokens: #121212 background, #1ED760 green accent.
 abstract final class PlayerColors {
   // Backgrounds
   static const background = Color(0xFF121212);

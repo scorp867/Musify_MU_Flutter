@@ -14,11 +14,59 @@ class TrackMetaTrait extends Trait {
   final String headUrl;
   final String canonicalUri;
 
-  String get imageUrl =>
-      imageUrls['large'] ??
-      imageUrls['medium'] ??
-      imageUrls['small'] ??
-      '';
+  String get imageXlargeUrl {
+    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['large'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return imageUrl;
+  }
+
+  String get imageLargeUrl {
+    if (imageUrls['large'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return imageUrl;
+  }
+
+  String get imageSmallUrl {
+    if (imageUrls['small'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['default'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['medium'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return imageLargeUrl;
+  }
+
+  String get thumbnailImageUrl => imageSmallUrl;
+
+  String get imageUrl {
+    if (imageUrls['default'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['medium'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['large'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['small'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return '';
+  }
 
   const TrackMetaTrait({
     required this.uri,
@@ -50,16 +98,49 @@ class TrackMetaTrait extends Trait {
   };
 
   factory TrackMetaTrait.fromJson(Map<String, dynamic> json) => TrackMetaTrait(
-    uri: json['uri'] ?? '',
-    title: json['title'] ?? '',
-    subtitle: json['subtitle'] ?? '',
-    albumName: json['albumName'] ?? '',
-    imageUrls: Map<String, String>.from(json['imageUrls'] ?? const {}),
-    largeImageHex: json['largeImageHex'],
-    durationMs: json['durationMs'] ?? 0,
-    fileId: json['fileId'] ?? '',
-    aacFileId: json['aacFileId'] ?? '',
-    headUrl: json['headUrl'] ?? '',
-    canonicalUri: json['canonicalUri'] ?? '',
+    uri: switch (json['uri']) {
+      final String u => u,
+      _ => '',
+    },
+    title: switch (json['title']) {
+      final String t => t,
+      _ => '',
+    },
+    subtitle: switch (json['subtitle']) {
+      final String s => s,
+      _ => '',
+    },
+    albumName: switch (json['albumName']) {
+      final String a => a,
+      _ => '',
+    },
+    imageUrls: switch (json['imageUrls']) {
+      final Map<dynamic, dynamic> m => Map<String, String>.from(m),
+      _ => const {},
+    },
+    largeImageHex: switch (json['largeImageHex']) {
+      final String hex => hex,
+      _ => null,
+    },
+    durationMs: switch (json['durationMs']) {
+      final int d => d,
+      _ => 0,
+    },
+    fileId: switch (json['fileId']) {
+      final String fid => fid,
+      _ => '',
+    },
+    aacFileId: switch (json['aacFileId']) {
+      final String aac => aac,
+      _ => '',
+    },
+    headUrl: switch (json['headUrl']) {
+      final String h => h,
+      _ => '',
+    },
+    canonicalUri: switch (json['canonicalUri']) {
+      final String c => c,
+      _ => '',
+    },
   );
 }

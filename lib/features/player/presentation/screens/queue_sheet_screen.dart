@@ -65,29 +65,55 @@ class MockQueueTrack {
       final val? => val,
       null => this.isQueued,
     };
+    final nextTitle = switch (title) { final val? => val, null => this.title };
+    final nextArtist = switch (artist) { final val? => val, null => this.artist };
+    final nextAlbum = switch (album) { final val? => val, null => this.album };
+    final nextDuration = switch (duration) { final val? => val, null => this.duration };
+    final nextImageUrl = switch (imageUrl) { final val? => val, null => this.imageUrl };
+    final nextSongId = switch (songId) { final val? => val, null => this.songId };
+    final nextUri = switch (uri) { final val? => val, null => this.uri };
+
     final nextCt = switch (contextTrack) {
       final ct? => ct,
       null => switch (this.contextTrack) {
         final existingCt? => existingCt.toBuilder()
             .uid(nextId)
+            .provider(nextIsQueued ? 'queue' : 'context')
             .metadata({
               ...existingCt.metadata,
               ContextTrackMetadata.keyIsQueued: nextIsQueued.toString(),
+              'provider': nextIsQueued ? 'queue' : 'context',
             }).build(),
-        null => null,
+        null => toContextTrack().toBuilder()
+            .uid(nextId)
+            .provider(nextIsQueued ? 'queue' : 'context')
+            .metadata({
+              ContextTrackMetadata.keyTitle: nextTitle,
+              ContextTrackMetadata.keyArtistName: nextArtist,
+              ContextTrackMetadata.keyAlbumTitle: nextAlbum,
+              if (nextImageUrl case final img? when img.isNotEmpty) ...{
+                ContextTrackMetadata.keyImageLargeUrl: img,
+                ContextTrackMetadata.keyImageUrl: img,
+                ContextTrackMetadata.keyThumbnailImageUrl: img,
+              },
+              ContextTrackMetadata.keyIsQueued: nextIsQueued.toString(),
+              ContextTrackMetadata.keyDuration: nextDuration.inMilliseconds.toString(),
+              if (nextSongId case final sId?) ContextTrackMetadata.keySongId: sId.toString(),
+              'provider': nextIsQueued ? 'queue' : 'context',
+            }).build(),
       },
     };
 
     return MockQueueTrack(
       id: nextId,
-      title: switch (title) { final val? => val, null => this.title },
-      artist: switch (artist) { final val? => val, null => this.artist },
-      album: switch (album) { final val? => val, null => this.album },
-      duration: switch (duration) { final val? => val, null => this.duration },
+      title: nextTitle,
+      artist: nextArtist,
+      album: nextAlbum,
+      duration: nextDuration,
       isQueued: nextIsQueued,
-      imageUrl: switch (imageUrl) { final val? => val, null => this.imageUrl },
-      songId: switch (songId) { final val? => val, null => this.songId },
-      uri: switch (uri) { final val? => val, null => this.uri },
+      imageUrl: nextImageUrl,
+      songId: nextSongId,
+      uri: nextUri,
       contextTrack: nextCt,
     );
   }
@@ -119,8 +145,10 @@ extension MockQueueTrackToContextTrack on MockQueueTrack {
       final u? when u.isNotEmpty => u,
       _ => id.startsWith('spotify:') ? id : 'spotify:track:$id',
     };
+    final effectiveProvider = isQueued ? 'queue' : 'context';
     return ContextTrack.builder(effectiveUri)
         .uid(id)
+        .provider(effectiveProvider)
         .metadata({
           ContextTrackMetadata.keyTitle: title,
           ContextTrackMetadata.keyArtistName: artist,
@@ -132,6 +160,7 @@ extension MockQueueTrackToContextTrack on MockQueueTrack {
           ContextTrackMetadata.keyIsQueued: isQueued.toString(),
           ContextTrackMetadata.keyDuration: duration.inMilliseconds.toString(),
           if (songId case final sId?) ContextTrackMetadata.keySongId: sId.toString(),
+          'provider': effectiveProvider,
         })
         .build();
   }
@@ -139,17 +168,28 @@ extension MockQueueTrackToContextTrack on MockQueueTrack {
 
 extension ContextTrackToMockQueueTrack on ContextTrack {
   MockQueueTrack toMockQueueTrack() {
+    final image = switch (thumbnailImageUrl) {
+      final t? when t.isNotEmpty => t,
+      _ => imageUrl,
+    };
+    final resolvedId = switch (uid) {
+      final u when u.isNotEmpty => u,
+      _ => '$uri${identityHashCode(this).toRadixString(16)}',
+    };
+    final effectiveCt = uid.isNotEmpty
+        ? this
+        : toBuilder().uid(resolvedId).build();
     return MockQueueTrack(
-      id: uid.isNotEmpty ? uid : uri,
+      id: resolvedId,
       uri: uri,
       title: title.isNotEmpty ? title : 'Untitled',
       artist: artist.isNotEmpty ? artist : 'Unknown Artist',
       album: album.isNotEmpty ? album : '',
       duration: duration,
       isQueued: isQueued,
-      imageUrl: imageUrl,
+      imageUrl: image,
       songId: songId,
-      contextTrack: this,
+      contextTrack: effectiveCt,
     );
   }
 }
@@ -162,64 +202,6 @@ const _defaultNowPlaying = MockQueueTrack(
   duration: Duration(minutes: 3, seconds: 50),
 );
 
-final _defaultMockTracks = <MockQueueTrack>[
-  const MockQueueTrack(
-    id: 'track-1',
-    title: 'Party Monster',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 4, seconds: 9),
-    isQueued: true,
-  ),
-  const MockQueueTrack(
-    id: 'track-2',
-    title: 'False Alarm',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 3, seconds: 40),
-    isQueued: true,
-  ),
-  const MockQueueTrack(
-    id: 'track-3',
-    title: 'Reminder',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 3, seconds: 38),
-    isQueued: true,
-  ),
-  const MockQueueTrack(
-    id: 'track-4',
-    title: 'Rockin’',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 3, seconds: 52),
-    isQueued: false,
-  ),
-  const MockQueueTrack(
-    id: 'track-5',
-    title: 'Six Feet Under',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 3, seconds: 57),
-    isQueued: false,
-  ),
-  const MockQueueTrack(
-    id: 'track-6',
-    title: 'Love to Lay',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 3, seconds: 43),
-    isQueued: false,
-  ),
-  const MockQueueTrack(
-    id: 'track-7',
-    title: 'Secrets',
-    artist: 'The Weeknd',
-    album: 'Starboy',
-    duration: Duration(minutes: 4, seconds: 25),
-    isQueued: false,
-  ),
-];
 
 /// 1:1 Replica of Spotify Android Queue Sheet
 class QueueSheetScreen extends StatelessWidget {
@@ -400,29 +382,41 @@ class QueueSheetScreen extends StatelessWidget {
             shuffleMode: liveShuffle,
             repeatMode: liveRepeat,
             isTimerActive: isTimerActive,
-            onPlayPause: () => effectiveBloc.add(const PlayerQueueTogglePlayPause()),
-            onShuffleTapped: () => effectiveBloc.add(const PlayerQueueToggleShuffle()),
-            onRepeatTapped: () => effectiveBloc.add(const PlayerQueueCycleRepeat()),
+            onPlayPause: () => effectiveBloc.add(const TogglePlayPauseEvent()),
+            onShuffleTapped: () => effectiveBloc.add(const ToggleShuffleEvent()),
+            onRepeatTapped: () => effectiveBloc.add(const ToggleRepeatEvent()),
             onTimerTapped: onTimerTapped,
-            onClearQueue: () => effectiveBloc.add(const ClearQueue()),
-            onResetQueue: () => effectiveBloc.add(const LoadQueue()),
+            onClearQueue: () => effectiveBloc.add(const ClearQueueEvent()),
+            onResetQueue: () => effectiveBloc.add(const ResetQueueEvent()),
             onReorder: (oldIndex, newIndex) {
               if (oldIndex >= 0 && oldIndex < state.visibleTracks.length) {
                 final track = state.visibleTracks[oldIndex];
-                effectiveBloc.add(ReorderQueueTrack(
+                effectiveBloc.add(ReorderTrackEvent(
                   track: track,
                   destinationVisibleIndex: newIndex,
                 ));
               }
             },
             onTrackTapped: (mockTrack) {
-              effectiveBloc.add(PlayTrackFromQueue(mockTrack.toContextTrack()));
+              final ct = switch (mockTrack.contextTrack) {
+                final track? => track,
+                null => mockTrack.toContextTrack(),
+              };
+              effectiveBloc.add(TrackTappedEvent(ct));
             },
             onTrackRemoved: (mockTrack) {
-              effectiveBloc.add(RemoveTracksFromQueue([mockTrack.toContextTrack()]));
+              final ct = switch (mockTrack.contextTrack) {
+                final track? => track,
+                null => mockTrack.toContextTrack(),
+              };
+              effectiveBloc.add(RemoveTrackEvent(ct));
             },
             onAddToQueue: (mockTrack) {
-              effectiveBloc.add(AddTracksToQueue([mockTrack.toContextTrack()]));
+              final ct = switch (mockTrack.contextTrack) {
+                final track? => track,
+                null => mockTrack.toContextTrack(),
+              };
+              effectiveBloc.add(AddToQueueEvent(track: ct, playNext: false));
             },
           );
         },
@@ -559,6 +553,18 @@ class _QueueSheetBody extends StatefulWidget {
 
 class _QueueSheetBodyState extends State<_QueueSheetBody>
     with TickerProviderStateMixin {
+  static int _boundInt(int value, int min, int max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
+  static double _boundDouble(double value, double min, double max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+  }
+
   final String _sheetSessionId = UniqueKey().toString();
   late final SpotifyStretchController _stretchController;
   late final SpotifyPeekScrollController _scrollController;
@@ -580,23 +586,13 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
   List<MockQueueTrack>? _pendingTracks;
 
   static List<MockQueueTrack> _sanitizeTracks(List<MockQueueTrack> rawTracks) {
-    final seen = <String, int>{};
     return rawTracks.map((t) {
-      final baseId = t.id.isNotEmpty
-          ? t.id
-          : switch (t.uri) {
-              final u? when u.isNotEmpty => u,
-              _ => 'track',
-            };
-      final count = switch (seen[baseId]) {
-        final c? => c,
-        null => 0,
+      if (t.id.isNotEmpty) return t;
+      final fallbackId = switch (t.uri) {
+        final u? when u.isNotEmpty => u,
+        _ => 'track',
       };
-      seen[baseId] = count + 1;
-      if (count > 0) {
-        return t.copyWith(id: '${baseId}_dup_$count');
-      }
-      return t.id.isNotEmpty ? t : t.copyWith(id: baseId);
+      return t.copyWith(id: fallbackId);
     }).toList();
   }
 
@@ -609,9 +605,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
       stretchController: _stretchController,
     );
 
-    final rawTracks = widget.tracks.isNotEmpty || widget.onResetQueue != null
-        ? widget.tracks
-        : _defaultMockTracks;
+    final rawTracks = widget.tracks;
     _tracks = _sanitizeTracks(rawTracks);
     _nowPlaying = switch (widget.nowPlaying) {
       final np? => np,
@@ -627,15 +621,10 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     super.didUpdateWidget(oldWidget);
     if (!listEquals(widget.tracks, oldWidget.tracks)) {
       if (_tapTransitionTracks != null || _clearingUids.isNotEmpty || _isClearingQueue) {
-        _pendingTracks = widget.tracks.isNotEmpty || widget.onResetQueue != null
-            ? widget.tracks
-            : _defaultMockTracks;
+        _pendingTracks = widget.tracks;
       } else {
         setState(() {
-          final rawTracks = widget.tracks.isNotEmpty || widget.onResetQueue != null
-              ? widget.tracks
-              : _defaultMockTracks;
-          _tracks = _sanitizeTracks(rawTracks);
+          _tracks = _sanitizeTracks(widget.tracks);
         });
       }
     }
@@ -687,9 +676,9 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
     final scrollOffset =
         _scrollController.hasClients ? _scrollController.offset : 0.0;
     final firstVisibleIndex =
-        (scrollOffset / 64.0).floor().clamp(0, currentTracks.length);
+        _boundInt((scrollOffset / 64.0).floor(), 0, currentTracks.length);
     final subRowOffset =
-        (scrollOffset - firstVisibleIndex * 64.0).clamp(0.0, 64.0);
+        _boundDouble(scrollOffset - firstVisibleIndex * 64.0, 0.0, 64.0);
 
     final gen = ++_tapAnimationGeneration;
 
@@ -705,7 +694,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         tapIdx < userQueueCount || userQueueCount == 0;
 
     if (isTappingQueuedOrNoQueuedExist) {
-      final startVisibleIdx = firstVisibleIndex.clamp(0, tapIdx);
+      final startVisibleIdx = _boundInt(firstVisibleIndex, 0, tapIdx);
       final visibleSkipped = currentTracks.sublist(startVisibleIdx, tapIdx + 1);
       final remainingAfterTap = currentTracks.sublist(tapIdx + 1);
       final transitionTracks = <MockQueueTrack>[
@@ -752,13 +741,13 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         });
       });
     } else {
-      final offScreenQueuedCount = firstVisibleIndex.clamp(0, userQueueCount);
+      final offScreenQueuedCount = _boundInt(firstVisibleIndex, 0, userQueueCount);
       final firstVisibleRemovedContextIdx = firstVisibleIndex > userQueueCount
-          ? firstVisibleIndex.clamp(userQueueCount, tapIdx)
+          ? _boundInt(firstVisibleIndex, userQueueCount, tapIdx)
           : userQueueCount;
 
       final animatedOffScreenQueued = currentTracks
-          .take(offScreenQueuedCount.clamp(0, 10))
+          .take(_boundInt(offScreenQueuedCount, 0, 10))
           .toList();
       final visibleQueued = currentTracks.sublist(
         offScreenQueuedCount,
@@ -875,20 +864,22 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                             final scrollOffset = _scrollController.hasClients
                                 ? _scrollController.offset
                                 : 0.0;
-                            final firstVisibleIndex = (scrollOffset / 64.0)
-                                .floor()
-                                .clamp(0, currentTracks.length);
+                            final firstVisibleIndex = _boundInt(
+                                (scrollOffset / 64.0).floor(),
+                                0,
+                                currentTracks.length);
                             final offScreenClearedCount =
-                                firstVisibleIndex.clamp(0, userQueueCount);
+                                _boundInt(firstVisibleIndex, 0, userQueueCount);
 
                             final gen = ++_tapAnimationGeneration;
                             _isClearingQueue = true;
 
                             if (offScreenClearedCount >= userQueueCount) {
                               if (_scrollController.hasClients) {
-                                final targetOffset = (scrollOffset -
-                                        userQueueCount * 64.0)
-                                    .clamp(0.0, double.infinity);
+                                final targetOffset = _boundDouble(
+                                    scrollOffset - userQueueCount * 64.0,
+                                    0.0,
+                                    double.infinity);
                                 _scrollController.jumpTo(targetOffset);
                               }
                               setState(() {
@@ -918,9 +909,10 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
 
                             if (offScreenClearedCount > 0 &&
                                 _scrollController.hasClients) {
-                              final targetOffset = (scrollOffset -
-                                      offScreenClearedCount * 64.0)
-                                  .clamp(0.0, double.infinity);
+                              final targetOffset = _boundDouble(
+                                  scrollOffset - offScreenClearedCount * 64.0,
+                                  0.0,
+                                  double.infinity);
                               _scrollController.jumpTo(targetOffset);
                             }
 
@@ -1035,8 +1027,9 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         itemCount: effectiveTracks.length,
         onReorderItem: (oldIndex, newIndex) {
           if (_tapTransitionTracks != null || _clearingUids.isNotEmpty || _isClearingQueue) return;
-          if (oldIndex < _tracks.length && _tracks.isNotEmpty) {
-            final destIndex = newIndex.clamp(0, _tracks.length - 1);
+          if (oldIndex >= 0 && oldIndex < _tracks.length && _tracks.isNotEmpty) {
+            final maxIdx = _tracks.length - 1;
+            final destIndex = newIndex < 0 ? 0 : (newIndex > maxIdx ? maxIdx : newIndex);
             setState(() {
               final item = _tracks.removeAt(oldIndex);
 
@@ -1070,8 +1063,8 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
           final isTappedRow = _tappedTrackUid == track.id;
 
           final itemKey = shouldAnimateSlideDown
-              ? ValueKey('track_${_sheetSessionId}_slidedown_${track.id}')
-              : ValueKey('track_${_sheetSessionId}_${track.id}');
+              ? ValueKey('track_${_sheetSessionId}_slidedown_${track.id}_$index')
+              : ValueKey('track_${_sheetSessionId}_${track.id}_$index');
 
           return QueueTrackRow(
             key: itemKey,
@@ -1089,41 +1082,20 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
             onRemove: () {
               if (_tapTransitionTracks != null || _clearingUids.isNotEmpty || _isClearingQueue) return;
               setState(() {
-                final removeIndex = _tracks.indexOf(track);
-                if (removeIndex != -1) {
-                  _tracks.removeAt(removeIndex);
+                if (index >= 0 && index < _tracks.length && _tracks[index].id == track.id) {
+                  _tracks.removeAt(index);
+                } else {
+                  final removeIndex = _tracks.indexWhere((t) => t.id == track.id);
+                  if (removeIndex != -1) {
+                    _tracks.removeAt(removeIndex);
+                  }
                 }
               });
               widget.onTrackRemoved?.call(track);
             },
             onAddToQueue: () {
               if (_tapTransitionTracks != null || _clearingUids.isNotEmpty || _isClearingQueue) return;
-              final userQueueCount = _tracks.where((t) => t.isQueued).length;
-              final scrollOffset = _scrollController.hasClients
-                  ? _scrollController.offset
-                  : 0.0;
-              if (_scrollController.hasClients &&
-                  userQueueCount * 64.0 < scrollOffset - 4.0) {
-                _scrollController.jumpTo(scrollOffset + 64.0);
-              }
-              final queuedCopy = track.copyWith(
-                id: '${track.id}_queued_${DateTime.now().microsecondsSinceEpoch}',
-                isQueued: true,
-              );
-              final gen = ++_tapAnimationGeneration;
-              setState(() {
-                _animatedInsertUids.add(queuedCopy.id);
-                _tracks.insert(userQueueCount, queuedCopy);
-              });
-              widget.onAddToQueue?.call(queuedCopy);
-
-              Future<void>.delayed(const Duration(milliseconds: 375), () {
-                if (mounted && _tapAnimationGeneration == gen) {
-                  setState(() {
-                    _animatedInsertUids.remove(queuedCopy.id);
-                  });
-                }
-              });
+              widget.onAddToQueue?.call(track);
             },
           );
         },

@@ -5,9 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/navigation/spotify_navigator.dart';
 import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
-import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
 import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
 
@@ -107,16 +106,12 @@ class SpotifyUriNavigator {
     }
 
     if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
-      if (getIt.isRegistered<PlayerQueueBloc>()) {
+      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
         final effectiveTrack = switch (track) {
           final t? => t,
           null => ContextTrack.builder(uri).build(),
         };
-        final origin = PlayOrigin.builder('navigator')
-            .viewUri(uri)
-            .referrerIdentifier('navigator')
-            .build();
-        getIt<PlayerQueueBloc>().add(PlayTrackFromQueue(effectiveTrack, playOrigin: origin));
+        getIt<PlayerQueueMobiusController>().dispatch(TrackTappedEvent(effectiveTrack));
         return true;
       }
     }
@@ -134,16 +129,12 @@ class SpotifyUriNavigator {
     if (uri.isEmpty) return false;
 
     if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
-      if (getIt.isRegistered<PlayerQueueBloc>()) {
+      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
         final effectiveTrack = switch (track) {
           final t? => t,
           null => ContextTrack.builder(uri).build(),
         };
-        final origin = PlayOrigin.builder('navigator')
-            .viewUri(uri)
-            .referrerIdentifier('navigator')
-            .build();
-        getIt<PlayerQueueBloc>().add(PlayTrackFromQueue(effectiveTrack, playOrigin: origin));
+        getIt<PlayerQueueMobiusController>().dispatch(TrackTappedEvent(effectiveTrack));
         return true;
       }
     }

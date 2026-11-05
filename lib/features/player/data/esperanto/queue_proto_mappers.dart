@@ -29,7 +29,12 @@ abstract class QueueProtoMappers {
     if (p.metadata.isNotEmpty) {
       builder.metadata(Map<String, String>.from(p.metadata));
     }
-    return builder.build();
+    final built = builder.build().toBuilder();
+    final prov = p.metadata['provider'];
+    if (prov != null && prov.isNotEmpty) {
+      built.provider(prov);
+    }
+    return built.build();
   }
 
   /// Converts a domain ContextTrack to binary protobuf ContextTrack (frl.m45005b).
@@ -46,6 +51,10 @@ abstract class QueueProtoMappers {
     final metadata = track.metadata;
     if (metadata.isNotEmpty) {
       p.metadata.addAll(metadata);
+    }
+    final provider = track.provider;
+    if (provider.isNotEmpty) {
+      p.metadata['provider'] = provider;
     }
     return p;
   }

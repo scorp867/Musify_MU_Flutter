@@ -41,16 +41,42 @@ extension ContextTrackExtensions on ContextTrack {
     return null;
   }
 
-  /// Artwork URL resolved from metadata (prioritizes large, xlarge, small).
+  /// High-resolution artwork URL for PlayerScreen and expanded displays (prioritizes xlarge, large, default, small).
   String? get imageUrl {
+    if (metadata[ContextTrackMetadata.keyImageXlargeUrl] case final xlarge? when xlarge.isNotEmpty) {
+      return xlarge;
+    }
+    if (metadata[ContextTrackMetadata.keyImageLargeUrl] case final large? when large.isNotEmpty) {
+      return large;
+    }
+    if (metadata[ContextTrackMetadata.keyImageUrl] case final normal? when normal.isNotEmpty) {
+      return normal;
+    }
+    if (metadata[ContextTrackMetadata.keyImageSmallUrl] case final small? when small.isNotEmpty) {
+      return small;
+    }
+    return null;
+  }
+
+  /// Explicit high-resolution artwork URL.
+  String? get imageLargeUrl => imageUrl;
+
+  /// Lightweight thumbnail artwork URL (~64px) for track rows, queue lists, and mini player.
+  String? get thumbnailImageUrl {
+    if (metadata[ContextTrackMetadata.keyImageSmallUrl] case final small? when small.isNotEmpty) {
+      return small;
+    }
+    if (metadata[ContextTrackMetadata.keyThumbnailImageUrl] case final thumb? when thumb.isNotEmpty) {
+      return thumb;
+    }
+    if (metadata[ContextTrackMetadata.keyImageUrl] case final normal? when normal.isNotEmpty) {
+      return normal;
+    }
     if (metadata[ContextTrackMetadata.keyImageLargeUrl] case final large? when large.isNotEmpty) {
       return large;
     }
     if (metadata[ContextTrackMetadata.keyImageXlargeUrl] case final xlarge? when xlarge.isNotEmpty) {
       return xlarge;
-    }
-    if (metadata[ContextTrackMetadata.keyImageSmallUrl] case final small? when small.isNotEmpty) {
-      return small;
     }
     return null;
   }

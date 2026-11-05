@@ -27,19 +27,60 @@ class TrackMeta {
   /// Image URLs by size. Keys: 'small' (~64px), 'medium' (~300px), 'large' (~640px).
   final Map<String, String> imageUrls;
 
-  /// Best cover URL (largest available).
-  String get imageUrl =>
-      imageUrls['large'] ??
-      imageUrls['medium'] ??
-      imageUrls['small'] ??
-      '';
+  /// Best cover URL (largest available, prioritizing xlarge -> large -> default/medium -> small).
+  String get imageXlargeUrl {
+    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['large'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return imageUrl;
+  }
 
-  /// Thumbnail cover URL (small ~64px, falling back to medium then large).
-  String get thumbnailImageUrl =>
-      imageUrls['small'] ??
-      imageUrls['medium'] ??
-      imageUrls['large'] ??
-      '';
+  String get imageLargeUrl {
+    if (imageUrls['large'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return imageUrl;
+  }
+
+  String get imageSmallUrl {
+    if (imageUrls['small'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['default'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['medium'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return imageLargeUrl;
+  }
+
+  String get thumbnailImageUrl => imageSmallUrl;
+
+  String get imageUrl {
+    if (imageUrls['default'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['medium'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['large'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (imageUrls['small'] case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return '';
+  }
 
   /// Raw hex image ID of the largest cover (for mosaic URL construction).
   final String? largeImageHex;

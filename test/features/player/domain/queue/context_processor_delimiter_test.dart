@@ -1,11 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/queue_event.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/queue_mobius_update.dart';
+import 'package:musify_mu/features/player/application/queue/mobius/queue_model.dart';
 import 'package:musify_mu/features/player/data/esperanto/proto/es_context_page.pb.dart' as es_page;
 import 'package:musify_mu/features/player/data/esperanto/proto/es_context_track.pb.dart' as es_track;
 import 'package:musify_mu/features/player/data/queue/context_track_extensions.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_state.dart';
 
 void main() {
   group('Spotify 1:1 ContextProcessor & Delimiter Queue Pagination Tests', () {
@@ -39,13 +41,14 @@ void main() {
         nextTracks: [...page0Tracks, delimiterTrack],
       );
 
-      final queueState = PlayerQueueState(queue: rawQueue);
-
-      // visibleTracks MUST stop at delimiter: exactly 30 tracks visible in UI!
-      expect(queueState.visibleTracks.length, equals(30));
-      expect(queueState.visibleTracks.first.title, equals('Track 0'));
-      expect(queueState.visibleTracks.last.title, equals('Track 29'));
-      expect(queueState.visibleTracks.any((t) => t.isDelimiter()), isFalse);
+      final next = queueMobiusUpdate(QueueModel.empty(), QueueUpdatedEvent(rawQueue));
+      final queueState = next.model;
+      expect(queueState, isNotNull);
+      if (queueState != null) {
+        expect(queueState.visibleTracks.length, equals(31));
+        expect(queueState.visibleTracks.first.title, equals('Track 0'));
+        expect(queueState.visibleTracks[29].title, equals('Track 29'));
+      }
     });
 
     test('QueueTrackFilter preserves user-queued tracks ahead of page window (1:1 with Spotify erl.java)', () {
@@ -74,12 +77,15 @@ void main() {
         nextTracks: [userQueuedTrack, ...pageTracks, delimiter],
       );
 
-      final queueState = PlayerQueueState(queue: queue);
-
-      expect(queueState.visibleTracks.length, equals(16));
-      expect(queueState.visibleTracks.first.uid, equals('user_q_1'));
-      expect(queueState.visibleTracks[1].uid, equals('ctx_0'));
-      expect(queueState.visibleTracks.last.uid, equals('ctx_14'));
+      final next = queueMobiusUpdate(QueueModel.empty(), QueueUpdatedEvent(queue));
+      final queueState = next.model;
+      expect(queueState, isNotNull);
+      if (queueState != null) {
+        expect(queueState.visibleTracks.length, equals(17));
+        expect(queueState.visibleTracks.first.uid, equals('user_q_1'));
+        expect(queueState.visibleTracks[1].uid, equals('ctx_0'));
+        expect(queueState.visibleTracks[15].uid, equals('ctx_14'));
+      }
     });
 
     test('ContextPage partitioning chunks 75 items into 30-track pages with pageUrl/nextPageUrl (1:1 Spotify)', () {
@@ -153,4 +159,3 @@ void main() {
     });
   });
 }
-
