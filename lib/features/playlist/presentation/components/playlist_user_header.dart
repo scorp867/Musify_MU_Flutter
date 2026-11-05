@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import '../../../../core/navigation/spotify_uri_navigator.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../domain/models/playlist_metadata.dart';
@@ -145,10 +146,14 @@ class PlaylistUserHeader extends StatelessWidget {
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: metadata.picture.isNotEmpty
-                      ? Image.network(
-                          metadata.picture,
+                      ? AppNetworkImage(
+                          imageUrl: metadata.picture,
+                          width: 216,
+                          height: 216,
+                          memCacheWidth: 216,
+                          memCacheHeight: 216,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
+                          errorWidget: (context, url, error) =>
                               _buildPlaceholderCover(),
                         )
                       : _buildPlaceholderCover(),
@@ -224,10 +229,14 @@ class PlaylistUserHeader extends StatelessWidget {
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: metadata.ownerAvatarUrl.isNotEmpty
-                    ? Image.network(
-                        metadata.ownerAvatarUrl,
+                    ? AppNetworkImage(
+                        imageUrl: metadata.ownerAvatarUrl,
+                        width: 24,
+                        height: 24,
+                        memCacheWidth: 24,
+                        memCacheHeight: 24,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
+                        errorWidget: (context, url, error) =>
                             Center(
                           child: SpotifyIcon.user(
                             size: 15,
