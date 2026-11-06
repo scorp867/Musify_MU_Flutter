@@ -115,25 +115,6 @@ class MusifyDrmManager {
             }
         }
 
-        // CRITICAL: Close previous track's active session before opening a new track session.
-        // Spotify streaming licenses are strictly single-stream concurrent per client token / CDM!
-        currentActiveSessionId?.let { oldSession ->
-            try {
-                Log.i(TAG, "Closing previous track DRM session before opening new session to prevent concurrency 429")
-                val it = sessionCache.entries.iterator()
-                while (it.hasNext()) {
-                    if (it.next().value.contentEquals(oldSession)) {
-                        it.remove()
-                        break
-                    }
-                }
-                drm.closeSession(oldSession)
-            } catch (e: Exception) {
-                Log.w(TAG, "Error closing previous DRM session", e)
-            }
-            currentActiveSessionId = null
-        }
-
         var sessionId: ByteArray? = null
         try {
             sessionId = drm.openSession()

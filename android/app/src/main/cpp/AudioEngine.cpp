@@ -158,7 +158,7 @@ void AudioEngine::stopPlayback() {
         AMediaCrypto_delete(mSecondaryCrypto);
         mSecondaryCrypto = nullptr;
     }
-    closeActiveDrmSession();
+    mActiveDrmSessionId.clear();
 
     mMonitorShouldStop.store(true, std::memory_order_release);
     if (mMonitorThread.joinable()) {
