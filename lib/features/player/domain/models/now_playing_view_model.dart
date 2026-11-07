@@ -17,7 +17,6 @@ class NowPlayingViewModel {
   final String artist;
   final String album;
   final String? imageUrl;
-  final int? songId;
   final Duration duration;
   final Duration position;
   final bool isPlaying;
@@ -36,7 +35,6 @@ class NowPlayingViewModel {
     required this.artist,
     required this.album,
     this.imageUrl,
-    this.songId,
     required this.duration,
     required this.position,
     required this.isPlaying,
@@ -62,7 +60,7 @@ class NowPlayingViewModel {
     'spotify:clip:',
   ];
 
-  static String extractTrackId(ContextTrack? track, int? songId) {
+  static String extractTrackId(ContextTrack? track) {
     if (track != null && track.uri.isNotEmpty) {
       for (final prefix in nonMusicUriPrefixes) {
         if (track.uri.startsWith(prefix)) return '';
@@ -71,9 +69,6 @@ class NowPlayingViewModel {
         return track.uri.substring('spotify:track:'.length);
       }
       return track.uri;
-    }
-    if (songId != null && songId > 0) {
-      return songId.toString();
     }
     return '';
   }
@@ -86,7 +81,6 @@ class NowPlayingViewModel {
     String? fallbackAlbum,
     Duration? fallbackDuration,
     String? fallbackImageUrl,
-    int? fallbackSongId,
   }) {
     final track = switch (state?.nowPlaying) {
       final t? => t,
@@ -102,7 +96,7 @@ class NowPlayingViewModel {
           final t? when t.isNotEmpty => t,
           _ => switch (fallbackTitle) {
               final t? when t.isNotEmpty => t,
-              _ => 'Musify',
+              _ => '',
             },
         },
     };
@@ -113,7 +107,7 @@ class NowPlayingViewModel {
           final a? when a.isNotEmpty => a,
           _ => switch (fallbackArtist) {
               final a? when a.isNotEmpty => a,
-              _ => 'Unknown Artist',
+              _ => '',
             },
         },
     };
@@ -148,14 +142,6 @@ class NowPlayingViewModel {
         },
     };
 
-    final songId = switch (track?.songId) {
-      final id? when id > 0 => id,
-      _ => switch (state?.songId) {
-          final id? when id > 0 => id,
-          _ => fallbackSongId,
-        },
-    };
-
     final isPlaying = switch (state?.isPlaying) {
       final playing? => playing,
       null => false,
@@ -183,7 +169,7 @@ class NowPlayingViewModel {
       null => '',
     };
 
-    final trackId = extractTrackId(track, songId);
+    final trackId = extractTrackId(track);
 
     final canSkipNext = switch (state?.canSkipNext) {
       final can? => can,
@@ -201,7 +187,6 @@ class NowPlayingViewModel {
       artist: artist,
       album: album,
       imageUrl: imageUrl,
-      songId: songId,
       duration: duration,
       position: switch (state?.currentPosition) {
         final pos? => pos,
@@ -225,7 +210,6 @@ class NowPlayingViewModel {
     String? artist,
     String? album,
     String? imageUrl,
-    int? songId,
     Duration? duration,
     Duration? position,
     bool? isPlaying,
@@ -261,10 +245,6 @@ class NowPlayingViewModel {
       imageUrl: switch (imageUrl) {
         final img? => img,
         null => this.imageUrl,
-      },
-      songId: switch (songId) {
-        final s? => s,
-        null => this.songId,
       },
       duration: switch (duration) {
         final d? => d,

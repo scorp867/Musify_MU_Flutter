@@ -4,7 +4,6 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
@@ -18,18 +17,8 @@ import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
 import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
 
-/// Repository for home feed data. Implements SWR (Stale-While-Revalidate).
-///
-/// Follows Spotify Android's exact pull-driven Kodiak SDUI pipeline:
-///   1. GET /casita/v1/home/default?eagerload=... -> ResolvedHome protobuf
-///      (where ?eagerload is dynamically constructed by EagerloadPayloadBuilder)
-///   2. Parse ResolvedHome:
-///      - field 1: HomeStructure (section layout)
-///      - field 2: EagerlyLoadedTraits (ingested into DataPool)
-///      - field 999: OndemandSet
-///   3. Emit HomeViewData immediately to the presentation layer
-///   4. Presentation layer (viewports & shelves) lazily pulls on-demand traits
-///      via DataPool as cards enter the viewport, with a 2-card prefetch window.
+/// Repository for home feed data implementing Stale-While-Revalidate (SWR)
+/// backed by binary Casita + Recents protobuf payloads and Kodiak DataPool.
 class HomeRepositoryImpl implements HomeRepository {
   static const _playlistHeaders = {
     'spotify-playlist-sync-reason': 'CAwQAQ==',
@@ -50,15 +39,14 @@ class HomeRepositoryImpl implements HomeRepository {
     required RuntimeContext ctx,
     required AppCacheManager cacheManager,
     required DataPool dataPool,
-  })  : _client = client,
-        _ctx = ctx,
-        _cache = HomeFeedCache(cacheManager: cacheManager),
-        _dataPool = dataPool;
+  }) : _client = client,
+       _ctx = ctx,
+       _cache = HomeFeedCache(cacheManager: cacheManager),
+       _dataPool = dataPool;
 
   @override
   DataPool get dataPool => _dataPool;
 
-  /// Fetches home feed with SWR pattern.
   @override
   Stream<HomeViewData> getHomeFeed({
     HomeFacet facet = HomeFacet.all,
@@ -66,20 +54,18 @@ class HomeRepositoryImpl implements HomeRepository {
   }) async* {
     await _dataPool.ensureDiskLoaded();
 
-    final cached = await _cache.load(facet: facet);
-    if (cached != null) {
-      final cachedBatch = <String, Map<String, Trait>>{};
-      for (final section in cached.sections) {
-        for (final item in section.items) {
-          if (item.traits.isNotEmpty) {
-            cachedBatch[item.uri] = item.traits;
-          }
-        }
+    final cachedRaw = await _cache.loadRaw(facet: facet);
+    if (cachedRaw != null) {
+      try {
+        final cachedView = await _buildHomeViewData(
+          casitaBytes: cachedRaw.casitaBytes,
+          recentsBytes: cachedRaw.recentsBytes,
+          facet: facet,
+        );
+        yield cachedView;
+      } catch (e) {
+        dev.log('HomeRepository: cached payload parse failed: $e');
       }
-      if (cachedBatch.isNotEmpty) {
-        _dataPool.ingestBatch(cachedBatch);
-      }
-      yield cached;
     }
 
     if (cancelToken?.isCancelled == true) return;
@@ -90,7 +76,6 @@ class HomeRepositoryImpl implements HomeRepository {
     }
   }
 
-  /// Fetches fresh home feed data using Spotify's exact pipeline.
   @override
   Future<HomeViewData?> fetchFresh({
     HomeFacet facet = HomeFacet.all,
@@ -99,49 +84,25 @@ class HomeRepositoryImpl implements HomeRepository {
     try {
       if (cancelToken?.isCancelled == true) return null;
 
-      // Step 1: Fetch Casita home + recents in parallel
-      final results = await Future.wait([
-        _fetchCasitaHome(facet, cancelToken: cancelToken),
-        _fetchRecentsItems(facet, cancelToken: cancelToken),
-      ]);
-
-      final casitaBytes = results[0] as Uint8List?;
-      final recentItems = results[1] as List<RecentsItem>;
+      final casitaFuture = _fetchCasitaHome(facet, cancelToken: cancelToken);
+      final recentsFuture = _fetchRecentsBytes(facet, cancelToken: cancelToken);
+      final casitaBytes = await casitaFuture;
+      final recentsBytes = await recentsFuture;
 
       if (casitaBytes == null || casitaBytes.isEmpty) return null;
       if (cancelToken?.isCancelled == true) return null;
 
-      // Step 2: Parse the Casita response
-      final parser = CasitaParser(casitaBytes);
-      final casitaResult = await parser.parse();
-      final sections = casitaResult.homeData.sections.toList();
-      dev.log(
-        'Casita parsed ${sections.length} sections for ${facet.name}: '
-        '${sections.map((s) => s.sectionType).toList()}',
+      final result = await _buildHomeViewData(
+        casitaBytes: casitaBytes,
+        recentsBytes: recentsBytes,
+        facet: facet,
       );
 
-      // Ingest Casita preloaded traits into Kodiak DataPool (1:1 with Spotify z510.d -> t1w.f)
-      if (casitaResult.traits.isNotEmpty) {
-        _dataPool.ingestBatch(casitaResult.traits);
-      }
-      if (casitaResult.eagerCells.isNotEmpty) {
-        _dataPool.ingestCells(casitaResult.eagerCells);
-      }
-
-      // Step 3: Inject recents into the recents section and ingest into DataPool
-      if (recentItems.isNotEmpty) {
-        _injectRecents(sections, recentItems, casitaResult.traits);
-      }
-
-      // Step 4: Construct view data immediately - on-demand traits are lazily queried
-      // by Kodiak element viewports on scroll + 2-card prefetch window via DataPool
-      final result = HomeViewData(
-        greeting: casitaResult.homeData.greeting,
-        sections: sections,
-        chips: casitaResult.homeData.chips,
+      await _cache.saveRaw(
+        casitaBytes: casitaBytes,
+        recentsBytes: recentsBytes,
+        facet: facet,
       );
-
-      await _cache.save(result, facet: facet);
       return result;
     } catch (e) {
       dev.log('HomeRepository.fetchFresh: $e');
@@ -149,13 +110,56 @@ class HomeRepositoryImpl implements HomeRepository {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════
-  // Network calls
-  // ═══════════════════════════════════════════════════════════════════
+  Future<HomeViewData> _buildHomeViewData({
+    required Uint8List casitaBytes,
+    required Uint8List? recentsBytes,
+    required HomeFacet facet,
+  }) async {
+    final parser = CasitaParser(casitaBytes);
+    final casitaResult = await parser.parse();
+    final sections = casitaResult.homeData.sections.toList();
+    dev.log(
+      'Casita parsed ${sections.length} sections for ${facet.name}: '
+      '${sections.map((s) => s.sectionType).toList()}',
+    );
 
-  Future<Uint8List?> _fetchCasitaHome(HomeFacet facet, {CancelToken? cancelToken}) {
+    if (casitaResult.traits.isNotEmpty) {
+      _dataPool.ingestBatch(casitaResult.traits);
+    }
+    if (casitaResult.eagerCells.isNotEmpty) {
+      _dataPool.ingestCells(casitaResult.eagerCells);
+    }
+    if (casitaResult.eagerRawPayloads.isNotEmpty) {
+      _dataPool.ingestRawPayloads(casitaResult.eagerRawPayloads);
+    }
+
+    if (recentsBytes != null && recentsBytes.isNotEmpty) {
+      try {
+        final recentItems = await Isolate.run(
+          () => parseRecentsItems(recentsBytes),
+        );
+        if (recentItems.isNotEmpty) {
+          _injectRecents(sections, recentItems, casitaResult.traits);
+        }
+      } catch (e) {
+        dev.log('HomeRepository: Recents parse failed for ${facet.name}: $e');
+      }
+    }
+
+    return HomeViewData(
+      greeting: casitaResult.homeData.greeting,
+      sections: List<HomeSection>.unmodifiable(sections),
+      chips: casitaResult.homeData.chips,
+    );
+  }
+
+  Future<Uint8List?> _fetchCasitaHome(
+    HomeFacet facet, {
+    CancelToken? cancelToken,
+  }) {
     final eagerload = EagerloadPayloadBuilder.build();
-    final path = '/casita/v1/home/${facet.pathSegment}'
+    final path =
+        '/casita/v1/home/${facet.pathSegment}'
         '?eagerload=$eagerload'
         '&timezone=${_ctx.timezone}'
         '&mobile-only-dsa-enabled=false';
@@ -168,7 +172,10 @@ class HomeRepositoryImpl implements HomeRepository {
     );
   }
 
-  Future<List<RecentsItem>> _fetchRecentsItems(HomeFacet facet, {CancelToken? cancelToken}) async {
+  Future<Uint8List?> _fetchRecentsBytes(
+    HomeFacet facet, {
+    CancelToken? cancelToken,
+  }) async {
     try {
       final data = await _client.get(
         facet.recentsPath,
@@ -178,17 +185,13 @@ class HomeRepositoryImpl implements HomeRepository {
         priority: NetworkPriority.interactive,
         cancelToken: cancelToken,
       );
-      if (data == null || data.isEmpty) return [];
-      return await Isolate.run(() => parseRecentsItems(data));
+      if (data == null || data.isEmpty) return null;
+      return data;
     } catch (e) {
       dev.log('HomeRepository: Recents fetch failed for ${facet.name}: $e');
-      return [];
+      return null;
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Recents injection
-  // ═══════════════════════════════════════════════════════════════════
 
   void _injectRecents(
     List<HomeSection> sections,
@@ -202,8 +205,9 @@ class HomeRepositoryImpl implements HomeRepository {
       if (item.uri.isEmpty || !seen.add(item.uri)) continue;
       final baseTraits =
           traitsMap[item.uri] ?? traitsMap[item.uri.toLowerCase()];
-      final traits =
-          baseTraits != null ? Map.of(baseTraits) : <String, Trait>{};
+      final traits = baseTraits != null
+          ? Map.of(baseTraits)
+          : <String, Trait>{};
       final type = ContentType.fromUri(item.uri);
 
       final simpleTrait = traits['SimpleCardTrait'] as SimpleCardTrait?;
@@ -211,7 +215,7 @@ class HomeRepositoryImpl implements HomeRepository {
 
       String title = simpleTrait?.title ?? previewTrait?.title ?? '';
       String subtitle = simpleTrait?.subtitle ?? '';
-      String? imageUrl = simpleTrait?.imageUrl ?? previewTrait?.imageUrl;
+      final String? imageUrl = simpleTrait?.imageUrl ?? previewTrait?.imageUrl;
 
       if (title.isEmpty) title = _specialUriTitle(item.uri);
       if (subtitle.isEmpty) {
@@ -242,11 +246,9 @@ class HomeRepositoryImpl implements HomeRepository {
 
       _dataPool.ingestTraits(item.uri, traits);
 
-      hydratedItems.add(SpotifyEntity(
-        uri: item.uri,
-        type: type,
-        traits: traits,
-      ));
+      hydratedItems.add(
+        SpotifyEntity(uri: item.uri, type: type, traits: traits),
+      );
     }
 
     bool found = false;
@@ -264,8 +266,9 @@ class HomeRepositoryImpl implements HomeRepository {
     }
 
     if (!found && hydratedItems.isNotEmpty) {
-      final insertIdx =
-          sections.indexWhere((s) => s.sectionType != 'shortcuts');
+      final insertIdx = sections.indexWhere(
+        (s) => s.sectionType != 'shortcuts',
+      );
       sections.insert(
         insertIdx >= 0 ? insertIdx : 0,
         HomeSection(
@@ -277,10 +280,6 @@ class HomeRepositoryImpl implements HomeRepository {
       );
     }
   }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // Helpers
-  // ═══════════════════════════════════════════════════════════════════
 
   String _specialUriTitle(String uri) {
     if (uri == 'spotify:collection:tracks' ||

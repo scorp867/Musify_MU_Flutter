@@ -28,7 +28,6 @@ class MockQueueTrack {
   final Duration duration;
   final bool isQueued;
   final String? imageUrl;
-  final int? songId;
   final String? uri;
   final ContextTrack? contextTrack;
 
@@ -40,7 +39,6 @@ class MockQueueTrack {
     required this.duration,
     this.isQueued = false,
     this.imageUrl,
-    this.songId,
     this.uri,
     this.contextTrack,
   });
@@ -53,7 +51,6 @@ class MockQueueTrack {
     Duration? duration,
     bool? isQueued,
     String? imageUrl,
-    int? songId,
     String? uri,
     ContextTrack? contextTrack,
   }) {
@@ -70,7 +67,6 @@ class MockQueueTrack {
     final nextAlbum = switch (album) { final val? => val, null => this.album };
     final nextDuration = switch (duration) { final val? => val, null => this.duration };
     final nextImageUrl = switch (imageUrl) { final val? => val, null => this.imageUrl };
-    final nextSongId = switch (songId) { final val? => val, null => this.songId };
     final nextUri = switch (uri) { final val? => val, null => this.uri };
 
     final nextCt = switch (contextTrack) {
@@ -98,7 +94,6 @@ class MockQueueTrack {
               },
               ContextTrackMetadata.keyIsQueued: nextIsQueued.toString(),
               ContextTrackMetadata.keyDuration: nextDuration.inMilliseconds.toString(),
-              if (nextSongId case final sId?) ContextTrackMetadata.keySongId: sId.toString(),
               'provider': nextIsQueued ? 'queue' : 'context',
             }).build(),
       },
@@ -112,7 +107,6 @@ class MockQueueTrack {
       duration: nextDuration,
       isQueued: nextIsQueued,
       imageUrl: nextImageUrl,
-      songId: nextSongId,
       uri: nextUri,
       contextTrack: nextCt,
     );
@@ -127,12 +121,11 @@ class MockQueueTrack {
         other.isQueued == isQueued &&
         other.title == title &&
         other.artist == artist &&
-        other.album == album &&
-        other.songId == songId;
+        other.album == album;
   }
 
   @override
-  int get hashCode => Object.hash(id, uri, isQueued, title, artist, album, songId);
+  int get hashCode => Object.hash(id, uri, isQueued, title, artist, album);
 }
 
 /// Bidirectional conversion extensions between MockQueueTrack and ContextTrack
@@ -159,7 +152,6 @@ extension MockQueueTrackToContextTrack on MockQueueTrack {
           },
           ContextTrackMetadata.keyIsQueued: isQueued.toString(),
           ContextTrackMetadata.keyDuration: duration.inMilliseconds.toString(),
-          if (songId case final sId?) ContextTrackMetadata.keySongId: sId.toString(),
           'provider': effectiveProvider,
         })
         .build();
@@ -188,7 +180,6 @@ extension ContextTrackToMockQueueTrack on ContextTrack {
       duration: duration,
       isQueued: isQueued,
       imageUrl: image,
-      songId: songId,
       contextTrack: effectiveCt,
     );
   }
@@ -936,7 +927,6 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
                           title: _nowPlaying.title,
                           artist: _nowPlaying.artist,
                           imageUrl: _nowPlaying.imageUrl,
-                          songId: _nowPlaying.songId,
                           isPlaying: _isPlaying,
                           onTap: widget.dismissController.dismiss,
                           onPlayPause: () {
@@ -1072,7 +1062,6 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
             artist: track.artist,
             isQueued: track.isQueued,
             imageUrl: track.imageUrl,
-            songId: track.songId,
             index: index,
             animateInsert: shouldAnimateInsert,
             animateSlideDown: shouldAnimateSlideDown,

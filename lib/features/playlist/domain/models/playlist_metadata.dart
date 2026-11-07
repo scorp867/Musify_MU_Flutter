@@ -1,12 +1,8 @@
-library;
-
 import 'package:flutter/foundation.dart';
-import '../../../../core/navigation/spotify_uri_navigator.dart';
-import 'playlist_header_type.dart';
 
-/// 1:1 replica of Spotify's `xcx.java` and `fob0.java` playlist metadata model.
+/// 1:1 Spotify playlist metadata model (`p.xcx` / `p.fob0`).
 @immutable
-class PlaylistMetadata {
+final class PlaylistMetadata {
   final String uri;
   final String name;
   final String description;
@@ -44,32 +40,6 @@ class PlaylistMetadata {
     this.picture = '',
     this.customAttributes = const {},
   });
-
-  /// Evaluates whether this playlist is an official Spotify editorial/curated playlist
-  /// matching Spotify's `is_curated` policy and author resolution (`ItemCurationStatePolicy.java`).
-  bool get isEditorial {
-    if (SpotifyUriNavigator.isLikedSongsUri(uri)) {
-      return false;
-    }
-    final owner = ownerUsername.toLowerCase();
-    final name = ownerName.toLowerCase();
-    return owner == 'spotify' ||
-        name == 'spotify' ||
-        uri.contains(':spotify:playlist:') ||
-        customAttributes['is_curated'] == 'true' ||
-        customAttributes['format'] == 'editorial';
-  }
-
-  /// Evaluates whether current user has owner/curation management permissions
-  /// matching Spotify's `isOwner` (`CollaboratorPolicy.IS_OWNER_FIELD_NUMBER`).
-  bool get isUserOwned => canEdit || canDelete;
-
-  /// Resolves exact header layout style matching Spotify's `q2n.java` and `pu40.java`.
-  PlaylistHeaderType get headerType {
-    if (isEditorial) return PlaylistHeaderType.editorial;
-    if (isUserOwned) return PlaylistHeaderType.userOwned;
-    return PlaylistHeaderType.followed;
-  }
 
   PlaylistMetadata copyWith({
     String? uri,
@@ -115,7 +85,6 @@ class PlaylistMetadata {
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PlaylistMetadata &&
-          runtimeType == other.runtimeType &&
           uri == other.uri &&
           name == other.name &&
           description == other.description &&
@@ -136,26 +105,24 @@ class PlaylistMetadata {
 
   @override
   int get hashCode => Object.hash(
-        uri,
-        name,
-        description,
-        ownerUsername,
-        ownerName,
-        ownerAvatarUrl,
-        isCollaborative,
-        isFollowed,
-        isPublished,
-        canEdit,
-        canReport,
-        canAnnotate,
-        canDelete,
-        totalDurationMs,
-        followersCount,
-        picture,
-        Object.hashAll(customAttributes.entries.map((e) => Object.hash(e.key, e.value))),
-      );
-
-  @override
-  String toString() =>
-      'PlaylistMetadata(uri: $uri, name: $name, owner: $ownerUsername, type: $headerType, followers: $followersCount)';
+    uri,
+    name,
+    description,
+    ownerUsername,
+    ownerName,
+    ownerAvatarUrl,
+    isCollaborative,
+    isFollowed,
+    isPublished,
+    canEdit,
+    canReport,
+    canAnnotate,
+    canDelete,
+    totalDurationMs,
+    followersCount,
+    picture,
+    Object.hashAll(
+      customAttributes.entries.map((e) => Object.hash(e.key, e.value)),
+    ),
+  );
 }

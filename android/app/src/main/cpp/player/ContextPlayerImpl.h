@@ -9,22 +9,21 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../AudioEngine.h"
 #include "../ContextProcessor.h"
 #include "../ContextViewEntry.h"
 #include "../ProtobufWireHelper.h"
+#include "../metadata/TrackInfoProvider.h"
+#include "../rendering/TrackPlayer.h"
 #include "RestrictionsEngine.h"
 #include "StateEmitter.h"
 
 namespace spotify::player {
 
 /// 1:1 replica of spotify.player.esperanto.proto.ContextPlayer / ContextPlayerImpl
-/// Command dispatcher and central orchestrator for playback sessions in liborbit-jni-spotify.so
+/// Command dispatcher and session/queue orchestrator in liborbit-jni-spotify.so.
+/// Delegates all audio playback rendering to `rendering::TrackPlayer` (`RoutingTrackPlayer`).
 class ContextPlayerImpl {
 public:
-    /// Callback invoked when C++ needs Dart to resolve and load a track into AudioEngine
-    using PlayTrackCallback = std::function<void(const context_view::Entry& track, bool play_immediately)>;
-
     /// Callback invoked when ContextPlayerState changes, sending protobuf-encoded bytes
     using StateChangedCallback = std::function<void(const uint8_t* data, size_t len)>;
 
@@ -34,7 +33,7 @@ public:
     /// Callback invoked when an error occurs
     using ErrorCallback = std::function<void(const std::string& error_code, const std::string& message)>;
 
-    explicit ContextPlayerImpl(AudioEngine* engine = nullptr);
+    explicit ContextPlayerImpl(std::shared_ptr<rendering::TrackPlayer> track_player = nullptr);
     ~ContextPlayerImpl();
 
     ContextPlayerImpl(const ContextPlayerImpl&) = delete;
@@ -42,12 +41,10 @@ public:
     ContextPlayerImpl(ContextPlayerImpl&&) = delete;
     ContextPlayerImpl& operator=(ContextPlayerImpl&&) = delete;
 
-    /// AudioEngine binding
-    void set_audio_engine(AudioEngine* engine) noexcept;
-    [[nodiscard]] AudioEngine* get_audio_engine() const noexcept;
+    void set_track_player(std::shared_ptr<rendering::TrackPlayer> track_player);
+    [[nodiscard]] std::shared_ptr<rendering::TrackPlayer> get_track_player() const;
 
     /// Callback registration
-    void set_play_track_callback(PlayTrackCallback cb);
     void set_state_changed_callback(StateChangedCallback cb);
     void set_queue_changed_callback(QueueChangedCallback cb);
     void set_error_callback(ErrorCallback cb);
@@ -90,11 +87,8 @@ public:
     bool set_sleep_timer(const uint8_t* payload, size_t len);
     bool delete_session(const uint8_t* payload, size_t len);
 
-    /// ContextPlayerImpl.advanceToNextTrack - called on end-of-stream (EOS)
-    void advance_to_next_track();
-
-    /// Notifies C++ that Dart successfully or unsuccessfully loaded the track
-    void on_track_loaded(bool success);
+    /// ContextPlayerImpl.advanceToNextTrack - called on TrackPlayer AdvanceCallback
+    void advance_to_next_track(rendering::AdvanceReason reason = rendering::AdvanceReason::EndOfTrack);
 
     /// State and Queue query methods returning cached binary protobuf bytes
     [[nodiscard]] const uint8_t* get_state(size_t* out_len) const;
@@ -112,14 +106,18 @@ public:
     [[nodiscard]] const RestrictionsEngine& get_restrictions_engine() const noexcept { return restrictions_engine_; }
 
 private:
+    void bind_track_player_callbacks(const std::shared_ptr<rendering::TrackPlayer>& tp);
+    void on_track_player_state_changed(const rendering::TrackPlayerState& state);
+    void on_track_metadata_resolved(const std::string& uri, const metadata::TrackInfo& info);
+    void on_track_player_error(int32_t code, const std::string& message);
+
     void emit_state_locked();
     void emit_queue_locked();
-    void seek_to_locked(int64_t position_ms);
     void update_position_and_duration_locked();
 
     mutable std::mutex mutex_;
 
-    AudioEngine* audio_engine_{nullptr};
+    std::shared_ptr<rendering::TrackPlayer> track_player_;
     ContextProcessor context_processor_;
     RestrictionsEngine restrictions_engine_;
 
@@ -153,7 +151,6 @@ private:
     std::vector<uint8_t> cached_state_bytes_;
     std::vector<uint8_t> cached_queue_bytes_;
 
-    PlayTrackCallback play_track_callback_;
     StateChangedCallback state_changed_callback_;
     QueueChangedCallback queue_changed_callback_;
     ErrorCallback error_callback_;

@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/home_feed/data/elements/image_link_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 
 /// Recents carousel matching Spotify's 1:1 layout:
 ///   - 112dp card width, 97dp artwork size, 175dp carousel height

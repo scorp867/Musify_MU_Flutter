@@ -3,9 +3,12 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import '../../features/player/data/esperanto/proto/es_context_page.pb.dart' as es_page;
-import '../../features/player/data/esperanto/proto/es_context_track.pb.dart' as es_track;
-import '../../features/player/data/esperanto/proto/es_queue.pb.dart' as es_queue;
+import '../../features/player/data/esperanto/proto/es_context_page.pb.dart'
+    as es_page;
+import '../../features/player/data/esperanto/proto/es_context_track.pb.dart'
+    as es_track;
+import '../../features/player/data/esperanto/proto/es_queue.pb.dart'
+    as es_queue;
 import '../../features/player/domain/models/context_track.dart';
 import 'musify_ffi_bindings.dart';
 
@@ -54,16 +57,20 @@ enum NativeEngineStatus {
 /// Dart wrapper around the native C++ AudioEngine, with NativeFinalizer to
 /// prevent resource leaks on isolate teardown.
 ///
-/// This class is consumed exclusively by NativeEsperantoTransport - it is
-/// never called directly from BLoCs or UI.
+/// Consumed exclusively by NativeEsperantoTransport to bind the native
+/// C++ `RoutingTrackPlayer` -> `CoreAudioTrackPlayer` -> `AudioEngine` stack.
 class MusifyNativeAudioEngine implements Finalizable {
-  MusifyNativeAudioEngine() {
-    _handle = _ffi.create();
-    if (_handle == nullptr) {
+  factory MusifyNativeAudioEngine() {
+    final handle = _ffi.create();
+    if (handle == nullptr) {
       throw StateError('musify_engine_create returned null');
     }
-    _destructor.attach(this, _handle.cast(), detach: this);
+    final engine = MusifyNativeAudioEngine._(handle);
+    _destructor.attach(engine, handle.cast(), detach: engine);
+    return engine;
   }
+
+  MusifyNativeAudioEngine._(this._handle);
 
   static final MusifyFfiBindings _ffi = MusifyFfiBindings.instance;
 
@@ -74,11 +81,10 @@ class MusifyNativeAudioEngine implements Finalizable {
         .cast(),
   );
 
-  late final Pointer<Void> _handle;
+  final Pointer<Void> _handle;
   bool _disposed = false;
 
   /// Exposes the native engine pointer for C++ ContextPlayerImpl binding.
-  /// Only used by NativeEsperantoTransport to pass to musify_cpi_set_audio_engine.
   Pointer<Void> get handle {
     _ensureAlive();
     return _handle;
@@ -99,8 +105,6 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 
-  /// Loads dual sources: fast local/preview OGG followed by remote DRM AAC.
-  /// handoffPositionMs: Target handoff in ms, or -1 for natural stream EOF (Option C).
   NativeEngineStatus loadDualSource({
     required String primaryPath,
     required String secondaryUrl,
@@ -136,7 +140,6 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 
-  /// Loads a single encrypted stream directly (e.g. Widevine AAC track without Vorbis head chunk).
   NativeEngineStatus loadEncrypted({
     required String url,
     required String licenseServerUrl,
@@ -164,12 +167,6 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 
-  /// Loads a Spotify track with native chunk 0 head file resolution & download in C++.
-  ///
-  /// C++ checks the disk cache at `$cacheDir/heads/{fileIdHex}.ogg` (131,072 bytes),
-  /// downloads it over native HTTP if missing, starts playback immediately via the primary
-  /// decoder (< 30ms TTFA), and seamlessly hands off to the full track MP4 stream
-  /// via Android AMediaCodec without any audio glitch or container mismatch.
   NativeEngineStatus loadTrackWithHead({
     required String fileIdHex,
     String? fullTrackUrl,
@@ -213,8 +210,6 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 
-  /// Asynchronously attaches or starts the secondary full-track stream
-  /// while the primary head stream is already playing.
   NativeEngineStatus attachSecondaryStream({
     required String secondaryUrl,
     String? licenseServerUrl,
@@ -246,8 +241,6 @@ class MusifyNativeAudioEngine implements Finalizable {
     }
   }
 
-  /// Asynchronously prefetches the 128 KiB chunk 0 head file in native C++
-  /// matching Spotify's `Prefetch: start prefetching head file for track %s : %s`.
   void prefetchHead({
     required String fileIdHex,
     String? cacheDir,
@@ -350,17 +343,19 @@ class MusifyNativeAudioEngine implements Finalizable {
 }
 
 /// Native C++ ContextProcessor wrapper (1:1 with liborbit.so ContextProcessor & ContextView).
-///
-/// Implements deterministic queue windowing, delimiter generation, and page-boundary slicing
-/// directly in the native C++ player engine.
 class NativeContextProcessor implements Finalizable {
-  NativeContextProcessor() {
-    _handle = _ffi.cpCreate();
-    if (_handle == nullptr) {
+  factory NativeContextProcessor() {
+    final ffi = MusifyFfiBindings.instance;
+    final handle = ffi.cpCreate();
+    if (handle == nullptr) {
       throw StateError('musify_context_processor_create returned null');
     }
-    _destructor.attach(this, _handle.cast(), detach: this);
+    final processor = NativeContextProcessor._(ffi, handle);
+    _destructor.attach(processor, handle.cast(), detach: processor);
+    return processor;
   }
+
+  NativeContextProcessor._(this._ffi, this._handle);
 
   static final NativeFinalizer _destructor = NativeFinalizer(
     MusifyFfiBindings.instance.lib
@@ -369,8 +364,8 @@ class NativeContextProcessor implements Finalizable {
         .cast(),
   );
 
-  final MusifyFfiBindings _ffi = MusifyFfiBindings.instance;
-  late final Pointer<Void> _handle;
+  final MusifyFfiBindings _ffi;
+  final Pointer<Void> _handle;
   bool _disposed = false;
 
   void dispose() {
@@ -386,7 +381,6 @@ class NativeContextProcessor implements Finalizable {
     }
   }
 
-  /// 1:1 delimiter check with liborbit.so 0x16b81d4
   bool isDelimiter(String uri) {
     final uriPtr = uri.toNativeUtf8();
     try {
@@ -396,7 +390,6 @@ class NativeContextProcessor implements Finalizable {
     }
   }
 
-  /// Sets context and initial tracks via 1:1 binary Protobuf wire format.
   void setContextProto({
     required String contextUri,
     required Uint8List pageProtoBytes,
@@ -421,7 +414,6 @@ class NativeContextProcessor implements Finalizable {
     }
   }
 
-  /// Sets context using Domain/Protobuf ContextPage.
   void setContext({
     required String contextUri,
     required String pageUrl,
@@ -432,11 +424,13 @@ class NativeContextProcessor implements Finalizable {
     final page = es_page.ContextPage(
       pageUrl: pageUrl,
       nextPageUrl: nextPageUrl,
-      tracks: tracks.map((t) => es_track.ContextTrack(
-            uri: t.uri,
-            uid: t.uid,
-            metadata: t.metadata.entries,
-          )),
+      tracks: tracks.map(
+        (t) => es_track.ContextTrack(
+          uri: t.uri,
+          uid: t.uid,
+          metadata: t.metadata.entries,
+        ),
+      ),
     );
     setContextProto(
       contextUri: contextUri,
@@ -445,7 +439,6 @@ class NativeContextProcessor implements Finalizable {
     );
   }
 
-  /// 1:1 with liborbit.so 0x16a7530 parseLoadedContextPage via binary Protobuf.
   void parseLoadedContextPageProto({
     required int iteration,
     required Uint8List pageProtoBytes,
@@ -466,7 +459,6 @@ class NativeContextProcessor implements Finalizable {
     }
   }
 
-  /// 1:1 with liborbit.so 0x16a7530 parseLoadedContextPage.
   void parseLoadedContextPage({
     required int iteration,
     required String pageUrl,
@@ -476,11 +468,13 @@ class NativeContextProcessor implements Finalizable {
     final page = es_page.ContextPage(
       pageUrl: pageUrl,
       nextPageUrl: nextPageUrl,
-      tracks: tracks.map((t) => es_track.ContextTrack(
-            uri: t.uri,
-            uid: t.uid,
-            metadata: t.metadata.entries,
-          )),
+      tracks: tracks.map(
+        (t) => es_track.ContextTrack(
+          uri: t.uri,
+          uid: t.uid,
+          metadata: t.metadata.entries,
+        ),
+      ),
     );
     parseLoadedContextPageProto(
       iteration: iteration,
@@ -488,7 +482,6 @@ class NativeContextProcessor implements Finalizable {
     );
   }
 
-  /// Returns the raw binary wire buffer of the active queue (1:1 with EsQueue$Queue).
   Uint8List? getQueueProto({int maxNextCount = 50}) {
     _ensureAlive();
     final outLenPtr = calloc<Int32>();
@@ -508,7 +501,6 @@ class NativeContextProcessor implements Finalizable {
     }
   }
 
-  /// Returns the deserialized Spotify esperanto Queue proto (1:1 with EsQueue$Queue).
   es_queue.Queue? getQueue({int maxNextCount = 50}) {
     final bytes = getQueueProto(maxNextCount: maxNextCount);
     if (bytes == null || bytes.isEmpty) return null;
@@ -572,7 +564,7 @@ class NativeContextProcessor implements Finalizable {
     try {
       return urlPtr.toDartString();
     } finally {
-      _ffi.freeString(urlPtr);
+      calloc.free(urlPtr);
     }
   }
 
@@ -586,4 +578,3 @@ class NativeContextProcessor implements Finalizable {
     return _ffi.cpGetCurrentIndex(_handle);
   }
 }
-

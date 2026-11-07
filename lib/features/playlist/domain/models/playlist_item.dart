@@ -1,27 +1,15 @@
-library;
-
 import 'package:flutter/foundation.dart';
-import 'track_item_metadata.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/image_size.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_item_type.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_section_type.dart';
+import 'package:musify_mu/features/playlist/domain/models/track_item_metadata.dart';
 
-/// Section categories for tracks in Spotify's playlist view.
-/// Matches 1:1 with Spotify's section categorizer in `dg80.java`.
-enum PlaylistSectionType {
-  standard,
-  youAdded,
-  includes,
-  weAdded,
-}
+export 'playlist_item_type.dart';
+export 'playlist_section_type.dart';
 
-/// Spotify entity types represented inside playlists (`qcb0.java`).
-enum PlaylistItemType {
-  track,
-  episode,
-  show,
-}
-
-/// 1:1 replica of Spotify's `amb0.java` playlist item model.
+/// 1:1 Spotify playlist item model (`p.amb0`).
 @immutable
-class PlaylistItem {
+final class PlaylistItem {
   final String uri;
   final String uid;
   final int rowPosition;
@@ -46,9 +34,17 @@ class PlaylistItem {
     this.sectionType = PlaylistSectionType.standard,
   });
 
-  /// Identifies entity type matching Spotify URI scheme and metadata (`qcb0.java`)
+  /// 1:1 with `amb0.m27460a`: resolves cover URL for [size].
+  String coverUrlForSize(ImageSize size) {
+    final meta = trackMetadata;
+    if (meta == null) return '';
+    return meta.coverUrlForSize(size);
+  }
+
+  /// Entity type matching Spotify URI scheme and metadata (`qcb0.java`).
   PlaylistItemType get itemType {
-    if (uri.startsWith('spotify:episode:') || (trackMetadata?.isEpisode ?? false)) {
+    if (uri.startsWith('spotify:episode:') ||
+        (trackMetadata?.isEpisode ?? false)) {
       return PlaylistItemType.episode;
     }
     if (uri.startsWith('spotify:show:') || (trackMetadata?.isShow ?? false)) {
@@ -60,73 +56,7 @@ class PlaylistItem {
   bool get isEpisode => itemType == PlaylistItemType.episode;
   bool get isShow => itemType == PlaylistItemType.show;
   bool get isTrack => itemType == PlaylistItemType.track;
-
-  String get title => switch (trackMetadata?.title) {
-    final t? => t,
-    null => '',
-  };
-  String get subtitle => switch (trackMetadata?.artistNamesString) {
-    final s? => s,
-    null => '',
-  };
-  String get albumName => switch (trackMetadata?.albumName) {
-    final a? => a,
-    null => '',
-  };
-  String get showName {
-    if (trackMetadata case final meta? when meta.showName.isNotEmpty) {
-      return meta.showName;
-    }
-    return albumName;
-  }
-  String get coverUrl => switch (trackMetadata?.highResCoverUrl) {
-    final c? => c,
-    null => '',
-  };
-  String get imageXlargeUrl => switch (trackMetadata?.imageXlargeUrl) {
-    final u? when u.isNotEmpty => u,
-    _ => coverUrl,
-  };
-  String get imageLargeUrl => switch (trackMetadata?.imageLargeUrl) {
-    final u? when u.isNotEmpty => u,
-    _ => coverUrl,
-  };
-  String get imageUrl => switch (trackMetadata?.imageUrl) {
-    final u? when u.isNotEmpty => u,
-    _ => coverUrl,
-  };
-  String get imageSmallUrl => switch (trackMetadata?.imageSmallUrl) {
-    final u? when u.isNotEmpty => u,
-    _ => thumbnailUrl,
-  };
-  String get thumbnailUrl => switch (trackMetadata?.thumbnailCoverUrl) {
-    final t? when t.isNotEmpty => t,
-    _ => coverUrl,
-  };
-  int get durationMs => switch (trackMetadata?.durationMs) {
-    final d? => d,
-    null => 0,
-  };
-  bool get isPlayable => switch (trackMetadata?.isPlayable) {
-    final p? => p,
-    null => true,
-  };
-  bool get isExplicit => switch (trackMetadata?.isExplicit) {
-    final e? => e,
-    null => false,
-  };
-  String get description => switch (trackMetadata?.description) {
-    final d? => d,
-    null => '',
-  };
-  String get publishDate => switch (trackMetadata?.publishDate) {
-    final p? => p,
-    null => '',
-  };
-  int get playbackPositionMs => switch (trackMetadata?.playbackPositionMs) {
-    final p? => p,
-    null => 0,
-  };
+  bool get isPlayable => trackMetadata?.isPlayable ?? true;
 
   PlaylistItem copyWith({
     String? uri,
@@ -158,7 +88,6 @@ class PlaylistItem {
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is PlaylistItem &&
-          runtimeType == other.runtimeType &&
           uri == other.uri &&
           uid == other.uid &&
           rowPosition == other.rowPosition &&
@@ -172,19 +101,15 @@ class PlaylistItem {
 
   @override
   int get hashCode => Object.hash(
-        uri,
-        uid,
-        rowPosition,
-        addedBy,
-        addedAt,
-        trackMetadata,
-        isHearted,
-        isDownloaded,
-        offlineState,
-        sectionType,
-      );
-
-  @override
-  String toString() =>
-      'PlaylistItem(uri: $uri, uid: $uid, type: $itemType, title: $title, subtitle: $subtitle)';
+    uri,
+    uid,
+    rowPosition,
+    addedBy,
+    addedAt,
+    trackMetadata,
+    isHearted,
+    isDownloaded,
+    offlineState,
+    sectionType,
+  );
 }

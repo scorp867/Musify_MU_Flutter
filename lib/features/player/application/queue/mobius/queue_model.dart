@@ -121,14 +121,6 @@ class QueueModel extends Equatable {
     return null;
   }
 
-  /// MediaStore song ID of active playing track.
-  int? get songId {
-    if (nowPlaying case final track?) {
-      return track.songId;
-    }
-    return null;
-  }
-
   /// Playback progress alias for durationProgress.
   double get playbackProgress => durationProgress;
 

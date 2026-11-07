@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/dataloader/kodiak_disk_cache.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
@@ -12,6 +14,9 @@ import 'package:musify_mu/core/network/status/network_monitor_service.dart';
 import 'package:musify_mu/core/network/status/network_status.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 
+typedef RawPayloadObserver =
+    void Function(int extensionKind, String entityUri, Uint8List payload);
+
 /// Concrete implementation of Kodiak DataPool.
 /// Direct 1:1 equivalent to Spotify Android's `p.s3n` (`DataPoolImpl`).
 class DataPoolImpl implements DataPool {
@@ -19,10 +24,14 @@ class DataPoolImpl implements DataPool {
   final KodiakDiskCache? _diskCache;
   final NetworkMonitorService? _networkMonitor;
   final ExtendedMetadataPluginRegistry? _pluginRegistry;
+  RawPayloadObserver? _onRawPayloadIngested;
 
   /// In-memory trait store: URI -> { TraitTypeName -> Trait }
   /// Direct equivalent to Spotify Android `s3n.i` (`iur0`).
   final Map<String, Map<String, Trait>> _store = {};
+
+  /// Raw binary extension payloads keyed by `(extensionKind, entityUri)`.
+  final Map<(int, String), Uint8List> _rawPayloads = {};
 
   /// Tracks resolved extension kinds per URI to avoid duplicate querying.
   final Map<String, Set<int>> _resolvedKinds = {};
@@ -30,12 +39,10 @@ class DataPoolImpl implements DataPool {
   /// Reactive stream controllers per URI for live UI updates.
   final Map<String, StreamController<Map<String, Trait>>> _controllers = {};
 
-  /// Active subscription to the ExtendedMetadataDataSource.
-  /// Direct equivalent to Spotify Android `s3n.h` (`fk51`).
-  late final DataSourceSubscription _subscription;
+  /// Active subscription to the ExtendedMetadataDataSource (`s3n.h`).
+  DataSourceSubscription? _subscription;
 
-  /// Pending batched cell keys to query.
-  /// Direct equivalent to Spotify Android `s3n.j` (`LinkedHashSet`).
+  /// Pending batched cell keys to query (`s3n.j`).
   final Set<CellKey> _pendingBatch = {};
 
   /// Failed cell keys awaiting network restoration to retry.
@@ -44,13 +51,14 @@ class DataPoolImpl implements DataPool {
   StreamSubscription<NetworkStatus>? _networkSubscription;
   Timer? _debounceTimer;
   Timer? _retryDebounceTimer;
-  bool _diskLoaded = false;
+  Future<void>? _diskLoadFuture;
   bool _isDisposed = false;
 
-  ExtendedMetadataPluginRegistry get _effectiveRegistry =>
-      _pluginRegistry ??
-      _dataSource.client?.registry ??
-      _fallbackRegistry;
+  ExtendedMetadataPluginRegistry get _effectiveRegistry {
+    if (_pluginRegistry case final reg?) return reg;
+    if (_dataSource.client?.registry case final clientReg?) return clientReg;
+    return _fallbackRegistry;
+  }
 
   static final _fallbackRegistry = ExtendedMetadataPluginRegistry(
     createDefaultExtendedMetadataPlugins(),
@@ -61,10 +69,12 @@ class DataPoolImpl implements DataPool {
     KodiakDiskCache? diskCache,
     NetworkMonitorService? networkMonitor,
     ExtendedMetadataPluginRegistry? registry,
-  })  : _dataSource = dataSource,
-        _diskCache = diskCache,
-        _networkMonitor = networkMonitor,
-        _pluginRegistry = registry {
+    RawPayloadObserver? onRawPayloadIngested,
+  }) : _dataSource = dataSource,
+       _diskCache = diskCache,
+       _networkMonitor = networkMonitor,
+       _pluginRegistry = registry,
+       _onRawPayloadIngested = onRawPayloadIngested {
     _subscription = _dataSource.subscribe(
       _onDataSourceUpdated,
       onNetworkFailure: _onNetworkFailure,
@@ -72,34 +82,71 @@ class DataPoolImpl implements DataPool {
     _initNetworkListener();
   }
 
-  @override
-  Future<void> ensureDiskLoaded() async {
-    if (_diskLoaded || _diskCache == null) return;
-    _diskLoaded = true;
+  /// Registers or clears a binary payload observer (used to seed C++
+  /// `TrackInfoProvider` with playback-relevant extensions `10`, `12`, `212`).
+  /// Immediately replays any already-cached playback payloads.
+  void setRawPayloadObserver(RawPayloadObserver? observer) {
+    _onRawPayloadIngested = observer;
+    if (observer != null && _rawPayloads.isNotEmpty) {
+      for (final entry in _rawPayloads.entries) {
+        _emitRawPayload(entry.key.$1, entry.key.$2, entry.value);
+      }
+    }
+  }
 
-    final cached = await _diskCache.load();
-    if (cached != null) {
-      for (final entry in cached.traits.entries) {
-        final existing = _store.putIfAbsent(entry.key, () => {});
-        existing.addAll(entry.value);
+  void _emitRawPayload(int kind, String uri, Uint8List bytes) {
+    final observer = _onRawPayloadIngested;
+    if (observer == null || uri.isEmpty || bytes.isEmpty) return;
+    if (kind == 10 || kind == 12 || kind == 212) {
+      observer(kind, uri, bytes);
+    }
+  }
+
+  @override
+  Future<void> ensureDiskLoaded() {
+    return _diskLoadFuture ??= _loadDiskCache();
+  }
+
+  Future<void> _loadDiskCache() async {
+    final diskCache = _diskCache;
+    if (diskCache == null) return;
+
+    final cached = await diskCache.load(_effectiveRegistry);
+    if (cached == null || _isDisposed) return;
+
+    final hydratedCells = <CellKey, Trait>{};
+    for (final entry in cached.traits.entries) {
+      final uri = entry.key;
+      final existing = _store.putIfAbsent(uri, () => {});
+      existing.addAll(entry.value);
+      for (final trait in entry.value.values) {
+        hydratedCells[CellKey(TableKey(trait.runtimeType), uri)] = trait;
       }
-      for (final entry in cached.resolvedKinds.entries) {
-        final existing = _resolvedKinds.putIfAbsent(entry.key, () => {});
-        existing.addAll(entry.value);
+    }
+    if (hydratedCells.isNotEmpty) {
+      _dataSource.f(hydratedCells);
+    }
+    if (cached.rawPayloads.isNotEmpty) {
+      _rawPayloads.addAll(cached.rawPayloads);
+      _dataSource.ingestRawPayloads(cached.rawPayloads);
+      for (final entry in cached.rawPayloads.entries) {
+        _emitRawPayload(entry.key.$1, entry.key.$2, entry.value);
       }
+    }
+    for (final entry in cached.resolvedKinds.entries) {
+      final existing = _resolvedKinds.putIfAbsent(entry.key, () => {});
+      existing.addAll(entry.value);
     }
   }
 
   @override
   T? getTrait<T extends Trait>(String uri) {
-    // 1. Check local in-memory store
     final uriTraits = _store[uri];
     if (uriTraits != null) {
       final t = uriTraits[T.toString()];
       if (t is T) return t;
     }
 
-    // 2. Fall back to underlying DataSource
     final cellKey = CellKey(TableKey<T>(), uri);
     final trait = _dataSource.getTrait<T>(cellKey);
     if (trait != null) {
@@ -128,7 +175,8 @@ class DataPoolImpl implements DataPool {
 
   @override
   bool isKindResolved(String uri, int kind) {
-    return _resolvedKinds[uri]?.contains(kind) ?? false;
+    final resolved = _resolvedKinds[uri];
+    return resolved != null && resolved.contains(kind);
   }
 
   @override
@@ -190,6 +238,21 @@ class DataPoolImpl implements DataPool {
   }
 
   @override
+  void ingestRawPayloads(Map<(int, String), Uint8List> rawPayloads) {
+    if (rawPayloads.isEmpty) return;
+    _dataSource.ingestRawPayloads(rawPayloads);
+    for (final entry in rawPayloads.entries) {
+      final key = entry.key;
+      _rawPayloads[key] = entry.value;
+      if (key.$2.isNotEmpty) {
+        _resolvedKinds.putIfAbsent(key.$2, () => {}).add(key.$1);
+      }
+      _emitRawPayload(key.$1, key.$2, entry.value);
+    }
+    _schedulePersist();
+  }
+
+  @override
   Future<void> loadBatch({
     required List<String> uris,
     required DataStatement statement,
@@ -201,15 +264,19 @@ class DataPoolImpl implements DataPool {
     for (final uri in uris) {
       if (uri.isEmpty) continue;
 
-      final existingTraits = _store[uri] ?? const {};
-      final resolvedForUri = _resolvedKinds[uri] ?? const {};
+      final existingTraits = _store[uri];
+      final resolvedForUri = _resolvedKinds[uri];
 
       for (final req in statement.requirements) {
         final traitName = req.traitType.toString();
         final kind = req.extensionKindValue;
 
-        if (!existingTraits.containsKey(traitName) &&
-            !resolvedForUri.contains(kind)) {
+        final hasTrait =
+            existingTraits != null && existingTraits.containsKey(traitName);
+        final isResolved =
+            resolvedForUri != null && resolvedForUri.contains(kind);
+
+        if (!hasTrait && !isResolved) {
           final cellKey = CellKey(TableKey(req.traitType), uri);
           keysToRequest.add(cellKey);
         }
@@ -218,13 +285,10 @@ class DataPoolImpl implements DataPool {
 
     if (keysToRequest.isEmpty) return;
 
-    // Direct equivalent to Spotify Android s3n.c() -> subscription.request()
     _pendingBatch.addAll(keysToRequest);
     _scheduleBatch();
   }
 
-  /// Debounces and dispatches batched queries to the subscription.
-  /// Direct equivalent to Spotify Android `s3n.n()` posted to looper via `r3n`.
   void _scheduleBatch() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 16), () {
@@ -233,25 +297,34 @@ class DataPoolImpl implements DataPool {
       final batch = Set<CellKey>.of(_pendingBatch);
       _pendingBatch.clear();
 
-      _subscription.request(batch);
+      _subscription?.request(batch);
       _schedulePersist();
     });
   }
 
-  /// Callback when DataSource resolves traits.
   void _onDataSourceUpdated(List<CellKey> updatedKeys) {
     if (_isDisposed) return;
 
     final touchedUris = <String>{};
+    if (_dataSource.rawPayloads.isNotEmpty) {
+      for (final entry in _dataSource.rawPayloads.entries) {
+        final key = entry.key;
+        final isNew = !_rawPayloads.containsKey(key);
+        _rawPayloads[key] = entry.value;
+        if (isNew) {
+          _emitRawPayload(key.$1, key.$2, entry.value);
+        }
+      }
+    }
 
     for (final cellKey in updatedKeys) {
       final uri = cellKey.entityUri;
+      final plugin = _effectiveRegistry.pluginForType(
+        cellKey.table.traitType,
+      );
       final trait = _dataSource.getTrait(cellKey);
       if (trait != null) {
         _store.putIfAbsent(uri, () => {})[trait.runtimeType.toString()] = trait;
-        final plugin = _effectiveRegistry.pluginForType(
-          cellKey.table.traitType,
-        );
         if (plugin != null) {
           _resolvedKinds
               .putIfAbsent(uri, () => {})
@@ -259,6 +332,13 @@ class DataPoolImpl implements DataPool {
         }
         _failedRetryKeys.remove(cellKey);
         touchedUris.add(uri);
+      } else if (_dataSource.unavailableCells.contains(cellKey)) {
+        if (plugin != null) {
+          _resolvedKinds
+              .putIfAbsent(uri, () => {})
+              .add(plugin.extensionKindValue);
+        }
+        _failedRetryKeys.remove(cellKey);
       }
     }
 
@@ -292,35 +372,42 @@ class DataPoolImpl implements DataPool {
       if (_isDisposed || _failedRetryKeys.isEmpty) return;
       final retryBatch = Set<CellKey>.of(_failedRetryKeys);
       _failedRetryKeys.clear();
-      _subscription.request(retryBatch);
+      _subscription?.request(retryBatch);
     });
   }
 
   void _schedulePersist() {
-    _diskCache?.scheduleSave(traits: _store, resolvedKinds: _resolvedKinds);
+    _diskCache?.scheduleSave(
+      rawPayloads: _rawPayloads,
+      resolvedKinds: _resolvedKinds,
+    );
   }
 
   void _notify(String uri) {
     final controller = _controllers[uri];
     if (controller != null && !controller.isClosed) {
-      final traits = _store[uri] ?? const {};
-      controller.add(Map.unmodifiable(traits));
+      final traits = _store[uri];
+      controller.add(
+        traits != null ? Map.unmodifiable(traits) : const <String, Trait>{},
+      );
     }
   }
 
   @override
   void dispose() {
     _isDisposed = true;
+    _onRawPayloadIngested = null;
     _debounceTimer?.cancel();
     _retryDebounceTimer?.cancel();
     _networkSubscription?.cancel();
-    _subscription.dispose();
+    _subscription?.dispose();
     _diskCache?.dispose();
     for (final c in _controllers.values) {
       c.close();
     }
     _controllers.clear();
     _store.clear();
+    _rawPayloads.clear();
     _resolvedKinds.clear();
     _pendingBatch.clear();
     _failedRetryKeys.clear();

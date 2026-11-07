@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Concert marketing details (ExtensionKind 124).
-class ConcertMarketingTrait extends Trait {
+@immutable
+final class ConcertMarketingTrait extends Trait {
   final String ticketingPartner;
   final String ticketingUrl;
 
@@ -11,14 +14,13 @@ class ConcertMarketingTrait extends Trait {
   });
 
   @override
-  Map<String, dynamic> toJson() => {
-    'ticketingPartner': ticketingPartner,
-    'ticketingUrl': ticketingUrl,
-  };
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ConcertMarketingTrait &&
+        other.ticketingPartner == ticketingPartner &&
+        other.ticketingUrl == ticketingUrl;
+  }
 
-  factory ConcertMarketingTrait.fromJson(Map<String, dynamic> json) =>
-      ConcertMarketingTrait(
-        ticketingPartner: json['ticketingPartner'] ?? '',
-        ticketingUrl: json['ticketingUrl'] ?? '',
-      );
+  @override
+  int get hashCode => Object.hash(ticketingPartner, ticketingUrl);
 }

@@ -11,10 +11,9 @@ import 'player_theme.dart';
 class QueueNowPlayingRow extends StatelessWidget {
   const QueueNowPlayingRow({
     super.key,
-    this.title = 'Starboy',
-    this.artist = 'The Weeknd, Daft Punk',
+    this.title = '',
+    this.artist = '',
     this.imageUrl,
-    this.songId,
     this.isPlaying = true,
     this.onTap,
     this.onPlayPause,
@@ -23,7 +22,6 @@ class QueueNowPlayingRow extends StatelessWidget {
   final String title;
   final String artist;
   final String? imageUrl;
-  final int? songId;
   final bool isPlaying;
   final VoidCallback? onTap;
   final VoidCallback? onPlayPause;
@@ -72,7 +70,6 @@ class QueueNowPlayingRow extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  // 48x48 Artwork with 4dp corners + smooth crossfade/scale on track change
                   RepaintBoundary(
                     child: AnimatedSwitcher(
                       duration: _trackSwitchDuration,
@@ -94,7 +91,6 @@ class QueueNowPlayingRow extends StatelessWidget {
                           width: 48,
                           height: 48,
                           child: PlayerArtworkImage(
-                            songId: songId,
                             imageUrl: imageUrl,
                             artworkWidth: 48,
                             artworkHeight: 48,
@@ -105,8 +101,6 @@ class QueueNowPlayingRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-
-                  // Equalizer + Animated Title & Subtitle
                   Expanded(
                     child: RepaintBoundary(
                       child: Column(
@@ -137,9 +131,7 @@ class QueueNowPlayingRow extends StatelessWidget {
                                       );
                                     },
                                     child: Text(
-                                      title.isNotEmpty
-                                          ? title
-                                          : 'Unknown Track',
+                                      title,
                                       key: trackKey,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
@@ -175,9 +167,7 @@ class QueueNowPlayingRow extends StatelessWidget {
                                 );
                               },
                               child: Text(
-                                artist.isNotEmpty
-                                    ? artist
-                                    : 'Unknown Artist',
+                                artist,
                                 key: trackKey,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -194,8 +184,6 @@ class QueueNowPlayingRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-
-                  // Solid white circle Play/Pause button isolated in its own RepaintBoundary
                   RepaintBoundary(
                     child: _EncoreCirclePlayPauseButton(
                       isPlaying: isPlaying,

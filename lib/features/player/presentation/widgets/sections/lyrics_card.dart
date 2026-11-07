@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/visual_identity_trait.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 
 import 'lyrics_color_parser.dart';
 

@@ -28,7 +28,6 @@ class MiniPlayer extends StatefulWidget {
   final String title;
   final String artist;
   final String? imageUrl;
-  final int? songId;
   final bool isPlaying;
   final double progress;
   final VoidCallback? onPlayPause;
@@ -41,10 +40,9 @@ class MiniPlayer extends StatefulWidget {
 
   const MiniPlayer({
     super.key,
-    this.title = 'Starboy',
-    this.artist = 'The Weeknd, Daft Punk',
+    this.title = '',
+    this.artist = '',
     this.imageUrl,
-    this.songId,
     this.isPlaying = false,
     this.progress = 0.0,
     this.onPlayPause,
@@ -116,14 +114,15 @@ class _MiniPlayerState extends State<MiniPlayer>
       null => widget.isPlaying,
     };
 
-    final initialSongId = _resolveSongId(widget.queueBloc?.state);
     final initialImageUrl = _resolveImageUrl(widget.queueBloc?.state);
-    _extractColor(songId: initialSongId, imageUrl: initialImageUrl);
+    _extractColor(imageUrl: initialImageUrl);
 
-    final initialProgress = _boundProgress(switch (widget.queueBloc?.state.playbackProgress) {
-      final p? => p,
-      null => widget.progress,
-    });
+    final initialProgress = _boundProgress(
+      switch (widget.queueBloc?.state.playbackProgress) {
+        final p? => p,
+        null => widget.progress,
+      },
+    );
     _progressNotifier = ValueNotifier<double>(initialProgress);
 
     _progressTicker = createTicker((elapsed) {
@@ -174,8 +173,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     if (oldWidget.progress != widget.progress && widget.queueBloc == null) {
       _progressNotifier.value = _boundProgress(widget.progress);
     }
-    if (oldWidget.songId != widget.songId || oldWidget.imageUrl != widget.imageUrl) {
-      _extractColor(songId: widget.songId, imageUrl: widget.imageUrl);
+    if (oldWidget.imageUrl != widget.imageUrl) {
+      _extractColor(imageUrl: widget.imageUrl);
     }
   }
 
@@ -193,24 +192,9 @@ class _MiniPlayerState extends State<MiniPlayer>
         }
       }
       _progressNotifier.value = _boundProgress(state.playbackProgress);
-      final resolvedSongId = _resolveSongId(state);
       final resolvedImageUrl = _resolveImageUrl(state);
-      _extractColor(songId: resolvedSongId, imageUrl: resolvedImageUrl);
+      _extractColor(imageUrl: resolvedImageUrl);
     }
-  }
-
-  int? _resolveSongId(PlayerQueueState? state) {
-    if (state != null) {
-      if (state.songId case final id? when id > 0) {
-        return id;
-      }
-    }
-    if (widget.currentTrack case final track?) {
-      if (track.songId case final id? when id > 0) {
-        return id;
-      }
-    }
-    return widget.songId;
   }
 
   String? _resolveImageUrl(PlayerQueueState? state) {
@@ -233,13 +217,10 @@ class _MiniPlayerState extends State<MiniPlayer>
     return widget.imageUrl;
   }
 
-  void _extractColor({int? songId, String? imageUrl}) {
-    final key = switch (songId) {
-      final id? when id > 0 => 'song_$id',
-      _ => switch (imageUrl) {
-        final url? when url.isNotEmpty => url,
-        _ => '',
-      },
+  void _extractColor({String? imageUrl}) {
+    final key = switch (imageUrl) {
+      final url? when url.isNotEmpty => url,
+      _ => '',
     };
     if (key.isEmpty || key == _lastExtractedKey) return;
     _lastExtractedKey = key;
@@ -265,7 +246,6 @@ class _MiniPlayerState extends State<MiniPlayer>
 
     unawaited(
       service.extract(
-        songId: songId,
         imageUrl: imageUrl,
         cacheKey: key,
       ).then((scheme) {
@@ -324,10 +304,6 @@ class _MiniPlayerState extends State<MiniPlayer>
       final url? when url.isNotEmpty => url,
       _ => widget.imageUrl,
     };
-    final displaySongId = switch (state?.songId) {
-      final id? when id > 0 => id,
-      _ => widget.songId,
-    };
     final isPlaying = switch (state?.isPlaying) {
       final playing? => playing,
       null => _isPlaying,
@@ -352,7 +328,6 @@ class _MiniPlayerState extends State<MiniPlayer>
               title: displayTitle,
               artist: displayArtist,
               imageUrl: highResImageUrl,
-              songId: displaySongId,
             );
           }
         },
@@ -401,7 +376,6 @@ class _MiniPlayerState extends State<MiniPlayer>
                     ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: PlayerArtworkImage(
-                        songId: displaySongId,
                         imageUrl: displayThumbnailUrl,
                         artworkWidth: 40,
                         artworkHeight: 40,
@@ -427,9 +401,7 @@ class _MiniPlayerState extends State<MiniPlayer>
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            displayArtist.isNotEmpty
-                                ? displayArtist
-                                : 'Unknown Artist',
+                            displayArtist,
                             style: TextStyle(
                               color: Colors.white.withValues(alpha: 0.70),
                               fontWeight: FontWeight.w400,

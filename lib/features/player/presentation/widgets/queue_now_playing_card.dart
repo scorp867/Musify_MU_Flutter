@@ -6,17 +6,15 @@ import 'player_theme.dart';
 class QueueNowPlayingCard extends StatelessWidget {
   const QueueNowPlayingCard({
     super.key,
-    this.title = 'Starboy',
-    this.artist = 'The Weeknd, Daft Punk',
+    this.title = '',
+    this.artist = '',
     this.imageUrl,
-    this.songId,
     this.isPlaying = false,
   });
 
   final String title;
   final String artist;
   final String? imageUrl;
-  final int? songId;
   final bool isPlaying;
 
   @override
@@ -37,7 +35,6 @@ class QueueNowPlayingCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: PlayerArtworkImage(
-                songId: songId,
                 imageUrl: imageUrl,
                 artworkWidth: 52,
                 artworkHeight: 52,
@@ -51,7 +48,7 @@ class QueueNowPlayingCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title.isNotEmpty ? title : 'Unknown Track',
+                  title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -63,7 +60,7 @@ class QueueNowPlayingCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  artist.isNotEmpty ? artist : 'Unknown Artist',
+                  artist,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(

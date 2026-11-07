@@ -22,6 +22,7 @@ import '../application/mobius/playlist_mobius_loop.dart';
 import '../data/coordinator/playlist_play_coordinator.dart';
 import '../domain/models/playlist_item.dart';
 import '../domain/models/playlist_screen_state.dart';
+import '../domain/policies/playlist_curation_policy.dart';
 import '../domain/repositories/playlist_repository.dart';
 import 'components/playlist_action_row.dart';
 import 'components/playlist_app_bar.dart';
@@ -32,6 +33,7 @@ import 'components/playlist_play_fab.dart';
 import 'components/playlist_section_header.dart';
 import 'components/playlist_sort_sheet.dart';
 import 'components/playlist_track_tile.dart';
+import 'extensions/track_item_metadata_presentation.dart';
 
 /// 1:1 replica of Spotify's Playlist screen coordinator
 /// (`header_layout.xml`, `playlist_all_songs_page.xml`, `b7r.java`, `yz40.java`, `uwt.java`, `PlayButtonBehavior.java`).

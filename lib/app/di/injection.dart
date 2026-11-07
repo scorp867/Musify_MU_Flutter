@@ -1,35 +1,11 @@
 import 'package:get_it/get_it.dart';
+import 'package:musify_mu/app/di/mode_persistence.dart';
+import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
+import 'package:musify_mu/core/audio/native_playback_session_bridge.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
-import 'package:musify_mu/core/config/runtime_context.dart';
-import 'package:musify_mu/core/media/extended_metadata_service.dart';
-import 'package:musify_mu/core/network/spotify/auth/auth_session_provider.dart';
-import 'package:musify_mu/core/network/spotify/auth/spotify_client_token.dart';
-import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart';
-import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
-import 'package:musify_mu/core/network/auth/token_refresh_mutex.dart';
-import 'package:musify_mu/core/network/client/dio_network_client.dart';
-import 'package:musify_mu/core/network/client/network_client.dart';
-import 'package:musify_mu/core/network/client/queued_network_client.dart';
-import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
-import 'package:musify_mu/core/network/status/network_monitor_service.dart';
-import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
-import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
-import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
-import 'package:musify_mu/core/ubi/data/logging/ubi_logger_impl.dart';
-import 'package:musify_mu/core/ubi/data/factory/ubi_event_metadata_factory.dart';
-import 'package:musify_mu/core/ubi/domain/providers/page_instance_id_provider.dart';
-import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
-import 'package:musify_mu/features/player/data/logging/player_logging_params_factory.dart';
-import 'package:musify_mu/features/playlist/data/coordinator/playlist_play_coordinator.dart';
-import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
-import 'package:musify_mu/features/auth/application/auth_bloc.dart';
-import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
-import 'package:musify_mu/features/browse/application/browse_bloc.dart';
-import 'package:musify_mu/features/browse/data/browse_repository.dart';
-import 'package:musify_mu/features/browse/domain/repositories/browse_repository.dart';
-import 'package:musify_mu/features/browse/domain/usecases/load_browse.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool_impl.dart';
 import 'package:musify_mu/core/kodiak/dataloader/kodiak_disk_cache.dart';
@@ -37,6 +13,34 @@ import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_cli
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
+import 'package:musify_mu/core/media/extended_metadata_service.dart';
+import 'package:musify_mu/core/media/local_file_image_loader.dart';
+import 'package:musify_mu/core/navigation/spotify_navigator.dart';
+import 'package:musify_mu/core/navigation/spotify_navigator_impl.dart';
+import 'package:musify_mu/core/network/auth/token_refresh_mutex.dart';
+import 'package:musify_mu/core/network/client/dio_network_client.dart';
+import 'package:musify_mu/core/network/client/network_client.dart';
+import 'package:musify_mu/core/network/client/queued_network_client.dart';
+import 'package:musify_mu/core/network/spotify/auth/auth_session_provider.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_client_token.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
+import 'package:musify_mu/core/network/spotify/transport/android_transport.dart';
+import 'package:musify_mu/core/network/spotify/transport/web_player_transport.dart';
+import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
+import 'package:musify_mu/core/network/status/network_monitor_service.dart';
+import 'package:musify_mu/core/ubi/data/factory/ubi_event_metadata_factory.dart';
+import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
+import 'package:musify_mu/core/ubi/data/logging/ubi_logger_impl.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/providers/page_instance_id_provider.dart';
+import 'package:musify_mu/features/auth/application/auth_bloc.dart';
+import 'package:musify_mu/features/auth/data/spotify_profile_fetcher.dart';
+import 'package:musify_mu/features/auth/domain/entities/spotify_user.dart';
+import 'package:musify_mu/features/browse/application/browse_bloc.dart';
+import 'package:musify_mu/features/browse/data/browse_repository.dart';
+import 'package:musify_mu/features/browse/domain/repositories/browse_repository.dart';
+import 'package:musify_mu/features/browse/domain/usecases/load_browse.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/home_feed/data/home_repository.dart';
 import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
@@ -56,34 +60,30 @@ import 'package:musify_mu/features/local_music/data/repositories/local_music_rep
 import 'package:musify_mu/features/local_music/data/services/local_music_sync_service.dart';
 import 'package:musify_mu/features/local_music/domain/repositories/local_music_repository.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
-import 'package:musify_mu/app/di/mode_persistence.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
 import 'package:musify_mu/features/player/data/datasources/color_lyrics_client.dart';
 import 'package:musify_mu/features/player/data/datasources/scrollsita_client.dart';
-import 'package:musify_mu/features/player/data/repositories/color_lyrics_repository.dart';
-import 'package:musify_mu/features/player/data/repositories/scrollsita_repository.dart';
-import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
-import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
-import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
-import 'package:musify_mu/features/player/data/esperanto/native_esperanto_transport.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_component.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_options_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_queue_client.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
-import 'package:musify_mu/features/player/data/services/spotify_license_resolver.dart';
-import 'package:musify_mu/features/player/data/services/spotify_storage_resolver.dart';
-import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
-import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
+import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
+import 'package:musify_mu/features/player/data/esperanto/native_esperanto_transport.dart';
+import 'package:musify_mu/features/player/data/logging/player_logging_params_factory.dart';
+import 'package:musify_mu/features/player/data/repositories/color_lyrics_repository.dart';
+import 'package:musify_mu/features/player/data/repositories/scrollsita_repository.dart';
+import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
+import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_data_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_modification_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dart';
+import 'package:musify_mu/features/playlist/data/coordinator/playlist_play_coordinator.dart';
 import 'package:musify_mu/features/playlist/data/decorator/playlist_kodiak_decorator.dart';
 import 'package:musify_mu/features/playlist/data/repositories/playlist_repository_impl.dart';
 import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
-import 'package:musify_mu/core/navigation/spotify_navigator.dart';
-import 'package:musify_mu/core/navigation/spotify_navigator_impl.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 final getIt = GetIt.instance;
@@ -102,6 +102,8 @@ Future<void> setupInjection() async {
   // Restore cached profile values from secure storage so RuntimeContext
   // and AppCacheManager have correct values before the first network call.
   final tokenStore = SpotifyTokenStore();
+  getIt.registerSingleton<SpotifyTokenStore>(tokenStore);
+
   final cachedProfile = await tokenStore.getCachedProfile();
   if (cachedProfile != null) {
     runtimeContext.updateFromProfile(
@@ -132,7 +134,11 @@ Future<void> setupInjection() async {
       store: getIt(),
       syncService: getIt(),
     ),
-    dispose: (repo) => (repo as LocalMusicRepositoryImpl).dispose(),
+    dispose: (repo) {
+      if (repo is LocalMusicRepositoryImpl) {
+        repo.dispose();
+      }
+    },
   );
 
   getIt.registerFactory<LocalMusicBloc>(
@@ -140,7 +146,6 @@ Future<void> setupInjection() async {
   );
 
   // --- Spotify Auth Infrastructure ---
-  getIt.registerLazySingleton<SpotifyTokenStore>(() => SpotifyTokenStore());
   getIt.registerLazySingleton<SpotifyTokenRefresher>(
     () => SpotifyTokenRefresher(tokenStore: getIt<SpotifyTokenStore>()),
   );
@@ -223,23 +228,42 @@ Future<void> setupInjection() async {
     ),
   );
 
+  // --- Native Playback Session & Kodiak Binary Extension Bridge ---
+  final nativePlaybackSessionBridge = NativePlaybackSessionBridge(
+    authSessionProvider: getIt<AuthSessionProvider>(),
+    tokenStore: getIt<SpotifyTokenStore>(),
+    runtimeContext: getIt<RuntimeContext>(),
+    refreshMutex: getIt<TokenRefreshMutex>(),
+    dataPool: getIt<DataPool>(),
+  );
+  await nativePlaybackSessionBridge.init();
+  getIt.registerSingleton<NativePlaybackSessionBridge>(
+    nativePlaybackSessionBridge,
+    dispose: (bridge) => bridge.dispose(),
+  );
+
   // --- Online Services ---
   getIt.registerLazySingleton<ExtendedMetadataService>(
     () => ExtendedMetadataService(
-      client: getIt<WebPlayerTransport>(),
-      ctx: getIt<RuntimeContext>(),
-      cacheManager: getIt<AppCacheManager>(),
+      dataPool: getIt<DataPool>(),
       metadataClient: getIt<ExtendedMetadataClient>(),
+      cacheManager: getIt<AppCacheManager>(),
     ),
   );
   getIt.registerLazySingleton<ColorCache>(
     () => ColorCache(cacheManager: getIt<AppCacheManager>()),
   );
+  getIt.registerLazySingleton<LocalFileImageLoader>(
+    () => LocalFileImageLoader(
+      store: getIt<LocalTracksStore>(),
+      deviceMusic: getIt<DeviceMusicDataSource>(),
+    ),
+    dispose: (loader) => loader.dispose(),
+  );
   getIt.registerLazySingleton<ColorExtractionService>(
     () => ColorExtractionService(
       cache: getIt<ColorCache>(),
-      artworkFetcher: (songId) =>
-          getIt<DeviceMusicDataSource>().queryArtwork(songId),
+      localFileImageLoader: getIt<LocalFileImageLoader>(),
     ),
   );
   getIt.registerLazySingleton<HomeRepository>(
@@ -367,29 +391,9 @@ Future<void> setupInjection() async {
     dispose: (engine) => engine.dispose(),
   );
 
-  // --- Spotify Storage & License Resolvers ---
-  getIt.registerLazySingleton<SpotifyStorageResolver>(
-    () => SpotifyStorageResolver(
-      transport: getIt<WebPlayerTransport>(),
-      tokenStore: getIt<SpotifyTokenStore>(),
-    ),
-  );
-  getIt.registerLazySingleton<SpotifyLicenseResolver>(
-    () => SpotifyLicenseResolver(
-      transport: getIt<WebPlayerTransport>(),
-    ),
-  );
-
   // --- Spotify Esperanto Transport & ContextPlayer Factory Component (p.t0m) ---
   getIt.registerLazySingleton<EsperantoTransport>(
-    () => NativeEsperantoTransport(
-      getIt<MusifyNativeAudioEngine>(),
-      metadataService: getIt<ExtendedMetadataService>(),
-      storageResolver: getIt<SpotifyStorageResolver>(),
-      licenseResolver: getIt<SpotifyLicenseResolver>(),
-      authSessionProvider: getIt<AuthSessionProvider>(),
-      clientTokenFetcher: getIt<SpotifyClientTokenFetcher>(),
-    ),
+    () => NativeEsperantoTransport(getIt<MusifyNativeAudioEngine>()),
     dispose: (t) {
       if (t is NativeEsperantoTransport) {
         t.dispose();

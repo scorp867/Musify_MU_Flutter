@@ -14,7 +14,6 @@ class QueueTrackRow extends StatefulWidget {
     required this.artist,
     this.isQueued = false,
     this.imageUrl,
-    this.songId,
     required this.index,
     required this.onTap,
     required this.onRemove,
@@ -31,7 +30,6 @@ class QueueTrackRow extends StatefulWidget {
   final String artist;
   final bool isQueued;
   final String? imageUrl;
-  final int? songId;
   final int index;
   final VoidCallback onTap;
   final VoidCallback onRemove;
@@ -375,7 +373,6 @@ class _QueueTrackRowState extends State<QueueTrackRow>
                                   width: 48,
                                   height: 48,
                                   child: PlayerArtworkImage(
-                                    songId: widget.songId,
                                     imageUrl: widget.imageUrl,
                                     artworkWidth: 48,
                                     artworkHeight: 48,

@@ -1,23 +1,21 @@
-import 'dart:developer' as dev;
 import 'dart:typed_data';
+
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/metadata.pb.dart'
     as meta_pb;
+import 'package:musify_mu/core/utils/spotify_base62.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
-import 'package:musify_mu/features/player/data/mappers/spotify_audio_file_mapper.dart';
-import 'package:musify_mu/features/player/data/services/spotify_head_resolver.dart';
-import 'package:musify_mu/features/player/domain/models/spotify_audio_file.dart';
-import 'package:musify_mu/features/player/domain/models/spotify_audio_format.dart';
 
-/// Plugin for ExtensionKind 10 (TRACK_V4).
-/// Provides complete track metadata matching Spotify Android's TrackV4 extension (`p199p/a1a.java`),
-/// including 1:1 extraction of full track AudioFiles and preview Head files.
-class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
+import 'plugin_utils.dart';
+
+/// Plugin for ExtensionKind 10 (`TRACK_V4`).
+/// 1:1 replica of Spotify Android's `p199p/a1a.java` returning [TrackV4].
+class TrackV4Plugin implements ExtendedMetadataPlugin<TrackV4> {
   const TrackV4Plugin();
 
   @override
-  Type get traitType => TrackMetaTrait;
+  Type get traitType => TrackV4;
 
   @override
   int get extensionKindValue => 10;
@@ -25,155 +23,151 @@ class TrackV4Plugin implements ExtendedMetadataPlugin<TrackMetaTrait> {
   @override
   ExtensionKind? get extensionKind => ExtensionKind.TRACK_V4;
 
-  @override
-  TrackMetaTrait parse(Uint8List payload) {
-    final track = meta_pb.Track.fromBuffer(payload);
-    final title = track.name;
-    final artists = track.artist.map((a) => a.name).where((n) => n.isNotEmpty);
-    final subtitle = artists.join(', ');
-    final albumName = track.hasAlbum() ? track.album.name : '';
-    final duration = track.hasDuration() ? track.duration : 0;
-    final trackUri = track.hasGid()
-        ? 'spotify:track:${track.gid.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}'
-        : '';
-    final canonicalUri = track.hasCanonicalUri() ? track.canonicalUri : '';
+  static String _encodeGidOrEmpty(List<int> bytes) {
+    if (bytes.length != 16) return '';
+    return SpotifyBase62.encode16ByteGid(Uint8List.fromList(bytes));
+  }
 
-    final imageUrls = <String, String>{};
-    String? largeImageHex;
-
-    if (track.hasAlbum() && track.album.hasCoverGroup()) {
-      for (final image in track.album.coverGroup.image) {
-        if (!image.hasFileId() || image.fileId.isEmpty) continue;
-        final hex = image.fileId
-            .map((b) => b.toRadixString(16).padLeft(2, '0'))
-            .join();
-        final url = 'https://i.scdn.co/image/$hex';
-
-        switch (image.size) {
-          case meta_pb.Image_Size.SMALL:
-            imageUrls['small'] = url;
-            break;
-          case meta_pb.Image_Size.DEFAULT:
-            imageUrls['default'] = url;
-            imageUrls['medium'] = url;
-            break;
-          case meta_pb.Image_Size.LARGE:
-            imageUrls['large'] = url;
-            largeImageHex ??= hex;
-            break;
-          case meta_pb.Image_Size.XLARGE:
-            imageUrls['xlarge'] = url;
-            largeImageHex = hex;
-            break;
-          default:
-            imageUrls.putIfAbsent('default', () => url);
-            imageUrls.putIfAbsent('medium', () => url);
-            largeImageHex ??= hex;
-        }
-      }
+  static TrackV4ArtistRole _mapArtistRole(meta_pb.ArtistWithRole_Role role) {
+    switch (role) {
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_MAIN_ARTIST:
+        return TrackV4ArtistRole.artistRoleMainArtist;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_FEATURED_ARTIST:
+        return TrackV4ArtistRole.artistRoleFeaturedArtist;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_REMIXER:
+        return TrackV4ArtistRole.artistRoleRemixer;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_ACTOR:
+        return TrackV4ArtistRole.artistRoleActor;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_COMPOSER:
+        return TrackV4ArtistRole.artistRoleComposer;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_CONDUCTOR:
+        return TrackV4ArtistRole.artistRoleConductor;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_ORCHESTRA:
+        return TrackV4ArtistRole.artistRoleOrchestra;
+      case meta_pb.ArtistWithRole_Role.ARTIST_ROLE_UNKNOWN:
+        return TrackV4ArtistRole.artistRoleUnknown;
     }
+    return TrackV4ArtistRole.artistRoleUnknown;
+  }
 
-    final List<SpotifyAudioFile> fullTrackFiles = <SpotifyAudioFile>[];
-
-    for (final file in track.file) {
-      if (file.hasFileId() && file.hasFormat()) {
-        final mapped = SpotifyAudioFileMapper.mapFromRaw(
-          fileIdBytes: file.fileId,
-          formatNumber: file.format.value,
-        );
-        if (mapped case final validMapped?) {
-          fullTrackFiles.add(validMapped);
-        }
-      }
-    }
-
-    // Relinked track fallback: If primary file list is empty (common for region-restricted
-    // or market-relinked tracks), extract audio files from alternative tracks in field 13.
-    if (fullTrackFiles.isEmpty && track.alternative.isNotEmpty) {
-      for (final altTrack in track.alternative) {
-        if (altTrack.file.isNotEmpty) {
-          for (final file in altTrack.file) {
-            if (file.hasFileId() && file.hasFormat()) {
-              final mapped = SpotifyAudioFileMapper.mapFromRaw(
-                fileIdBytes: file.fileId,
-                formatNumber: file.format.value,
-              );
-              if (mapped case final validMapped?) {
-                fullTrackFiles.add(validMapped);
-              }
-            }
-          }
-          if (fullTrackFiles.isNotEmpty) break;
-        }
-      }
-    }
-
-    final List<SpotifyAudioFile> previewFiles = <SpotifyAudioFile>[];
-
+  static String _extractPreviewId(meta_pb.Track track) {
     for (final preview in track.preview) {
-      if (preview.hasFileId() && preview.hasFormat()) {
-        final mapped = SpotifyAudioFileMapper.mapFromRaw(
-          fileIdBytes: preview.fileId,
-          formatNumber: preview.format.value,
-        );
-        if (mapped case final validMapped?) {
-          previewFiles.add(validMapped);
+      if (preview.fileId.isNotEmpty) {
+        return bytesToLowerHex(preview.fileId);
+      }
+    }
+    for (final alt in track.alternative) {
+      for (final preview in alt.preview) {
+        if (preview.fileId.isNotEmpty) {
+          return bytesToLowerHex(preview.fileId);
         }
       }
     }
+    return '';
+  }
 
-    // In Spotify, Chunk 0 Head files are 128 KiB Vorbis headers of the full track audio streams.
-    // We check fullTrackFiles first for authentic Vorbis streams (OGG_VORBIS_160 -> 320 -> 96).
-    // If fullTrackFiles only carries MP4/AAC streams, check previewFiles for standard Vorbis 160/320 headers.
-    // Low-quality 96 kbps preview clips (~25 KB) are strictly rejected to prevent buffer underflow/mismatch.
-    final SpotifyAudioFile? selectedHead =
-        SpotifyAudioFileMapper.selectHeadFile(fullTrackFiles) ??
-        SpotifyAudioFileMapper.selectHeadFile(
-          previewFiles.where((f) => f.format != SpotifyAudioFormat.oggVorbis96).toList(),
-        );
+  @override
+  TrackV4 parse(Uint8List payload) {
+    final track = meta_pb.Track.fromBuffer(payload);
 
-    final SpotifyAudioFile? selectedTrack =
-        SpotifyAudioFileMapper.selectFullTrackFile(fullTrackFiles);
+    final id = _encodeGidOrEmpty(track.gid);
+    final name = track.name;
+    final albumName = track.hasAlbum() ? track.album.name : '';
 
-    // Only set headUrl if an authentic Vorbis head file is present.
-    // If no Vorbis stream is available, headUrl and fileId remain empty so the player can gracefully
-    // bypass the head file download and directly stream the full track without corrupting chunk 0.
-    final String fileId;
-    final String headUrl;
-    if (selectedHead case final validHead? when validHead.fileIdHex.isNotEmpty) {
-      fileId = validHead.fileIdHex;
-      headUrl = SpotifyHeadResolver.instance.buildHeadUrl(fileId);
-    } else {
-      fileId = '';
-      headUrl = '';
+    String albumUri = '';
+    if (track.hasAlbum() && track.album.gid.length == 16) {
+      final albumId = _encodeGidOrEmpty(track.album.gid);
+      if (albumId.isNotEmpty) {
+        albumUri = 'spotify:album:$albumId';
+      }
     }
 
-    final String aacFileId;
-    if (selectedTrack case final validTrack? when !validTrack.format.isVorbis && validTrack.fileIdHex.isNotEmpty) {
-      aacFileId = validTrack.fileIdHex;
-    } else {
-      aacFileId = '';
-    }
-
-    dev.log(
-      '[TrackV4] "$title" head=${selectedHead?.format.name ?? "none"} '
-      'track=${selectedTrack?.format.name ?? "none"} '
-      'files=${fullTrackFiles.length}',
-      name: 'Metadata.FileId',
+    final albumCover = decodeCoverImageGroup(
+      track.hasAlbum() &&
+              track.album.hasCoverGroup() &&
+              track.album.coverGroup.image.isNotEmpty
+          ? track.album.coverGroup
+          : null,
     );
 
-    return TrackMetaTrait(
-      uri: trackUri,
-      title: title,
-      subtitle: subtitle,
+    final externalIds = <TrackV4ExternalId>[
+      for (final ext in track.externalId)
+        TrackV4ExternalId(id: ext.id, type: ext.type),
+    ];
+
+    final alternatives = <TrackV4Alternative>[
+      for (final alt in track.alternative)
+        TrackV4Alternative(
+          uri: alt.gid.length == 16
+              ? 'spotify:track:${_encodeGidOrEmpty(alt.gid)}'
+              : '',
+        ),
+    ];
+
+    final availabilities = <TrackV4Availability>[
+      for (final avail in track.availability)
+        TrackV4Availability(catalogueStrs: avail.catalogueStr),
+    ];
+
+    final artists = <TrackV4Artist>[
+      for (final artist in track.artist)
+        TrackV4Artist(
+          uri: artist.gid.length == 16
+              ? 'spotify:artist:${_encodeGidOrEmpty(artist.gid)}'
+              : '',
+          name: artist.name,
+        ),
+    ];
+
+    final contentRatings = <TrackV4ContentRating>[
+      for (final rating in track.contentRating)
+        TrackV4ContentRating(country: rating.country, tags: rating.tag),
+    ];
+
+    final artistsWithRole = <TrackV4ArtistWithRole>[
+      for (final item in track.artistWithRole)
+        TrackV4ArtistWithRole(
+          role: _mapArtistRole(item.role),
+          artistUri: item.artistGid.length == 16
+              ? 'spotify:artist:${_encodeGidOrEmpty(item.artistGid)}'
+              : '',
+          artistName: item.artistName,
+        ),
+    ];
+
+    final files = <TrackV4AudioFile>[
+      for (final f in track.file)
+        if (f.fileId.isNotEmpty)
+          TrackV4AudioFile(
+            fileId: bytesToLowerHex(f.fileId),
+            format: AudioFileFormat.fromValue(f.format.value),
+          ),
+    ];
+
+    final previewId = _extractPreviewId(track);
+    final discNumber = track.discNumber > 0 ? track.discNumber : null;
+    final trackNumber = track.number > 0 ? track.number : null;
+
+    return TrackV4(
+      id: id,
+      name: name,
+      albumCover: albumCover,
+      duration: track.duration,
+      isExplicit: track.explicit,
+      artists: artists,
+      albumUri: albumUri,
       albumName: albumName,
-      imageUrls: imageUrls,
-      largeImageHex: largeImageHex,
-      durationMs: duration,
-      fileId: fileId,
-      aacFileId: aacFileId,
-      headUrl: headUrl,
-      canonicalUri: canonicalUri,
+      externalIds: externalIds,
+      contentRatings: contentRatings,
+      alternatives: alternatives,
+      availabilities: availabilities,
+      previewId: previewId,
+      discNumber: discNumber,
+      trackNumber: trackNumber,
+      originalTitle: track.originalTitle,
+      versionTitle: track.versionTitle,
+      artistsWithRole: artistsWithRole,
+      files: files,
     );
   }
 }

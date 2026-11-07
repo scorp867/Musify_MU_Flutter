@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
 /// Play link promo section — compact 1-tap playback bar.

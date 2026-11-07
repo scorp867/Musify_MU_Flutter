@@ -1,6 +1,7 @@
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 
 /// Single-item promotional video card section (matches Spotify Android's vbb0 / VideoPromo).
 /// Renders a prominent 16:9 video promo banner with playback affordance.

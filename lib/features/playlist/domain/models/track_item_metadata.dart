@@ -1,10 +1,11 @@
-library;
-
 import 'package:flutter/foundation.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/cover_image.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/image_size.dart';
 
-/// 1:1 replica of Spotify's `w1y.java` and `amb0.java` track & episode metadata model.
+/// 1:1 Spotify playlist track/episode metadata model (`p.w1y`).
 @immutable
-class TrackItemMetadata {
+final class TrackItemMetadata {
+  final CoverImage coverImage;
   final String title;
   final String uri;
   final bool isPlayable;
@@ -13,17 +14,11 @@ class TrackItemMetadata {
   final int durationMs;
   final String albumName;
   final String albumUri;
-  final List<String> albumCovers;
+  final CoverImage albumCoverImage;
   final List<String> artists;
   final List<String> artistUris;
   final int offlineState;
-  final String fileId;
-  final String aacFileId;
-  final String headUrl;
-  final String cdnUrl;
   final String canonicalUri;
-
-  // Podcast episode & show specific metadata fields (Spotify `amb0.java` / `qcb0.java`)
   final bool isEpisode;
   final bool isShow;
   final String description;
@@ -31,12 +26,8 @@ class TrackItemMetadata {
   final int playbackPositionMs;
   final String showName;
 
-  final String imageXlargeUrl;
-  final String imageLargeUrl;
-  final String imageUrl;
-  final String imageSmallUrl;
-
   const TrackItemMetadata({
+    this.coverImage = const CoverImage(),
     required this.title,
     required this.uri,
     this.isPlayable = true,
@@ -45,18 +36,10 @@ class TrackItemMetadata {
     this.durationMs = 0,
     this.albumName = '',
     this.albumUri = '',
-    this.albumCovers = const [],
-    this.imageXlargeUrl = '',
-    this.imageLargeUrl = '',
-    this.imageUrl = '',
-    this.imageSmallUrl = '',
+    this.albumCoverImage = const CoverImage(),
     this.artists = const [],
     this.artistUris = const [],
     this.offlineState = 0,
-    this.fileId = '',
-    this.aacFileId = '',
-    this.headUrl = '',
-    this.cdnUrl = '',
     this.canonicalUri = '',
     this.isEpisode = false,
     this.isShow = false,
@@ -66,38 +49,19 @@ class TrackItemMetadata {
     this.showName = '',
   });
 
-  String get artistNamesString =>
-      artists.isNotEmpty ? artists.join(', ') : (showName.isNotEmpty ? showName : albumName);
-
-  String get primaryCoverUrl => switch (imageLargeUrl) {
-    final u when u.isNotEmpty => u,
-    _ => switch (imageUrl) {
-      final u when u.isNotEmpty => u,
-      _ => albumCovers.isNotEmpty ? albumCovers.first : '',
-    },
-  };
-
-  String get highResCoverUrl => switch (imageXlargeUrl) {
-    final u when u.isNotEmpty => u,
-    _ => switch (imageLargeUrl) {
-      final u when u.isNotEmpty => u,
-      _ => primaryCoverUrl,
-    },
-  };
-
-  String get thumbnailCoverUrl => switch (imageSmallUrl) {
-    final u when u.isNotEmpty => u,
-    _ => switch (imageUrl) {
-      final u when u.isNotEmpty => u,
-      _ => albumCovers.length > 1 ? albumCovers.last : primaryCoverUrl,
-    },
-  };
+  /// 1:1 with `w1y.m88051a`: resolves `coverImage` for [size], falling back
+  /// to `albumCoverImage` when empty.
+  String coverUrlForSize(ImageSize size) {
+    final direct = coverImage.urlForSize(size);
+    if (direct.isNotEmpty) return direct;
+    return albumCoverImage.urlForSize(size);
+  }
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is TrackItemMetadata &&
-          runtimeType == other.runtimeType &&
+          coverImage == other.coverImage &&
           title == other.title &&
           uri == other.uri &&
           isPlayable == other.isPlayable &&
@@ -106,14 +70,10 @@ class TrackItemMetadata {
           durationMs == other.durationMs &&
           albumName == other.albumName &&
           albumUri == other.albumUri &&
-          listEquals(albumCovers, other.albumCovers) &&
+          albumCoverImage == other.albumCoverImage &&
           listEquals(artists, other.artists) &&
           listEquals(artistUris, other.artistUris) &&
           offlineState == other.offlineState &&
-          fileId == other.fileId &&
-          aacFileId == other.aacFileId &&
-          headUrl == other.headUrl &&
-          cdnUrl == other.cdnUrl &&
           canonicalUri == other.canonicalUri &&
           isEpisode == other.isEpisode &&
           isShow == other.isShow &&
@@ -124,32 +84,25 @@ class TrackItemMetadata {
 
   @override
   int get hashCode => Object.hashAll([
-        title,
-        uri,
-        isPlayable,
-        isExplicit,
-        is19Plus,
-        durationMs,
-        albumName,
-        albumUri,
-        Object.hashAll(albumCovers),
-        Object.hashAll(artists),
-        Object.hashAll(artistUris),
-        offlineState,
-        fileId,
-        aacFileId,
-        headUrl,
-        cdnUrl,
-        canonicalUri,
-        isEpisode,
-        isShow,
-        description,
-        publishDate,
-        playbackPositionMs,
-        showName,
-      ]);
-
-  @override
-  String toString() =>
-      'TrackItemMetadata(title: $title, uri: $uri, artists: $artists, isEpisode: $isEpisode, durationMs: $durationMs, cdnUrl: $cdnUrl, aacFileId: $aacFileId, canonicalUri: $canonicalUri)';
+    coverImage,
+    title,
+    uri,
+    isPlayable,
+    isExplicit,
+    is19Plus,
+    durationMs,
+    albumName,
+    albumUri,
+    albumCoverImage,
+    Object.hashAll(artists),
+    Object.hashAll(artistUris),
+    offlineState,
+    canonicalUri,
+    isEpisode,
+    isShow,
+    description,
+    publishDate,
+    playbackPositionMs,
+    showName,
+  ]);
 }

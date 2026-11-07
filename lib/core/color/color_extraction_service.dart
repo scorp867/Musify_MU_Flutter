@@ -10,8 +10,10 @@ import 'package:material_color_utilities/quantize/quantizer_celebi.dart';
 import 'package:musify_mu/core/color/artwork_color_scheme.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
 import 'package:musify_mu/core/color/scheme_deriver.dart';
+import 'package:musify_mu/core/media/local_file_image_loader.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file_uri.dart';
 
-/// Industry-leading artwork color extraction engine.
+/// Artwork color extraction engine.
 ///
 /// Features:
 /// 1. 200x200 high-fidelity thumbnail sampling (captures fine accents).
@@ -21,33 +23,36 @@ import 'package:musify_mu/core/color/scheme_deriver.dart';
 /// 4. OKLab perceptual color space distance for accurate color relationships.
 /// 5. Authentic Spotify tone-mapping preserving 100% of Hue & Saturation.
 /// 6. Fully asynchronous off-thread execution via [Isolate.run].
-/// 7. Zero fallback nulls: returns complete 5-color [ArtworkColorScheme].
+/// 7. Supports both remote CDN URLs and `spotify:localfileimage:...` URIs.
 class ColorExtractionService {
   final ColorCache _cache;
   final BaseCacheManager _cacheManager;
-  final Future<Uint8List?> Function(int songId)? _artworkFetcher;
+  final LocalFileImageLoader? _localFileImageLoader;
 
   ColorExtractionService({
     required ColorCache cache,
     BaseCacheManager? cacheManager,
-    Future<Uint8List?> Function(int songId)? artworkFetcher,
-  })  : _cache = cache,
-        _cacheManager = cacheManager ?? DefaultCacheManager(),
-        _artworkFetcher = artworkFetcher;
+    LocalFileImageLoader? localFileImageLoader,
+  }) : _cache = cache,
+       _cacheManager = switch (cacheManager) {
+         final cm? => cm,
+         null => DefaultCacheManager(),
+       },
+       _localFileImageLoader = localFileImageLoader;
 
   /// Unified entrypoint for color extraction.
   Future<ArtworkColorScheme> extract({
     String? imageUrl,
     List<String>? mosaicUrls,
     Uint8List? imageBytes,
-    int? songId,
     String? cacheKey,
   }) async {
-    if (songId != null) {
-      return extractFromSongId(songId, cacheKey: cacheKey);
-    }
     if (imageBytes != null && imageBytes.isNotEmpty) {
-      return extractFromBytes(imageBytes, cacheKey: cacheKey ?? imageUrl);
+      final resolvedKey = switch (cacheKey) {
+        final k? => k,
+        null => imageUrl,
+      };
+      return extractFromBytes(imageBytes, cacheKey: resolvedKey);
     }
     if (mosaicUrls != null && mosaicUrls.length >= 4) {
       return extractFromMosaic(mosaicUrls.take(4).toList());
@@ -60,28 +65,6 @@ class ColorExtractionService {
 
   /// Returns synchronously cached scheme if present.
   ArtworkColorScheme? getCached(String key) => _cache.get(key);
-
-  /// Extracts from a local song's artwork.
-  Future<ArtworkColorScheme> extractFromSongId(
-    int songId, {
-    String? cacheKey,
-  }) async {
-    final key = cacheKey ?? 'song_$songId';
-    final cached = _cache.get(key);
-    if (cached != null) return cached;
-
-    if (_artworkFetcher == null) return ArtworkColorScheme.neutral;
-
-    try {
-      final bytes = await _artworkFetcher(songId);
-      if (bytes != null && bytes.isNotEmpty) {
-        return await extractFromBytes(bytes, cacheKey: key);
-      }
-    } catch (e) {
-      dev.log('ColorExtraction: extractFromSongId failed: $e');
-    }
-    return ArtworkColorScheme.neutral;
-  }
 
   /// Extracts from raw image bytes.
   Future<ArtworkColorScheme> extractFromBytes(
@@ -109,7 +92,6 @@ class ColorExtractionService {
 
         final rawRgba = byteData.buffer.asUint8List();
 
-        // Run pre-filtering, quantization, and scheme derivation in isolate
         final schemeArgbs = await Isolate.run(() async {
           final pixels = _filterAndConvertPixels(rawRgba);
           final quantizer = QuantizerCelebi();
@@ -126,20 +108,39 @@ class ColorExtractionService {
       } finally {
         image.dispose();
       }
-    } catch (e) {
+    } on Object catch (e) {
       dev.log('ColorExtraction: extractFromBytes failed: $e');
       return ArtworkColorScheme.neutral;
     }
   }
 
-  /// Extracts from a single image URL.
+  /// Extracts from a single image URL (`https://...` or `spotify:localfileimage:...`).
   Future<ArtworkColorScheme> extractFromUrl(
     String imageUrl, {
     String? cacheKey,
   }) async {
-    final key = cacheKey ?? imageUrl;
-    final cached = _cache.get(key) ?? _cache.get(imageUrl);
+    final key = switch (cacheKey) {
+      final k? => k,
+      null => imageUrl,
+    };
+    final cached = switch (_cache.get(key)) {
+      final c? => c,
+      null => _cache.get(imageUrl),
+    };
     if (cached != null) return cached;
+
+    if (LocalFileUri.isAnyLocalUri(imageUrl)) {
+      final loader = _localFileImageLoader;
+      if (loader == null) return ArtworkColorScheme.neutral;
+      final bytes = await loader.loadBytes(imageUrl, querySize: 200);
+      if (bytes == null || bytes.isEmpty) return ArtworkColorScheme.neutral;
+      final scheme = await extractFromBytes(bytes);
+      await _cache.put(imageUrl, scheme);
+      if (cacheKey != null && cacheKey != imageUrl) {
+        await _cache.put(cacheKey, scheme);
+      }
+      return scheme;
+    }
 
     try {
       final file = await _cacheManager.getSingleFile(imageUrl);
@@ -151,7 +152,7 @@ class ColorExtractionService {
         await _cache.put(cacheKey, scheme);
       }
       return scheme;
-    } catch (e) {
+    } on Object catch (e) {
       dev.log('ColorExtraction: extractFromUrl failed: $e');
       return ArtworkColorScheme.neutral;
     }
@@ -168,14 +169,12 @@ class ColorExtractionService {
     final cached = _cache.get(mosaicKey);
     if (cached != null) return cached;
 
-    // 1. Primary track extraction (Track 0)
     final primaryScheme = await extractFromUrl(mosaicUrls.first);
     if (!primaryScheme.isNeutral) {
       await _cache.put(mosaicKey, primaryScheme);
       return primaryScheme;
     }
 
-    // 2. Fallback to subsequent tracks
     for (int i = 1; i < math.min(mosaicUrls.length, 4); i++) {
       final tileScheme = await extractFromUrl(mosaicUrls[i]);
       if (!tileScheme.isNeutral) {
@@ -186,7 +185,6 @@ class ColorExtractionService {
 
     if (mosaicUrls.length < 4) return ArtworkColorScheme.neutral;
 
-    // 3. Composite 2x2 grid
     try {
       final files = await Future.wait(
         mosaicUrls.take(4).map((url) => _cacheManager.getSingleFile(url)),
@@ -241,7 +239,7 @@ class ColorExtractionService {
       } finally {
         composite.dispose();
       }
-    } catch (e) {
+    } on Object catch (e) {
       dev.log('ColorExtraction: extractFromMosaic composite failed: $e');
       return ArtworkColorScheme.neutral;
     }
@@ -266,18 +264,13 @@ class ColorExtractionService {
       final minC = math.min(r, math.min(g, b));
       final delta = maxC - minC;
 
-      // Filter extreme blacks (letterboxing, pure dark borders)
       if (maxC < 22) continue;
-      // Filter extreme whites (margins, glare)
       if (minC > 238) continue;
-      // Filter completely desaturated gray
       if (delta < 14) continue;
 
       filtered.add(argb);
     }
 
-    // If at least 8% of pixels passed, use the clean filtered set.
-    // Otherwise fallback to all pixels (handles monochrome/dark art).
     if (filtered.length >= pixelCount * 0.08) {
       return filtered;
     }

@@ -6,6 +6,7 @@ import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
 /// Renders video episode sections matching Spotify's official layout.

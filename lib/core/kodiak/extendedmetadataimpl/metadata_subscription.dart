@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:developer' as dev;
+
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_client.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_data_source.dart';
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
@@ -14,17 +16,9 @@ class MetadataSubscription implements DataSourceSubscription {
   final ExtendedMetadataDataSourceImpl _dataSource;
   final void Function(List<CellKey> updatedKeys) _onUpdate;
 
-  /// Local snapshot of traits for this subscription.
-  /// Direct equivalent to Spotify Android `r1w.h`.
   final Map<CellKey, Trait> _localCache = {};
-
-  /// Actively requested keys for this subscription.
-  /// Direct equivalent to Spotify Android `r1w.g`.
   Set<CellKey> _activeKeys = {};
-
-  /// Set of currently in-flight cell keys to prevent duplicate network requests.
   final Set<CellKey> _inFlight = {};
-
   bool _isDisposed = false;
 
   final void Function(Set<CellKey> failedKeys)? _onNetworkFailure;
@@ -35,27 +29,27 @@ class MetadataSubscription implements DataSourceSubscription {
     required void Function(List<CellKey> updatedKeys) onUpdate,
     void Function(Set<CellKey> failedKeys)? onNetworkFailure,
     Map<CellKey, Trait>? initialCacheSnapshot,
-  })  : _client = client,
-        _dataSource = dataSource,
-        _onUpdate = onUpdate,
-        _onNetworkFailure = onNetworkFailure {
+  }) : _client = client,
+       _dataSource = dataSource,
+       _onUpdate = onUpdate,
+       _onNetworkFailure = onNetworkFailure {
     if (initialCacheSnapshot != null) {
       _localCache.addAll(initialCacheSnapshot);
     }
   }
 
-  /// Direct 1:1 equivalent to Spotify Android's `r1w.a(Set)`.
   @override
-  Map<CellKey, DataSourceResult<dynamic>> request(Set<CellKey> keys) {
+  Map<CellKey, DataSourceResult<Trait>> request(Set<CellKey> keys) {
     if (_isDisposed) return const {};
 
     _activeKeys = Set.of(keys);
 
-    final results = <CellKey, DataSourceResult<dynamic>>{};
+    final results = <CellKey, DataSourceResult<Trait>>{};
     final missingKeys = <CellKey>{};
 
     for (final key in keys) {
-      final cachedTrait = _localCache[key] ?? _dataSource.getTrait(key);
+      Trait? cachedTrait = _localCache[key];
+      cachedTrait ??= _dataSource.getTrait(key);
       if (cachedTrait != null) {
         _localCache[key] = cachedTrait;
         results[key] = Available(cachedTrait);
@@ -74,7 +68,6 @@ class MetadataSubscription implements DataSourceSubscription {
     return results;
   }
 
-  /// Dispatches network batch via ExtendedMetadataClient asynchronously.
   Future<void> _dispatchBatch(Set<CellKey> keysToFetch) async {
     final client = _client;
     if (client == null) return;
@@ -82,47 +75,55 @@ class MetadataSubscription implements DataSourceSubscription {
     _inFlight.addAll(keysToFetch);
 
     try {
-      final result = await client.fetchCellsResult(keysToFetch);
+      final result = await client.fetchCellsRawResult(keysToFetch);
       if (_isDisposed) return;
 
-      if (result is NetworkFailure<Map<CellKey, Trait>>) {
-        // If this is a transport glitch (timeout, offline, serverError, rateLimited),
-        // DO NOT poison the cache with markUnavailable.
-        // Leaving keys un-poisoned allows them to recover when network restores.
-        _onNetworkFailure?.call(keysToFetch);
-        return;
-      }
+      switch (result) {
+        case NetworkFailure():
+          _onNetworkFailure?.call(keysToFetch);
+          return;
 
-      final fetchedCells =
-          (result as NetworkSuccess<Map<CellKey, Trait>>).data;
-      final updatedKeys = <CellKey>[];
+        case NetworkSuccess(:final data):
+          final fetchedCells = data.cells;
+          final rawPayloads = data.rawPayloads;
+          if (rawPayloads.isNotEmpty) {
+            _dataSource.ingestRawPayloads(rawPayloads);
+          }
 
-      // Record fetched traits
-      for (final entry in fetchedCells.entries) {
-        _localCache[entry.key] = entry.value;
-        updatedKeys.add(entry.key);
-      }
+          final updatedKeys = <CellKey>[];
+          for (final entry in fetchedCells.entries) {
+            _localCache[entry.key] = entry.value;
+            updatedKeys.add(entry.key);
+          }
 
-      // Record unavailable traits ONLY for keys confirmed empty by successful backend response
-      for (final key in keysToFetch) {
-        if (!fetchedCells.containsKey(key)) {
-          _dataSource.markUnavailable(key);
-        }
-      }
+          final resolvedNegativeKeys = <CellKey>[];
+          for (final key in keysToFetch) {
+            if (!fetchedCells.containsKey(key)) {
+              _dataSource.markUnavailable(key);
+              resolvedNegativeKeys.add(key);
+            }
+          }
 
-      if (fetchedCells.isNotEmpty) {
-        _dataSource.f(fetchedCells);
-        _onUpdate(updatedKeys);
+          if (fetchedCells.isNotEmpty) {
+            _dataSource.f(fetchedCells);
+            _onUpdate([...updatedKeys, ...resolvedNegativeKeys]);
+          } else if (resolvedNegativeKeys.isNotEmpty) {
+            _onUpdate(resolvedNegativeKeys);
+          }
       }
-    } catch (_) {
-      // Non-critical network failure
+    } catch (e, stack) {
+      dev.log(
+        '[MetadataSubscription] Batch dispatch failed: $e',
+        name: 'Metadata',
+        error: e,
+        stackTrace: stack,
+      );
       _onNetworkFailure?.call(keysToFetch);
     } finally {
       _inFlight.removeAll(keysToFetch);
     }
   }
 
-  /// Called when parent DataSource receives traits (e.g. from Casita eagerload warmup).
   void onDataSourceUpdated(List<CellKey> updatedKeys) {
     if (_isDisposed) return;
 

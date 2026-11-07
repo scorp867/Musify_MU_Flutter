@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/home_feed/data/elements/preview_card_data_element.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/episode_preview_card.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/cards/preview_card.dart';
 import 'package:musify_mu/features/home_feed/presentation/widgets/sections/video_carousel_section.dart';

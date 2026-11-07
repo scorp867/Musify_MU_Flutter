@@ -31,10 +31,14 @@ class KodiakReactiveCard extends StatelessWidget {
       stream: dataPool!.watchEntity(item.uri),
       initialData: dataPool!.getTraits(item.uri),
       builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data != null) {
-          item.traits.addAll(snapshot.data!);
-        }
-        return builder(context, item);
+        final entity = (snapshot.hasData && snapshot.data != null)
+            ? SpotifyEntity(
+                uri: item.uri,
+                type: item.type,
+                traits: {...item.traits, ...snapshot.data!},
+              )
+            : item;
+        return builder(context, entity);
       },
     );
   }

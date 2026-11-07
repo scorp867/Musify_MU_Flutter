@@ -1,3 +1,4 @@
+import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -45,6 +46,8 @@ class RuntimeContext {
   TimezoneInfo? timezoneInfo;
   String acceptLanguage;
 
+  final Set<void Function()> _changeListeners = <void Function()>{};
+
   RuntimeContext({
     this.country = 'US',
     this.catalogue = 'free',
@@ -53,6 +56,21 @@ class RuntimeContext {
     this.acceptLanguage = 'en-US',
   });
 
+  void addChangeListener(void Function() listener) {
+    _changeListeners.add(listener);
+  }
+
+  void removeChangeListener(void Function() listener) {
+    _changeListeners.remove(listener);
+  }
+
+  void _notifyChanged() {
+    final snapshot = List<void Function()>.of(_changeListeners);
+    for (final listener in snapshot) {
+      listener();
+    }
+  }
+
   /// Detects system timezone and locale. Call once at app startup
   /// before any network requests are made.
   Future<void> init() async {
@@ -60,27 +78,39 @@ class RuntimeContext {
       final tz = await FlutterTimezone.getLocalTimezone();
       timezoneInfo = tz;
       timezone = tz.identifier;
-    } catch (_) {
-      // Keep default 'UTC' if detection fails.
+    } catch (e) {
+      dev.log(
+        'RuntimeContext: timezone detection unavailable, retaining $timezone: $e',
+        name: 'RuntimeContext',
+      );
     }
     try {
       final raw = Platform.localeName;
       if (raw.isNotEmpty) {
         acceptLanguage = raw.replaceAll('_', '-');
       }
-    } catch (_) {
-      // Keep default 'en-US' if detection fails.
+    } catch (e) {
+      dev.log(
+        'RuntimeContext: locale detection unavailable, retaining $acceptLanguage: $e',
+        name: 'RuntimeContext',
+      );
     }
   }
 
   /// Updates market-specific values from the authenticated Spotify profile.
   /// Called after login when the profile response provides country and product.
   void updateFromProfile({String? userCountry, String? product}) {
-    if (userCountry != null && userCountry.isNotEmpty) {
+    var changed = false;
+    if (userCountry != null && userCountry.isNotEmpty && country != userCountry) {
       country = userCountry;
+      changed = true;
     }
-    if (product != null && product.isNotEmpty) {
+    if (product != null && product.isNotEmpty && catalogue != product) {
       catalogue = product;
+      changed = true;
+    }
+    if (changed) {
+      _notifyChanged();
     }
   }
 }

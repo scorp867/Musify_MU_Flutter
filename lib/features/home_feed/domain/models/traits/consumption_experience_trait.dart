@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Consumption experience details (ExtensionKind 182).
-class ConsumptionExperienceTrait extends Trait {
+@immutable
+final class ConsumptionExperienceTrait extends Trait {
   final String format;
   final bool isInteractive;
 
@@ -11,14 +14,13 @@ class ConsumptionExperienceTrait extends Trait {
   });
 
   @override
-  Map<String, dynamic> toJson() => {
-    'format': format,
-    'isInteractive': isInteractive,
-  };
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ConsumptionExperienceTrait &&
+        other.format == format &&
+        other.isInteractive == isInteractive;
+  }
 
-  factory ConsumptionExperienceTrait.fromJson(Map<String, dynamic> json) =>
-      ConsumptionExperienceTrait(
-        format: json['format'] ?? '',
-        isInteractive: json['isInteractive'] ?? false,
-      );
+  @override
+  int get hashCode => Object.hash(format, isInteractive);
 }

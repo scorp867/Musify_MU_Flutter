@@ -5,17 +5,10 @@ import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 
-/// Renders an audio episode preview card matching Spotify Android's 1:1 layout:
-///   ┌────────────────────────────────────────────────────────┐
-///   │ [88x88 Art]  Episode Title (max 2 lines)             ⋮ │
-///   │              Show Name • Jan 18, 2024 • 1h 31min       │
-///   │                                                        │
-///   │ Episode description preview (optional)                 │
-///   │                                                        │
-///   │ [🔊 Preview episode]                           ⊕   ▶   │
-///   └────────────────────────────────────────────────────────┘
+/// Renders an audio episode preview card matching Spotify Android's 1:1 layout.
 class EpisodePreviewCard extends StatefulWidget {
   final SpotifyEntity item;
 
@@ -47,14 +40,19 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
     final colorHex = widget.item.backgroundColorHex;
     if (colorHex != null && colorHex.isNotEmpty) return;
 
-    final url = widget.item.cardImageUrl ?? widget.item.previewImageUrl;
+    final url = _resolvePrimaryImageUrl(widget.item);
     if (url == null || url.isEmpty) return;
 
     ColorExtractionService? service;
     try {
       service = context.read<ColorExtractionService>();
     } catch (e, stack) {
-      dev.log('Failed to read ColorExtractionService: $e', name: 'EpisodePreviewCard', error: e, stackTrace: stack);
+      dev.log(
+        'Failed to read ColorExtractionService: $e',
+        name: 'EpisodePreviewCard',
+        error: e,
+        stackTrace: stack,
+      );
     }
 
     if (service != null) {
@@ -64,37 +62,47 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
         return;
       }
 
-      service.extractFromUrl(url).then((color) {
-        if (mounted) {
-          setState(() {
-            _extractedColor = _sanitizeColor(color.primary);
+      service
+          .extractFromUrl(url)
+          .then((color) {
+            if (mounted) {
+              setState(() {
+                _extractedColor = _sanitizeColor(color.primary);
+              });
+            }
+          })
+          .catchError((Object e, StackTrace stack) {
+            dev.log(
+              'Failed to extract color from url: $e',
+              name: 'EpisodePreviewCard',
+              error: e,
+              stackTrace: stack,
+            );
           });
-        }
-      }).catchError((e, stack) {
-        dev.log('Failed to extract color from url: $e', name: 'EpisodePreviewCard', error: e, stackTrace: stack);
-      });
     }
+  }
+
+  static String? _resolvePrimaryImageUrl(SpotifyEntity entity) {
+    if (entity.cardImageUrl case final url? when url.isNotEmpty) return url;
+    if (entity.previewImageUrl case final url? when url.isNotEmpty) return url;
+    return null;
   }
 
   static Color _sanitizeColor(Color color) {
     final hsl = HSLColor.fromColor(color);
-    // Strict compliance with Basic_Rules: Purple Ban (hue 260° - 325°)
     if (hsl.hue >= 260 && hsl.hue <= 325) {
       final newSat = hsl.saturation * 0.7;
-      final clampedSat = newSat > 1.0 ? 1.0 : (newSat < 0.0 ? 0.0 : newSat);
-      return hsl
-          .withHue(230)
-          .withSaturation(clampedSat)
-          .toColor();
+      final boundedSat = newSat > 1.0 ? 1.0 : (newSat < 0.0 ? 0.0 : newSat);
+      return hsl.withHue(230).withSaturation(boundedSat).toColor();
     }
     return color;
   }
 
   Color _cardBackgroundColor() {
-    if (widget.item.backgroundColorHex != null &&
-        widget.item.backgroundColorHex!.isNotEmpty) {
+    if (widget.item.backgroundColorHex case final rawHex?
+        when rawHex.isNotEmpty) {
       try {
-        final hex = widget.item.backgroundColorHex!.replaceAll('#', '').trim();
+        final hex = rawHex.replaceAll('#', '').trim();
         final String argbHex;
         if (hex.length == 6) {
           argbHex = 'FF$hex';
@@ -104,14 +112,25 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
           argbHex = hex;
         }
         final base = Color(int.parse(argbHex, radix: 16));
-        return Color.lerp(base, const Color(0xFF1E1E1E), 0.7) ?? const Color(0xFF282828);
+        if (Color.lerp(base, const Color(0xFF1E1E1E), 0.7)
+            case final blended?) {
+          return blended;
+        }
+        return const Color(0xFF282828);
       } catch (e, stack) {
-        dev.log('Failed to parse hex color: $e', name: 'EpisodePreviewCard', error: e, stackTrace: stack);
+        dev.log(
+          'Failed to parse hex color: $e',
+          name: 'EpisodePreviewCard',
+          error: e,
+          stackTrace: stack,
+        );
       }
     }
-    if (_extractedColor != null) {
-      return Color.lerp(_extractedColor!, const Color(0xFF1E1E1E), 0.7) ??
-          const Color(0xFF282828);
+    if (_extractedColor case final extracted?) {
+      if (Color.lerp(extracted, const Color(0xFF1E1E1E), 0.7)
+          case final blended?) {
+        return blended;
+      }
     }
     return const Color(0xFF282828);
   }
@@ -128,37 +147,78 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
     return '$minutes min';
   }
 
+  static String _resolveEpisodeTitle(
+    SpotifyEntity item,
+    EpisodeV4? episode,
+    PreviewCardTrait? preview,
+  ) {
+    if (episode != null && episode.name.isNotEmpty) return episode.name;
+    if (item.cardTitle.isNotEmpty) return item.cardTitle;
+    if (preview != null && preview.title.isNotEmpty) return preview.title;
+    return 'Episode';
+  }
+
+  static String _resolveShowName(
+    SpotifyEntity item,
+    EpisodeV4? episode,
+    PreviewCardTrait? preview,
+    SimpleCardTrait? simple,
+  ) {
+    if (episode?.show?.name case final showName? when showName.isNotEmpty) {
+      return showName;
+    }
+    if (preview != null && preview.creatorName.isNotEmpty) {
+      return preview.creatorName;
+    }
+    if (item.cardSubtitle.isNotEmpty) return item.cardSubtitle;
+    if (simple != null && simple.subtitle.isNotEmpty) return simple.subtitle;
+    return '';
+  }
+
+  static String? _resolveArtworkUrl(
+    SpotifyEntity item,
+    EpisodeV4? episode,
+    PreviewCardTrait? preview,
+  ) {
+    if (item.cardImageUrl case final url? when url.isNotEmpty) return url;
+    if (item.previewImageUrl case final url? when url.isNotEmpty) return url;
+    if (episode != null) {
+      final largeUrl = episode.coverImage.urlForSize(ImageSize.large);
+      if (largeUrl.isNotEmpty) return largeUrl;
+    }
+    if (preview?.imageUrl case final url? when url.isNotEmpty) return url;
+    return null;
+  }
+
   void _playWithMetadata() {
-    final episodeTrait = widget.item.getTrait<EpisodeMetaTrait>();
+    final episodeTrait = widget.item.getTrait<EpisodeV4>();
     final previewTrait = widget.item.getTrait<PreviewCardTrait>();
-    final title = episodeTrait?.title.isNotEmpty == true
-        ? episodeTrait!.title
-        : (widget.item.cardTitle.isNotEmpty
-            ? widget.item.cardTitle
-            : (previewTrait?.title.isNotEmpty == true ? previewTrait!.title : 'Episode'));
-    final showName = episodeTrait?.subtitle.isNotEmpty == true
-        ? episodeTrait!.subtitle
-        : (previewTrait?.creatorName.isNotEmpty == true
-            ? previewTrait!.creatorName
-            : widget.item.cardSubtitle);
-    final artworkUrl = widget.item.cardImageUrl ??
-        widget.item.previewImageUrl ??
-        episodeTrait?.imageUrls['large'] ??
-        previewTrait?.imageUrl;
-    final durationMs = episodeTrait?.durationMs != null && episodeTrait!.durationMs > 0
-        ? episodeTrait.durationMs
+    final simpleTrait = widget.item.getTrait<SimpleCardTrait>();
+    final title = _resolveEpisodeTitle(widget.item, episodeTrait, previewTrait);
+    final showName = _resolveShowName(
+      widget.item,
+      episodeTrait,
+      previewTrait,
+      simpleTrait,
+    );
+    final artworkUrl = _resolveArtworkUrl(
+      widget.item,
+      episodeTrait,
+      previewTrait,
+    );
+    final durationMs =
+        episodeTrait != null && episodeTrait.duration > 0
+        ? episodeTrait.duration
         : 0;
 
-    final track = ContextTrack.builder(widget.item.uri)
-        .metadata({
-          ContextTrackMetadata.keyTitle: title,
-          if (showName.isNotEmpty) ContextTrackMetadata.keyArtistName: showName,
-          if (artworkUrl != null && artworkUrl.isNotEmpty)
-            ContextTrackMetadata.keyImageUrl: artworkUrl,
-          if (durationMs > 0)
-            ContextTrackMetadata.keyDuration: durationMs.toString(),
-        })
-        .build();
+    final track = ContextTrack.builder(widget.item.uri).metadata({
+      ContextTrackMetadata.keyTitle: title,
+      if (showName.isNotEmpty) ContextTrackMetadata.keyArtistName: showName,
+      if (artworkUrl != null && artworkUrl.isNotEmpty)
+        ContextTrackMetadata.keyImageUrl: artworkUrl,
+      if (durationMs > 0)
+        ContextTrackMetadata.keyDuration: durationMs.toString(),
+    }).build();
     SpotifyUriNavigator.playUri(context, widget.item.uri, track: track);
   }
 
@@ -166,48 +226,40 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
   Widget build(BuildContext context) {
     final item = widget.item;
     final previewTrait = item.getTrait<PreviewCardTrait>();
-    final episodeTrait = item.getTrait<EpisodeMetaTrait>();
+    final episodeTrait = item.getTrait<EpisodeV4>();
     final simpleTrait = item.getTrait<SimpleCardTrait>();
 
-    // Title resolution
-    final title = episodeTrait?.title.isNotEmpty == true
-        ? episodeTrait!.title
-        : (item.cardTitle.isNotEmpty
-            ? item.cardTitle
-            : (previewTrait?.title.isNotEmpty == true
-                ? previewTrait!.title
-                : 'Episode'));
+    final title = _resolveEpisodeTitle(item, episodeTrait, previewTrait);
+    final showName = _resolveShowName(
+      item,
+      episodeTrait,
+      previewTrait,
+      simpleTrait,
+    );
 
-    // Show name resolution
-    final showName = episodeTrait?.subtitle.isNotEmpty == true
-        ? episodeTrait!.subtitle
-        : (previewTrait?.creatorName.isNotEmpty == true
-            ? previewTrait!.creatorName
-            : (item.cardSubtitle.isNotEmpty
-                ? item.cardSubtitle
-                : (simpleTrait?.subtitle ?? '')));
+    final description =
+        previewTrait != null && previewTrait.description.isNotEmpty
+        ? previewTrait.description
+        : (episodeTrait != null && episodeTrait.description.isNotEmpty
+              ? episodeTrait.description
+              : '');
 
-    // Description resolution
-    final description = previewTrait?.description.isNotEmpty == true
-        ? previewTrait!.description
-        : '';
-
-    // Duration and subtitle metadata string
-    final durationStr = episodeTrait?.durationMs != null && episodeTrait!.durationMs > 0
-        ? _formatDuration(episodeTrait.durationMs)
+    final durationStr =
+        episodeTrait != null && episodeTrait.duration > 0
+        ? _formatDuration(episodeTrait.duration)
         : '';
 
     final subtitleParts = <String>[];
     if (showName.isNotEmpty) subtitleParts.add(showName);
     if (durationStr.isNotEmpty) subtitleParts.add(durationStr);
-    final subtitleLine = subtitleParts.join(' • ');
+    final subtitleLine = subtitleParts.join(' \u2022 ');
 
-    final artworkUrl = item.cardImageUrl ??
-        item.previewImageUrl ??
-        episodeTrait?.imageUrls['large'] ??
-        previewTrait?.imageUrl;
-
+    final artworkUrl = _resolveArtworkUrl(item, episodeTrait, previewTrait);
     final bgColor = _cardBackgroundColor();
+    final previewLabel =
+        previewTrait != null && previewTrait.previewLabel.isNotEmpty
+        ? previewTrait.previewLabel
+        : 'Preview episode';
 
     return GestureDetector(
       onTap: () => SpotifyUriNavigator.openUri(context, widget.item.uri),
@@ -221,11 +273,9 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top Row: 88x88 Artwork + Details
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 88x88 Square artwork with orange badge
                 Stack(
                   children: [
                     ClipRRect(
@@ -258,7 +308,6 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                               ),
                       ),
                     ),
-                    // Orange badge on top-right of artwork
                     Positioned(
                       top: 4,
                       right: 4,
@@ -279,7 +328,6 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                   ],
                 ),
                 const SizedBox(width: 12),
-                // Episode Title and Show/Date/Duration
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -326,8 +374,6 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                 ),
               ],
             ),
-
-            // Middle: Episode description preview
             if (description.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
@@ -341,20 +387,21 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                 ),
               ),
             ],
-
             const SizedBox(height: 12),
-
-            // Bottom Action Row: [Preview episode] button + add + play
             Row(
               children: [
-                // Preview button (rectangular container with 6px border radius, strictly no pill shape)
                 GestureDetector(
                   onTap: _playWithMetadata,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 7,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.08),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.3)),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3),
+                      ),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
@@ -367,9 +414,7 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          previewTrait?.previewLabel.isNotEmpty == true
-                              ? previewTrait!.previewLabel
-                              : 'Preview episode',
+                          previewLabel,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.9),
                             fontSize: 12,
@@ -381,14 +426,12 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
                   ),
                 ),
                 const Spacer(),
-                // Add button
                 Icon(
                   Icons.add_circle_outline_rounded,
                   color: Colors.white.withValues(alpha: 0.8),
                   size: 26,
                 ),
                 const SizedBox(width: 14),
-                // Play button
                 GestureDetector(
                   onTap: _playWithMetadata,
                   child: Container(

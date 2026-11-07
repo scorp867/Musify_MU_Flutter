@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:musify_mu/core/kodiak/statement/data_statement.dart';
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
@@ -31,6 +33,9 @@ abstract interface class DataPool {
 
   /// Ingests typed cell keys directly into the underlying DataSource.
   void ingestCells(Map<CellKey, Trait> cells);
+
+  /// Ingests raw binary extension payloads keyed by `(extensionKind, entityUri)`.
+  void ingestRawPayloads(Map<(int, String), Uint8List> rawPayloads);
 
   /// Element/viewport-scoped batch loader.
   /// Identifies missing traits for the given URIs according to the DataStatement

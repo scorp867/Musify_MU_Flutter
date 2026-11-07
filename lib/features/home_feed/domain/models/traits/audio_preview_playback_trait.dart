@@ -1,9 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Audio preview playback data (ExtensionKind 116).
-/// Provides audio file URL, duration, and preview metadata for
-/// sections like AudioSpotlight, AudioPromo, and ImmersivePreview.
-class AudioPreviewPlaybackTrait extends Trait {
+@immutable
+final class AudioPreviewPlaybackTrait extends Trait {
   final String audioFileUrl;
   final String transcriptUrl;
   final String videoFileId;
@@ -23,28 +24,4 @@ class AudioPreviewPlaybackTrait extends Trait {
     this.previewStreamReportingUri = '',
     this.previewRestriction = 0,
   });
-
-  @override
-  Map<String, dynamic> toJson() => {
-    'audioFileUrl': audioFileUrl,
-    'transcriptUrl': transcriptUrl,
-    'videoFileId': videoFileId,
-    'videoPlaceholderImageUrl': videoPlaceholderImageUrl,
-    'previewDurationMs': previewDurationMs,
-    'durationFromOriginalMs': durationFromOriginalMs,
-    'previewStreamReportingUri': previewStreamReportingUri,
-    'previewRestriction': previewRestriction,
-  };
-
-  factory AudioPreviewPlaybackTrait.fromJson(Map<String, dynamic> json) =>
-      AudioPreviewPlaybackTrait(
-        audioFileUrl: json['audioFileUrl'] ?? '',
-        transcriptUrl: json['transcriptUrl'] ?? '',
-        videoFileId: json['videoFileId'] ?? '',
-        videoPlaceholderImageUrl: json['videoPlaceholderImageUrl'] ?? '',
-        previewDurationMs: json['previewDurationMs'] ?? 0,
-        durationFromOriginalMs: json['durationFromOriginalMs'] ?? 0,
-        previewStreamReportingUri: json['previewStreamReportingUri'] ?? '',
-        previewRestriction: json['previewRestriction'] ?? 0,
-      );
 }

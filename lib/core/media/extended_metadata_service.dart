@@ -1,582 +1,235 @@
-import 'dart:collection';
-import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
-import 'package:musify_mu/core/cache/cache_policy.dart';
-import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_client.dart';
-import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin_registry.dart';
-import 'package:musify_mu/core/kodiak/extendedmetadataimpl/plugins/builtin_plugins.dart';
 import 'package:musify_mu/core/kodiak/table/cell_key.dart';
 import 'package:musify_mu/core/kodiak/table/table_key.dart';
-import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
+import 'package:musify_mu/core/network/result/network_result.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 
-/// Resolved metadata for a single track or episode.
-///
-/// Shared across the whole app: library mosaic, playlist detail,
-/// now playing, queue, playback, etc.
-class TrackMeta {
-  final String uri;
-  final String title;
-  final String subtitle; // artist names joined
-  final String albumName;
-
-  /// Image URLs by size. Keys: 'small' (~64px), 'medium' (~300px), 'large' (~640px).
-  final Map<String, String> imageUrls;
-
-  /// Best cover URL (largest available, prioritizing xlarge -> large -> default/medium -> small).
-  String get imageXlargeUrl {
-    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['large'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    return imageUrl;
-  }
-
-  String get imageLargeUrl {
-    if (imageUrls['large'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    return imageUrl;
-  }
-
-  String get imageSmallUrl {
-    if (imageUrls['small'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['default'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['medium'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    return imageLargeUrl;
-  }
-
-  String get thumbnailImageUrl => imageSmallUrl;
-
-  String get imageUrl {
-    if (imageUrls['default'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['medium'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['large'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['xlarge'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    if (imageUrls['small'] case final url? when url.isNotEmpty) {
-      return url;
-    }
-    return '';
-  }
-
-  /// Raw hex image ID of the largest cover (for mosaic URL construction).
-  final String? largeImageHex;
-
-  final int durationMs;
-
-  /// 40-character hex file ID resolved from Spotify's extended-metadata.
-  final String fileId;
-
-  /// 40-character AAC/MP4 hex file ID for full-track storage-resolve.
-  final String aacFileId;
-
-  /// Canonical CDN URL for the 128 KB head file.
-  final String headUrl;
-
-  /// Direct pass-through CDN URL (from PlaybackTrait or pass-through stream).
-  final String cdnUrl;
-
-  const TrackMeta({
-    required this.uri,
-    this.title = '',
-    this.subtitle = '',
-    this.albumName = '',
-    this.imageUrls = const {},
-    this.largeImageHex,
-    this.durationMs = 0,
-    this.fileId = '',
-    this.aacFileId = '',
-    this.headUrl = '',
-    this.cdnUrl = '',
-  });
-}
-
-/// App-wide centralized service for fetching and caching entity metadata
-/// via the extended-metadata endpoint.
-///
-/// Uses TRACK_V4 (10) for tracks and EPISODE_V4 (12) for episodes.
-/// Two-layer cache: in-memory LRU (hot path) + disk (persistence).
-///
-/// Consumers:
-///   - Library: playlist mosaic covers (first 4 track images)
-///   - Playlist detail: full track list with metadata
-///   - Now Playing / Queue: track info display
-///   - Playback: duration, title, artist, fileId, headUrl, cdnUrl
+/// App-wide service for resolving Kodiak `TrackV4` (kind 10) and `EpisodeV4` (kind 12)
+/// metadata backed directly by `DataPool` and binary `KodiakDiskCache`.
 class ExtendedMetadataService {
+  static const _legacyJsonlFileName = 'track_meta.jsonl';
+
+  final DataPool _dataPool;
   final ExtendedMetadataClient _metadataClient;
-
-  // Layer 1: In-memory LRU for zero-cost reads.
-  final _memCache = _LruCache<String, TrackMeta>(2000);
-
-  // Layer 2: Disk persistence.
-  final _TrackMetaDiskCache _diskCache;
-
-  bool _diskLoaded = false;
+  final AppCacheManager? _cacheManager;
+  Future<void>? _initFuture;
 
   ExtendedMetadataService({
-    required SpotifyTransport client,
-    required RuntimeContext ctx,
-    required AppCacheManager cacheManager,
-    ExtendedMetadataClient? metadataClient,
-  })  : _metadataClient = metadataClient ??
-            ExtendedMetadataClient(
-              transport: client,
-              ctx: ctx,
-              registry: ExtendedMetadataPluginRegistry(
-                createDefaultExtendedMetadataPlugins(),
-              ),
-            ),
-        _diskCache = _TrackMetaDiskCache(cacheManager: cacheManager);
+    required DataPool dataPool,
+    required ExtendedMetadataClient metadataClient,
+    AppCacheManager? cacheManager,
+  }) : _dataPool = dataPool,
+       _metadataClient = metadataClient,
+       _cacheManager = cacheManager;
 
-  /// Loads disk cache into memory (called once lazily).
-  Future<void> _ensureDiskLoaded() async {
-    if (_diskLoaded) return;
-    _diskLoaded = true;
+  /// Ensures binary `KodiakDiskCache` is loaded into `_dataPool` and cleans up
+  /// any legacy `track_meta.jsonl` file.
+  Future<void> ensureLoaded() {
+    return _initFuture ??= _initialize();
+  }
 
-    final entries = await _diskCache.loadAll();
-    for (final entry in entries.entries) {
-      _memCache.put(entry.key, entry.value);
+  Future<void> _initialize() async {
+    await _dataPool.ensureDiskLoaded();
+    final cacheManager = _cacheManager;
+    if (cacheManager != null && cacheManager.hasUser) {
+      try {
+        final dir = await cacheManager.featureDir('metadata');
+        final legacy = File(
+          '${dir.path}${Platform.pathSeparator}$_legacyJsonlFileName',
+        );
+        if (await legacy.exists()) {
+          await legacy.delete();
+        }
+      } catch (e) {
+        dev.log(
+          'ExtendedMetadataService: failed to remove legacy jsonl: $e',
+          name: 'Metadata',
+        );
+      }
     }
-    if (entries.isNotEmpty) {
-      dev.log(
-        'ExtMetadataService: loaded ${entries.length} entries from disk',
-        name: 'Metadata',
+  }
+
+  /// Synchronously returns cached `TrackV4` for `uri`, or `null` if not cached.
+  TrackV4? getCachedTrack(String uri) => _dataPool.getTrait<TrackV4>(uri);
+
+  /// Synchronously returns cached `EpisodeV4` for `uri`, or `null` if not cached.
+  EpisodeV4? getCachedEpisode(String uri) => _dataPool.getTrait<EpisodeV4>(uri);
+
+  /// Resolves `TrackV4` metadata for `uris` in batches of 50.
+  Future<Map<String, TrackV4>> fetchTracks(List<String> uris) async {
+    if (uris.isEmpty) return const {};
+
+    await ensureLoaded();
+
+    final results = <String, TrackV4>{};
+    final uncached = <String>[];
+
+    for (final uri in uris) {
+      if (!uri.startsWith('spotify:track:')) continue;
+      if (_dataPool.getTrait<TrackV4>(uri) case final cached?) {
+        results[uri] = cached;
+      } else {
+        uncached.add(uri);
+      }
+    }
+
+    if (uncached.isEmpty) return results;
+
+    const batchSize = 50;
+    for (var i = 0; i < uncached.length; i += batchSize) {
+      final batch = uncached.skip(i).take(batchSize).toList(growable: false);
+      final fetched = await _fetchEntitiesBatch(batch);
+      results.addAll(fetched.tracks);
+    }
+
+    return results;
+  }
+
+  /// Resolves `TrackV4` and `EpisodeV4` metadata for `uris` in a single network request.
+  Future<({Map<String, TrackV4> tracks, Map<String, EpisodeV4> episodes})>
+  fetchEntitiesSingleRequest(List<String> uris) async {
+    if (uris.isEmpty) {
+      return (
+        tracks: const <String, TrackV4>{},
+        episodes: const <String, EpisodeV4>{},
       );
     }
-  }
 
-  /// Ensures disk cache has been loaded into memory.
-  Future<void> ensureLoaded() => _ensureDiskLoaded();
+    await ensureLoaded();
 
-  /// Returns cached metadata for a URI, or null if not cached.
-  TrackMeta? getCached(String uri) => _memCache.get(uri);
-
-  /// Resolves metadata for a single track URI (cache first, then network).
-  Future<TrackMeta?> resolve(String uri) async {
-    await _ensureDiskLoaded();
-    final cached = _memCache.get(uri);
-    if (cached != null && (cached.fileId.isNotEmpty || cached.aacFileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
-      return cached;
-    }
-    final map = await fetchTracks([uri]);
-    return map[uri];
-  }
-
-  /// Fetches metadata for the given URIs.
-  /// Returns only URIs that were successfully resolved.
-  /// Cached results are returned immediately; only uncached URIs hit the network.
-  Future<Map<String, TrackMeta>> fetchTracks(List<String> uris) async {
-    if (uris.isEmpty) return {};
-
-    await _ensureDiskLoaded();
-
-    final results = <String, TrackMeta>{};
+    final tracks = <String, TrackV4>{};
+    final episodes = <String, EpisodeV4>{};
     final uncached = <String>[];
 
     for (final uri in uris) {
-      final cached = _memCache.get(uri);
-      if (cached != null && (cached.fileId.isNotEmpty || cached.aacFileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
-        results[uri] = cached;
-      } else {
-        uncached.add(uri);
-      }
-    }
-
-    if (uncached.isEmpty) return results;
-
-    // Fetch in batches of 50 (extended-metadata limit).
-    const batchSize = 50;
-    final newEntries = <String, TrackMeta>{};
-
-    for (var i = 0; i < uncached.length; i += batchSize) {
-      final batch = uncached.skip(i).take(batchSize).toList();
-      final fetched = await _fetchBatch(batch);
-      for (final entry in fetched.entries) {
-        _memCache.put(entry.key, entry.value);
-        results[entry.key] = entry.value;
-        newEntries[entry.key] = entry.value;
-      }
-    }
-
-    // Persist new entries to disk (fire-and-forget).
-    if (newEntries.isNotEmpty) {
-      _diskCache.putAll(newEntries);
-    }
-
-    dev.log(
-      'ExtMetadataService: ${results.length} resolved '
-      '(${uncached.length} fetched, ${uris.length - uncached.length} cached)',
-      name: 'Metadata',
-    );
-
-    return results;
-  }
-
-  /// Fetches metadata for all given URIs in a single network request without batching.
-  /// Direct 1:1 implementation matching Kodiak single-flight datastatement decoration.
-  Future<Map<String, TrackMeta>> fetchTracksSingleRequest(List<String> uris) async {
-    if (uris.isEmpty) return {};
-
-    await _ensureDiskLoaded();
-
-    final results = <String, TrackMeta>{};
-    final uncached = <String>[];
-
-    for (final uri in uris) {
-      final cached = _memCache.get(uri);
-      if (cached != null && (cached.fileId.isNotEmpty || cached.aacFileId.isNotEmpty || cached.cdnUrl.isNotEmpty || !uri.startsWith('spotify:track:'))) {
-        results[uri] = cached;
-      } else {
-        uncached.add(uri);
-      }
-    }
-
-    if (uncached.isEmpty) return results;
-
-    // Fetch all uncached URIs in a single request without chunking
-    final fetched = await _fetchBatch(uncached);
-    for (final entry in fetched.entries) {
-      _memCache.put(entry.key, entry.value);
-      results[entry.key] = entry.value;
-    }
-
-    if (fetched.isNotEmpty) {
-      _diskCache.putAll(fetched);
-    }
-
-    dev.log(
-      'ExtMetadataService (single-request): ${results.length} resolved '
-      '(${uncached.length} fetched in 1 request, ${uris.length - uncached.length} cached)',
-      name: 'Metadata',
-    );
-
-    return results;
-  }
-
-  /// Convenience: fetch metadata for up to N unique track URIs from a list.
-  /// Useful for mosaic cover generation where only first 4 are needed.
-  Future<List<TrackMeta>> fetchFirst(List<String> uris, int count) async {
-    // Deduplicate while preserving order.
-    final unique = <String>[];
-    final seen = <String>{};
-    for (final uri in uris) {
-      if (uri.startsWith('spotify:track:') && seen.add(uri)) {
-        unique.add(uri);
-        if (unique.length >= count) break;
-      }
-    }
-
-    if (unique.isEmpty) return [];
-
-    final map = await fetchTracks(unique);
-    return unique.map((u) => map[u]).whereType<TrackMeta>().toList();
-  }
-
-  // Network
-
-  Future<Map<String, TrackMeta>> _fetchBatch(List<String> uris) async {
-    try {
-      final keys = <CellKey>{};
-      for (final u in uris) {
-        if (u.startsWith('spotify:episode:')) {
-          keys.add(CellKey(const TableKey<EpisodeMetaTrait>(), u));
+      if (uri.startsWith('spotify:episode:')) {
+        if (_dataPool.getTrait<EpisodeV4>(uri) case final cachedEp?) {
+          episodes[uri] = cachedEp;
         } else {
-          keys.add(CellKey(const TableKey<TrackMetaTrait>(), u));
+          uncached.add(uri);
         }
-        keys.add(CellKey(const TableKey<PlaybackTrait>(), u));
+      } else if (uri.startsWith('spotify:track:')) {
+        if (_dataPool.getTrait<TrackV4>(uri) case final cachedTrack?) {
+          tracks[uri] = cachedTrack;
+        } else {
+          uncached.add(uri);
+        }
       }
-      final cells = await _metadataClient.fetchCells(keys);
-      final results = <String, TrackMeta>{};
-      for (final uri in uris) {
-        final rawTrait = cells[CellKey(const TableKey<TrackMetaTrait>(), uri)] ??
-            cells[CellKey(const TableKey<EpisodeMetaTrait>(), uri)];
-        final playbackTrait = cells[CellKey(const TableKey<PlaybackTrait>(), uri)];
-        if (rawTrait is TrackMetaTrait) {
-          final playback = playbackTrait is PlaybackTrait ? playbackTrait : null;
-          final headUrl = rawTrait.headUrl.isNotEmpty
-              ? rawTrait.headUrl
-              : (playback != null && playback.headUrl.isNotEmpty ? playback.headUrl : '');
-          final fileId = rawTrait.fileId.isNotEmpty
-              ? rawTrait.fileId
-              : ((playback != null && playback.primaryFileIdHex.isNotEmpty)
-                  ? playback.primaryFileIdHex
-                  : '');
-          final aacFileId = (playback != null && playback.aacFileIdHex.isNotEmpty)
-              ? playback.aacFileIdHex
-              : (rawTrait.aacFileId.isNotEmpty ? rawTrait.aacFileId : '');
-          final cdnUrl = (playback != null && playback.passThroughCdnUrl.isNotEmpty)
-              ? playback.passThroughCdnUrl
-              : '';
+    }
 
-          if (rawTrait.canonicalUri.isNotEmpty && rawTrait.canonicalUri != uri) {
-            try {
-              final canonicalTrackKey = CellKey(const TableKey<TrackMetaTrait>(), rawTrait.canonicalUri);
-              final canonicalPlaybackKey = CellKey(const TableKey<PlaybackTrait>(), rawTrait.canonicalUri);
-              final canonicalCells = await _metadataClient.fetchCells({canonicalTrackKey, canonicalPlaybackKey});
-              final canonicalRaw = canonicalCells[canonicalTrackKey];
-              final canonicalPlayback = canonicalCells[canonicalPlaybackKey];
+    if (uncached.isEmpty) {
+      return (tracks: tracks, episodes: episodes);
+    }
 
-              if (canonicalRaw is TrackMetaTrait) {
-                final canonicalPlaybackTrait = canonicalPlayback is PlaybackTrait ? canonicalPlayback : null;
-                final resolvedHeadUrl = canonicalRaw.headUrl.isNotEmpty
-                    ? canonicalRaw.headUrl
-                    : (headUrl.isNotEmpty
-                        ? headUrl
-                        : (canonicalPlaybackTrait != null && canonicalPlaybackTrait.headUrl.isNotEmpty
-                            ? canonicalPlaybackTrait.headUrl
-                            : ''));
-                final resolvedFileId = canonicalRaw.fileId.isNotEmpty
-                    ? canonicalRaw.fileId
-                    : (fileId.isNotEmpty
-                        ? fileId
-                        : (canonicalPlaybackTrait != null && canonicalPlaybackTrait.primaryFileIdHex.isNotEmpty
-                            ? canonicalPlaybackTrait.primaryFileIdHex
-                            : ''));
-                final resolvedAacFileId = (canonicalPlaybackTrait != null && canonicalPlaybackTrait.aacFileIdHex.isNotEmpty)
-                    ? canonicalPlaybackTrait.aacFileIdHex
-                    : ((playback != null && playback.aacFileIdHex.isNotEmpty)
-                        ? playback.aacFileIdHex
-                        : (canonicalRaw.aacFileId.isNotEmpty
-                            ? canonicalRaw.aacFileId
-                            : aacFileId));
-                final resolvedCdnUrl = (canonicalPlaybackTrait != null && canonicalPlaybackTrait.passThroughCdnUrl.isNotEmpty)
-                    ? canonicalPlaybackTrait.passThroughCdnUrl
-                    : cdnUrl;
+    final fetched = await _fetchEntitiesBatch(uncached);
+    tracks.addAll(fetched.tracks);
+    episodes.addAll(fetched.episodes);
+    return (tracks: tracks, episodes: episodes);
+  }
 
-                results[uri] = TrackMeta(
-                  uri: uri,
-                  title: canonicalRaw.title.isNotEmpty ? canonicalRaw.title : rawTrait.title,
-                  subtitle: canonicalRaw.subtitle.isNotEmpty ? canonicalRaw.subtitle : rawTrait.subtitle,
-                  albumName: canonicalRaw.albumName.isNotEmpty ? canonicalRaw.albumName : rawTrait.albumName,
-                  imageUrls: canonicalRaw.imageUrls.isNotEmpty ? canonicalRaw.imageUrls : rawTrait.imageUrls,
-                  largeImageHex: canonicalRaw.largeImageHex ?? rawTrait.largeImageHex,
-                  durationMs: canonicalRaw.durationMs > 0 ? canonicalRaw.durationMs : rawTrait.durationMs,
-                  fileId: resolvedFileId,
-                  aacFileId: resolvedAacFileId,
-                  headUrl: resolvedHeadUrl,
-                  cdnUrl: resolvedCdnUrl,
-                );
-                continue;
+  Future<({Map<String, TrackV4> tracks, Map<String, EpisodeV4> episodes})>
+  _fetchEntitiesBatch(List<String> uris) async {
+    final keys = <CellKey>{};
+    for (final uri in uris) {
+      if (uri.startsWith('spotify:episode:')) {
+        keys.add(CellKey(const TableKey<EpisodeV4>(), uri));
+        keys.add(CellKey(const TableKey<PlaybackTrait>(), uri));
+      } else if (uri.startsWith('spotify:track:')) {
+        keys.add(CellKey(const TableKey<TrackV4>(), uri));
+        keys.add(CellKey(const TableKey<PlaybackTrait>(), uri));
+      }
+    }
+
+    if (keys.isEmpty) {
+      return (
+        tracks: const <String, TrackV4>{},
+        episodes: const <String, EpisodeV4>{},
+      );
+    }
+
+    final res = await _metadataClient.fetchCellsRawResult(keys);
+    switch (res) {
+      case NetworkFailure(:final error):
+        dev.log(
+          'ExtendedMetadataService batch failure: $error',
+          name: 'Metadata',
+        );
+        return (
+          tracks: const <String, TrackV4>{},
+          episodes: const <String, EpisodeV4>{},
+        );
+
+      case NetworkSuccess(data: final fetched):
+        if (fetched.cells.isNotEmpty) {
+          _dataPool.ingestCells(fetched.cells);
+        }
+        if (fetched.rawPayloads.isNotEmpty) {
+          _dataPool.ingestRawPayloads(fetched.rawPayloads);
+        }
+
+        final tracks = <String, TrackV4>{};
+        final episodes = <String, EpisodeV4>{};
+        final relinkedByOriginal = <String, String>{};
+
+        for (final uri in uris) {
+          if (uri.startsWith('spotify:episode:')) {
+            final cell =
+                fetched.cells[CellKey(const TableKey<EpisodeV4>(), uri)];
+            if (cell is EpisodeV4) {
+              episodes[uri] = cell;
+            }
+          } else if (uri.startsWith('spotify:track:')) {
+            final cell = fetched.cells[CellKey(const TableKey<TrackV4>(), uri)];
+            if (cell is TrackV4) {
+              tracks[uri] = cell;
+              if ((cell.name.isEmpty || cell.files.isEmpty) &&
+                  cell.alternatives.isNotEmpty) {
+                final altUri = cell.alternatives.first.uri;
+                if (altUri.isNotEmpty && altUri != uri) {
+                  relinkedByOriginal[uri] = altUri;
+                }
               }
-            } catch (e) {
-              dev.log('ExtendedMetadataService: Error resolving canonical track ${rawTrait.canonicalUri}: $e', name: 'Metadata.Relink');
             }
           }
-
-          results[uri] = TrackMeta(
-            uri: uri,
-            title: rawTrait.title,
-            subtitle: rawTrait.subtitle,
-            albumName: rawTrait.albumName,
-            imageUrls: rawTrait.imageUrls,
-            largeImageHex: rawTrait.largeImageHex,
-            durationMs: rawTrait.durationMs,
-            fileId: fileId,
-            aacFileId: aacFileId,
-            headUrl: headUrl,
-            cdnUrl: cdnUrl,
-          );
         }
-      }
-      return results;
-    } catch (e, st) {
-      dev.log(
-        'ExtMetadataService batch error: $e',
-        name: 'Metadata',
-        error: e,
-        stackTrace: st,
-      );
-      return {};
-    }
-  }
-}
 
-/// Disk persistence for TrackMeta.
-///
-/// Uses a single JSONL file (one JSON object per line) for fast append-only writes.
-/// Format: {"u":"spotify:track:xxx","t":"Title","s":"Artist","a":"Album","i":{...},"h":"hexId","d":12345,"f":"fileId","hu":"headUrl","c":"cdnUrl"}
-class _TrackMetaDiskCache {
-  static const _policy = CachePolicy.durable;
-  static const _fileName = 'track_meta.jsonl';
-
-  final AppCacheManager _cacheManager;
-  File? _file;
-  int _fileGeneration = -1;
-
-  _TrackMetaDiskCache({required AppCacheManager cacheManager})
-      : _cacheManager = cacheManager;
-
-  Future<File> _getFile() async {
-    if (_file != null && _fileGeneration == _cacheManager.generation) {
-      return _file!;
-    }
-    final dir = await _cacheManager.featureDir('metadata');
-    _file = File('${dir.path}${Platform.pathSeparator}$_fileName');
-    _fileGeneration = _cacheManager.generation;
-    return _file!;
-  }
-
-  /// Loads all entries from disk, deduplicating by URI.
-  Future<Map<String, TrackMeta>> loadAll() async {
-    try {
-      final file = await _getFile();
-      if (!await file.exists()) return {};
-
-      final content = await file.readAsString();
-      if (content.isEmpty) return {};
-
-      final results = <String, TrackMeta>{};
-
-      for (final line in content.split('\n')) {
-        if (line.isEmpty) continue;
-        try {
-          final j = jsonDecode(line) as Map<String, dynamic>;
-
-          // Check expiry.
-          final ts = j['ts'] as int? ?? 0;
-          if (_policy.isExpired(ts)) continue;
-
-          final meta = _fromJson(j);
-          if (meta != null) {
-            results[meta.uri] = meta;
+        if (relinkedByOriginal.isNotEmpty) {
+          final altKeys = <CellKey>{
+            for (final altUri in relinkedByOriginal.values)
+              CellKey(const TableKey<TrackV4>(), altUri),
+          };
+          final altRes = await _metadataClient.fetchCellsRawResult(altKeys);
+          if (altRes case NetworkSuccess(data: final altFetched)) {
+            if (altFetched.cells.isNotEmpty) {
+              _dataPool.ingestCells(altFetched.cells);
+            }
+            if (altFetched.rawPayloads.isNotEmpty) {
+              _dataPool.ingestRawPayloads(altFetched.rawPayloads);
+            }
+            for (final entry in relinkedByOriginal.entries) {
+              final altCell =
+                  altFetched.cells[CellKey(
+                    const TableKey<TrackV4>(),
+                    entry.value,
+                  )];
+              if (altCell is TrackV4) {
+                final original = tracks[entry.key];
+                if (original == null ||
+                    original.name.isEmpty ||
+                    (original.files.isEmpty && altCell.files.isNotEmpty)) {
+                  tracks[entry.key] = altCell;
+                }
+              }
+            }
           }
-        } catch (e) {
-          dev.log('Parse disk cache line failed: $e');
         }
-      }
 
-      return results;
-    } catch (e) {
-      dev.log('Load disk cache failed: $e');
-      return {};
+        return (tracks: tracks, episodes: episodes);
     }
   }
-
-  /// Appends new entries to disk (fire-and-forget).
-  Future<void> putAll(Map<String, TrackMeta> entries) async {
-    try {
-      final file = await _getFile();
-      final ts = DateTime.now().millisecondsSinceEpoch;
-      final sb = StringBuffer();
-
-      for (final entry in entries.entries) {
-        sb.writeln(jsonEncode(_toJson(entry.value, ts)));
-      }
-
-      await file.writeAsString(
-        sb.toString(),
-        mode: FileMode.append,
-        flush: true,
-      );
-      await _compactIfNeeded();
-    } catch (e) {
-      dev.log('Write to disk cache failed: $e');
-    }
-  }
-
-  Future<void> _compactIfNeeded() async {
-    try {
-      if (_file == null) return;
-      final lines = await _file!.readAsLines();
-      if (lines.length < 5000) return;
-      final valid = <String>[];
-      for (final line in lines) {
-        if (line.trim().isEmpty) continue;
-        try {
-          final map = jsonDecode(line) as Map<String, dynamic>;
-          final ts = map['ts'] as int? ?? 0;
-          if (!_policy.isExpired(ts)) valid.add(line);
-        } catch (e) {
-          dev.log('Compact cache check line failed: $e');
-        }
-      }
-      await _file!.writeAsString(valid.isNotEmpty ? '${valid.join('\n')}\n' : '');
-    } catch (e) {
-      dev.log('Compact cache file rewrite failed: $e');
-    }
-  }
-
-  static Map<String, dynamic> _toJson(TrackMeta meta, int ts) => {
-        'u': meta.uri,
-        't': meta.title,
-        's': meta.subtitle,
-        'a': meta.albumName,
-        'i': meta.imageUrls,
-        if (meta.largeImageHex != null) 'h': meta.largeImageHex,
-        'd': meta.durationMs,
-        if (meta.fileId.isNotEmpty) 'f': meta.fileId,
-        if (meta.aacFileId.isNotEmpty) 'af': meta.aacFileId,
-        if (meta.headUrl.isNotEmpty) 'hu': meta.headUrl,
-        if (meta.cdnUrl.isNotEmpty) 'c': meta.cdnUrl,
-        'ts': ts,
-      };
-
-  static TrackMeta? _fromJson(Map<String, dynamic> j) {
-    final uri = j['u'] as String?;
-    if (uri == null || uri.isEmpty) return null;
-
-    return TrackMeta(
-      uri: uri,
-      title: j['t'] as String? ?? '',
-      subtitle: j['s'] as String? ?? '',
-      albumName: j['a'] as String? ?? '',
-      imageUrls: (j['i'] as Map<String, dynamic>?)
-              ?.map((k, v) => MapEntry(k, v.toString())) ??
-          {},
-      largeImageHex: j['h'] as String?,
-      durationMs: j['d'] as int? ?? 0,
-      fileId: j['f'] as String? ?? '',
-      aacFileId: j['af'] as String? ?? '',
-      headUrl: j['hu'] as String? ?? '',
-      cdnUrl: j['c'] as String? ?? '',
-    );
-  }
-}
-
-/// Simple bounded LRU cache.
-class _LruCache<K, V> {
-  _LruCache(this._maxSize);
-  final int _maxSize;
-  final LinkedHashMap<K, V> _map = LinkedHashMap<K, V>();
-
-  V? get(K key) {
-    final value = _map.remove(key);
-    if (value != null) {
-      _map[key] = value;
-    }
-    return value;
-  }
-
-  void put(K key, V value) {
-    _map.remove(key);
-    _map[key] = value;
-    if (_map.length > _maxSize) {
-      _map.remove(_map.keys.first);
-    }
-  }
-
-  Map<K, V> get entries => _map;
 }

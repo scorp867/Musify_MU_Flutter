@@ -49,7 +49,7 @@ class BrowsitaParser {
       return BrowseViewData(sections: sections);
     } catch (e, stack) {
       dev.log('BrowsitaParser error: $e\n$stack', name: 'Browse');
-      return const BrowseViewData();
+      throw FormatException('Invalid Browsita ResolvedBrowse payload: $e');
     }
   }
 

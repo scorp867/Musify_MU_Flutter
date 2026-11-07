@@ -1,6 +1,6 @@
-import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file.dart';
 
 abstract interface class LocalMusicRepository {
-  Stream<List<DomainTrack>> getLocalTracks();
+  Stream<List<LocalFile>> getLocalTracks();
   Future<bool> requestPermissions();
 }

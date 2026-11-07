@@ -4,7 +4,7 @@ import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.
 import 'package:musify_mu/features/home_feed/domain/models/traits/concert_location_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/concert_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait.dart';
-import 'package:musify_mu/features/home_feed/domain/models/traits/track_meta_trait.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/track_v4/track_v4.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/visual_identity_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/on_platform_reputation_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/credits_trait.dart';
@@ -76,7 +76,7 @@ class CreditsCardDescriptor implements ScrollCardDescriptor {
       extensionKindValue: 10,
       extensionKind: ExtensionKind.TRACK_V4,
       priority: DataPriority.required,
-      traitType: TrackMetaTrait,
+      traitType: TrackV4,
     ),
     DataRequirement(
       extensionKindValue: 8,

@@ -6,15 +6,6 @@ import 'package:musify_mu/core/protocol/generated/spotify/extension_kind.pbenum.
 import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 
 /// Direct equivalent to Spotify Android's `p.wab0` / `p.xab0` (`PodcastPreviewDataElement`).
-/// Requests traits needed for video episode cards and audio episode preview cards:
-/// - PREVIEW_CARD_TRAIT (118)
-/// - AUDIO_PREVIEW_PLAYBACK_TRAIT (116)
-/// - IDENTITY_TRAIT (178)
-/// - VISUAL_IDENTITY_TRAIT (179)
-/// - PREVIEW_PLAYBACK_TRAIT (181)
-/// - EPISODE_V4 (12)
-/// - SIMPLE_TRAIT (97)
-/// - SHOW_ACCESS (31)
 class PodcastPreviewDataElement implements DataElement {
   @override
   final String id;
@@ -57,7 +48,7 @@ class PodcastPreviewDataElement implements DataElement {
       extensionKindValue: 12,
       extensionKind: ExtensionKind.EPISODE_V4,
       priority: DataPriority.optional,
-      traitType: EpisodeMetaTrait,
+      traitType: EpisodeV4,
     ),
     DataRequirement(
       extensionKindValue: 97,
@@ -73,10 +64,7 @@ class PodcastPreviewDataElement implements DataElement {
     ),
   ]);
 
-  const PodcastPreviewDataElement({
-    required this.id,
-    required this.dataPool,
-  });
+  const PodcastPreviewDataElement({required this.id, required this.dataPool});
 
   @override
   DataStatement get dataStatement => statement;

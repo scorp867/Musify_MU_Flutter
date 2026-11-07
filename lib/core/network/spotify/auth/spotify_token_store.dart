@@ -11,27 +11,53 @@ class SpotifyTokenStore {
   static const _kUsername = 'spotify_username';
   static const _kClientToken = 'spotify_client_token';
   static const _kClientTokenExpiry = 'spotify_client_token_expiry';
+  static const _kDisplayName = 'spotify_display_name';
+  static const _kAvatarUrl = 'spotify_avatar_url';
+  static const _kCountry = 'spotify_country';
+  static const _kProduct = 'spotify_product';
 
   final FlutterSecureStorage _storage;
+  final Set<void Function()> _changeListeners = <void Function()>{};
 
   SpotifyTokenStore({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage = switch (storage) {
+          final providedStorage? => providedStorage,
+          null => const FlutterSecureStorage(),
+        };
 
-  // ── sp_dc cookie ──────────────────────────────────────────────────────
+  void addChangeListener(void Function() listener) {
+    _changeListeners.add(listener);
+  }
 
-  Future<void> saveSpDc(String spDc) =>
-      _storage.write(key: _kSpDc, value: spDc);
+  void removeChangeListener(void Function() listener) {
+    _changeListeners.remove(listener);
+  }
+
+  void _notifyChanged() {
+    final snapshot = List<void Function()>.of(_changeListeners);
+    for (final listener in snapshot) {
+      listener();
+    }
+  }
+
+  // --- sp_dc cookie ---
+
+  Future<void> saveSpDc(String spDc) async {
+    await _storage.write(key: _kSpDc, value: spDc);
+    _notifyChanged();
+  }
 
   Future<String?> getSpDc() => _storage.read(key: _kSpDc);
 
   Future<bool> hasSpDc() async => (await getSpDc()) != null;
 
-  // ── Access token ──────────────────────────────────────────────────────
+  // --- Access token ---
 
   Future<void> saveAccessToken(String token, {int lifetimeMs = 3600000}) async {
     final expiry = DateTime.now().millisecondsSinceEpoch + lifetimeMs;
     await _storage.write(key: _kAccessToken, value: token);
     await _storage.write(key: _kAccessTokenExpiry, value: expiry.toString());
+    _notifyChanged();
   }
 
   Future<String?> getAccessToken() => _storage.read(key: _kAccessToken);
@@ -39,8 +65,8 @@ class SpotifyTokenStore {
   Future<bool> isAccessTokenExpired() async {
     final expiryStr = await _storage.read(key: _kAccessTokenExpiry);
     if (expiryStr == null) return true;
-    final expiry = int.tryParse(expiryStr) ?? 0;
-    // Treat as expired if less than 5 minutes remain.
+    final expiry = int.tryParse(expiryStr);
+    if (expiry == null) return true;
     return DateTime.now().millisecondsSinceEpoch > expiry - 300000;
   }
 
@@ -50,19 +76,14 @@ class SpotifyTokenStore {
     return !(await isAccessTokenExpired());
   }
 
-  static const _kDisplayName = 'spotify_display_name';
-  static const _kAvatarUrl = 'spotify_avatar_url';
-  static const _kCountry = 'spotify_country';
-  static const _kProduct = 'spotify_product';
-
-  // ── Username ──────────────────────────────────────────────────────────
+  // --- Username ---
 
   Future<void> saveUsername(String username) =>
       _storage.write(key: _kUsername, value: username);
 
   Future<String?> getUsername() => _storage.read(key: _kUsername);
 
-  // ── Profile (cached) ──────────────────────────────────────────────────
+  // --- Profile (cached) ---
 
   /// Saves a full profile snapshot locally. No network on next restore.
   Future<void> saveProfile({
@@ -83,26 +104,47 @@ class SpotifyTokenStore {
     if (product != null) {
       await _storage.write(key: _kProduct, value: product);
     }
+    _notifyChanged();
   }
 
-  /// Returns cached profile fields.
-  /// Returns null if no profile has been cached yet.
-  Future<({String username, String displayName, String? avatarUrl, String? country, String? product})?> getCachedProfile() async {
+  /// Returns cached profile fields, or null if no profile has been cached yet.
+  Future<
+      ({
+        String username,
+        String displayName,
+        String? avatarUrl,
+        String? country,
+        String? product,
+      })?> getCachedProfile() async {
     final username = await _storage.read(key: _kUsername);
     if (username == null) return null;
-    final displayName = await _storage.read(key: _kDisplayName) ?? username;
+    final rawDisplayName = await _storage.read(key: _kDisplayName);
+    final displayName =
+        (rawDisplayName != null && rawDisplayName.isNotEmpty)
+            ? rawDisplayName
+            : username;
     final avatarUrl = await _storage.read(key: _kAvatarUrl);
     final country = await _storage.read(key: _kCountry);
     final product = await _storage.read(key: _kProduct);
-    return (username: username, displayName: displayName, avatarUrl: avatarUrl, country: country, product: product);
+    return (
+      username: username,
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+      country: country,
+      product: product,
+    );
   }
 
-  // ── Client Token ───────────────────────────────────────────────────
+  // --- Client Token ---
 
-  Future<void> saveClientToken(String token, {int lifetimeMs = 86400000}) async {
+  Future<void> saveClientToken(
+    String token, {
+    int lifetimeMs = 86400000,
+  }) async {
     final expiry = DateTime.now().millisecondsSinceEpoch + lifetimeMs;
     await _storage.write(key: _kClientToken, value: token);
     await _storage.write(key: _kClientTokenExpiry, value: expiry.toString());
+    _notifyChanged();
   }
 
   Future<String?> getClientToken() => _storage.read(key: _kClientToken);
@@ -110,17 +152,18 @@ class SpotifyTokenStore {
   Future<bool> isClientTokenExpired() async {
     final expiryStr = await _storage.read(key: _kClientTokenExpiry);
     if (expiryStr == null) return true;
-    final expiry = int.tryParse(expiryStr) ?? 0;
-    // Treat as expired if less than 5 minutes remain
+    final expiry = int.tryParse(expiryStr);
+    if (expiry == null) return true;
     return DateTime.now().millisecondsSinceEpoch > expiry - 300000;
   }
 
   Future<void> deleteClientToken() async {
     await _storage.delete(key: _kClientToken);
     await _storage.delete(key: _kClientTokenExpiry);
+    _notifyChanged();
   }
 
-  // ── Clear all ─────────────────────────────────────────────────────────
+  // --- Clear all ---
 
   Future<void> clearAll() async {
     await _storage.delete(key: _kSpDc);
@@ -133,5 +176,6 @@ class SpotifyTokenStore {
     await _storage.delete(key: _kProduct);
     await _storage.delete(key: _kClientToken);
     await _storage.delete(key: _kClientTokenExpiry);
+    _notifyChanged();
   }
 }

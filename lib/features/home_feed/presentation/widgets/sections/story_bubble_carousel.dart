@@ -1,6 +1,7 @@
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 
 /// Horizontal row of circular story-style bubbles.
 /// Used for topStoryCarousel (tag 31).

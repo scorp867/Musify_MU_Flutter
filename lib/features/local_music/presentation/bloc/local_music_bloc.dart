@@ -1,5 +1,6 @@
+import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file.dart';
 import 'package:musify_mu/features/local_music/domain/repositories/local_music_repository.dart';
 
 import 'local_music_event.dart';
@@ -10,7 +11,7 @@ class LocalMusicBloc extends Bloc<LocalMusicEvent, LocalMusicState> {
 
   LocalMusicBloc({required this.repository})
       : super(const LocalMusicInitial()) {
-    on<LoadLocalTracks>(_onLoadLocalTracks);
+    on<LoadLocalTracks>(_onLoadLocalTracks, transformer: restartable());
   }
 
   Future<void> _onLoadLocalTracks(
@@ -19,13 +20,13 @@ class LocalMusicBloc extends Bloc<LocalMusicEvent, LocalMusicState> {
   ) async {
     emit(const LocalMusicLoading());
     try {
-      await emit.forEach(
+      await emit.forEach<List<LocalFile>>(
         repository.getLocalTracks(),
-        onData: (List<DomainTrack> tracks) => LocalMusicLoaded(tracks),
+        onData: LocalMusicLoaded.new,
         onError: (error, stackTrace) =>
             LocalMusicError('Failed to load local tracks: $error'),
       );
-    } catch (error) {
+    } on Object catch (error) {
       emit(LocalMusicError('Failed to load local tracks: $error'));
     }
   }

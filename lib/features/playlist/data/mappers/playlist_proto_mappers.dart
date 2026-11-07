@@ -1,5 +1,3 @@
-library;
-
 import 'dart:typed_data';
 
 import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
@@ -9,76 +7,71 @@ import 'package:musify_mu/core/protocol/generated/spotify/playlist/playlist_deta
     as detail_pb;
 import 'package:musify_mu/core/protocol/generated/spotify/playlist/rootlist.pb.dart'
     as rootlist_pb;
-import '../../domain/models/playlist_entity.dart';
-import '../../domain/models/playlist_item.dart';
-import '../../domain/models/playlist_metadata.dart';
-import '../../domain/models/sort_order.dart';
-import '../../domain/models/track_item_metadata.dart';
-import '../../../player/data/services/spotify_head_resolver.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/cover_image.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_entity.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_item.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_metadata.dart';
+import 'package:musify_mu/features/playlist/domain/models/sort_order.dart';
+import 'package:musify_mu/features/playlist/domain/models/track_item_metadata.dart';
+import 'package:musify_mu/features/playlist/presentation/extensions/track_item_metadata_presentation.dart';
 
 /// 1:1 Proto mapper translating Spotify's protobuf wire structures
-/// (PlaylistResponse, SelectedListContent, Item) into domain PlaylistEntity & PlaylistItem.
+/// (`PlaylistResponse`, `SelectedListContent`, `PageResponse`) into `PlaylistEntity`.
 class PlaylistProtoMappers {
   const PlaylistProtoMappers._();
 
-  /// Converts raw binary payload from PlaylistDataService or PlaylistRemoteSource into PlaylistEntity.
   static PlaylistEntity fromBytes(
     Uint8List bytes, {
     required String playlistUri,
     String currentUsername = '',
     ProvidedSortOrder sortOrder = ProvidedSortOrder.custom,
   }) {
-    detail_pb.PlaylistResponse? response;
-    rootlist_pb.SelectedListContent? selected;
-
-    try {
-      response = detail_pb.PlaylistResponse.fromBuffer(bytes);
-    } catch (_) {
-      try {
-        selected = rootlist_pb.SelectedListContent.fromBuffer(bytes);
-      } catch (_) {
-        // Corrupted or unrecognized wire format
-        return PlaylistEntity(
-          metadata: PlaylistMetadata(
-            uri: playlistUri,
-            name: SpotifyUriNavigator.isLikedSongsUri(playlistUri)
-                ? 'Liked Songs'
-                : 'Playlist',
-            picture: SpotifyUriNavigator.isLikedSongsUri(playlistUri)
-                ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png'
-                : '',
-          ),
-          items: const [],
-          isLoaded: false,
-        );
-      }
+    if (bytes.isEmpty) {
+      throw FormatException(
+        'PlaylistProtoMappers: empty payload for $playlistUri',
+      );
     }
 
-    if (response != null) {
+    try {
+      final response = detail_pb.PlaylistResponse.fromBuffer(bytes);
       return _fromPlaylistResponse(
         response,
         playlistUri: playlistUri,
         currentUsername: currentUsername,
         sortOrder: sortOrder,
       );
-    } else {
-      return _fromSelectedListContent(
-        selected!,
-        playlistUri: playlistUri,
-        currentUsername: currentUsername,
-        sortOrder: sortOrder,
-      );
+    } on Object {
+      try {
+        final selected = rootlist_pb.SelectedListContent.fromBuffer(bytes);
+        return _fromSelectedListContent(
+          selected,
+          playlistUri: playlistUri,
+          currentUsername: currentUsername,
+          sortOrder: sortOrder,
+        );
+      } on Object catch (e) {
+        throw FormatException(
+          'PlaylistProtoMappers: invalid protobuf payload for $playlistUri: $e',
+        );
+      }
     }
   }
 
-  /// 1:1 Mapper translating collection/v2 PageResponse bytes into a PlaylistEntity for Liked Songs.
   static PlaylistEntity fromCollectionBytes(
     Uint8List bytes, {
     required String playlistUri,
     String currentUsername = '',
     ProvidedSortOrder sortOrder = ProvidedSortOrder.custom,
   }) {
-    final response = col_pb.PageResponse.fromBuffer(bytes);
+    final col_pb.PageResponse response;
+    try {
+      response = col_pb.PageResponse.fromBuffer(bytes);
+    } on Object catch (e) {
+      throw FormatException(
+        'PlaylistProtoMappers: invalid collection PageResponse for $playlistUri: $e',
+      );
+    }
+
     final items = <PlaylistItem>[];
 
     for (int i = 0; i < response.items.length; i++) {
@@ -90,27 +83,20 @@ class PlaylistProtoMappers {
       final trackMetadata = TrackItemMetadata(
         title: _fallbackTitleFromUri(uri),
         uri: uri,
-        isPlayable: true,
-        isExplicit: false,
-        durationMs: 0,
-        albumName: '',
-        albumCovers: const [],
-        artists: const [],
-        fileId: '',
-        aacFileId: '',
-        headUrl: '',
         canonicalUri: uri,
       );
 
-      items.add(PlaylistItem(
-        uri: uri,
-        uid: '$i-$uri',
-        rowPosition: i,
-        addedBy: currentUsername,
-        addedAt: addedAt,
-        trackMetadata: trackMetadata,
-        sectionType: PlaylistSectionType.standard,
-      ));
+      items.add(
+        PlaylistItem(
+          uri: uri,
+          uid: '$i-$uri',
+          rowPosition: i,
+          addedBy: currentUsername,
+          addedAt: addedAt,
+          trackMetadata: trackMetadata,
+          sectionType: PlaylistSectionType.standard,
+        ),
+      );
     }
 
     final sortedItems = _sortItems(items, sortOrder);
@@ -118,21 +104,12 @@ class PlaylistProtoMappers {
     final metadata = PlaylistMetadata(
       uri: playlistUri,
       name: 'Liked Songs',
-      description: '',
       ownerUsername: currentUsername,
       ownerName: currentUsername.isNotEmpty ? currentUsername : 'You',
-      ownerAvatarUrl: '',
-      isCollaborative: false,
       isFollowed: true,
-      isPublished: false,
       canEdit: true,
-      canReport: false,
-      canAnnotate: false,
-      canDelete: false,
-      totalDurationMs: 0,
-      followersCount: 0,
+      canAnnotate: true,
       picture: 'https://misc.scdn.co/liked-songs/liked-songs-300.png',
-      customAttributes: const {},
     );
 
     return PlaylistEntity(
@@ -155,7 +132,8 @@ class PlaylistProtoMappers {
     final attrs = response.attributes;
     final coverUrl = _extractCoverUrl(attrs);
     final ownerUsername = response.ownerUsername;
-    final isOwn = currentUsername.isNotEmpty && ownerUsername == currentUsername;
+    final isOwn =
+        currentUsername.isNotEmpty && ownerUsername == currentUsername;
     final isLikedSongs = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
 
     final metadata = PlaylistMetadata(
@@ -168,16 +146,12 @@ class PlaylistProtoMappers {
       ownerName: isLikedSongs && ownerUsername.isEmpty
           ? (currentUsername.isNotEmpty ? currentUsername : 'You')
           : ownerUsername,
-      ownerAvatarUrl: '',
       isCollaborative: attrs.collaborative,
-      isFollowed: false,
       isPublished: true,
       canEdit: isOwn || isLikedSongs,
       canReport: !isOwn && !isLikedSongs,
       canAnnotate: isOwn || isLikedSongs,
       canDelete: isOwn && !isLikedSongs,
-      totalDurationMs: 0,
-      followersCount: 0,
       picture: isLikedSongs && (coverUrl == null || coverUrl.isEmpty)
           ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png'
           : (coverUrl ?? ''),
@@ -217,7 +191,8 @@ class PlaylistProtoMappers {
     final attrs = selected.attributes;
     final coverUrl = _extractCoverUrl(attrs);
     final ownerUsername = selected.ownerUsername;
-    final isOwn = currentUsername.isNotEmpty && ownerUsername == currentUsername;
+    final isOwn =
+        currentUsername.isNotEmpty && ownerUsername == currentUsername;
     final isLikedSongs = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
 
     final metadata = PlaylistMetadata(
@@ -275,47 +250,35 @@ class PlaylistProtoMappers {
         ? _extractFormatAttributes(itemAttrs.formatAttributes)
         : const <String, String>{};
 
-    final title = formatMap['name'] ??
+    final title =
+        formatMap['name'] ??
         formatMap['title'] ??
         _fallbackTitleFromUri(item.uri);
 
-    final artistName = formatMap['artist_name'] ??
-        formatMap['artists'] ??
-        '';
+    final artistName = formatMap['artist_name'] ?? formatMap['artists'] ?? '';
 
-    final albumName = formatMap['album_title'] ??
-        formatMap['album_name'] ??
-        '';
+    final albumName =
+        formatMap['album_title'] ?? formatMap['album_name'] ?? '';
 
-    final durationMs = int.tryParse(formatMap['duration'] ?? '') ??
+    final durationMs =
+        int.tryParse(formatMap['duration'] ?? '') ??
         int.tryParse(formatMap['length'] ?? '') ??
         0;
 
-    final cover = formatMap['image_url'] ??
+    final cover =
+        formatMap['image_url'] ??
         formatMap['picture'] ??
         formatMap['album_image'] ??
         '';
 
-    final isExplicit = formatMap['explicit'] == 'true' ||
-        formatMap['is_explicit'] == 'true';
+    final isExplicit =
+        formatMap['explicit'] == 'true' || formatMap['is_explicit'] == 'true';
 
     final isPlayable = formatMap['is_playable'] != 'false';
 
-    final rawFileId = formatMap['file_id'] ??
-        formatMap['audio.file_id'] ??
-        formatMap['track_file_id'] ??
-        '';
-    final fileId = SpotifyHeadResolver.instance.normalizeFileId(rawFileId);
-    final rawAacFileId = formatMap['aac_file_id'] ??
-        formatMap['audio.aac_file_id'] ??
-        (itemAttrs != null && itemAttrs.hasItemId() && itemAttrs.itemId.isNotEmpty
-            ? SpotifyHeadResolver.instance.normalizeFileId(itemAttrs.itemId)
-            : '');
-    final aacFileId = SpotifyHeadResolver.instance.normalizeFileId(rawAacFileId);
-    final canonicalUri = formatMap['canonical_uri'] ?? formatMap['linked_from_uri'] ?? '';
-    final headUrl = formatMap['head_file_url'] ?? formatMap['head_url'] ?? '';
+    final canonicalUri =
+        formatMap['canonical_uri'] ?? formatMap['linked_from_uri'] ?? '';
 
-    // Section classification: matches Spotify's "You added" vs "Includes" vs "We added"
     PlaylistSectionType sectionType = PlaylistSectionType.standard;
     if (addedBy.isNotEmpty && currentUsername.isNotEmpty) {
       if (addedBy == currentUsername) {
@@ -327,18 +290,25 @@ class PlaylistProtoMappers {
       }
     }
 
+    final coverImage = cover.isNotEmpty
+        ? CoverImage(
+            defaultUrl: cover,
+            smallUrl: cover,
+            largeUrl: cover,
+            xlargeUrl: cover,
+          )
+        : const CoverImage();
+
     final trackMetadata = TrackItemMetadata(
+      coverImage: coverImage,
       title: title,
       uri: item.uri,
       isPlayable: isPlayable,
       isExplicit: isExplicit,
       durationMs: durationMs,
       albumName: albumName,
-      albumCovers: cover.isNotEmpty ? [cover] : const [],
+      albumCoverImage: coverImage,
       artists: artistName.isNotEmpty ? [artistName] : const [],
-      fileId: fileId,
-      aacFileId: aacFileId,
-      headUrl: headUrl,
       canonicalUri: canonicalUri,
     );
 
@@ -362,11 +332,19 @@ class PlaylistProtoMappers {
       case ProvidedSortOrder.custom:
         copy.sort((a, b) => a.rowPosition.compareTo(b.rowPosition));
       case ProvidedSortOrder.title:
-        copy.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        copy.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        );
       case ProvidedSortOrder.artist:
-        copy.sort((a, b) => a.subtitle.toLowerCase().compareTo(b.subtitle.toLowerCase()));
+        copy.sort(
+          (a, b) =>
+              a.subtitle.toLowerCase().compareTo(b.subtitle.toLowerCase()),
+        );
       case ProvidedSortOrder.album:
-        copy.sort((a, b) => a.albumName.toLowerCase().compareTo(b.albumName.toLowerCase()));
+        copy.sort(
+          (a, b) =>
+              a.albumName.toLowerCase().compareTo(b.albumName.toLowerCase()),
+        );
       case ProvidedSortOrder.dateAdded:
         copy.sort((a, b) => b.addedAt.compareTo(a.addedAt));
     }

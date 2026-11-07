@@ -39,18 +39,16 @@ class PlayerScreen extends StatefulWidget {
   final String album;
   final Duration duration;
   final String? imageUrl;
-  final int? songId;
   final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
 
   const PlayerScreen({
     super.key,
-    this.title = 'Starboy',
-    this.artist = 'The Weeknd, Daft Punk',
-    this.album = 'Starboy',
-    this.duration = const Duration(minutes: 3, seconds: 50),
+    this.title = '',
+    this.artist = '',
+    this.album = '',
+    this.duration = Duration.zero,
     this.imageUrl,
-    this.songId,
     this.queueBloc,
     this.currentTrack,
   });
@@ -61,12 +59,11 @@ class PlayerScreen extends StatefulWidget {
   /// native Spotify transition curves and single-top route guarding.
   static Future<void> show(
     BuildContext context, {
-    String title = 'Starboy',
-    String artist = 'The Weeknd, Daft Punk',
-    String album = 'Starboy',
-    Duration duration = const Duration(minutes: 3, seconds: 50),
+    String title = '',
+    String artist = '',
+    String album = '',
+    Duration duration = Duration.zero,
     String? imageUrl,
-    int? songId,
     PlayerQueueMobiusController? queueBloc,
     ContextTrack? currentTrack,
   }) async {
@@ -95,7 +92,6 @@ class PlayerScreen extends StatefulWidget {
               album: album,
               duration: duration,
               imageUrl: imageUrl,
-              songId: songId,
               queueBloc: effectiveBloc,
               currentTrack: currentTrack,
             );
@@ -154,7 +150,6 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   static const Color _topGradientColor = Color(0xFF1E3264);
 
-  // Memoized 16-step eased gradient decoration to achieve 120 FPS without per-frame rebuild overhead
   static final Decoration _tier1Decoration = BoxDecoration(
     gradient: EasedGradient.build(
       topColor: _topGradientColor,
@@ -163,11 +158,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   );
 
   PlayerQueueMobiusController? get _effectiveBloc => switch (widget.queueBloc) {
-        final b? => b,
-        null => getIt.isRegistered<PlayerQueueMobiusController>()
-            ? getIt<PlayerQueueMobiusController>()
-            : null,
-      };
+    final b? => b,
+    null => getIt.isRegistered<PlayerQueueMobiusController>()
+        ? getIt<PlayerQueueMobiusController>()
+        : null,
+  };
 
   LoggingParams? _logPlayerInteraction(
     String elementPath, [
@@ -198,7 +193,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       fallbackAlbum: widget.album,
       fallbackDuration: widget.duration,
       fallbackImageUrl: widget.imageUrl,
-      fallbackSongId: widget.songId,
     );
   }
 
@@ -341,7 +335,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     final displayAlbum = vm.album;
     final displayDuration = vm.duration;
     final displayImageUrl = vm.imageUrl;
-    final displaySongId = vm.songId;
 
     final isPlaying = vm.isPlaying;
     final shuffleMode = vm.shuffleMode;
@@ -401,9 +394,6 @@ class _PlayerScreenState extends State<PlayerScreen>
           onShowAllEvents: () {},
         );
 
-        // 1:1 Spotify card promotion:
-        // If track has valid lyrics, Lyrics is peeking card.
-        // If no lyrics, CreatorBio promotes to peeking card.
         ScrollCardDescriptor peekingDesc;
         List<ScrollCardDescriptor> expandedDescs;
 
@@ -445,12 +435,9 @@ class _PlayerScreenState extends State<PlayerScreen>
           final uid? when uid.isNotEmpty => uid,
           _ => switch (track?.uri) {
             final uri? when uri.isNotEmpty => uri,
-            _ => switch (displaySongId) {
-              final id? => 'song_$id',
-              null => switch (displayImageUrl) {
-                final url? => url,
-                null => 'default',
-              },
+            _ => switch (displayImageUrl) {
+              final url? => url,
+              null => 'default',
             },
           },
         };
@@ -502,7 +489,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                           child: PlayerAlbumArtwork(
                             key: ValueKey('artwork_$artworkKeyString'),
                             imageUrl: displayImageUrl,
-                            songId: displaySongId,
                           ),
                         ),
                       ),

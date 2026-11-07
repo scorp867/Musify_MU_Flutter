@@ -23,16 +23,11 @@
 ///                                                                  | (on fault)
 ///                                                                  v
 ///                                                               Faulted
-///
-/// Thread model:
-///   - Main/FFI thread: loadLocal, loadDualSource, loadEncryptedStream, play, pause, seekMs, getters
-///   - Decoder thread(s): fills RingBuffer from AMediaCodec (Primary & Secondary)
-///   - Background worker: negotiates Widevine DRM and primes SecondaryDecoder
-///   - Audio callback thread (Oboe): drains RingBuffer to hardware
 class AudioEngine : public oboe::AudioStreamDataCallback,
                     public oboe::AudioStreamErrorCallback {
 public:
     using EosCallback = std::function<void()>;
+    using SecondaryFailureCallback = std::function<void(const std::string& reason)>;
 
     AudioEngine();
     ~AudioEngine();
@@ -40,19 +35,23 @@ public:
     AudioEngine(const AudioEngine&) = delete;
     AudioEngine& operator=(const AudioEngine&) = delete;
 
-    // -----------------------------------------------------------------------
-    // Control API (called from Dart FFI / main thread)
-    // -----------------------------------------------------------------------
-
     /// Register callback invoked when playback naturally finishes and ring buffer drains (EOS).
     void setEosCallback(EosCallback cb);
 
-    /// Load a local audio file. Transitions: * -> Loading -> Prebuffering.
+    /// Register callback invoked when the background full-track stream fails to attach
+    /// (storage open, Widevine license exchange, sample-rate mismatch, decoder start).
+    void setSecondaryFailureCallback(SecondaryFailureCallback cb);
+
+    /// Configure whether reaching the prebuffer watermark automatically starts Oboe output.
+    void setAutoPlay(bool autoPlay);
+
+    /// Stop active decoders, Oboe stream, and worker threads and reset state to Idle.
+    void stop();
+
+    /// Load a local audio file or direct HTTP URL. Transitions: * -> Loading -> Prebuffering.
     EngineStatus loadLocal(const char* filePath);
 
-    /// Load Spotify track with native chunk 0 head file resolution & download in C++.
-    /// Downloads/caches the 128 KiB head file directly, begins playback immediately (< 30ms TTFA),
-    /// and seamlessly hands over to the full track MP4 stream via AMediaCodec without audio glitch.
+    /// Load Spotify track with native chunk 0 head file resolution and download in C++.
     EngineStatus loadTrackWithHead(const char* fileIdHex,
                                    const char* fullTrackUrl,
                                    const char* cacheDir,
@@ -63,8 +62,10 @@ public:
     /// Asynchronously prefetch the 128 KiB chunk 0 head file into local storage.
     void prefetchHead(const char* fileIdHex, const char* cacheDir);
 
+    /// Download or verify a Chunk 0 head file synchronously (unblocking once initial 8 KiB is ready).
+    static bool downloadHeadFileNative(const char* fileIdHex, const char* targetFilePath);
+
     /// Load dual sources: fast preview (OGG) + background DRM CDN track (AAC).
-    /// handoffPositionMs: Target handoff in ms, or -1 for natural stream EOF (Option C).
     EngineStatus loadDualSource(const char* primaryPath,
                                 const char* secondaryUrl,
                                 const char* licenseServerUrl,
@@ -77,7 +78,7 @@ public:
                                 const char* authHeader,
                                 int64_t handoffPositionMs);
 
-    /// Load a single encrypted audio stream directly (e.g. Widevine AAC track without Vorbis head chunk).
+    /// Load a single encrypted audio stream directly (Widevine AAC/FLAC without Vorbis head chunk).
     EngineStatus loadEncryptedStream(const char* url,
                                     const char* licenseServerUrl,
                                     const char* authHeader);
@@ -88,10 +89,10 @@ public:
                                        const char* authHeader,
                                        int64_t handoffPositionMs = -1);
 
-    /// Set DRM session ID directly from Dart/Kotlin if negotiated externally.
+    /// Set DRM session ID directly if negotiated externally.
     EngineStatus setDrmSessionId(const uint8_t* sessionId, int32_t sessionLen);
 
-    /// Initialise an encrypted stream source. Currently returns ErrorIO.
+    /// Initialise an encrypted stream source.
     EngineStatus initEncryptedStream(int64_t totalSize,
                                      const uint8_t* key16,
                                      const uint8_t* iv16);
@@ -111,7 +112,7 @@ public:
     EngineStatus seekMs(int64_t positionMs);
 
     // -----------------------------------------------------------------------
-    // Telemetry API (called from Dart FFI polling timer)
+    // Telemetry API
     // -----------------------------------------------------------------------
 
     int64_t getPositionMs() const;
@@ -122,7 +123,7 @@ public:
     bool isHandoffCompleted() const { return mHandoffCompleted.load(std::memory_order_relaxed); }
 
     // -----------------------------------------------------------------------
-    // Oboe callbacks (called from real-time audio thread)
+    // Oboe callbacks
     // -----------------------------------------------------------------------
 
     oboe::DataCallbackResult onAudioReady(
@@ -147,10 +148,11 @@ private:
                                         const std::string& licenseServerUrl,
                                         const std::string& authHeader);
     void closeActiveDrmSession();
-    static bool downloadHeadFileNative(const char* fileIdHex, const char* targetFilePath);
+    void failSecondary(const std::string& reason);
 
     // --- State ---
     std::atomic<EngineState> mState{EngineState::Uninitialized};
+    std::atomic<bool> mAutoPlay{true};
 
     // --- Audio pipeline components ---
     RingBuffer mRingBuffer;
@@ -177,7 +179,7 @@ private:
     std::thread mSecondaryWorkerThread;
     std::atomic<bool> mSecondaryWorkerShouldStop{false};
 
-    // --- Format info (set during loadSource, immutable afterwards) ---
+    // --- Format info ---
     int32_t mSampleRate{48000};
     int32_t mSourceChannelCount{2};
     int64_t mDurationMs{0};
@@ -199,5 +201,6 @@ private:
     // --- EOS Notification Callback ---
     std::mutex mEosMutex;
     EosCallback mEosCallback;
+    SecondaryFailureCallback mSecondaryFailureCallback;
     std::atomic<bool> mEosNotified{false};
 };

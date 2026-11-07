@@ -104,11 +104,18 @@ class BrowseRepositoryImpl implements BrowseRepository {
 
       try {
         final fetcher = BrowseMetadataFetcher(client: _client, ctx: _ctx);
-        final freshCards = await fetcher.fetchBrowseTraits(missing);
-        await _traitCache.putAll(freshCards);
-        allCards.addAll(freshCards);
+        final (:cards, :rawResponse) = await fetcher.fetchBrowseTraitsRaw(
+          missing,
+        );
+        if (rawResponse != null && cards.isNotEmpty) {
+          await _traitCache.putRawResponse(rawResponse, cards);
+        }
+        allCards.addAll(cards);
       } catch (e) {
-        dev.log('BrowseRepo: Delta trait fetch skipped/failed (offline?): $e', name: 'Browse');
+        dev.log(
+          'BrowseRepo: Delta trait fetch skipped/failed (offline?): $e',
+          name: 'Browse',
+        );
       }
     }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 
 /// 2-column compact grid — used for shortcuts (recently played quick access).
 /// Mimics Spotify's top quick-access grid with small rectangular cards.

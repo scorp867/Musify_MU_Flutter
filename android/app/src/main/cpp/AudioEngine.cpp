@@ -25,8 +25,16 @@ static jmethodID sDownloadHeadMethod = nullptr;
 static jclass sDrmBridgeClass = nullptr;
 static jmethodID sAcquireSessionMethod = nullptr;
 static jmethodID sCloseSessionMethod = nullptr;
+static jclass sHttpBridgeClass = nullptr;
+static jmethodID sExecuteHttpMethod = nullptr;
 static jobject sClassLoader = nullptr;
 static jmethodID sLoadClassMethod = nullptr;
+
+JavaVM* getMusifyJavaVm() noexcept { return sJavaVm; }
+jclass getMusifyHttpBridgeClass() noexcept { return sHttpBridgeClass; }
+jmethodID getMusifyExecuteHttpMethod() noexcept { return sExecuteHttpMethod; }
+jobject getMusifyClassLoader() noexcept { return sClassLoader; }
+jmethodID getMusifyLoadClassMethod() noexcept { return sLoadClassMethod; }
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
     sJavaVm = vm;
@@ -72,7 +80,22 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
 
-    // 3. Cache Application ClassLoader as universal fallback for background threads
+    // 3. Cache NativeHttpBridge class and method
+    jclass localHttp = env->FindClass("um/musify/mu/musify_mu/NativeHttpBridge");
+    if (localHttp) {
+        sHttpBridgeClass = reinterpret_cast<jclass>(env->NewGlobalRef(localHttp));
+        sExecuteHttpMethod = env->GetStaticMethodID(
+            sHttpBridgeClass,
+            "executeRequest",
+            "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[BII)[B");
+        env->DeleteLocalRef(localHttp);
+        LOGI("NativeHttpBridge cached (cls=%p, method=%p)", sHttpBridgeClass, sExecuteHttpMethod);
+    } else {
+        LOGE("Failed to find NativeHttpBridge in JNI_OnLoad");
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+
+    // 4. Cache Application ClassLoader as universal fallback for background threads
     jclass mainActivityClass = env->FindClass("um/musify/mu/musify_mu/MainActivity");
     if (mainActivityClass) {
         jclass classClass = env->GetObjectClass(mainActivityClass);
@@ -100,6 +123,7 @@ extern "C" JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* /*reserved*/) {
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK && env) {
         if (sHeadDownloaderClass) env->DeleteGlobalRef(sHeadDownloaderClass);
         if (sDrmBridgeClass) env->DeleteGlobalRef(sDrmBridgeClass);
+        if (sHttpBridgeClass) env->DeleteGlobalRef(sHttpBridgeClass);
         if (sClassLoader) env->DeleteGlobalRef(sClassLoader);
     }
 }
@@ -119,6 +143,40 @@ AudioEngine::~AudioEngine() {
 void AudioEngine::setEosCallback(EosCallback cb) {
     std::lock_guard<std::mutex> lock(mEosMutex);
     mEosCallback = std::move(cb);
+}
+
+void AudioEngine::setSecondaryFailureCallback(SecondaryFailureCallback cb) {
+    std::lock_guard<std::mutex> lock(mEosMutex);
+    mSecondaryFailureCallback = std::move(cb);
+}
+
+void AudioEngine::failSecondary(const std::string& reason) {
+    LOGE("Secondary stream failed: %s", reason.c_str());
+    mSecondaryFailed.store(true, std::memory_order_release);
+    mSecondaryPending.store(false, std::memory_order_release);
+    if (mSecondaryWorkerShouldStop.load(std::memory_order_acquire)) {
+        return;
+    }
+    SecondaryFailureCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(mEosMutex);
+        cb = mSecondaryFailureCallback;
+    }
+    if (cb) {
+        cb(reason);
+    }
+}
+
+void AudioEngine::setAutoPlay(bool autoPlay) {
+    mAutoPlay.store(autoPlay, std::memory_order_release);
+}
+
+void AudioEngine::stop() {
+    stopPlayback();
+    mFramesConsumedByHardware.store(0, std::memory_order_relaxed);
+    mSeekPositionMs.store(0, std::memory_order_relaxed);
+    mDurationMs = 0;
+    mState.store(EngineState::Idle, std::memory_order_release);
 }
 
 // ===========================================================================
@@ -820,9 +878,7 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
     auto secSource = std::make_unique<HttpMediaDataSource>(secondaryUrl.c_str(), authHeader.c_str());
     EngineStatus status = secSource->open();
     if (status != EngineStatus::Ok) {
-        LOGE("Secondary remote source open failed: %d", static_cast<int>(status));
-        mSecondaryFailed.store(true, std::memory_order_release);
-        mSecondaryPending.store(false, std::memory_order_release);
+        failSecondary("Secondary remote source open failed: " + std::to_string(static_cast<int>(status)));
         return;
     }
 
@@ -928,9 +984,7 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
 
         crypto = acquireWidevineCrypto(psshData, licenseServerUrl, authHeader);
         if (!crypto) {
-            LOGE("Failed to acquire Widevine crypto session after retries");
-            mSecondaryFailed.store(true, std::memory_order_release);
-            mSecondaryPending.store(false, std::memory_order_release);
+            failSecondary("Widevine license acquisition failed (see MusifyDrmManager logs)");
             secSource->close();
             return;
         }
@@ -944,24 +998,29 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
         return;
     }
 
-    int64_t targetSeekMs = handoffMs;
-    if (targetSeekMs <= 0 && mPrimaryDecoder) {
-        // Wait briefly if primary decoder is actively decoding the small head chunk (< 50ms)
-        int attempts = 0;
-        while (!mPrimaryDecoder->isEndOfStream() && attempts < 100) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            attempts++;
-        }
-        int64_t primaryFrames = mPrimaryDecoder->getDecodedFrames();
-        int32_t sr = mSampleRate > 0 ? mSampleRate : 44100;
-        targetSeekMs = (primaryFrames * 1000) / sr;
+    if (secSource->getSampleRate() != mSampleRate) {
+        failSecondary("Secondary sample rate " + std::to_string(secSource->getSampleRate()) +
+                      " differs from primary " + std::to_string(mSampleRate) +
+                      "; ring buffer has no resampler");
+        secSource->close();
+        return;
     }
 
-    int64_t handoffUs = targetSeekMs * 1000LL;
-    if (handoffUs <= 0 && mPrimaryDecoder) {
-        int32_t sr = mSampleRate > 0 ? mSampleRate : 44100;
-        handoffUs = (mPrimaryDecoder->getDecodedFrames() * 1000000LL) / sr;
+    int64_t handoffUs = handoffMs * 1000LL;
+    if (handoffMs <= 0 && mPrimaryDecoder) {
+        // RingBuffer is single-producer: the secondary decoder must not start until the
+        // primary has committed its final frame.
+        while (!mPrimaryDecoder->isEndOfStream()) {
+            if (mSecondaryWorkerShouldStop.load(std::memory_order_acquire)) {
+                secSource->close();
+                mSecondaryPending.store(false, std::memory_order_release);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        handoffUs = (mPrimaryDecoder->getDecodedFrames() * 1000000LL) / mSampleRate;
     }
+    const int64_t targetSeekMs = handoffUs / 1000LL;
 
     if (handoffUs > 0) {
         // Use AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC to ensure seek lands at or before handoffUs.
@@ -988,9 +1047,7 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
 
     status = secDecoder->configure();
     if (status != EngineStatus::Ok) {
-        LOGE("Secondary decoder configure failed: %d", static_cast<int>(status));
-        mSecondaryFailed.store(true, std::memory_order_release);
-        mSecondaryPending.store(false, std::memory_order_release);
+        failSecondary("Secondary decoder configure failed: " + std::to_string(static_cast<int>(status)));
         secSource->close();
         return;
     }
@@ -999,9 +1056,7 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
     // Since mPrimaryDecoder has finished decoding chunk 0, there is zero contention on mRingBuffer.
     EngineStatus startStatus = secDecoder->start();
     if (startStatus != EngineStatus::Ok) {
-        LOGE("Secondary decoder failed to start in worker thread: %d", static_cast<int>(startStatus));
-        mSecondaryFailed.store(true, std::memory_order_release);
-        mSecondaryPending.store(false, std::memory_order_release);
+        failSecondary("Secondary decoder failed to start: " + std::to_string(static_cast<int>(startStatus)));
         secSource->close();
         return;
     }
@@ -1016,9 +1071,12 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
     LOGI("Seamless dual-source handoff initiated: secondary decoder actively buffering ahead at %lld ms",
          static_cast<long long>(targetSeekMs));
 
-    // Ensure audio playback continues or resumes if a buffer gap occurred
+    // Resume after a buffer gap only if the user has not paused in the meantime
     const EngineState currentEngineState = mState.load(std::memory_order_acquire);
-    if (currentEngineState == EngineState::Paused || currentEngineState == EngineState::Prebuffering || currentEngineState == EngineState::Stopped) {
+    const bool resumable = currentEngineState == EngineState::Paused ||
+                           currentEngineState == EngineState::Prebuffering ||
+                           currentEngineState == EngineState::Stopped;
+    if (resumable && mAutoPlay.load(std::memory_order_acquire)) {
         mState.store(EngineState::Playing, std::memory_order_release);
         if (mStream) {
             mStream->requestStart();
@@ -1336,16 +1394,21 @@ void AudioEngine::decoderMonitorFunc() {
 
             if (available >= watermark || (eos && available > 0)) {
                 watermarkReached = true;
-                mState.store(EngineState::Playing, std::memory_order_release);
+                if (mAutoPlay.load(std::memory_order_acquire)) {
+                    mState.store(EngineState::Playing, std::memory_order_release);
 
-                if (mStream) {
-                    oboe::Result result = mStream->requestStart();
-                    if (result != oboe::Result::OK) {
-                        LOGE("Oboe requestStart failed: %d", static_cast<int>(result));
-                        mState.store(EngineState::Faulted, std::memory_order_release);
-                    } else {
-                        LOGI("Playback started (watermark reached: %zu frames)", available);
+                    if (mStream) {
+                        oboe::Result result = mStream->requestStart();
+                        if (result != oboe::Result::OK) {
+                            LOGE("Oboe requestStart failed: %d", static_cast<int>(result));
+                            mState.store(EngineState::Faulted, std::memory_order_release);
+                        } else {
+                            LOGI("Playback started (watermark reached: %zu frames)", available);
+                        }
                     }
+                } else {
+                    mState.store(EngineState::Paused, std::memory_order_release);
+                    LOGI("Prebuffer watermark reached in paused state (%zu frames)", available);
                 }
             }
         }
@@ -1473,6 +1536,7 @@ EngineStatus AudioEngine::openOboeStream() {
 // ===========================================================================
 
 EngineStatus AudioEngine::play() {
+    mAutoPlay.store(true, std::memory_order_release);
     const EngineState current = mState.load(std::memory_order_acquire);
     if (current == EngineState::Paused || current == EngineState::Stopped) {
         mState.store(EngineState::Playing, std::memory_order_release);
@@ -1481,13 +1545,16 @@ EngineStatus AudioEngine::play() {
         }
         return EngineStatus::Ok;
     }
-    if (current == EngineState::Playing) {
+    if (current == EngineState::Playing ||
+        current == EngineState::Prebuffering ||
+        current == EngineState::Loading) {
         return EngineStatus::Ok;
     }
     return EngineStatus::ErrorInvalidState;
 }
 
 EngineStatus AudioEngine::pause() {
+    mAutoPlay.store(false, std::memory_order_release);
     const EngineState current = mState.load(std::memory_order_acquire);
     if (current == EngineState::Playing) {
         mState.store(EngineState::Paused, std::memory_order_release);
@@ -1496,7 +1563,10 @@ EngineStatus AudioEngine::pause() {
         }
         return EngineStatus::Ok;
     }
-    if (current == EngineState::Paused || current == EngineState::Stopped) {
+    if (current == EngineState::Paused ||
+        current == EngineState::Stopped ||
+        current == EngineState::Prebuffering ||
+        current == EngineState::Loading) {
         return EngineStatus::Ok;
     }
     return EngineStatus::ErrorInvalidState;

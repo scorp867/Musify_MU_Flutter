@@ -10,7 +10,6 @@ import 'package:musify_mu/features/library/data/cache/library_cache.dart';
 import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
-import 'package:musify_mu/features/player/data/services/spotify_head_resolver.dart';
 import 'package:musify_mu/features/player/domain/commands/options/logging_params.dart';
 import 'package:musify_mu/features/player/domain/commands/options/player_option_overrides.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
@@ -19,7 +18,6 @@ import 'package:musify_mu/features/player/domain/commands/play_command.dart';
 import 'package:musify_mu/features/player/domain/models/context.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
-import 'package:musify_mu/features/player/data/services/spotify_audio_stream_registry.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:musify_mu/features/player/domain/models/player_response.dart';
 import 'package:musify_mu/features/playlist/domain/models/playlist_entity.dart';
@@ -32,6 +30,7 @@ import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dar
 import 'package:musify_mu/features/playlist/data/decorator/playlist_kodiak_decorator.dart';
 import 'package:musify_mu/features/playlist/data/mappers/playlist_proto_mappers.dart';
 import 'package:musify_mu/features/playlist/data/proto/playlist_esperanto_proto.dart';
+import 'package:musify_mu/features/playlist/presentation/extensions/track_item_metadata_presentation.dart';
 
 /// 1:1 Implementation of Spotify PlaylistRepository.
 /// Interconnects Esperanto transport, ContextPlayer, remote sources, cache, and Kodiak decoration.
@@ -85,31 +84,11 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
 
     // 1. Emit disk cache immediately for instant UI render
     if (_cache != null) {
-      final cachedBytes = await _cache.getRawBytes(playlistId);
-      if (cachedBytes != null && cachedBytes.isNotEmpty) {
-        final cachedEntity = PlaylistProtoMappers.fromBytes(
-          cachedBytes,
-          playlistUri: playlistUri,
-          currentUsername: _currentUsername,
-          sortOrder: sortOrder,
-        );
-        _memoryCache[playlistId] = cachedEntity;
-        _memoryCache[playlistUri] = cachedEntity;
-        yield cachedEntity;
-        hasEmittedData = true;
-
-        // Asynchronously decorate cached entity in single flight if decorator is configured
-        if (_kodiakDecorator != null && cachedEntity.items.isNotEmpty) {
-          final decorated = await _kodiakDecorator.decorate(cachedEntity);
-          _memoryCache[playlistId] = decorated;
-          _memoryCache[playlistUri] = decorated;
-          yield decorated;
-        }
-      } else if (isLiked && _libraryCache != null) {
-        final colBytes = await _libraryCache.getStructureBytes('col_collection');
-        if (colBytes != null && colBytes.isNotEmpty) {
-          final cachedEntity = PlaylistProtoMappers.fromCollectionBytes(
-            colBytes,
+      try {
+        final cachedBytes = await _cache.getRawBytes(playlistId);
+        if (cachedBytes != null && cachedBytes.isNotEmpty) {
+          final cachedEntity = PlaylistProtoMappers.fromBytes(
+            cachedBytes,
             playlistUri: playlistUri,
             currentUsername: _currentUsername,
             sortOrder: sortOrder,
@@ -125,7 +104,35 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             _memoryCache[playlistUri] = decorated;
             yield decorated;
           }
+        } else if (isLiked && _libraryCache != null) {
+          final colBytes = await _libraryCache.getStructureBytes(
+            'col_collection',
+          );
+          if (colBytes != null && colBytes.isNotEmpty) {
+            final cachedEntity = PlaylistProtoMappers.fromCollectionBytes(
+              colBytes,
+              playlistUri: playlistUri,
+              currentUsername: _currentUsername,
+              sortOrder: sortOrder,
+            );
+            _memoryCache[playlistId] = cachedEntity;
+            _memoryCache[playlistUri] = cachedEntity;
+            yield cachedEntity;
+            hasEmittedData = true;
+
+            if (_kodiakDecorator != null && cachedEntity.items.isNotEmpty) {
+              final decorated = await _kodiakDecorator.decorate(cachedEntity);
+              _memoryCache[playlistId] = decorated;
+              _memoryCache[playlistUri] = decorated;
+              yield decorated;
+            }
+          }
         }
+      } on FormatException catch (e) {
+        dev.log(
+          'Corrupted playlist cache for $playlistUri: $e',
+          name: 'PlaylistRepository',
+        );
       }
     }
 
@@ -471,13 +478,21 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         final metadata = <String, String>{
           ContextTrackMetadata.keyTitle: item.title,
           ContextTrackMetadata.keyArtistName: item.subtitle,
-          if (item.imageXlargeUrl.isNotEmpty) ContextTrackMetadata.keyImageXlargeUrl: item.imageXlargeUrl,
-          if (item.imageLargeUrl.isNotEmpty) ContextTrackMetadata.keyImageLargeUrl: item.imageLargeUrl,
-          if (item.imageUrl.isNotEmpty) ContextTrackMetadata.keyImageUrl: item.imageUrl,
-          if (item.imageSmallUrl.isNotEmpty) ContextTrackMetadata.keyImageSmallUrl: item.imageSmallUrl,
-          if (item.thumbnailUrl.isNotEmpty) ContextTrackMetadata.keyThumbnailImageUrl: item.thumbnailUrl,
-          if (item.durationMs > 0) ContextTrackMetadata.keyDuration: item.durationMs.toString(),
-          ContextTrackMetadata.keyIsExplicit: item.isExplicit ? 'true' : 'false',
+          if (item.albumName.isNotEmpty)
+            ContextTrackMetadata.keyAlbumTitle: item.albumName,
+          if (item.imageXlargeUrl.isNotEmpty)
+            ContextTrackMetadata.keyImageXlargeUrl: item.imageXlargeUrl,
+          if (item.imageLargeUrl.isNotEmpty)
+            ContextTrackMetadata.keyImageLargeUrl: item.imageLargeUrl,
+          if (item.imageUrl.isNotEmpty)
+            ContextTrackMetadata.keyImageUrl: item.imageUrl,
+          if (item.imageSmallUrl.isNotEmpty)
+            ContextTrackMetadata.keyImageSmallUrl: item.imageSmallUrl,
+          if (item.durationMs > 0)
+            ContextTrackMetadata.keyDuration: item.durationMs.toString(),
+          ContextTrackMetadata.keyIsExplicit: item.isExplicit
+              ? 'true'
+              : 'false',
           ContextTrackMetadata.keyContextUri: playlistUri,
           ContextTrackMetadata.keyIsQueued: 'false',
         };
@@ -487,22 +502,9 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             metadata[ContextTrackMetadata.keyAlbumUri] = trackMeta.albumUri;
           }
           if (trackMeta.artistUris.isNotEmpty) {
-            metadata[ContextTrackMetadata.keyArtistUri] = trackMeta.artistUris.first;
+            metadata[ContextTrackMetadata.keyArtistUri] =
+                trackMeta.artistUris.first;
           }
-          final resolvedHeadUrl = trackMeta.headUrl.isNotEmpty
-              ? trackMeta.headUrl
-              : (trackMeta.fileId.isNotEmpty
-                  ? SpotifyHeadResolver.instance.buildHeadUrl(trackMeta.fileId)
-                  : null);
-          SpotifyAudioStreamRegistry.instance.register(
-            item.uri,
-            TrackStreamInfo(
-              fileId: trackMeta.fileId.isNotEmpty ? trackMeta.fileId : null,
-              aacFileId: trackMeta.aacFileId.isNotEmpty ? trackMeta.aacFileId : null,
-              headUrl: resolvedHeadUrl,
-              cdnUrl: trackMeta.cdnUrl.isNotEmpty ? trackMeta.cdnUrl : null,
-            ),
-          );
         }
         return ContextTrack.builder(item.uri)
             .uid(item.uid)

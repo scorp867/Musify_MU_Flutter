@@ -1,6 +1,7 @@
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:musify_mu/features/home_feed/domain/models/spotify_entity.dart';
+import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
 
 /// Campaign link carousel — 16:9 editorial banners with typography.
 /// Corresponds to Casita's campaignLinkCarousel (tag 23).

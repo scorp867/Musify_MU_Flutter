@@ -3,6 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/ui/formatters/duration_formatter.dart';
 import 'package:musify_mu/core/ui/widgets/shell_bottom_spacer.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file_metadata.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file_uri.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_state.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
@@ -12,7 +15,7 @@ import 'package:musify_mu/features/player/domain/models/context.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:musify_mu/features/player/presentation/widgets/player_artwork.dart';
 
 class LocalMusicScreen extends StatelessWidget {
   const LocalMusicScreen({super.key});
@@ -60,184 +63,173 @@ class LocalMusicScreen extends StatelessWidget {
   Widget _buildLocalLibrarySliver() {
     return BlocBuilder<LocalMusicBloc, LocalMusicState>(
       builder: (context, state) {
-        if (state is LocalMusicLoading) {
-          return const SliverFillRemaining(
-            hasScrollBody: false,
-            child: Center(
-              child: CircularProgressIndicator(color: Color(0xFF10B981)),
-            ),
-          );
-        } else if (state is LocalMusicError) {
-          return SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                state.message,
-                style: const TextStyle(color: Colors.red),
-              ),
-            ),
-          );
-        } else if (state is LocalMusicLoaded) {
-          final tracks = state.tracks;
-
-          if (tracks.isEmpty) {
+        switch (state) {
+          case LocalMusicInitial():
+            return const SliverToBoxAdapter(child: SizedBox.shrink());
+          case LocalMusicLoading():
             return const SliverFillRemaining(
               hasScrollBody: false,
+              child: Center(
+                child: CircularProgressIndicator(color: Color(0xFF10B981)),
+              ),
+            );
+          case LocalMusicError(:final message):
+            return SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 32),
-                child: Center(
-                  child: Text(
-                    'No local music found on your device.',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  message,
+                  style: const TextStyle(color: Colors.red),
                 ),
               ),
             );
-          }
-
-          return SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final track = tracks[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: GestureDetector(
-                    onTap: () {
-                      final allContextTracks = tracks.map((t) {
-                        final albumTitle = switch (t.album) {
-                          final a? when a.isNotEmpty => a,
-                          _ => 'Local Music',
-                        };
-                        final durationStr = switch (t.duration) {
-                          final d? when d > 0 => d.toString(),
-                          _ => '0',
-                        };
-                        final dataPathStr = switch (t.dataPath) {
-                          final p? => p,
-                          null => '',
-                        };
-
-                        return ContextTrack.builder('spotify:local:${t.id}')
-                            .uid('local_${t.id}')
-                            .metadata({
-                              ContextTrackMetadata.keyTitle: t.title,
-                              ContextTrackMetadata.keyArtistName: t.artist,
-                              ContextTrackMetadata.keyAlbumTitle: albumTitle,
-                              ContextTrackMetadata.keyDuration: durationStr,
-                              ContextTrackMetadata.keyLocalFilePath: dataPathStr,
-                              if (t.songId case final sId?)
-                                ContextTrackMetadata.keySongId: sId.toString(),
-                              ContextTrackMetadata.keyIsQueued: 'false',
-                            })
-                            .build();
-                      }).toList(growable: false);
-
-                      final tappedTrack = allContextTracks[index];
-
-                      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
-                        final controller = getIt<PlayerQueueMobiusController>();
-
-                        final page = ContextPage.builder()
-                            .tracks(allContextTracks)
-                            .build();
-
-                        final contextModel = Context.builder('spotify:internal:local-files')
-                            .url('context://spotify:internal:local-files')
-                            .metadata({
-                              ContextTrackMetadata.keyTitle: 'Local Files',
-                            })
-                            .pages([page])
-                            .build();
-
-                        final playOptions = PreparePlayOptions.builder()
-                            .skipTo(SkipToTrack.fromUri(tappedTrack.uri))
-                            .build();
-
-                        controller.playContext(
-                          contextModel,
-                          options: playOptions,
-                          playOrigin: const PlayOrigin(
-                            featureIdentifier: 'local_files',
-                            viewUri: 'spotify:internal:local-files',
-                          ),
-                        );
-                      }
-                    },
-                    behavior: HitTestBehavior.opaque,
-                    child: Row(
-                      children: [
-                        QueryArtworkWidget(
-                          id: track.songId ?? int.tryParse(track.id) ?? 0,
-                          type: ArtworkType.AUDIO,
-                          artworkHeight: 50,
-                          artworkWidth: 50,
-                          artworkBorder: BorderRadius.zero,
-                          artworkClipBehavior: Clip.none,
-                          artworkQuality: FilterQuality.low,
-                          quality: 50,
-                          keepOldArtwork: true,
-                          nullArtworkWidget: Container(
-                            width: 50,
-                            height: 50,
-                            color: const Color(0xFF1E293B),
-                            child: const Icon(
-                              Icons.music_note,
-                              color: Color(0xFF10B981),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                track.title,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                track.artist,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade400,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (track.duration case final dur?)
-                          Text(
-                            _formatDuration(dur),
-                            style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 12,
-                            ),
-                          ),
-                      ],
+          case LocalMusicLoaded(:final tracks):
+            if (tracks.isEmpty) {
+              return const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+                  child: Center(
+                    child: Text(
+                      'No local music found on your device.',
+                      style: TextStyle(color: Colors.grey, fontSize: 16),
                     ),
                   ),
-                );
-              }, childCount: tracks.length),
-            ),
-          );
-        }
+                ),
+              );
+            }
 
-        return const SliverToBoxAdapter(child: SizedBox.shrink());
+            return SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              sliver: SliverList.builder(
+                itemCount: tracks.length,
+                itemBuilder: (context, index) {
+                  final file = tracks[index];
+                  return _LocalFileRow(
+                    key: ValueKey<String>(file.path),
+                    file: file,
+                    onTap: () => _playLocalContext(tracks, index),
+                  );
+                },
+              ),
+            );
+        }
       },
     );
   }
 
-  String _formatDuration(int milliseconds) {
-    return DurationFormatter.milliseconds(milliseconds);
+  void _playLocalContext(List<LocalFile> tracks, int index) {
+    if (index < 0 || index >= tracks.length) return;
+    if (!getIt.isRegistered<PlayerQueueMobiusController>()) return;
+
+    final allContextTracks = <ContextTrack>[
+      for (var i = 0; i < tracks.length; i++)
+        LocalFileUri.toContextTrack(tracks[i], uidIndex: i),
+    ];
+
+    final tappedTrack = allContextTracks[index];
+    final controller = getIt<PlayerQueueMobiusController>();
+
+    final page = ContextPage.builder().tracks(allContextTracks).build();
+    final contextModel = Context.builder('spotify:internal:local-files')
+        .url('context://spotify:internal:local-files')
+        .metadata({
+          ContextTrackMetadata.keyTitle: 'Local Files',
+        })
+        .pages([page])
+        .build();
+
+    final playOptions = PreparePlayOptions.builder()
+        .skipTo(
+          SkipToTrack.builder()
+              .trackUid(tappedTrack.uid)
+              .trackUri(tappedTrack.uri)
+              .build(),
+        )
+        .build();
+
+    controller.playContext(
+      contextModel,
+      options: playOptions,
+      playOrigin: const PlayOrigin(
+        featureIdentifier: 'local_files',
+        viewUri: 'spotify:internal:local-files',
+      ),
+    );
+  }
+}
+
+class _LocalFileRow extends StatelessWidget {
+  final LocalFile file;
+  final VoidCallback onTap;
+
+  const _LocalFileRow({
+    super.key,
+    required this.file,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = switch (file.metadata) {
+      final m? => m,
+      null => const LocalFileMetadata(),
+    };
+    final trackUri = LocalFileUri.fromLocalFile(file);
+    final imageUri = LocalFileUri.toLocalFileImageUri(trackUri);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          children: [
+            PlayerArtworkImage(
+              imageUrl: imageUri,
+              artworkWidth: 50,
+              artworkHeight: 50,
+              placeholderIconSize: 22,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    meta.title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    meta.artist,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade400,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (meta.duration > 0)
+              Text(
+                DurationFormatter.milliseconds(meta.duration * 1000),
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 12,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

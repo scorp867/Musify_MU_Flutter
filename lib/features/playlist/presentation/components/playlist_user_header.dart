@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/navigation/spotify_uri_navigator.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../domain/models/playlist_metadata.dart';
+import '../../domain/policies/playlist_curation_policy.dart';
 
 /// 1:1 replica of Spotify's User-Owned / Personal Playlist Header
 /// (`expanded_header.xml`, `MetadataRow.java`, `R.layout.expanded_header`).

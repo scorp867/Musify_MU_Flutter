@@ -1,18 +1,23 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Concert location metadata (ExtensionKind 123).
-class ConcertLocationTrait extends Trait {
+@immutable
+final class ConcertLocationTrait extends Trait {
   final String venue;
   final String city;
 
   const ConcertLocationTrait({this.venue = '', this.city = ''});
 
   @override
-  Map<String, dynamic> toJson() => {'venue': venue, 'city': city};
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ConcertLocationTrait &&
+        other.venue == venue &&
+        other.city == city;
+  }
 
-  factory ConcertLocationTrait.fromJson(Map<String, dynamic> json) =>
-      ConcertLocationTrait(
-        venue: json['venue'] ?? '',
-        city: json['city'] ?? '',
-      );
+  @override
+  int get hashCode => Object.hash(venue, city);
 }

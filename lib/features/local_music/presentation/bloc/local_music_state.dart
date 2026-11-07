@@ -1,31 +1,36 @@
-import 'package:equatable/equatable.dart';
-import 'package:musify_mu/features/local_music/domain/entities/domain_track.dart';
+import 'dart:collection';
 
-abstract class LocalMusicState extends Equatable {
+import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file.dart';
+
+@immutable
+sealed class LocalMusicState extends Equatable {
   const LocalMusicState();
 
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => const [];
 }
 
-class LocalMusicInitial extends LocalMusicState {
+final class LocalMusicInitial extends LocalMusicState {
   const LocalMusicInitial();
 }
 
-class LocalMusicLoading extends LocalMusicState {
+final class LocalMusicLoading extends LocalMusicState {
   const LocalMusicLoading();
 }
 
-class LocalMusicLoaded extends LocalMusicState {
-  final List<DomainTrack> tracks;
+final class LocalMusicLoaded extends LocalMusicState {
+  final List<LocalFile> tracks;
 
-  const LocalMusicLoaded(this.tracks);
+  LocalMusicLoaded(List<LocalFile> tracks)
+      : tracks = UnmodifiableListView<LocalFile>(tracks);
 
   @override
   List<Object?> get props => [tracks];
 }
 
-class LocalMusicError extends LocalMusicState {
+final class LocalMusicError extends LocalMusicState {
   final String message;
 
   const LocalMusicError(this.message);

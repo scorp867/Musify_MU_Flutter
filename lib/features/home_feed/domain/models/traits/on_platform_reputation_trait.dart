@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
-/// ExtensionKind 185 (ON_PLATFORM_REPUTATION_TRAIT).
+/// ExtensionKind 185 (`ON_PLATFORM_REPUTATION_TRAIT`).
 /// Equivalent to Spotify Android's `aip0`.
-class OnPlatformReputationTrait extends Trait {
+@immutable
+final class OnPlatformReputationTrait extends Trait {
   final int monthlyListeners;
   final int totalPlays;
   final int totalEstablishedUserRelationships;
@@ -18,21 +21,23 @@ class OnPlatformReputationTrait extends Trait {
   });
 
   @override
-  Map<String, dynamic> toJson() => {
-    'monthlyListeners': monthlyListeners,
-    'totalPlays': totalPlays,
-    'totalEstablishedUserRelationships': totalEstablishedUserRelationships,
-    'isVerified': isVerified,
-    'isRegistered': isRegistered,
-  };
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is OnPlatformReputationTrait &&
+        other.monthlyListeners == monthlyListeners &&
+        other.totalPlays == totalPlays &&
+        other.totalEstablishedUserRelationships ==
+            totalEstablishedUserRelationships &&
+        other.isVerified == isVerified &&
+        other.isRegistered == isRegistered;
+  }
 
-  factory OnPlatformReputationTrait.fromJson(Map<String, dynamic> json) =>
-      OnPlatformReputationTrait(
-        monthlyListeners: json['monthlyListeners'] as int? ?? 0,
-        totalPlays: json['totalPlays'] as int? ?? 0,
-        totalEstablishedUserRelationships:
-            json['totalEstablishedUserRelationships'] as int? ?? 0,
-        isVerified: json['isVerified'] as bool? ?? false,
-        isRegistered: json['isRegistered'] as bool? ?? false,
-      );
+  @override
+  int get hashCode => Object.hash(
+    monthlyListeners,
+    totalPlays,
+    totalEstablishedUserRelationships,
+    isVerified,
+    isRegistered,
+  );
 }

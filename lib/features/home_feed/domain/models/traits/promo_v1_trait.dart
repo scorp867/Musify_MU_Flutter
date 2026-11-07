@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Promotion V1 banner trait (ExtensionKind 167).
-class PromoV1Trait extends Trait {
+@immutable
+final class PromoV1Trait extends Trait {
   final String title;
   final String subtitle;
   final String? imageUrl;
@@ -17,19 +20,17 @@ class PromoV1Trait extends Trait {
   });
 
   @override
-  Map<String, dynamic> toJson() => {
-    'title': title,
-    'subtitle': subtitle,
-    'imageUrl': imageUrl,
-    'actionText': actionText,
-    'actionUri': actionUri,
-  };
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is PromoV1Trait &&
+        other.title == title &&
+        other.subtitle == subtitle &&
+        other.imageUrl == imageUrl &&
+        other.actionText == actionText &&
+        other.actionUri == actionUri;
+  }
 
-  factory PromoV1Trait.fromJson(Map<String, dynamic> json) => PromoV1Trait(
-    title: json['title'] ?? '',
-    subtitle: json['subtitle'] ?? '',
-    imageUrl: json['imageUrl'],
-    actionText: json['actionText'] ?? '',
-    actionUri: json['actionUri'] ?? '',
-  );
+  @override
+  int get hashCode =>
+      Object.hash(title, subtitle, imageUrl, actionText, actionUri);
 }

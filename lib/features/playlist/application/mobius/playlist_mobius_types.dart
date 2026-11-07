@@ -7,6 +7,7 @@ import '../../domain/models/playlist_entity.dart';
 import '../../domain/models/playlist_item.dart';
 import '../../domain/models/playlist_screen_state.dart';
 import '../../domain/models/sort_order.dart';
+import '../../presentation/extensions/track_item_metadata_presentation.dart';
 
 /// Sealed hierarchy of all user intents, system notifications, and player sync events.
 @immutable

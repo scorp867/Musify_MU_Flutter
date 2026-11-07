@@ -587,45 +587,157 @@ inline bool decode_single_string(const uint8_t* data, size_t size, std::string& 
 
 } // anonymous namespace
 
-ContextPlayerImpl::ContextPlayerImpl(AudioEngine* engine)
-    : audio_engine_(engine) {
-    LOGI("ContextPlayerImpl initialized (engine=%p)", audio_engine_);
-    if (audio_engine_) {
-        audio_engine_->setEosCallback([this]() {
-            advance_to_next_track();
-        });
+ContextPlayerImpl::ContextPlayerImpl(std::shared_ptr<rendering::TrackPlayer> track_player)
+    : track_player_(std::move(track_player)) {
+    LOGI("ContextPlayerImpl initialized (track_player=%p)", track_player_.get());
+    if (track_player_) {
+        bind_track_player_callbacks(track_player_);
     }
 }
 
 ContextPlayerImpl::~ContextPlayerImpl() {
-    if (audio_engine_) {
-        audio_engine_->setEosCallback(nullptr);
+    if (track_player_) {
+        track_player_->setCallbacks(rendering::TrackPlayerCallbacks{});
+        track_player_->stop(rendering::StopReason::SessionDeleted);
     }
     LOGI("ContextPlayerImpl destroying session_id=%s", session_id_.c_str());
 }
 
-void ContextPlayerImpl::set_audio_engine(AudioEngine* engine) noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (audio_engine_) {
-        audio_engine_->setEosCallback(nullptr);
+void ContextPlayerImpl::set_track_player(std::shared_ptr<rendering::TrackPlayer> track_player) {
+    std::shared_ptr<rendering::TrackPlayer> previous;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        previous = std::move(track_player_);
+        track_player_ = track_player;
     }
-    audio_engine_ = engine;
-    if (audio_engine_) {
-        audio_engine_->setEosCallback([this]() {
-            advance_to_next_track();
-        });
+    if (previous) {
+        previous->setCallbacks(rendering::TrackPlayerCallbacks{});
+        previous->stop(rendering::StopReason::SessionDeleted);
     }
-    LOGI("ContextPlayerImpl attached AudioEngine=%p", audio_engine_);
+    if (track_player) {
+        bind_track_player_callbacks(track_player);
+    }
 }
 
-AudioEngine* ContextPlayerImpl::get_audio_engine() const noexcept {
+std::shared_ptr<rendering::TrackPlayer> ContextPlayerImpl::get_track_player() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return audio_engine_;
+    return track_player_;
 }
 
-void ContextPlayerImpl::set_play_track_callback(PlayTrackCallback cb) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    play_track_callback_ = std::move(cb);
+void ContextPlayerImpl::bind_track_player_callbacks(
+    const std::shared_ptr<rendering::TrackPlayer>& tp) {
+    rendering::TrackPlayerCallbacks cbs;
+    cbs.peek_track = [this](bool /*playable_only*/) -> std::optional<context_view::Entry> {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!user_queue_.empty()) {
+            return user_queue_.front();
+        }
+        const auto next = context_processor_.get_next_tracks(1);
+        if (!next.empty()) {
+            return next.front();
+        }
+        return std::nullopt;
+    };
+    cbs.advance_track = [this](rendering::AdvanceReason reason) {
+        advance_to_next_track(reason);
+    };
+    cbs.on_state_changed = [this](const rendering::TrackPlayerState& state) {
+        on_track_player_state_changed(state);
+    };
+    cbs.on_track_metadata_resolved = [this](const std::string& uri, const metadata::TrackInfo& info) {
+        on_track_metadata_resolved(uri, info);
+    };
+    cbs.on_error = [this](int32_t code, const std::string& message) {
+        on_track_player_error(code, message);
+    };
+    tp->setCallbacks(std::move(cbs));
+}
+
+void ContextPlayerImpl::on_track_player_state_changed(const rendering::TrackPlayerState& state) {
+    StateChangedCallback sc_cb;
+    std::vector<uint8_t> sc_bytes;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        is_playing_ = state.is_playing;
+        is_paused_ = state.is_paused;
+        is_buffering_ = state.is_buffering;
+        if (state.position_ms >= 0) {
+            position_ms_ = state.position_ms;
+        }
+        if (state.duration_ms > 0) {
+            duration_ms_ = state.duration_ms;
+        }
+        emit_state_locked();
+        sc_cb = state_changed_callback_;
+        sc_bytes = cached_state_bytes_;
+    }
+    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+}
+
+void ContextPlayerImpl::on_track_metadata_resolved(
+    const std::string& uri,
+    const metadata::TrackInfo& info) {
+    StateChangedCallback sc_cb;
+    QueueChangedCallback qc_cb;
+    std::vector<uint8_t> sc_bytes;
+    std::vector<uint8_t> qc_bytes;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!current_track_.has_value() || current_track_->uri != uri) {
+            return;
+        }
+        auto set_if_missing = [this](const char* key, const std::string& val) {
+            if (val.empty()) return;
+            auto it = current_track_->metadata.find(key);
+            if (it == current_track_->metadata.end() || it->second.empty()) {
+                current_track_->metadata[key] = val;
+            }
+        };
+        set_if_missing("title", info.title);
+        set_if_missing("artist_name", info.artist_name);
+        set_if_missing("artist_uri", info.artist_uri);
+        set_if_missing("album_title", info.album_title);
+        set_if_missing("album_uri", info.album_uri);
+        set_if_missing("image_small_url", info.image_small_url);
+        set_if_missing("image_url", info.image_url);
+        set_if_missing("image_large_url", info.image_large_url);
+        set_if_missing("image_xlarge_url", info.image_xlarge_url);
+        if (info.is_explicit) {
+            set_if_missing("is_explicit", "true");
+        }
+        if (info.duration_ms > 0) {
+            duration_ms_ = info.duration_ms;
+            set_if_missing("duration", std::to_string(info.duration_ms));
+        }
+
+        emit_state_locked();
+        emit_queue_locked();
+        sc_cb = state_changed_callback_;
+        qc_cb = queue_changed_callback_;
+        sc_bytes = cached_state_bytes_;
+        qc_bytes = cached_queue_bytes_;
+    }
+    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+}
+
+void ContextPlayerImpl::on_track_player_error(int32_t /*code*/, const std::string& message) {
+    ErrorCallback err_cb;
+    StateChangedCallback sc_cb;
+    std::vector<uint8_t> sc_bytes;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        is_buffering_ = false;
+        is_playing_ = false;
+        is_paused_ = false;
+        last_error_ = "LOAD_FAILED";
+        err_cb = error_callback_;
+        emit_state_locked();
+        sc_cb = state_changed_callback_;
+        sc_bytes = cached_state_bytes_;
+    }
+    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    if (err_cb) err_cb("LOAD_FAILED", message);
 }
 
 void ContextPlayerImpl::set_state_changed_callback(StateChangedCallback cb) {
@@ -714,18 +826,24 @@ bool ContextPlayerImpl::handle_command(
 
 bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
     if (!payload || len == 0) {
-        if (is_paused_) return resume();
+        bool paused = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            paused = is_paused_;
+        }
+        if (paused) return resume();
         return false;
     }
 
     DecodedPreparePlay parsed;
     if (!parse_prepare_play_request(payload, len, parsed)) {
         LOGE("ContextPlayerImpl.play: failed to parse PlayRequest wire format");
+        std::lock_guard<std::mutex> lock(mutex_);
         last_error_ = "INVALID_PLAY_REQUEST";
         return false;
     }
 
-    PlayTrackCallback cb;
+    std::shared_ptr<rendering::TrackPlayer> tp;
     context_view::Entry track_to_play;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
@@ -800,7 +918,7 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
             LOGI("ContextPlayerImpl.play: playing uri=%s uid=%s",
                  current_track_->uri.c_str(), current_track_->uid.c_str());
             track_to_play = *current_track_;
-            cb = play_track_callback_;
+            tp = track_player_;
         }
 
         emit_state_locked();
@@ -813,13 +931,22 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
 
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (cb && !track_to_play.uri.empty()) {
-        cb(track_to_play, true);
+    if (tp && !track_to_play.uri.empty()) {
+        tp->start(track_to_play, rendering::StartReason::PlayCommand, 0, false);
     }
     return true;
 }
 
 bool ContextPlayerImpl::pause() {
+    std::shared_ptr<rendering::TrackPlayer> tp;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        tp = track_player_;
+    }
+    if (tp) {
+        tp->pause();
+    }
+
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
     {
@@ -828,9 +955,8 @@ bool ContextPlayerImpl::pause() {
         is_playing_ = false;
         is_paused_ = true;
         is_buffering_ = false;
-        if (audio_engine_) {
-            audio_engine_->pause();
-            position_ms_ = audio_engine_->getPositionMs();
+        if (track_player_) {
+            position_ms_ = track_player_->getPosition();
         }
         emit_state_locked();
         sc_cb = state_changed_callback_;
@@ -841,6 +967,24 @@ bool ContextPlayerImpl::pause() {
 }
 
 bool ContextPlayerImpl::resume() {
+    std::shared_ptr<rendering::TrackPlayer> tp;
+    std::optional<context_view::Entry> fallback_track;
+    int64_t resume_pos = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        tp = track_player_;
+        fallback_track = current_track_;
+        resume_pos = position_ms_;
+    }
+
+    if (tp) {
+        if (!tp->getCurrentTrack().has_value() && fallback_track.has_value()) {
+            tp->start(*fallback_track, rendering::StartReason::PlayCommand, resume_pos, false);
+        } else {
+            tp->resume();
+        }
+    }
+
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
     {
@@ -848,9 +992,6 @@ bool ContextPlayerImpl::resume() {
         LOGI("ContextPlayer RoutingTrackPlayer: PauseOrAwaitPause not active");
         is_playing_ = true;
         is_paused_ = false;
-        if (audio_engine_) {
-            audio_engine_->play();
-        }
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
@@ -860,12 +1001,21 @@ bool ContextPlayerImpl::resume() {
 }
 
 bool ContextPlayerImpl::seek_to(int64_t position_ms) {
+    std::shared_ptr<rendering::TrackPlayer> tp;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        tp = track_player_;
+    }
+    if (tp) {
+        tp->seek(position_ms, rendering::SeekOrigin::User);
+    }
+
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         LOGI("ContextPlayer RoutingTrackPlayer: Seeking to %lld ms", static_cast<long long>(position_ms));
-        seek_to_locked(position_ms);
+        position_ms_ = position_ms;
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
@@ -894,7 +1044,7 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
             if (!decode_varint(p, end, tag)) break;
             uint32_t f = static_cast<uint32_t>(tag >> 3);
             uint32_t w = static_cast<uint32_t>(tag & 0x07);
-            if (f == 1 && w == 2) { // Field 1: CommandOptions options
+            if (f == 1 && w == 2) {
                 uint64_t l = 0;
                 if (!decode_varint(p, end, l) || p + l > end) break;
                 const uint8_t* opt_p = p;
@@ -904,14 +1054,14 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                     if (!decode_varint(opt_p, opt_end, opt_tag)) break;
                     uint32_t opt_f = static_cast<uint32_t>(opt_tag >> 3);
                     uint32_t opt_w = static_cast<uint32_t>(opt_tag & 0x07);
-                    if (opt_f == 1) { // Field 1: override_restrictions (bool)
+                    if (opt_f == 1) {
                         decode_bool_value(opt_p, opt_end, opt_w, override_restrictions);
                     } else {
                         if (!skip_field(opt_p, opt_end, opt_w)) break;
                     }
                 }
                 p += l;
-            } else if (f == 3 && w == 2) { // Field 3: ContextTrack track
+            } else if (f == 3 && w == 2) {
                 uint64_t l = 0;
                 if (!decode_varint(p, end, l) || p + l > end) break;
                 decode_context_track(p, static_cast<size_t>(l), target_track);
@@ -922,11 +1072,13 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
         }
     }
 
-    PlayTrackCallback cb;
+    std::shared_ptr<rendering::TrackPlayer> tp;
     context_view::Entry next_track;
     bool should_play = false;
+    bool should_stop_context = false;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
+    ErrorCallback err_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
 
     {
@@ -934,132 +1086,136 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
         if (!override_restrictions && !restrictions_engine_.get_custom_disallow_skipping_next().empty()) {
             LOGW("ContextPlayer: SkipNext restricted by custom policy");
             last_error_ = "SKIP_TO_NEXT_RESTRICTED";
-            if (error_callback_) {
-                error_callback_("SKIP_TO_NEXT_RESTRICTED", "Skipping to next track is restricted");
+            err_cb = error_callback_;
+        } else {
+            LOGI("ContextPlayer RoutingTrackPlayer: pause/stop player while advancing");
+            tp = track_player_;
+
+            if (current_track_.has_value()) {
+                LOGI("advanced_past_track: %s", current_track_->uri.c_str());
             }
-            return false;
-        }
 
-        LOGI("ContextPlayer RoutingTrackPlayer: pause/stop player while advancing");
-        if (audio_engine_) {
-            audio_engine_->pause();
-        }
+            bool handled_target = false;
+            if (!target_track.uri.empty() || !target_track.uid.empty()) {
+                bool found_in_user_queue = false;
+                auto it = user_queue_.end();
 
-        if (current_track_.has_value()) {
-            LOGI("advanced_past_track: %s", current_track_->uri.c_str());
-        }
-
-        // Target track requested (1:1 with Spotify x0j0 case 25 / kax0)
-        bool handled_target = false;
-        if (!target_track.uri.empty() || !target_track.uid.empty()) {
-            bool found_in_user_queue = false;
-            std::vector<context_view::Entry>::iterator it = user_queue_.end();
-
-            if (!target_track.uid.empty()) {
-                // Strict UID matching
-                if (target_track.provider != "context") {
+                if (!target_track.uid.empty()) {
+                    if (target_track.provider != "context") {
+                        it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
+                            return e.uid == target_track.uid;
+                        });
+                        found_in_user_queue = (it != user_queue_.end());
+                    }
+                } else if (!target_track.uri.empty() &&
+                           (target_track.provider == "queue" || target_track.provider.empty())) {
                     it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
-                        return e.uid == target_track.uid;
+                        return e.uri == target_track.uri;
                     });
                     found_in_user_queue = (it != user_queue_.end());
                 }
-            } else if (!target_track.uri.empty() && (target_track.provider == "queue" || target_track.provider.empty())) {
-                // Fallback to URI match ONLY if UID was empty
-                it = std::find_if(user_queue_.begin(), user_queue_.end(), [&](const context_view::Entry& e) {
-                    return e.uri == target_track.uri;
-                });
-                found_in_user_queue = (it != user_queue_.end());
-            }
 
-            if (found_in_user_queue) {
-                current_track_ = *it;
-                user_queue_.erase(user_queue_.begin(), it + 1);
-                queue_revision_++;
-                is_playing_ = true;
-                is_paused_ = false;
-                is_buffering_ = true;
-                position_ms_ = 0;
-                next_track = *current_track_;
-                should_play = true;
-                cb = play_track_callback_;
-                handled_target = true;
-            } else {
-                bool found = false;
-                if (!target_track.uid.empty()) {
-                    found = context_processor_.skip_to_uid(target_track.uid);
-                } else if (!target_track.uri.empty() && target_track.provider != "queue") {
-                    found = context_processor_.skip_to_uri(target_track.uri);
-                }
-                if (found) {
-                    auto track = context_processor_.get_current_track();
-                    if (track.has_value()) {
-                        queue_revision_++;
-                        current_track_ = *track;
-                        is_playing_ = true;
-                        is_paused_ = false;
-                        is_buffering_ = true;
-                        position_ms_ = 0;
-                        next_track = *current_track_;
-                        should_play = true;
-                        cb = play_track_callback_;
-                        handled_target = true;
-                    }
-                }
-            }
-        }
-
-        if (!handled_target) {
-            if (!user_queue_.empty()) {
-                current_track_ = user_queue_.front();
-                user_queue_.erase(user_queue_.begin());
-                queue_revision_++;
-                is_playing_ = true;
-                is_paused_ = false;
-                is_buffering_ = true;
-                position_ms_ = 0;
-                next_track = *current_track_;
-                should_play = true;
-                cb = play_track_callback_;
-                LOGI("preroll_track_advance to user queue track: %s", next_track.uri.c_str());
-            } else {
-                bool advanced = context_processor_.skip_next();
-                if (!advanced && repeating_context_) {
-                    context_processor_.skip_to_index(0);
-                    advanced = true;
-                }
-                if (advanced) {
-                    auto track = context_processor_.get_current_track();
-                    if (track.has_value()) {
-                        current_track_ = *track;
-                        is_playing_ = true;
-                        is_paused_ = false;
-                        is_buffering_ = true;
-                        position_ms_ = 0;
-                        next_track = *current_track_;
-                        should_play = true;
-                        cb = play_track_callback_;
-                        LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
-                    }
-                } else {
-                    is_playing_ = false;
+                if (found_in_user_queue) {
+                    current_track_ = *it;
+                    user_queue_.erase(user_queue_.begin(), it + 1);
+                    queue_revision_++;
+                    is_playing_ = true;
                     is_paused_ = false;
-                    is_buffering_ = false;
+                    is_buffering_ = true;
+                    position_ms_ = 0;
+                    duration_ms_ = 0;
+                    next_track = *current_track_;
+                    should_play = true;
+                    handled_target = true;
+                } else {
+                    bool found = false;
+                    if (!target_track.uid.empty()) {
+                        found = context_processor_.skip_to_uid(target_track.uid);
+                    } else if (!target_track.uri.empty() && target_track.provider != "queue") {
+                        found = context_processor_.skip_to_uri(target_track.uri);
+                    }
+                    if (found) {
+                        auto track = context_processor_.get_current_track();
+                        if (track.has_value()) {
+                            queue_revision_++;
+                            current_track_ = *track;
+                            is_playing_ = true;
+                            is_paused_ = false;
+                            is_buffering_ = true;
+                            position_ms_ = 0;
+                            duration_ms_ = 0;
+                            next_track = *current_track_;
+                            should_play = true;
+                            handled_target = true;
+                        }
+                    }
                 }
             }
-        }
 
-        emit_state_locked();
-        emit_queue_locked();
-        sc_cb = state_changed_callback_;
-        qc_cb = queue_changed_callback_;
-        sc_bytes = cached_state_bytes_;
-        qc_bytes = cached_queue_bytes_;
+            if (!handled_target) {
+                if (!user_queue_.empty()) {
+                    current_track_ = user_queue_.front();
+                    user_queue_.erase(user_queue_.begin());
+                    queue_revision_++;
+                    is_playing_ = true;
+                    is_paused_ = false;
+                    is_buffering_ = true;
+                    position_ms_ = 0;
+                    duration_ms_ = 0;
+                    next_track = *current_track_;
+                    should_play = true;
+                    LOGI("preroll_track_advance to user queue track: %s", next_track.uri.c_str());
+                } else {
+                    bool advanced = context_processor_.skip_next();
+                    if (!advanced && repeating_context_) {
+                        context_processor_.skip_to_index(0);
+                        advanced = true;
+                    }
+                    if (advanced) {
+                        auto track = context_processor_.get_current_track();
+                        if (track.has_value()) {
+                            current_track_ = *track;
+                            is_playing_ = true;
+                            is_paused_ = false;
+                            is_buffering_ = true;
+                            position_ms_ = 0;
+                            duration_ms_ = 0;
+                            next_track = *current_track_;
+                            should_play = true;
+                            LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
+                        }
+                    } else {
+                        is_playing_ = false;
+                        is_paused_ = false;
+                        is_buffering_ = false;
+                        position_ms_ = 0;
+                        should_stop_context = true;
+                    }
+                }
+            }
+
+            emit_state_locked();
+            emit_queue_locked();
+            sc_cb = state_changed_callback_;
+            qc_cb = queue_changed_callback_;
+            sc_bytes = cached_state_bytes_;
+            qc_bytes = cached_queue_bytes_;
+        }
+    }
+
+    if (err_cb) {
+        err_cb("SKIP_TO_NEXT_RESTRICTED", "Skipping to next track is restricted");
+        return false;
     }
 
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (should_play && cb) {
-        cb(next_track, true);
+    if (tp) {
+        if (should_play) {
+            tp->start(next_track, rendering::StartReason::SkipNext, 0, false);
+        } else if (should_stop_context) {
+            tp->stop(rendering::StopReason::ContextEnded);
+        }
     }
     return should_play;
 }
@@ -1077,7 +1233,7 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
             if (!decode_varint(p, end, tag)) break;
             uint32_t f = static_cast<uint32_t>(tag >> 3);
             uint32_t w = static_cast<uint32_t>(tag & 0x07);
-            if (f == 1 && w == 2) { // Field 1: CommandOptions options
+            if (f == 1 && w == 2) {
                 uint64_t l = 0;
                 if (!decode_varint(p, end, l) || p + l > end) break;
                 const uint8_t* opt_p = p;
@@ -1087,16 +1243,16 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
                     if (!decode_varint(opt_p, opt_end, opt_tag)) break;
                     uint32_t opt_f = static_cast<uint32_t>(opt_tag >> 3);
                     uint32_t opt_w = static_cast<uint32_t>(opt_tag & 0x07);
-                    if (opt_f == 1) { // Field 1: override_restrictions (bool)
+                    if (opt_f == 1) {
                         decode_bool_value(opt_p, opt_end, opt_w, override_restrictions);
                     } else {
                         if (!skip_field(opt_p, opt_end, opt_w)) break;
                     }
                 }
                 p += l;
-            } else if (f == 2) { // Field 2: allow_seeking (bool)
+            } else if (f == 2) {
                 decode_bool_value(p, end, w, allow_seeking);
-            } else if (f == 4 && w == 2) { // Field 4: ContextTrack track
+            } else if (f == 4 && w == 2) {
                 uint64_t l = 0;
                 if (!decode_varint(p, end, l) || p + l > end) break;
                 decode_context_track(p, static_cast<size_t>(l), target_track);
@@ -1107,11 +1263,13 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
         }
     }
 
-    PlayTrackCallback cb;
+    std::shared_ptr<rendering::TrackPlayer> tp;
     context_view::Entry prev_track;
     bool should_play = false;
+    bool should_seek_zero = false;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
+    ErrorCallback err_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
 
     {
@@ -1119,89 +1277,94 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
         if (!override_restrictions && !restrictions_engine_.get_custom_disallow_skipping_prev().empty()) {
             LOGW("ContextPlayer: SkipPrev restricted by custom policy");
             last_error_ = "SKIP_TO_PREV_RESTRICTED";
-            if (error_callback_) {
-                error_callback_("SKIP_TO_PREV_RESTRICTED", "Skipping to previous track is restricted");
-            }
-            return false;
-        }
-
-        int64_t current_pos = audio_engine_ ? audio_engine_->getPositionMs() : position_ms_;
-        if (allow_seeking && current_pos > 3000) {
-            LOGI("ContextPlayer RoutingTrackPlayer: Seeking to 0 ms (skip_prev restart pos=%lld)",
-                 static_cast<long long>(current_pos));
-            seek_to_locked(0);
-            emit_state_locked();
-            sc_cb = state_changed_callback_;
-            sc_bytes = cached_state_bytes_;
+            err_cb = error_callback_;
         } else {
-            if (audio_engine_) {
-                audio_engine_->pause();
-            }
-
-            bool advanced = false;
-            if (!target_track.uid.empty()) {
-                advanced = context_processor_.skip_to_uid(target_track.uid);
-            } else if (!target_track.uri.empty()) {
-                advanced = context_processor_.skip_to_uri(target_track.uri);
+            tp = track_player_;
+            const int64_t current_pos = tp ? tp->getPosition() : position_ms_;
+            if (allow_seeking && current_pos > 3000) {
+                LOGI("ContextPlayer RoutingTrackPlayer: Seeking to 0 ms (skip_prev restart pos=%lld)",
+                     static_cast<long long>(current_pos));
+                position_ms_ = 0;
+                should_seek_zero = true;
+                emit_state_locked();
+                sc_cb = state_changed_callback_;
+                sc_bytes = cached_state_bytes_;
             } else {
-                advanced = context_processor_.skip_prev();
-            }
-
-            if (advanced) {
-                auto track = context_processor_.get_current_track();
-                if (track.has_value()) {
-                    current_track_ = *track;
-                    is_playing_ = true;
-                    is_paused_ = false;
-                    is_buffering_ = true;
-                    position_ms_ = 0;
-                    prev_track = *current_track_;
-                    should_play = true;
-                    cb = play_track_callback_;
-                    LOGI("did_advance_to_track: %s", prev_track.uri.c_str());
+                bool advanced = false;
+                if (!target_track.uid.empty()) {
+                    advanced = context_processor_.skip_to_uid(target_track.uid);
+                } else if (!target_track.uri.empty()) {
+                    advanced = context_processor_.skip_to_uri(target_track.uri);
+                } else {
+                    advanced = context_processor_.skip_prev();
                 }
-            } else if (repeating_context_) {
-                seek_to_locked(0);
-            }
 
-            emit_state_locked();
-            emit_queue_locked();
-            sc_cb = state_changed_callback_;
-            qc_cb = queue_changed_callback_;
-            sc_bytes = cached_state_bytes_;
-            qc_bytes = cached_queue_bytes_;
+                if (advanced) {
+                    auto track = context_processor_.get_current_track();
+                    if (track.has_value()) {
+                        current_track_ = *track;
+                        is_playing_ = true;
+                        is_paused_ = false;
+                        is_buffering_ = true;
+                        position_ms_ = 0;
+                        duration_ms_ = 0;
+                        prev_track = *current_track_;
+                        should_play = true;
+                        LOGI("did_advance_to_track: %s", prev_track.uri.c_str());
+                    }
+                } else if (repeating_context_) {
+                    position_ms_ = 0;
+                    should_seek_zero = true;
+                }
+
+                emit_state_locked();
+                emit_queue_locked();
+                sc_cb = state_changed_callback_;
+                qc_cb = queue_changed_callback_;
+                sc_bytes = cached_state_bytes_;
+                qc_bytes = cached_queue_bytes_;
+            }
         }
     }
 
+    if (err_cb) {
+        err_cb("SKIP_TO_PREV_RESTRICTED", "Skipping to previous track is restricted");
+        return false;
+    }
+
+    if (tp && should_seek_zero) {
+        tp->seek(0, rendering::SeekOrigin::User);
+    }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (should_play && cb) {
-        cb(prev_track, true);
+    if (tp && should_play) {
+        tp->start(prev_track, rendering::StartReason::SkipPrev, 0, false);
     }
-    return should_play;
+    return should_play || should_seek_zero;
 }
 
-void ContextPlayerImpl::advance_to_next_track() {
-    PlayTrackCallback cb;
+void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
+    std::shared_ptr<rendering::TrackPlayer> tp;
     context_view::Entry next_track;
     bool should_play = false;
+    bool should_repeat_current = false;
+    bool should_stop_context = false;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        tp = track_player_;
         LOGI("ContextPlayer RoutingTrackPlayer: pause/stop player while advancing");
         LOGI("drain_on_end_of_stream: end-of-stream, track_finished_playing");
-        LOGI("ContextPlayerImpl.advanceToNextTrack");
+        LOGI("ContextPlayerImpl.advanceToNextTrack (reason=%d)", static_cast<int>(reason));
 
-        if (repeating_track_) {
-            seek_to_locked(0);
-            if (audio_engine_) {
-                audio_engine_->play();
-            }
+        if (repeating_track_ && reason == rendering::AdvanceReason::EndOfTrack && current_track_.has_value()) {
+            position_ms_ = 0;
             is_playing_ = true;
             is_paused_ = false;
+            should_repeat_current = true;
             emit_state_locked();
             sc_cb = state_changed_callback_;
             sc_bytes = cached_state_bytes_;
@@ -1218,9 +1381,9 @@ void ContextPlayerImpl::advance_to_next_track() {
                 is_paused_ = false;
                 is_buffering_ = true;
                 position_ms_ = 0;
+                duration_ms_ = 0;
                 next_track = *current_track_;
                 should_play = true;
-                cb = play_track_callback_;
                 LOGI("preroll_track_advance to user queue track: %s", next_track.uri.c_str());
             } else {
                 bool advanced = context_processor_.skip_next();
@@ -1236,15 +1399,17 @@ void ContextPlayerImpl::advance_to_next_track() {
                         is_paused_ = false;
                         is_buffering_ = true;
                         position_ms_ = 0;
+                        duration_ms_ = 0;
                         next_track = *current_track_;
                         should_play = true;
-                        cb = play_track_callback_;
                         LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
                     }
                 } else {
                     is_playing_ = false;
                     is_paused_ = false;
                     is_buffering_ = false;
+                    position_ms_ = 0;
+                    should_stop_context = true;
                 }
             }
 
@@ -1257,63 +1422,18 @@ void ContextPlayerImpl::advance_to_next_track() {
         }
     }
 
+    if (tp && should_repeat_current) {
+        tp->seek(0, rendering::SeekOrigin::Internal);
+        tp->resume();
+    }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (should_play && cb) {
-        cb(next_track, true);
-    }
-}
-
-void ContextPlayerImpl::on_track_loaded(bool success) {
-    ErrorCallback err_cb;
-    std::string err_code, err_msg;
-    StateChangedCallback sc_cb;
-    QueueChangedCallback qc_cb;
-    std::vector<uint8_t> sc_bytes, qc_bytes;
-
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (success) {
-            is_buffering_ = false;
-            is_playing_ = true;
-            is_paused_ = false;
-            if (audio_engine_) {
-                audio_engine_->play();
-                int64_t dur = audio_engine_->getDurationMs();
-                if (dur > 0) duration_ms_ = dur;
-            }
-            if (duration_ms_ <= 0 && current_track_.has_value()) {
-                auto it = current_track_->metadata.find("duration");
-                if (it != current_track_->metadata.end() && !it->second.empty()) {
-                    char* end = nullptr;
-                    int64_t d = std::strtoll(it->second.c_str(), &end, 10);
-                    if (end != it->second.c_str() && d > 0) duration_ms_ = d;
-                }
-            }
-            LOGI("did_advance_to_track: %s",
-                 current_track_.has_value() ? current_track_->uri.c_str() : "unknown");
-        } else {
-            is_buffering_ = false;
-            is_playing_ = false;
-            is_paused_ = false;
-            last_error_ = "LOAD_FAILED";
-            err_code = "LOAD_FAILED";
-            err_msg = "AudioEngine failed to load requested track";
-            err_cb = error_callback_;
+    if (tp) {
+        if (should_play) {
+            tp->advance(next_track, 0);
+        } else if (should_stop_context) {
+            tp->stop(rendering::StopReason::ContextEnded);
         }
-
-        emit_state_locked();
-        emit_queue_locked();
-        sc_cb = state_changed_callback_;
-        qc_cb = queue_changed_callback_;
-        sc_bytes = cached_state_bytes_;
-        qc_bytes = cached_queue_bytes_;
-    }
-
-    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
-    if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (err_cb) {
-        err_cb(err_code, err_msg);
     }
 }
 
@@ -1557,21 +1677,22 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
 }
 
 bool ContextPlayerImpl::stop() {
+    std::shared_ptr<rendering::TrackPlayer> tp;
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        tp = track_player_;
         is_playing_ = false;
         is_paused_ = false;
         is_buffering_ = false;
         position_ms_ = 0;
-        if (audio_engine_) {
-            audio_engine_->pause();
-            audio_engine_->seekMs(0);
-        }
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+    }
+    if (tp) {
+        tp->stop(rendering::StopReason::ExplicitStop);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     return true;
@@ -1586,12 +1707,15 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
         return false;
     }
 
+    std::shared_ptr<rendering::TrackPlayer> tp;
+    std::optional<context_view::Entry> track_to_prepare;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        tp = track_player_;
         context_uri_ = parsed.context_uri;
         context_url_ = parsed.context_url;
         context_metadata_ = parsed.context_metadata;
@@ -1646,10 +1770,20 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
         }
 
         current_track_ = context_processor_.get_current_track();
+        track_to_prepare = current_track_;
         is_playing_ = false;
         is_paused_ = true;
         is_buffering_ = false;
         position_ms_ = 0;
+        duration_ms_ = 0;
+        if (current_track_.has_value()) {
+            auto dur_it = current_track_->metadata.find("duration");
+            if (dur_it != current_track_->metadata.end() && !dur_it->second.empty()) {
+                char* end = nullptr;
+                int64_t d = std::strtoll(dur_it->second.c_str(), &end, 10);
+                if (end != dur_it->second.c_str() && d > 0) duration_ms_ = d;
+            }
+        }
 
         LOGI("ContextPlayerImpl.preparePlay: context_uri=%s (ready to play)", context_uri_.c_str());
 
@@ -1659,6 +1793,10 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+    }
+
+    if (tp && track_to_prepare.has_value()) {
+        tp->start(*track_to_prepare, rendering::StartReason::PreparePlay, 0, true);
     }
 
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
@@ -1847,17 +1985,34 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
         }
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!target_session_id.empty()) {
-        LOGI("ContextPlayerImpl.deleteSession target=%s current=%s",
-             target_session_id.c_str(), session_id_.c_str());
-    } else {
-        LOGI("ContextPlayerImpl.deleteSession session_id=%s", session_id_.c_str());
+    std::shared_ptr<rendering::TrackPlayer> tp;
+    StateChangedCallback sc_cb;
+    std::vector<uint8_t> sc_bytes;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!target_session_id.empty()) {
+            LOGI("ContextPlayerImpl.deleteSession target=%s current=%s",
+                 target_session_id.c_str(), session_id_.c_str());
+        } else {
+            LOGI("ContextPlayerImpl.deleteSession session_id=%s", session_id_.c_str());
+        }
+        tp = track_player_;
+        session_id_.clear();
+        session_command_id_.clear();
+        signals_.clear();
+        is_playing_ = false;
+        is_paused_ = false;
+        is_buffering_ = false;
+        position_ms_ = 0;
+        emit_state_locked();
+        sc_cb = state_changed_callback_;
+        sc_bytes = cached_state_bytes_;
     }
-    session_id_.clear();
-    session_command_id_.clear();
-    signals_.clear();
-    stop();
+
+    if (tp) {
+        tp->stop(rendering::StopReason::SessionDeleted);
+    }
+    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     return true;
 }
 
@@ -1888,19 +2043,12 @@ std::string ContextPlayerImpl::get_error() const {
     return last_error_;
 }
 
-void ContextPlayerImpl::seek_to_locked(int64_t position_ms) {
-    position_ms_ = position_ms;
-    if (audio_engine_) {
-        audio_engine_->seekMs(position_ms);
-    }
-}
-
 void ContextPlayerImpl::update_position_and_duration_locked() {
-    if (audio_engine_) {
-        int64_t engine_pos = audio_engine_->getPositionMs();
-        if (engine_pos >= 0) position_ms_ = engine_pos;
-        int64_t engine_dur = audio_engine_->getDurationMs();
-        if (engine_dur > 0) duration_ms_ = engine_dur;
+    if (track_player_) {
+        const int64_t player_pos = track_player_->getPosition();
+        if (player_pos >= 0) position_ms_ = player_pos;
+        const int64_t player_dur = track_player_->getDuration();
+        if (player_dur > 0) duration_ms_ = player_dur;
     }
     if (duration_ms_ <= 0 && current_track_.has_value()) {
         auto it = current_track_->metadata.find("duration");

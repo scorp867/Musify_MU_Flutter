@@ -12,6 +12,18 @@ add_library(musify_audio SHARED
     NativeDecoder.cpp
     AudioEngine.cpp
     ContextProcessor.cpp
+    network/AuthSessionStore.cpp
+    network/NativeHttpClient.cpp
+    cache/DiskCache.cpp
+    metadata/TrackInfoProvider.cpp
+    content_delivery/HeadFileManager.cpp
+    content_delivery/StorageResolveClient.cpp
+    drm/WidevineLicenseClient.cpp
+    streamer/FileStreamerImpl.cpp
+    rendering/CoreAudioTrackPlayer.cpp
+    rendering/AudioTrackPlayer.cpp
+    rendering/UnplayableTrackPlayer.cpp
+    rendering/RoutingTrackPlayer.cpp
     player/ContextPlayerImpl.cpp
     ffi_bridge.cpp
     ${DART_SDK_INCLUDE}/dart_api_dl.c

@@ -12,7 +12,7 @@ abstract class HomeFeatureType extends Equatable {
   final String sectionType;
   final String? colorCode;
   final String? imageUrl;
-  final Map<String, dynamic> metadata;
+  final Map<String, Object?> metadata;
 
   const HomeFeatureType({
     required this.id,

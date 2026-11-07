@@ -11,7 +11,6 @@ class QueueTrackTile extends StatelessWidget {
     required this.artist,
     this.duration,
     this.imageUrl,
-    this.songId,
     required this.index,
     required this.onTap,
   });
@@ -20,7 +19,6 @@ class QueueTrackTile extends StatelessWidget {
   final String artist;
   final Duration? duration;
   final String? imageUrl;
-  final int? songId;
   final int index;
   final VoidCallback onTap;
 
@@ -43,7 +41,6 @@ class QueueTrackTile extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: PlayerArtworkImage(
-                      songId: songId,
                       imageUrl: imageUrl,
                       artworkWidth: 44,
                       artworkHeight: 44,
@@ -57,7 +54,7 @@ class QueueTrackTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title.isNotEmpty ? title : 'Unknown Track',
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -69,7 +66,7 @@ class QueueTrackTile extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        artist.isNotEmpty ? artist : 'Unknown Artist',
+                        artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -81,10 +78,10 @@ class QueueTrackTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (duration != null) ...[
+                if (duration case final dur?) ...[
                   const SizedBox(width: 6),
                   Text(
-                    DurationFormatter.duration(duration!),
+                    DurationFormatter.duration(dur),
                     style: const TextStyle(
                       color: PlayerColors.muted,
                       fontSize: 12,

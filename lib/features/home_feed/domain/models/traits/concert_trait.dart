@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Live Concert / Tour event trait (ExtensionKind 122).
-class ConcertTrait extends Trait {
+@immutable
+final class ConcertTrait extends Trait {
   final String title;
   final String artistName;
   final int eventDateTimestamp;
@@ -13,15 +16,14 @@ class ConcertTrait extends Trait {
   });
 
   @override
-  Map<String, dynamic> toJson() => {
-    'title': title,
-    'artistName': artistName,
-    'eventDateTimestamp': eventDateTimestamp,
-  };
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ConcertTrait &&
+        other.title == title &&
+        other.artistName == artistName &&
+        other.eventDateTimestamp == eventDateTimestamp;
+  }
 
-  factory ConcertTrait.fromJson(Map<String, dynamic> json) => ConcertTrait(
-    title: json['title'] ?? '',
-    artistName: json['artistName'] ?? '',
-    eventDateTimestamp: json['eventDateTimestamp'] ?? 0,
-  );
+  @override
+  int get hashCode => Object.hash(title, artistName, eventDateTimestamp);
 }

@@ -1,128 +1,25 @@
-import 'dart:collection';
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import 'package:musify_mu/app/di/injection.dart';
+import 'package:musify_mu/core/media/local_file_image_loader.dart';
+import 'package:musify_mu/features/local_music/domain/models/local_file_uri.dart';
 
 import 'player_theme.dart';
-
-/// Singleton in-memory LRU cache of canonical [ImageProvider]s for local song artwork.
-class _ArtworkMemoryCache {
-  _ArtworkMemoryCache._();
-
-  static final OnAudioQuery _audioQuery = OnAudioQuery();
-
-  static const int _maxCachedProviders = 350;
-
-  static final LinkedHashMap<_ArtworkCacheKey, ImageProvider> _providers =
-      LinkedHashMap<_ArtworkCacheKey, ImageProvider>();
-
-  static final Set<_ArtworkCacheKey> _knownMissing = <_ArtworkCacheKey>{};
-
-  static final Map<_ArtworkCacheKey, Future<ImageProvider?>> _inFlight =
-      <_ArtworkCacheKey, Future<ImageProvider?>>{};
-
-  static ImageProvider? getSync(_ArtworkCacheKey key) {
-    final existing = _providers.remove(key);
-    if (existing != null) {
-      _providers[key] = existing;
-    }
-    return existing;
-  }
-
-  static bool isKnownMissing(_ArtworkCacheKey key) =>
-      _knownMissing.contains(key);
-
-  static Future<ImageProvider?> load(_ArtworkCacheKey key) {
-    final syncHit = getSync(key);
-    if (syncHit != null) return Future<ImageProvider?>.value(syncHit);
-    if (_knownMissing.contains(key)) return Future<ImageProvider?>.value(null);
-
-    final existingFuture = _inFlight[key];
-    if (existingFuture != null) return existingFuture;
-
-    final future = _fetchAndCache(key);
-    _inFlight[key] = future;
-    return future;
-  }
-
-  static Future<ImageProvider?> _fetchAndCache(_ArtworkCacheKey key) async {
-    try {
-      final bytes = await _audioQuery.queryArtwork(
-        key.songId,
-        ArtworkType.AUDIO,
-        format: ArtworkFormat.JPEG,
-        size: key.querySize,
-        quality: 85,
-      );
-
-      if (bytes == null || bytes.isEmpty) {
-        _knownMissing.add(key);
-        return null;
-      }
-
-      final provider = ResizeImage(
-        MemoryImage(bytes),
-        width: key.decodeWidthPx,
-        allowUpscaling: false,
-      );
-
-      if (_providers.length >= _maxCachedProviders) {
-        _providers.remove(_providers.keys.first);
-      }
-      _providers[key] = provider;
-      return provider;
-    } catch (_) {
-      _knownMissing.add(key);
-      return null;
-    } finally {
-      _inFlight.remove(key);
-    }
-  }
-}
-
-class _ArtworkCacheKey {
-  final int songId;
-  final dynamic version;
-  final bool isLarge;
-  final int decodeWidthPx;
-  final int querySize;
-
-  const _ArtworkCacheKey({
-    required this.songId,
-    required this.version,
-    required this.isLarge,
-    required this.decodeWidthPx,
-    required this.querySize,
-  });
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is _ArtworkCacheKey &&
-          runtimeType == other.runtimeType &&
-          songId == other.songId &&
-          version == other.version &&
-          isLarge == other.isLarge &&
-          decodeWidthPx == other.decodeWidthPx;
-
-  @override
-  int get hashCode => Object.hash(songId, version, isLarge, decodeWidthPx);
-}
 
 class PlayerBackdrop extends StatelessWidget {
   const PlayerBackdrop({
     super.key,
-    this.songId,
     this.imageUrl,
   });
 
-  final int? songId;
   final String? imageUrl;
 
   @override
   Widget build(BuildContext context) {
-    if (songId == null && (imageUrl == null || imageUrl!.isEmpty)) {
+    final resolvedUrl = imageUrl;
+    if (resolvedUrl == null || resolvedUrl.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -134,8 +31,7 @@ class PlayerBackdrop extends StatelessWidget {
             child: ImageFiltered(
               imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
               child: PlayerArtworkImage(
-                songId: songId,
-                imageUrl: imageUrl,
+                imageUrl: resolvedUrl,
                 artworkWidth: double.infinity,
                 artworkHeight: double.infinity,
               ),
@@ -150,11 +46,9 @@ class PlayerBackdrop extends StatelessWidget {
 class PlayerAlbumArtwork extends StatelessWidget {
   const PlayerAlbumArtwork({
     super.key,
-    this.songId,
     this.imageUrl,
   });
 
-  final int? songId;
   final String? imageUrl;
 
   @override
@@ -180,7 +74,6 @@ class PlayerAlbumArtwork extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: PlayerArtworkImage(
-                songId: songId,
                 imageUrl: imageUrl,
               ),
             ),
@@ -194,19 +87,19 @@ class PlayerAlbumArtwork extends StatelessWidget {
 class PlayerArtworkImage extends StatefulWidget {
   const PlayerArtworkImage({
     super.key,
-    this.songId,
     this.imageUrl,
     this.artworkWidth,
     this.artworkHeight,
     this.placeholderIconSize,
+    this.placeholderIcon,
     this.size,
   });
 
-  final int? songId;
   final String? imageUrl;
   final double? artworkWidth;
   final double? artworkHeight;
   final double? placeholderIconSize;
+  final IconData? placeholderIcon;
   final int? size;
 
   @override
@@ -214,78 +107,102 @@ class PlayerArtworkImage extends StatefulWidget {
 }
 
 class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
-  _ArtworkCacheKey? _cacheKey;
-  ImageProvider? _imageProvider;
+  String? _activeLocalUri;
+  ImageProvider? _localImageProvider;
+
+  bool get _isLarge {
+    final w = widget.artworkWidth;
+    return w == null || w > 100;
+  }
+
+  int get _decodeWidthPx => _isLarge ? 720 : 144;
+
+  int get _querySize => switch (widget.size) {
+    final s? => s,
+    null => _isLarge ? 800 : 200,
+  };
 
   @override
   void initState() {
     super.initState();
-    _resolveArtwork();
+    _resolveLocalArtwork();
   }
 
   @override
   void didUpdateWidget(covariant PlayerArtworkImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.songId != widget.songId ||
-        oldWidget.imageUrl != widget.imageUrl ||
+    if (oldWidget.imageUrl != widget.imageUrl ||
         oldWidget.artworkWidth != widget.artworkWidth ||
         oldWidget.size != widget.size) {
-      _resolveArtwork();
+      _resolveLocalArtwork();
     }
   }
 
-  void _resolveArtwork() {
-    final songId = widget.songId;
-    if (songId == null) {
-      _cacheKey = null;
-      _imageProvider = null;
+  void _resolveLocalArtwork() {
+    final url = widget.imageUrl;
+    if (url == null || !LocalFileUri.isAnyLocalUri(url)) {
+      _activeLocalUri = null;
+      _localImageProvider = null;
       return;
     }
 
-    final bool isLarge =
-        widget.artworkWidth == null || widget.artworkWidth! > 100;
-    final int querySize = widget.size ?? (isLarge ? 800 : 200);
-    final int decodeWidthPx = isLarge ? 720 : 144;
+    _activeLocalUri = url;
+    final loader = getIt.isRegistered<LocalFileImageLoader>()
+        ? getIt<LocalFileImageLoader>()
+        : null;
+    if (loader == null) {
+      _localImageProvider = null;
+      return;
+    }
 
-    final key = _ArtworkCacheKey(
-      songId: songId,
-      version: null,
-      isLarge: isLarge,
+    final querySize = _querySize;
+    final decodeWidthPx = _decodeWidthPx;
+    final syncHit = loader.getProviderSync(
+      url,
       querySize: querySize,
       decodeWidthPx: decodeWidthPx,
     );
-    _cacheKey = key;
-
-    final syncHit = _ArtworkMemoryCache.getSync(key);
-    _imageProvider = syncHit;
-    if (syncHit != null) {
+    _localImageProvider = syncHit;
+    if (syncHit != null || loader.isKnownMissing(url, querySize: querySize)) {
       return;
     }
 
-    if (_ArtworkMemoryCache.isKnownMissing(key)) {
-      return;
-    }
-
-    _ArtworkMemoryCache.load(key).then((provider) {
-      if (mounted && _cacheKey == key && provider != _imageProvider) {
-        setState(() {
-          _imageProvider = provider;
-        });
-      }
-    });
+    unawaited(
+      loader
+          .loadProvider(
+            url,
+            querySize: querySize,
+            decodeWidthPx: decodeWidthPx,
+          )
+          .then((provider) {
+            if (mounted &&
+                _activeLocalUri == url &&
+                provider != _localImageProvider) {
+              setState(() {
+                _localImageProvider = provider;
+              });
+            }
+          }),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = _imageProvider;
-    final bool isLarge =
-        widget.artworkWidth == null || widget.artworkWidth! > 100;
+    final isLarge = _isLarge;
+    final resolvedWidth = switch (widget.artworkWidth) {
+      final w? => w,
+      null => double.infinity,
+    };
+    final resolvedHeight = switch (widget.artworkHeight) {
+      final h? => h,
+      null => double.infinity,
+    };
 
-    if (provider != null) {
+    if (_localImageProvider case final provider?) {
       return Image(
         image: provider,
-        width: widget.artworkWidth ?? double.infinity,
-        height: widget.artworkHeight ?? double.infinity,
+        width: resolvedWidth,
+        height: resolvedHeight,
         fit: BoxFit.cover,
         gaplessPlayback: true,
         filterQuality: isLarge ? FilterQuality.medium : FilterQuality.low,
@@ -293,11 +210,13 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
       );
     }
 
-    if (widget.imageUrl != null && widget.imageUrl!.isNotEmpty) {
+    final url = widget.imageUrl;
+    if (url != null && url.isNotEmpty && !LocalFileUri.isAnyLocalUri(url)) {
       return Image.network(
-        widget.imageUrl!,
-        width: widget.artworkWidth ?? double.infinity,
-        height: widget.artworkHeight ?? double.infinity,
+        url,
+        width: resolvedWidth,
+        height: resolvedHeight,
+        cacheWidth: _decodeWidthPx,
         fit: BoxFit.cover,
         gaplessPlayback: true,
         filterQuality: isLarge ? FilterQuality.medium : FilterQuality.low,
@@ -310,7 +229,8 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
 
   Widget _buildPlaceholder() {
     final placeholder = PlayerArtworkPlaceholder(
-      iconSize: widget.placeholderIconSize ?? 82,
+      iconSize: widget.placeholderIconSize,
+      icon: widget.placeholderIcon,
     );
     if (widget.artworkWidth == null && widget.artworkHeight == null) {
       return placeholder;
@@ -324,9 +244,14 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
 }
 
 class PlayerArtworkPlaceholder extends StatelessWidget {
-  const PlayerArtworkPlaceholder({super.key, this.iconSize});
+  const PlayerArtworkPlaceholder({
+    super.key,
+    this.iconSize,
+    this.icon,
+  });
 
   final double? iconSize;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -340,9 +265,15 @@ class PlayerArtworkPlaceholder extends StatelessWidget {
       ),
       child: Center(
         child: Icon(
-          Icons.music_note_rounded,
+          switch (icon) {
+            final ic? => ic,
+            null => Icons.music_note_rounded,
+          },
           color: PlayerColors.muted,
-          size: iconSize ?? 82,
+          size: switch (iconSize) {
+            final sz? => sz,
+            null => 82,
+          },
         ),
       ),
     );

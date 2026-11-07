@@ -29,18 +29,6 @@ extension ContextTrackExtensions on ContextTrack {
     null => '',
   };
 
-  /// MediaStore / OnAudioQuery song ID resolved from metadata.
-  int? get songId {
-    final raw = metadata[ContextTrackMetadata.keySongId];
-    if (raw != null && raw.isNotEmpty) {
-      final parsed = int.tryParse(raw);
-      if (parsed != null) return parsed;
-    }
-    final parsedUid = int.tryParse(uid);
-    if (parsedUid != null) return parsedUid;
-    return null;
-  }
-
   /// High-resolution artwork URL for PlayerScreen and expanded displays (prioritizes xlarge, large, default, small).
   String? get imageUrl {
     if (metadata[ContextTrackMetadata.keyImageXlargeUrl] case final xlarge? when xlarge.isNotEmpty) {

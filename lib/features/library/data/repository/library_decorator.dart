@@ -2,6 +2,7 @@ import 'dart:developer' as dev;
 import 'dart:isolate';
 
 import 'package:musify_mu/core/media/extended_metadata_service.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits.dart';
 import 'package:musify_mu/features/library/data/cache/library_cache.dart';
 import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart';
 import 'package:musify_mu/features/library/data/mappers/library_mapper.dart';
@@ -9,8 +10,6 @@ import 'package:musify_mu/features/library/data/sources/library_remote_source.da
 import 'package:musify_mu/features/library/domain/models/library_item.dart';
 
 /// Enriches raw library items with cached artwork, names, and track counts.
-/// Handles both playlist decoration (from PlaylistDetailCache) and
-/// artist decoration (from LibraryCache + extended-metadata network).
 class LibraryDecorator {
   final LibraryRemoteSource _librarySource;
   final LibraryCache _libraryCache;
@@ -22,12 +21,11 @@ class LibraryDecorator {
     required LibraryCache libraryCache,
     required PlaylistDetailCache playlistCache,
     required ExtendedMetadataService metadataService,
-  })  : _librarySource = librarySource,
-        _libraryCache = libraryCache,
-        _playlistCache = playlistCache,
-        _metadataService = metadataService;
+  }) : _librarySource = librarySource,
+       _libraryCache = libraryCache,
+       _playlistCache = playlistCache,
+       _metadataService = metadataService;
 
-  /// Decorates playlists with cached metadata, track counts, and covers.
   Future<List<LibraryItem>> decoratePlaylists(
     List<LibraryItem> playlists,
   ) async {
@@ -43,26 +41,27 @@ class LibraryDecorator {
       final playlistId = parts[2];
       final entry = await _playlistCache.get(playlistId);
 
-      // 1. Custom cover: If item already has a custom cover from the rootlist
-      // or if cache recorded it as a custom cover, use it unconditionally.
       final rootlistCover = item.imageUrl;
-      final cachedIsCustom = entry?.isCustomCover ?? false;
-      final hasCustomCover = (rootlistCover != null && rootlistCover.isNotEmpty) ||
-          (cachedIsCustom && entry?.coverUrl != null && entry!.coverUrl!.isNotEmpty);
+      String? customUrl;
+      if (rootlistCover != null && rootlistCover.isNotEmpty) {
+        customUrl = rootlistCover;
+      } else if (entry != null && entry.isCustomCover) {
+        if (entry.coverUrl case final cachedCover? when cachedCover.isNotEmpty) {
+          customUrl = cachedCover;
+        }
+      }
 
-      if (hasCustomCover) {
-        final customUrl = (rootlistCover != null && rootlistCover.isNotEmpty)
-            ? rootlistCover
-            : entry!.coverUrl!;
+      if (customUrl != null) {
         result[i] = item.copyWith(
           imageUrl: customUrl,
           mosaicImageUrls: const [],
-          trackCount: entry?.trackUris.isNotEmpty == true
-              ? entry!.trackUris.length
+          trackCount: (entry != null && entry.trackUris.isNotEmpty)
+              ? entry.trackUris.length
               : item.trackCount,
         );
 
-        if (entry != null && (!entry.isCustomCover || entry.coverUrl != customUrl)) {
+        if (entry != null &&
+            (!entry.isCustomCover || entry.coverUrl != customUrl)) {
           await _playlistCache.put(
             playlistId: playlistId,
             revision: entry.revision,
@@ -75,7 +74,6 @@ class LibraryDecorator {
         continue;
       }
 
-      // 2. No custom cover: Use cached mosaic/cover or resolve once if missing.
       if (entry != null && entry.trackUris.isNotEmpty) {
         var mosaicUrls = entry.mosaicImageUrls;
         var coverUrl = entry.coverUrl;
@@ -110,10 +108,7 @@ class LibraryDecorator {
     return result;
   }
 
-  /// Decorates artists: uses cached decorations first, fetches only uncached.
-  Future<List<LibraryItem>> decorateArtists(
-    List<LibraryItem> artists,
-  ) async {
+  Future<List<LibraryItem>> decorateArtists(List<LibraryItem> artists) async {
     if (artists.isEmpty) return artists;
 
     final needsFetch = <LibraryItem>[];
@@ -123,7 +118,8 @@ class LibraryDecorator {
       final cached = _libraryCache.getDecoration(artist.uri);
       if (cached != null) {
         decorated.add(
-            artist.copyWith(name: cached.name, imageUrl: cached.imageUrl));
+          artist.copyWith(name: cached.name, imageUrl: cached.imageUrl),
+        );
       } else {
         needsFetch.add(artist);
       }
@@ -133,8 +129,7 @@ class LibraryDecorator {
 
     try {
       final uris = needsFetch.map((a) => a.uri).toList();
-      final responseBytes =
-          await _librarySource.fetchArtistDecorations(uris);
+      final responseBytes = await _librarySource.fetchArtistDecorations(uris);
       if (responseBytes == null) {
         decorated.addAll(needsFetch);
         return decorated;
@@ -161,16 +156,19 @@ class LibraryDecorator {
 
       decorated.addAll(freshlyDecorated);
     } catch (e, st) {
-      dev.log('Artist decoration error: $e',
-          name: 'Library', error: e, stackTrace: st);
+      dev.log(
+        'Artist decoration error: $e',
+        name: 'Library',
+        error: e,
+        stackTrace: st,
+      );
       decorated.addAll(needsFetch);
     }
 
     return decorated;
   }
 
-  /// Extracts the first 4 unique album art URLs, fetching metadata on-demand
-  /// if tracks are not already present in memory/disk cache.
+  /// Extracts the first 4 unique album art URLs from `TrackV4.albumCover`.
   Future<List<String>> getMosaicUrls(List<String> trackUris) async {
     if (trackUris.isEmpty) return const [];
 
@@ -179,21 +177,18 @@ class LibraryDecorator {
     final seen = <String>{};
     final urls = <String>[];
 
-    // Pass 1: Try in-memory / disk cache
     for (final uri in trackUris) {
       if (!uri.startsWith('spotify:track:')) continue;
-      final cached = _metadataService.getCached(uri);
+      final cached = _metadataService.getCachedTrack(uri);
       if (cached == null) continue;
 
-      final imageUrl = cached.imageUrl;
+      final imageUrl = cached.albumCover.urlForSize(ImageSize.large);
       if (imageUrl.isNotEmpty && seen.add(imageUrl)) {
         urls.add(imageUrl);
         if (urls.length >= 4) return urls;
       }
     }
 
-    // Pass 2: If fewer than 4 unique artworks were found in cache,
-    // fetch metadata for candidate tracks (up to 12) from network.
     if (urls.length < 4) {
       final candidates = <String>[];
       final candidateSeen = <String>{};
@@ -208,18 +203,20 @@ class LibraryDecorator {
         try {
           final fetched = await _metadataService.fetchTracks(candidates);
           for (final uri in candidates) {
-            final meta = fetched[uri] ?? _metadataService.getCached(uri);
-            if (meta == null) continue;
+            final track = fetched[uri] ?? _metadataService.getCachedTrack(uri);
+            if (track == null) continue;
 
-            final imageUrl = meta.imageUrl;
+            final imageUrl = track.albumCover.urlForSize(ImageSize.large);
             if (imageUrl.isNotEmpty && seen.add(imageUrl)) {
               urls.add(imageUrl);
               if (urls.length >= 4) return urls;
             }
           }
         } catch (e) {
-          dev.log('Failed to fetch candidate tracks for mosaic: $e',
-              name: 'Library');
+          dev.log(
+            'Failed to fetch candidate tracks for mosaic: $e',
+            name: 'Library',
+          );
         }
       }
     }

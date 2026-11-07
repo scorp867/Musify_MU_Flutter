@@ -1,12 +1,13 @@
 import 'package:drift/drift.dart' as drift;
-import 'package:on_audio_query/on_audio_query.dart';
 import 'package:musify_mu/features/local_music/data/database/app_database.dart';
 import 'package:musify_mu/features/local_music/data/datasources/device_music_data_source.dart';
 import 'package:musify_mu/features/local_music/data/datasources/local_tracks_store.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 
 class LocalMusicSyncService {
   final DeviceMusicDataSource _deviceMusic;
   final LocalTracksStore _store;
+  Future<void>? _activeSync;
 
   LocalMusicSyncService({
     required DeviceMusicDataSource deviceMusic,
@@ -14,48 +15,55 @@ class LocalMusicSyncService {
   }) : _deviceMusic = deviceMusic,
        _store = store;
 
-  bool _isSyncing = false;
+  Future<void> sync() {
+    if (_activeSync case final existing?) {
+      return existing;
+    }
+    final next = _runSync().whenComplete(() {
+      _activeSync = null;
+    });
+    _activeSync = next;
+    return next;
+  }
 
-  Future<void> sync() async {
-    if (_isSyncing) return;
-    _isSyncing = true;
-    try {
-      final cachedTracks = await _store.getAll();
-      final deviceTracks = await _deviceMusic.querySongs();
+  Future<void> _runSync() async {
+    final cachedTracks = await _store.getAll();
+    final deviceTracks = await _deviceMusic.querySongs();
 
-      final cachedBySongId = {
-        for (final track in cachedTracks) track.songId: track,
-      };
-      final deviceBySongId = {for (final track in deviceTracks) track.id: track};
-      final removedSongIds = cachedBySongId.keys.toSet().difference(
-        deviceBySongId.keys.toSet(),
-      );
+    final cachedBySongId = {
+      for (final track in cachedTracks) track.songId: track,
+    };
+    final deviceBySongId = {
+      for (final track in deviceTracks) track.id: track,
+    };
+    final removedSongIds = cachedBySongId.keys.toSet().difference(
+      deviceBySongId.keys.toSet(),
+    );
 
-      final tracksToInsert = <LocalTracksCompanion>[];
-      final tracksToUpdate = <LocalTracksCompanion>[];
+    final tracksToInsert = <LocalTracksCompanion>[];
+    final tracksToUpdate = <LocalTracksCompanion>[];
 
-      for (final deviceTrack in deviceTracks) {
-        final cachedTrack = cachedBySongId[deviceTrack.id];
-        final companion = _store.companionFor(_toData(deviceTrack));
+    for (final deviceTrack in deviceTracks) {
+      final cachedTrack = cachedBySongId[deviceTrack.id];
+      final companion = _store.companionFor(_toData(deviceTrack));
 
-        if (cachedTrack == null) {
-          tracksToInsert.add(companion);
-        } else if (_hasMetadataChanged(cachedTrack, deviceTrack)) {
-          tracksToUpdate.add(companion.copyWith(id: drift.Value(cachedTrack.id)));
-        }
+      if (cachedTrack == null) {
+        tracksToInsert.add(companion);
+      } else if (_hasMetadataChanged(cachedTrack, deviceTrack)) {
+        tracksToUpdate.add(
+          companion.copyWith(id: drift.Value(cachedTrack.id)),
+        );
       }
+    }
 
-      if (removedSongIds.isNotEmpty) {
-        await _store.deleteBySongIds(removedSongIds);
-      }
-      if (tracksToInsert.isNotEmpty) {
-        await _store.insertAll(tracksToInsert);
-      }
-      for (final track in tracksToUpdate) {
-        await _store.replace(track);
-      }
-    } finally {
-      _isSyncing = false;
+    if (removedSongIds.isNotEmpty) {
+      await _store.deleteBySongIds(removedSongIds);
+    }
+    if (tracksToInsert.isNotEmpty) {
+      await _store.insertAll(tracksToInsert);
+    }
+    for (final track in tracksToUpdate) {
+      await _store.replace(track);
     }
   }
 

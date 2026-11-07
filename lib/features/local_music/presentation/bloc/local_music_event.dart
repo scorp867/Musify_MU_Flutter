@@ -1,12 +1,14 @@
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 
-abstract class LocalMusicEvent extends Equatable {
+@immutable
+sealed class LocalMusicEvent extends Equatable {
   const LocalMusicEvent();
 
   @override
-  List<Object> get props => [];
+  List<Object?> get props => const [];
 }
 
-class LoadLocalTracks extends LocalMusicEvent {
+final class LoadLocalTracks extends LocalMusicEvent {
   const LoadLocalTracks();
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
 import '../../../../core/widgets/app_network_image.dart';
 import '../../domain/models/playlist_item.dart';
+import '../extensions/track_item_metadata_presentation.dart';
 import 'spotify_swipe_to_queue.dart';
 
 /// 1:1 replica of Spotify's Playlist entity row components

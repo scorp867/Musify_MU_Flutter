@@ -291,7 +291,6 @@ class _MainScreenState extends State<MainScreen> {
                           title: title,
                           artist: artist,
                           imageUrl: track?.imageUrl,
-                          songId: track?.songId,
                           isPlaying: queueState.isPlaying,
                           queueBloc: controller,
                           currentTrack: track,

@@ -1,17 +1,79 @@
 #include "AudioEngine.h"
 #include "ContextProcessor.h"
 #include "ProtobufWireHelper.h"
+#include "cache/DiskCache.h"
+#include "content_delivery/HeadFileManager.h"
+#include "content_delivery/StorageResolveClient.h"
+#include "drm/WidevineLicenseClient.h"
+#include "metadata/TrackInfoProvider.h"
+#include "network/AuthSessionStore.h"
+#include "network/NativeHttpClient.h"
 #include "player/ContextPlayerImpl.h"
+#include "rendering/AudioTrackPlayer.h"
+#include "rendering/CoreAudioTrackPlayer.h"
+#include "rendering/RoutingTrackPlayer.h"
+#include "rendering/UnplayableTrackPlayer.h"
+#include "streamer/FileStreamerImpl.h"
 
 #include "dart_api_dl.h"
 
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
-// Macro for exporting C-ABI symbols visible to Dart FFI.
 #define MUSIFY_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
+
+namespace {
+
+/// Process-wide singleton holding native liborbit Layer 4 playback services so Kodiak
+/// metadata seeding and auth session updates work deterministically at any lifecycle point.
+struct NativePlaybackServices {
+    spotify::network::AuthSessionStore& auth_store;
+    spotify::network::NativeHttpClient http_client;
+    spotify::cache::DiskCache disk_cache;
+    spotify::metadata::TrackInfoProvider track_info_provider;
+    spotify::content_delivery::HeadFileManager head_file_manager;
+    spotify::content_delivery::StorageResolveClient storage_resolve_client;
+    spotify::drm::WidevineLicenseClient widevine_license_client;
+    spotify::streamer::FileStreamerImpl file_streamer;
+
+    NativePlaybackServices()
+        : auth_store(spotify::network::AuthSessionStore::instance()),
+          http_client(auth_store),
+          disk_cache(),
+          track_info_provider(auth_store, http_client),
+          head_file_manager(disk_cache, auth_store),
+          storage_resolve_client(http_client),
+          widevine_license_client(auth_store, http_client),
+          file_streamer(auth_store, head_file_manager, storage_resolve_client, widevine_license_client) {}
+
+    static NativePlaybackServices& instance() {
+        static NativePlaybackServices s_services;
+        return s_services;
+    }
+};
+
+std::shared_ptr<spotify::player::rendering::TrackPlayer> buildRoutingTrackPlayer(AudioEngine* engine) {
+    auto& services = NativePlaybackServices::instance();
+    auto core_player = std::make_shared<spotify::player::rendering::CoreAudioTrackPlayer>(
+        engine,
+        services.file_streamer,
+        services.track_info_provider);
+    auto audio_player = std::make_shared<spotify::player::rendering::AudioTrackPlayer>(
+        std::move(core_player),
+        services.track_info_provider);
+    auto unplayable_player = std::make_shared<spotify::player::rendering::UnplayableTrackPlayer>();
+
+    std::vector<std::shared_ptr<spotify::player::rendering::TrackPlayer>> child_players;
+    child_players.push_back(std::move(audio_player));
+    return std::make_shared<spotify::player::rendering::RoutingTrackPlayer>(
+        std::move(child_players),
+        std::move(unplayable_player));
+}
+
+} // namespace
 
 // ===========================================================================
 // Engine lifecycle
@@ -29,7 +91,7 @@ MUSIFY_EXPORT void musify_engine_destroy(void* handle) {
 }
 
 // ===========================================================================
-// Source loading
+// Source loading & Direct Engine Controls
 // ===========================================================================
 
 MUSIFY_EXPORT int32_t musify_engine_load_local(void* handle, const char* path) {
@@ -93,7 +155,8 @@ MUSIFY_EXPORT int32_t musify_engine_load_track_with_head(
         int64_t trackDurationMs) {
     if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
     auto* engine = static_cast<AudioEngine*>(handle);
-    return static_cast<int32_t>(engine->loadTrackWithHead(fileIdHex, fullTrackUrl, cacheDir, licenseServerUrl, authHeader, trackDurationMs));
+    return static_cast<int32_t>(engine->loadTrackWithHead(
+        fileIdHex, fullTrackUrl, cacheDir, licenseServerUrl, authHeader, trackDurationMs));
 }
 
 MUSIFY_EXPORT void musify_engine_prefetch_head(
@@ -134,10 +197,6 @@ MUSIFY_EXPORT int32_t musify_engine_push_stream_chunk(
     return static_cast<int32_t>(engine->pushStreamChunk(offset, data, length));
 }
 
-// ===========================================================================
-// Playback control
-// ===========================================================================
-
 MUSIFY_EXPORT int32_t musify_engine_play(void* handle) {
     if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
     auto* engine = static_cast<AudioEngine*>(handle);
@@ -156,8 +215,14 @@ MUSIFY_EXPORT int32_t musify_engine_seek_ms(void* handle, int64_t positionMs) {
     return static_cast<int32_t>(engine->seekMs(positionMs));
 }
 
+MUSIFY_EXPORT void musify_engine_stop(void* handle) {
+    if (!handle) return;
+    auto* engine = static_cast<AudioEngine*>(handle);
+    engine->stop();
+}
+
 // ===========================================================================
-// Telemetry (all isLeaf-safe: no GC interaction, no allocation)
+// Telemetry (isLeaf-safe: no GC interaction, no allocation)
 // ===========================================================================
 
 MUSIFY_EXPORT int64_t musify_engine_get_position_ms(void* handle) {
@@ -197,13 +262,62 @@ MUSIFY_EXPORT int32_t musify_engine_is_handoff_completed(void* handle) {
 }
 
 // ===========================================================================
-// String memory management
+// Memory helpers
 // ===========================================================================
 
 MUSIFY_EXPORT void musify_free_string(char* str) {
     if (str) {
         std::free(str);
     }
+}
+
+MUSIFY_EXPORT void musify_free_bytes(uint8_t* bytes) {
+    if (bytes) {
+        std::free(bytes);
+    }
+}
+
+// ===========================================================================
+// Native Auth Session & Kodiak Binary Extension Seeding
+// ===========================================================================
+
+MUSIFY_EXPORT void musify_set_auth_session(
+        const char* access_token,
+        const char* client_token,
+        const char* sp_dc,
+        const char* country,
+        const char* catalogue,
+        const char* accept_language,
+        const char* cache_dir) {
+    auto& services = NativePlaybackServices::instance();
+    services.auth_store.updateSession(
+        access_token,
+        client_token,
+        sp_dc,
+        country,
+        catalogue,
+        accept_language,
+        cache_dir);
+    if (cache_dir && cache_dir[0] != '\0') {
+        services.disk_cache.setBaseCacheDir(cache_dir);
+    }
+}
+
+MUSIFY_EXPORT void musify_set_auth_refresh_port(int64_t dart_port) {
+    NativePlaybackServices::instance().auth_store.setAuthRefreshPort(dart_port);
+}
+
+MUSIFY_EXPORT void musify_metadata_seed_extension(
+        int32_t extension_kind,
+        const char* entity_uri,
+        const uint8_t* payload,
+        int32_t payload_len) {
+    if (!entity_uri || !payload || payload_len <= 0) return;
+    NativePlaybackServices::instance().track_info_provider.seedExtensionPayload(
+        extension_kind,
+        std::string(entity_uri),
+        payload,
+        static_cast<size_t>(payload_len));
 }
 
 // ===========================================================================
@@ -299,19 +413,13 @@ MUSIFY_EXPORT uint8_t* musify_context_processor_get_queue_proto(
     *out_len = static_cast<int32_t>(proto_bytes.size());
     if (proto_bytes.empty()) return nullptr;
 
-    auto* buffer = static_cast<uint8_t*>(malloc(proto_bytes.size()));
+    auto* buffer = static_cast<uint8_t*>(std::malloc(proto_bytes.size()));
     if (!buffer) {
         *out_len = 0;
         return nullptr;
     }
     std::memcpy(buffer, proto_bytes.data(), proto_bytes.size());
     return buffer;
-}
-
-MUSIFY_EXPORT void musify_free_bytes(uint8_t* bytes) {
-    if (bytes) {
-        free(bytes);
-    }
 }
 
 MUSIFY_EXPORT int32_t musify_context_processor_skip_next(void* handle) {
@@ -390,12 +498,13 @@ MUSIFY_EXPORT intptr_t musify_init_dart_api_dl(void* data) {
 }
 
 // ===========================================================================
-// ContextPlayerImpl (Esperanto RPC bridge matching liborbit-jni-spotify.so)
+// ContextPlayerImpl + PlayerRenderingSetup (1:1 with liborbit-jni-spotify.so)
 // ===========================================================================
 
 MUSIFY_EXPORT void* musify_cpi_create(void* engine_handle) {
     auto* engine = static_cast<AudioEngine*>(engine_handle);
-    auto* cpi = new spotify::player::ContextPlayerImpl(engine);
+    auto routing_player = buildRoutingTrackPlayer(engine);
+    auto* cpi = new spotify::player::ContextPlayerImpl(std::move(routing_player));
     return static_cast<void*>(cpi);
 }
 
@@ -409,7 +518,7 @@ MUSIFY_EXPORT void musify_cpi_set_audio_engine(void* handle, void* engine_handle
     if (!handle) return;
     auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
     auto* engine = static_cast<AudioEngine*>(engine_handle);
-    cpi->set_audio_engine(engine);
+    cpi->set_track_player(buildRoutingTrackPlayer(engine));
 }
 
 MUSIFY_EXPORT int32_t musify_cpi_handle_command(
@@ -429,12 +538,6 @@ MUSIFY_EXPORT void musify_cpi_advance_to_next_track(void* handle) {
     cpi->advance_to_next_track();
 }
 
-MUSIFY_EXPORT void musify_cpi_on_track_loaded(void* handle, int32_t success) {
-    if (!handle) return;
-    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
-    cpi->on_track_loaded(success != 0);
-}
-
 MUSIFY_EXPORT uint8_t* musify_cpi_get_state(void* handle, int32_t* out_len) {
     if (!handle || !out_len) {
         if (out_len) *out_len = 0;
@@ -446,7 +549,7 @@ MUSIFY_EXPORT uint8_t* musify_cpi_get_state(void* handle, int32_t* out_len) {
     if (state_vec.empty()) {
         return nullptr;
     }
-    auto* buffer = static_cast<uint8_t*>(malloc(state_vec.size()));
+    auto* buffer = static_cast<uint8_t*>(std::malloc(state_vec.size()));
     if (!buffer) {
         *out_len = 0;
         return nullptr;
@@ -466,7 +569,7 @@ MUSIFY_EXPORT uint8_t* musify_cpi_get_queue(void* handle, int32_t* out_len) {
     if (queue_vec.empty()) {
         return nullptr;
     }
-    auto* buffer = static_cast<uint8_t*>(malloc(queue_vec.size()));
+    auto* buffer = static_cast<uint8_t*>(std::malloc(queue_vec.size()));
     if (!buffer) {
         *out_len = 0;
         return nullptr;
@@ -478,26 +581,6 @@ MUSIFY_EXPORT uint8_t* musify_cpi_get_queue(void* handle, int32_t* out_len) {
 // ---------------------------------------------------------------------------
 // Callback registration using Dart NativePorts
 // ---------------------------------------------------------------------------
-
-MUSIFY_EXPORT void musify_cpi_set_play_track_port(void* handle, int64_t dart_port) {
-    if (!handle) return;
-    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(handle);
-    if (dart_port == 0) {
-        cpi->set_play_track_callback(nullptr);
-        return;
-    }
-    cpi->set_play_track_callback([dart_port](const spotify::player::context_view::Entry& track, bool /*play_immediately*/) {
-        auto proto_bytes = spotify::player::encode_context_track(track);
-        if (proto_bytes.empty()) return;
-
-        Dart_CObject cobj;
-        cobj.type = Dart_CObject_kTypedData;
-        cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
-        cobj.value.as_typed_data.length = static_cast<intptr_t>(proto_bytes.size());
-        cobj.value.as_typed_data.values = proto_bytes.data();
-        Dart_PostCObject_DL(dart_port, &cobj);
-    });
-}
 
 MUSIFY_EXPORT void musify_cpi_set_state_changed_port(void* handle, int64_t dart_port) {
     if (!handle) return;

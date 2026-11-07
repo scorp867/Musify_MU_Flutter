@@ -3,6 +3,7 @@ library;
 import 'package:flutter/material.dart';
 import '../../domain/models/playlist_header_type.dart';
 import '../../domain/models/playlist_metadata.dart';
+import '../../domain/policies/playlist_curation_policy.dart';
 import 'playlist_editorial_header.dart';
 import 'playlist_user_header.dart';
 

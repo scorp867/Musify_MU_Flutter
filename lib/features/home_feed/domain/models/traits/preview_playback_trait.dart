@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
+
 import 'trait.dart';
 
 /// Content-agnostic preview playback (ExtensionKind 181).
-/// Can hold either an audio or video preview.
-class PreviewPlaybackTrait extends Trait {
+@immutable
+final class PreviewPlaybackTrait extends Trait {
   final String uri;
   final String reportingUri;
   final String audioUrl;
@@ -19,26 +21,25 @@ class PreviewPlaybackTrait extends Trait {
     this.durationMs = 0,
   });
 
-  bool get hasAudio => audioUrl.isNotEmpty;
-  bool get hasVideo => videoUrl.isNotEmpty;
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is PreviewPlaybackTrait &&
+        other.uri == uri &&
+        other.reportingUri == reportingUri &&
+        other.audioUrl == audioUrl &&
+        other.videoUrl == videoUrl &&
+        other.videoImageUrl == videoImageUrl &&
+        other.durationMs == durationMs;
+  }
 
   @override
-  Map<String, dynamic> toJson() => {
-    'uri': uri,
-    'reportingUri': reportingUri,
-    'audioUrl': audioUrl,
-    'videoUrl': videoUrl,
-    'videoImageUrl': videoImageUrl,
-    'durationMs': durationMs,
-  };
-
-  factory PreviewPlaybackTrait.fromJson(Map<String, dynamic> json) =>
-      PreviewPlaybackTrait(
-        uri: json['uri'] ?? '',
-        reportingUri: json['reportingUri'] ?? '',
-        audioUrl: json['audioUrl'] ?? '',
-        videoUrl: json['videoUrl'] ?? '',
-        videoImageUrl: json['videoImageUrl'] ?? '',
-        durationMs: json['durationMs'] ?? 0,
-      );
+  int get hashCode => Object.hash(
+    uri,
+    reportingUri,
+    audioUrl,
+    videoUrl,
+    videoImageUrl,
+    durationMs,
+  );
 }
