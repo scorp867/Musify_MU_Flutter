@@ -13,6 +13,7 @@ import 'package:musify_mu/features/local_music/presentation/bloc/local_music_blo
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/private_vault/application/private_vault_bloc.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
 
 class MusifyApp extends StatelessWidget {
@@ -66,6 +67,9 @@ class MusifyApp extends StatelessWidget {
           ),
           BlocProvider<PlayerQueueBloc>.value(
             value: getIt<PlayerQueueBloc>(),
+          ),
+          BlocProvider<PrivateVaultBloc>.value(
+            value: getIt<PrivateVaultBloc>(),
           ),
         ],
         child: app,

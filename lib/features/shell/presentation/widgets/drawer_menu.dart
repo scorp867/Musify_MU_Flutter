@@ -1,10 +1,15 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
+import 'package:musify_mu/features/local_music/data/database/app_database.dart';
 import 'package:musify_mu/features/player/presentation/screens/debug_now_playing_screen.dart';
+import 'package:musify_mu/features/private_vault/application/private_vault_bloc.dart';
+import 'package:musify_mu/features/private_vault/presentation/screens/private_vault_screen.dart';
+import 'package:musify_mu/features/private_vault/presentation/widgets/drawer_gesture_canvas.dart';
 
 class DrawerMenu extends StatelessWidget {
   const DrawerMenu({super.key});
@@ -15,72 +20,85 @@ class DrawerMenu extends StatelessWidget {
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
-        child: BlocBuilder<AuthBloc, AuthState>(
-          buildWhen: (prev, curr) => prev.runtimeType != curr.runtimeType,
-          builder: (context, authState) {
-            final user =
-                authState is Authenticated ? authState.user : null;
-            final displayName = user?.displayName ?? 'Musify';
-            final handle = user != null ? '@${user.id}' : 'Offline Mode';
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildAvatar(user?.avatarUrl, displayName),
-                const SizedBox(height: 16),
-                Text(
-                  displayName,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                Text(
-                  handle,
-                  style: const TextStyle(
-                      fontSize: 14, color: Colors.grey),
-                ),
-                const SizedBox(height: 48),
-                _DrawerMenuItem(
-                    icon: Icons.person, title: 'Profile'),
-                GestureDetector(
-                  onTap: () {
-                    Navigator.of(context, rootNavigator: true).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const DebugNowPlayingScreen(),
-                      ),
-                    );
-                  },
-                  child: const _DrawerMenuItem(
-                      icon: Icons.bug_report, title: 'Debug: NowPlaying'),
-                ),
-                _DrawerMenuItem(
-                    icon: Icons.history,
-                    title: 'Listening History'),
-                _DrawerMenuItem(
-                    icon: Icons.headset, title: 'Equalizer'),
-                const Spacer(),
-                if (user != null)
-                  GestureDetector(
-                    onTap: () => context
-                        .read<AuthBloc>()
-                        .add(const AuthLogoutRequested()),
-                    child: const _DrawerMenuItem(
-                      icon: Icons.logout,
-                      title: 'Log Out',
-                      color: Color(0xFFF97316),
-                    ),
-                  )
-                else
-                  const _DrawerMenuItem(
-                    icon: Icons.login,
-                    title: 'Connect Spotify',
-                    color: Color(0xFF1DB954),
-                  ),
-              ],
+        child: BlocListener<PrivateVaultBloc, PrivateVaultState>(
+          listenWhen: (prev, curr) =>
+              curr is VaultStateActive && prev is! VaultStateActive,
+          listener: (context, state) {
+            Navigator.of(context, rootNavigator: true).push(
+              PrivateVaultScreen.route(appDatabase: getIt<AppDatabase>()),
             );
           },
+          child: BlocBuilder<AuthBloc, AuthState>(
+            buildWhen: (prev, curr) => prev.runtimeType != curr.runtimeType,
+            builder: (context, authState) {
+              final user =
+                  authState is Authenticated ? authState.user : null;
+              final displayName = user?.displayName ?? 'Musify';
+              final handle = user != null ? '@${user.id}' : 'Offline Mode';
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildAvatar(user?.avatarUrl, displayName),
+                  const SizedBox(height: 16),
+                  Text(
+                    displayName,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    handle,
+                    style: const TextStyle(
+                      fontSize: 14, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 48),
+                  const _DrawerMenuItem(
+                      icon: Icons.person, title: 'Profile'),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context, rootNavigator: true).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const DebugNowPlayingScreen(),
+                        ),
+                      );
+                    },
+                    child: const _DrawerMenuItem(
+                        icon: Icons.bug_report, title: 'Debug: NowPlaying'),
+                  ),
+                  const _DrawerMenuItem(
+                      icon: Icons.history,
+                      title: 'Listening History'),
+                  const _DrawerMenuItem(
+                      icon: Icons.headset, title: 'Equalizer'),
+                  const Expanded(
+                    child: DrawerGestureCanvas(
+                      mode: GestureCanvasRenderMode.stealth,
+                    ),
+                  ),
+                  if (user != null)
+                    GestureDetector(
+                      onTap: () => context
+                          .read<AuthBloc>()
+                          .add(const AuthLogoutRequested()),
+                      child: const _DrawerMenuItem(
+                        icon: Icons.logout,
+                        title: 'Log Out',
+                        color: Color(0xFFF97316),
+                      ),
+                    )
+                  else
+                    const _DrawerMenuItem(
+                      icon: Icons.login,
+                      title: 'Connect Spotify',
+                      color: Color(0xFF1DB954),
+                    ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

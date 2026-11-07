@@ -1,5 +1,10 @@
 import 'package:get_it/get_it.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
+import 'package:musify_mu/features/private_vault/application/private_vault_bloc.dart';
+import 'package:musify_mu/features/private_vault/data/native_security_channel.dart';
+import 'package:musify_mu/features/private_vault/data/vault_auth_service.dart';
+import 'package:musify_mu/features/private_vault/data/vault_storage_service.dart';
+import 'package:musify_mu/features/private_vault/domain/services/gesture_grid_recognizer.dart';
 import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
 import 'package:musify_mu/core/audio/native_playback_session_bridge.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
@@ -492,5 +497,20 @@ Future<void> setupInjection() async {
       ubiLogger: getIt<UbiLogger>(),
       pageInstanceIdHolder: getIt<PageInstanceIdHolder>(),
     ),
+  );
+
+  // --- Private Vault Subsystem ---
+  getIt.registerLazySingleton<IVaultStorageService>(VaultStorageService.new);
+  getIt.registerLazySingleton<IVaultAuthService>(VaultAuthService.new);
+  getIt.registerLazySingleton<INativeSecurityChannel>(NativeSecurityChannel.new);
+  getIt.registerLazySingleton<IGestureRecognizerService>(GestureGridRecognizer.new);
+  getIt.registerLazySingleton<PrivateVaultBloc>(
+    () => PrivateVaultBloc(
+      storageService: getIt(),
+      authService: getIt(),
+      securityChannel: getIt(),
+      gestureRecognizer: getIt(),
+    ),
+    dispose: (bloc) => bloc.close(),
   );
 }
