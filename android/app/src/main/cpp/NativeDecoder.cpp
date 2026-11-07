@@ -433,7 +433,22 @@ bool NativeDecoder::drainOutputBuffer() {
                     break;
                 }
 
-                const size_t chunkFrames = std::min(framesRemaining, kConversionBufferFrames);
+                // Pre-check ring buffer space BEFORE converting samples.
+                // This eliminates the spin-wait that previously held codec output
+                // buffers hostage while waiting for ring buffer drain, causing
+                // periodic underruns heard as clicks every few seconds.
+                const size_t spaceAvailable = mRingBuffer.availableToWrite();
+                if (spaceAvailable == 0) {
+                    // Ring buffer completely full - yield and let Oboe drain it.
+                    // No conversion work is wasted during this wait.
+                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                    continue;
+                }
+
+                // Only convert as many frames as will fit in the ring buffer,
+                // clamped to the conversion buffer capacity.
+                const size_t chunkFrames = std::min(framesRemaining,
+                                                     std::min(kConversionBufferFrames, spaceAvailable));
                 const float* stereoSrc = nullptr;
 
                 if (mOutputIsFloat) {
@@ -449,7 +464,7 @@ bool NativeDecoder::drainOutputBuffer() {
                     } else if (channelCount == 2) {
                         if (mNeedsMicroFadeIn.exchange(false, std::memory_order_relaxed)) {
                             std::memcpy(mConversionBuffer, floatBuf + (frameOffset * 2), chunkFrames * RingBuffer::kChannelCount * sizeof(float));
-                            const size_t ramp = std::min<size_t>(32, chunkFrames);
+                            const size_t ramp = std::min<size_t>(256, chunkFrames);
                             for (size_t i = 0; i < ramp; ++i) {
                                 const float gain = static_cast<float>(i + 1) / static_cast<float>(ramp);
                                 mConversionBuffer[i * 2]     *= gain;
@@ -500,7 +515,7 @@ bool NativeDecoder::drainOutputBuffer() {
                     }
 
                     if (mNeedsMicroFadeIn.exchange(false, std::memory_order_relaxed)) {
-                        const size_t ramp = std::min<size_t>(32, chunkFrames);
+                        const size_t ramp = std::min<size_t>(256, chunkFrames);
                         for (size_t i = 0; i < ramp; ++i) {
                             const float gain = static_cast<float>(i + 1) / static_cast<float>(ramp);
                             mConversionBuffer[i * 2]     *= gain;
@@ -509,23 +524,15 @@ bool NativeDecoder::drainOutputBuffer() {
                     }
                 }
 
-                // Push chunk to the lock-free SPSC RingBuffer
-                size_t written = 0;
-                while (written < chunkFrames &&
-                       !mShouldStop.load(std::memory_order_relaxed) &&
-                       !mSeekRequested.load(std::memory_order_relaxed)) {
-                    const size_t w = mRingBuffer.write(
-                        stereoSrc + (written * RingBuffer::kChannelCount),
-                        chunkFrames - written);
-                    written += w;
-                    if (written < chunkFrames) {
-                        std::this_thread::sleep_for(std::chrono::microseconds(500));
-                    }
+                // Write is guaranteed to succeed completely since chunkFrames <= spaceAvailable.
+                const size_t written = mRingBuffer.write(stereoSrc, chunkFrames);
+                if (written > 0) {
+                    mTotalFramesDecoded.fetch_add(written, std::memory_order_relaxed);
+                    frameOffset += written;
+                    framesRemaining -= written;
+                } else {
+                    std::this_thread::sleep_for(std::chrono::microseconds(500));
                 }
-
-                mTotalFramesDecoded.fetch_add(written, std::memory_order_relaxed);
-                frameOffset += chunkFrames;
-                framesRemaining -= chunkFrames;
             }
         }
     }

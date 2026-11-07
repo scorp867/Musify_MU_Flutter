@@ -447,9 +447,6 @@ class _MiniPlayerState extends State<MiniPlayer>
                         size: 28,
                       ),
                       onPressed: () {
-                        setState(() {
-                          _isPlaying = !_isPlaying;
-                        });
                         final lp = _logMiniPlayerInteraction('play_pause_button', 'hit');
                         if (widget.onPlayPause case final onPlayPauseAction?) {
                           onPlayPauseAction();

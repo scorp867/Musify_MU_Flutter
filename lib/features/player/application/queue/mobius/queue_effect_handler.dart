@@ -19,6 +19,7 @@ import '../../../domain/models/player_queue.dart';
 import 'mobius_types.dart';
 import 'queue_effect.dart';
 import 'queue_event.dart';
+import 'queue_model.dart';
 
 /// 1:1 replica of Spotify Mobius Queue Effect Handler (`tbx0.java`, `sfo0.java`, `wos0.java`, `lgx0.java`).
 ///
@@ -30,6 +31,7 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
   final ContextPlayerOptionsClient? optionsClient;
   final ContextPlayerPlayClient? playClient;
   final PlayerQueue Function() getCurrentQueue;
+  final QueueModel Function() getCurrentModel;
 
   QueueMobiusEffectHandler({
     this.queueClient,
@@ -37,6 +39,7 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
     this.optionsClient,
     this.playClient,
     required this.getCurrentQueue,
+    required this.getCurrentModel,
   });
 
   @override
@@ -219,12 +222,14 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
           }
           return null;
 
+        // Determines play/pause from the authoritative QueueModel.isPlaying
+        // derived from PlayerState (isPlaying && !isPaused), NOT from whether
+        // a track object is present in the queue.
         case TogglePlayPauseEffect():
           final ctrl = controlClient;
           if (ctrl != null) {
-            final current = getCurrentQueue();
-            final isPlaying = current.track != null;
-            if (isPlaying) {
+            final model = getCurrentModel();
+            if (model.isPlaying) {
               await ctrl.pause(PauseCommand.create());
             } else {
               await ctrl.resume(ResumeCommand.create());

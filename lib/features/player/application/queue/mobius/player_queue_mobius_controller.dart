@@ -44,6 +44,22 @@ final class _DynamicQueueRef {
   }
 }
 
+/// Mutable holder for dynamic model resolution without using banned late fields.
+final class _DynamicModelRef {
+  QueueModel Function()? _getter;
+
+  void bind(QueueModel Function() getter) {
+    _getter = getter;
+  }
+
+  QueueModel resolve() {
+    return switch (_getter) {
+      final g? => g(),
+      null => const QueueModel(),
+    };
+  }
+}
+
 /// 1:1 Application state controller for Player and Queue matching Spotify's
 /// pure Mobius Loop architecture (`p199p/mgx0.java`, `p199p/lgx0.java`).
 ///
@@ -87,6 +103,7 @@ class PlayerQueueMobiusController extends ChangeNotifier
     QueueModel initialModel = const QueueModel(isLoading: true),
   }) {
     final queueRef = _DynamicQueueRef();
+    final modelRef = _DynamicModelRef();
 
     final handler = QueueMobiusEffectHandler(
       queueClient: queueClient,
@@ -94,6 +111,7 @@ class PlayerQueueMobiusController extends ChangeNotifier
       optionsClient: optionsClient,
       playClient: playClient,
       getCurrentQueue: queueRef.resolve,
+      getCurrentModel: modelRef.resolve,
     );
 
     final loop = MobiusLoop<QueueModel, QueueEvent, QueueEffect>(
@@ -103,6 +121,7 @@ class PlayerQueueMobiusController extends ChangeNotifier
     );
 
     queueRef.bind(() => loop.currentModel.playerQueue);
+    modelRef.bind(() => loop.currentModel);
 
     final controller = PlayerQueueMobiusController._(
       queueClient: queueClient,

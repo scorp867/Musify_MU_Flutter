@@ -1390,7 +1390,7 @@ void AudioEngine::decoderMonitorFunc() {
                 eos = mDecoder && mDecoder->isEndOfStream();
             }
 
-            const size_t watermark = static_cast<size_t>(mSampleRate) * 80 / 1000;
+            const size_t watermark = static_cast<size_t>(mSampleRate) * 250 / 1000;
 
             if (available >= watermark || (eos && available > 0)) {
                 watermarkReached = true;
@@ -1691,6 +1691,19 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(
 
     const size_t framesRead = mRingBuffer.read(output, requestedFrames);
 
+    // Symmetric ramp-up after underrun recovery: prevent zero-to-full click
+    if (mWasUnderrun && framesRead > 0) {
+        constexpr size_t kRampUpFrames = 64;
+        const size_t ramp = std::min(kRampUpFrames, framesRead);
+        for (size_t i = 0; i < ramp; ++i) {
+            const float gain = static_cast<float>(i + 1) / static_cast<float>(ramp);
+            const size_t idx = i * RingBuffer::kChannelCount;
+            output[idx]     *= gain;
+            output[idx + 1] *= gain;
+        }
+        mWasUnderrun = false;
+    }
+
     if (framesRead < requestedFrames) {
         const bool eos = mDecoderEndOfStream.load(std::memory_order_acquire);
 
@@ -1703,8 +1716,8 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(
             return oboe::DataCallbackResult::Continue;
         }
 
-        // Apply 32-frame linear ramp-down on underrun to prevent click/pop
-        constexpr size_t kRampFrames = 32;
+        // Apply linear ramp-down on underrun trailing edge to prevent click/pop
+        constexpr size_t kRampFrames = 64;
         if (framesRead > kRampFrames) {
             const size_t rampStart = framesRead - kRampFrames;
             for (size_t i = 0; i < kRampFrames; ++i) {
@@ -1727,7 +1740,10 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(
         std::memset(output + framesRead * RingBuffer::kChannelCount, 0,
                     (requestedFrames - framesRead) * RingBuffer::kChannelCount * sizeof(float));
 
-        mUnderrunCount.fetch_add(1, std::memory_order_relaxed);
+        mWasUnderrun = true;
+        int32_t count = mUnderrunCount.fetch_add(1, std::memory_order_relaxed) + 1;
+        LOGW("AudioEngine underrun #%d: read only %zu of %zu frames (avail=%zu, eos=%d)",
+             count, framesRead, requestedFrames, mRingBuffer.availableToRead(), eos ? 1 : 0);
     }
 
     mFramesConsumedByHardware.fetch_add(

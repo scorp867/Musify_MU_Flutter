@@ -2,10 +2,13 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
-/// Zero-overhead FFI bindings for libmusify_audio.so.
+/// FFI bindings for libmusify_audio.so.
 ///
-/// All telemetry getters use `isLeaf: true` because the C functions perform
-/// only atomic reads with no GC interaction, heap allocation, or Dart callbacks.
+/// `isLeaf: true` is applied ONLY to functions performing atomic reads with no
+/// GC interaction, heap allocation, Dart callbacks, mutex acquisition, file I/O,
+/// or thread spawning (telemetry getters, port setters, simple create/destroy).
+/// Load, seek, attach, and prefetch functions intentionally omit `isLeaf` because
+/// they may block on I/O, mutexes, or background thread joins.
 class MusifyFfiBindings {
   factory MusifyFfiBindings._open() {
     final library = DynamicLibrary.open(_libName);
@@ -25,7 +28,7 @@ class MusifyFfiBindings {
             .lookup<
                 NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
                 'musify_engine_load_local')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _loadDualSource = lib
             .lookup<
                 NativeFunction<
@@ -36,13 +39,13 @@ class MusifyFfiBindings {
                         Pointer<Utf8>,
                         Pointer<Utf8>,
                         Int64)>>('musify_engine_load_dual_source')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _loadEncrypted = lib
             .lookup<
                 NativeFunction<
                     Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>,
                         Pointer<Utf8>)>>('musify_engine_load_encrypted')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _attachSecondaryStream = lib
             .lookup<
                 NativeFunction<
@@ -52,7 +55,7 @@ class MusifyFfiBindings {
                         Pointer<Utf8>,
                         Pointer<Utf8>,
                         Int64)>>('musify_engine_attach_secondary_stream')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _loadTrackWithHead = lib
             .lookup<
                 NativeFunction<
@@ -64,13 +67,13 @@ class MusifyFfiBindings {
                         Pointer<Utf8>,
                         Pointer<Utf8>,
                         Int64)>>('musify_engine_load_track_with_head')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _prefetchHead = lib
             .lookup<
                 NativeFunction<
                     Void Function(Pointer<Void>, Pointer<Utf8>,
                         Pointer<Utf8>)>>('musify_engine_prefetch_head')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _setDrmSession = lib
             .lookup<
                 NativeFunction<
@@ -101,7 +104,7 @@ class MusifyFfiBindings {
         _seekMs = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>, Int64)>>(
                 'musify_engine_seek_ms')
-            .asFunction(isLeaf: true),
+            .asFunction(),
         _stop = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
                 'musify_engine_stop')

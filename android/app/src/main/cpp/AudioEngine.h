@@ -197,6 +197,7 @@ private:
     std::thread mMonitorThread;
     std::atomic<bool> mMonitorShouldStop{false};
     bool mIsEncryptedSource{false};
+    bool mWasUnderrun{false};  // Tracks underrun state for symmetric ramp-up on recovery
 
     // --- EOS Notification Callback ---
     std::mutex mEosMutex;

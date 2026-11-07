@@ -564,7 +564,7 @@ class NativeContextProcessor implements Finalizable {
     try {
       return urlPtr.toDartString();
     } finally {
-      calloc.free(urlPtr);
+      _ffi.freeString(urlPtr);
     }
   }
 

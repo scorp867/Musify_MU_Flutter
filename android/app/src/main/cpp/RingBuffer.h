@@ -37,10 +37,12 @@ public:
     size_t write(const float* src, size_t frames) {
         const size_t writePos = mWriteIndex.load(std::memory_order_relaxed);
 
-        size_t space = kCapacityFrames - (writePos - mCachedReadIndex);
-        if (space == 0) {
+        size_t space = (kCapacityFrames >= (writePos - mCachedReadIndex))
+                     ? kCapacityFrames - (writePos - mCachedReadIndex) : 0;
+        if (space < frames) {
             mCachedReadIndex = mReadIndex.load(std::memory_order_acquire);
-            space = kCapacityFrames - (writePos - mCachedReadIndex);
+            space = (kCapacityFrames >= (writePos - mCachedReadIndex))
+                  ? kCapacityFrames - (writePos - mCachedReadIndex) : 0;
             if (space == 0) return 0;
         }
 
@@ -68,10 +70,12 @@ public:
     size_t read(float* dst, size_t frames) {
         const size_t readPos = mReadIndex.load(std::memory_order_relaxed);
 
-        size_t available = mCachedWriteIndex - readPos;
-        if (available == 0) {
+        size_t available = (mCachedWriteIndex >= readPos)
+                         ? (mCachedWriteIndex - readPos) : 0;
+        if (available < frames) {
             mCachedWriteIndex = mWriteIndex.load(std::memory_order_acquire);
-            available = mCachedWriteIndex - readPos;
+            available = (mCachedWriteIndex >= readPos)
+                      ? (mCachedWriteIndex - readPos) : 0;
             if (available == 0) return 0;
         }
 
@@ -96,15 +100,17 @@ public:
 
     /// Returns number of stereo frames available to read (consumer view).
     size_t availableToRead() const {
-        return mWriteIndex.load(std::memory_order_acquire)
-             - mReadIndex.load(std::memory_order_relaxed);
+        const size_t w = mWriteIndex.load(std::memory_order_acquire);
+        const size_t r = mReadIndex.load(std::memory_order_relaxed);
+        return (w >= r) ? (w - r) : 0;
     }
 
     /// Returns number of stereo frames of free space available to write (producer view).
     size_t availableToWrite() const {
-        return kCapacityFrames
-             - (mWriteIndex.load(std::memory_order_relaxed)
-              - mReadIndex.load(std::memory_order_acquire));
+        const size_t w = mWriteIndex.load(std::memory_order_relaxed);
+        const size_t r = mReadIndex.load(std::memory_order_acquire);
+        const size_t used = (w >= r) ? (w - r) : 0;
+        return (kCapacityFrames >= used) ? (kCapacityFrames - used) : 0;
     }
 
 private:
