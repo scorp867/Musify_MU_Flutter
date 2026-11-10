@@ -18,10 +18,7 @@ import 'package:musify_mu/features/home_feed/domain/models/home_view_data.dart';
 class FullBleedBannerSection extends StatelessWidget {
   final HomeSection section;
 
-  const FullBleedBannerSection({
-    super.key,
-    required this.section,
-  });
+  const FullBleedBannerSection({super.key, required this.section});
 
   static Color _parseColor(String? hexString, Color fallback) {
     if (hexString == null || hexString.isEmpty) return fallback;
@@ -61,11 +58,14 @@ class FullBleedBannerSection extends StatelessWidget {
                       imageUrl: imageUrl,
                       fit: BoxFit.fill,
                       width: double.infinity,
+                      memCacheWidth: 2226,
+                      memCacheHeight: 294,
                       color: bannerColor,
                       colorBlendMode: BlendMode.srcIn,
                       alignment: Alignment.center,
                       placeholder: (context, url) => const SizedBox.shrink(),
-                      errorWidget: (context, url, error) => const SizedBox.shrink(),
+                      errorWidget: (context, url, error) =>
+                          const SizedBox.shrink(),
                     )
                   : const SizedBox.shrink(),
             ),
