@@ -11,6 +11,10 @@ import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 /// Encapsulates all encrypted CRUD operations for vault configuration, private playlists,
 /// track references, golden gesture templates, and persistent brute-force lockout deadlines.
 abstract interface class IVaultStorageRepository {
+  /// Checks whether a vault has ever been enrolled on this device without requiring
+  /// master key unwrapping or ciphertext decryption.
+  Future<bool> hasEnrolledVault();
+
   /// Loads the persisted [VaultConfig] containing active policies and decoy persona values.
   ///
   /// Returns [VaultSuccess] with loaded config or [VaultFailureResult] on storage/decryption error.
@@ -58,7 +62,7 @@ abstract interface class IVaultStorageRepository {
     required List<String> trackIdsInOrder,
   });
 
-  /// Loads the encrypted golden master [GestureTemplate].
+  /// Loads the golden master [GestureTemplate].
   Future<VaultResult<GestureTemplate>> loadGestureTemplate();
 
   /// Encrypts and persists the golden master [GestureTemplate].

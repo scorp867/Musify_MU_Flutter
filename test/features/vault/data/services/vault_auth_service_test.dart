@@ -4,6 +4,7 @@ import 'package:musify_mu/features/vault/data/services/vault_auth_service.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_point.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
+import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_track_ref.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
@@ -20,6 +21,9 @@ class FakeVaultStorageRepository implements IVaultStorageRepository {
   VaultConfig config = VaultConfig();
   GestureTemplate? template;
   int? persistedDeadlineMs;
+
+  @override
+  Future<bool> hasEnrolledVault() async => true;
 
   @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() async => VaultResult.success(config);
@@ -191,7 +195,7 @@ void main() {
 
   final samplePoints = List.generate(
     64,
-    (i) => GesturePoint(x: i.toDouble(), y: (i * 2).toDouble(), timestampMs: i * 10),
+        (i) => GesturePoint(x: i.toDouble(), y: (i * 2).toDouble(), timestampMs: i * 10),
   );
   final validTemplate = GestureTemplate(
     id: 'test-template-1',
@@ -220,9 +224,6 @@ void main() {
 
   group('VaultAuthService Credential Enrollment', () {
     test('Successfully enrolls initial credentials and provisions master key', () async {
-      final states = <VaultSessionState>[];
-      final subscription = authService.sessionStateStream.listen(states.add);
-
       final result = await authService.enrollInitialCredentials(
         pin: '123456',
         template: validTemplate,
@@ -232,9 +233,7 @@ void main() {
       expect(cryptoBridge.masterKeyExists, isTrue);
       expect(storageRepository.template, isNotNull);
       expect(await secureStorage.read(key: 'musify_vault_is_enrolled'), equals('true'));
-      expect(authService.currentSessionState, isA<VaultLockedState>());
-
-      await subscription.cancel();
+      expect(authService.currentCryptoState, isA<CryptoEngineKeyWrappedAtRestState>());
     });
 
     test('Rejects invalid PIN format on enrollment', () async {
@@ -263,7 +262,6 @@ void main() {
       expect(result, isA<VaultSuccess<AuthSession>>());
       final session = (result as VaultSuccess<AuthSession>).data;
       expect(session.authMethod, equals(AuthMethodEnum.pin));
-      expect(authService.currentSessionState, isA<VaultUnlockedState>());
       expect(cryptoBridge.isSessionUnlocked, isTrue);
     });
 
@@ -274,7 +272,6 @@ void main() {
       final failure = (result as VaultFailureResult<AuthSession>).failure;
       expect(failure, isA<VaultAuthFailure>());
       expect((failure as VaultAuthFailure).remainingAttempts, equals(4));
-      expect(authService.currentSessionState, isA<VaultAuthenticatingState>());
     });
 
     test('5 consecutive failures activates 30-second cooldown (Tier 1)', () async {
@@ -287,7 +284,6 @@ void main() {
       final failure = (result as VaultFailureResult<AuthSession>).failure;
       expect(failure, isA<VaultLockoutFailure>());
       expect((failure as VaultLockoutFailure).remainingCooldownSeconds, equals(30));
-      expect(authService.currentSessionState, isA<VaultLockoutCooldownState>());
       expect(storageRepository.persistedDeadlineMs, equals(clock.currentMonotonicMs + 30000));
 
       // Immediate attempt while locked out is rejected without PBKDF2
@@ -314,7 +310,6 @@ void main() {
       final status = await authService.getLockoutStatus();
       expect(status.tier, equals(LockoutCooldownTierEnum.tier2FiveMinutes));
       expect(status.remainingCooldownSeconds, inInclusiveRange(290, 300));
-      expect(authService.currentSessionState, isA<VaultLockoutCooldownState>());
     });
 
     test('Cooldown expiration restores unthrottled locked state', () async {
@@ -352,7 +347,6 @@ void main() {
       expect(result, isA<VaultSuccess<AuthSession>>());
       final session = (result as VaultSuccess<AuthSession>).data;
       expect(session.authMethod, equals(AuthMethodEnum.biometric));
-      expect(authService.currentSessionState, isA<VaultUnlockedState>());
     });
 
     test('Rejects biometric authentication when policy is pinOnly', () async {
@@ -381,7 +375,6 @@ void main() {
         (authService.currentCryptoState as CryptoEngineCryptoFaultState).faultReason,
         equals(CryptoFaultReasonEnum.keyStoreInvalidated),
       );
-      expect(authService.currentSessionState, isA<VaultAuthenticatingState>());
 
       await subscription.cancel();
     });
@@ -425,11 +418,8 @@ void main() {
 
     test('clearSessionKeysFromRam locks session and restores locked state', () async {
       await authService.authenticateWithPin(pin: '123456');
-      expect(authService.currentSessionState, isA<VaultUnlockedState>());
-
       authService.clearSessionKeysFromRam();
       expect(cryptoBridge.isSessionUnlocked, isFalse);
-      expect(authService.currentSessionState, isA<VaultLockedState>());
       expect(authService.currentCryptoState, isA<CryptoEngineKeyWrappedAtRestState>());
     });
   });

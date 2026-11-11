@@ -39,23 +39,11 @@ class PrivateVaultDashboardScreen extends StatelessWidget {
   /// Optional scoped [ScreenPrivacyCubit] instance.
   final ScreenPrivacyCubit? screenPrivacyCubit;
 
-  /// Optional callback invoked when user navigates to vault settings.
-  final VoidCallback? onSettingsPressed;
-
-  /// Optional callback invoked when a playlist tile is tapped.
-  final ValueChanged<PrivatePlaylist>? onPlaylistTap;
-
-  /// Optional callback invoked when quick lock is requested.
-  final VoidCallback? onQuickLock;
-
   const PrivateVaultDashboardScreen({
     this.playlistsCubit,
     this.storageRepository,
     this.sessionBloc,
     this.screenPrivacyCubit,
-    this.onSettingsPressed,
-    this.onPlaylistTap,
-    this.onQuickLock,
     super.key,
   });
 
@@ -68,9 +56,6 @@ class PrivateVaultDashboardScreen extends StatelessWidget {
           storageRepositoryOverride: storageRepository,
           sessionBlocOverride: sessionBloc,
           screenPrivacyCubitOverride: screenPrivacyCubit,
-          onSettingsPressed: onSettingsPressed,
-          onPlaylistTap: onPlaylistTap,
-          onQuickLock: onQuickLock,
         ),
       );
     }
@@ -81,9 +66,6 @@ class PrivateVaultDashboardScreen extends StatelessWidget {
         storageRepositoryOverride: storageRepository,
         sessionBlocOverride: sessionBloc,
         screenPrivacyCubitOverride: screenPrivacyCubit,
-        onSettingsPressed: onSettingsPressed,
-        onPlaylistTap: onPlaylistTap,
-        onQuickLock: onQuickLock,
       );
     }
 
@@ -93,9 +75,6 @@ class PrivateVaultDashboardScreen extends StatelessWidget {
         storageRepositoryOverride: storageRepository,
         sessionBlocOverride: sessionBloc,
         screenPrivacyCubitOverride: screenPrivacyCubit,
-        onSettingsPressed: onSettingsPressed,
-        onPlaylistTap: onPlaylistTap,
-        onQuickLock: onQuickLock,
       ),
     );
   }
@@ -113,17 +92,11 @@ class _PrivateVaultDashboardScreenView extends StatefulWidget {
   final IVaultStorageRepository? storageRepositoryOverride;
   final VaultSessionBloc? sessionBlocOverride;
   final ScreenPrivacyCubit? screenPrivacyCubitOverride;
-  final VoidCallback? onSettingsPressed;
-  final ValueChanged<PrivatePlaylist>? onPlaylistTap;
-  final VoidCallback? onQuickLock;
 
   const _PrivateVaultDashboardScreenView({
     required this.storageRepositoryOverride,
     required this.sessionBlocOverride,
     required this.screenPrivacyCubitOverride,
-    required this.onSettingsPressed,
-    required this.onPlaylistTap,
-    required this.onQuickLock,
   });
 
   @override
@@ -194,9 +167,18 @@ class _PrivateVaultDashboardScreenViewState
 
   void _handleQuickLock() {
     HapticFeedback.mediumImpact();
-    widget.onQuickLock?.call();
     final bloc = _resolveSessionBloc();
     bloc?.add(const VaultQuickLockRequested(reason: 'Dashboard manual quick-lock'));
+  }
+
+  void _handleSettingsPressed() {
+    HapticFeedback.lightImpact();
+    Navigator.of(context).pushNamed('/vault/settings');
+  }
+
+  void _handlePlaylistTap(PrivatePlaylist playlist) {
+    HapticFeedback.lightImpact();
+    Navigator.of(context).pushNamed('/vault/playlist/${playlist.id}');
   }
 
   void _handleReauthRequested() {
@@ -385,9 +367,7 @@ class _PrivateVaultDashboardScreenViewState
                 color: vaultTheme.textHighSalience,
               ),
               tooltip: 'Vault Settings',
-              onPressed: () {
-                widget.onSettingsPressed?.call();
-              },
+              onPressed: _handleSettingsPressed,
             ),
             const SizedBox(width: 4.0),
           ],
@@ -601,9 +581,7 @@ class _PrivateVaultDashboardScreenViewState
                                 vaultTheme: vaultTheme,
                                 formattedDuration:
                                     _formatDuration(playlist.totalDurationMs),
-                                onTap: () {
-                                  widget.onPlaylistTap?.call(playlist);
-                                },
+                                onTap: () => _handlePlaylistTap(playlist),
                               ),
                             );
                           },

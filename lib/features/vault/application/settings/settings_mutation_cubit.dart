@@ -6,6 +6,7 @@ import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
+import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.dart';
 import 'package:musify_mu/features/vault/domain/states/settings_mutation_state.dart';
 import 'package:musify_mu/features/vault/domain/usecases/mutate_vault_config_use_case.dart';
 
@@ -58,10 +59,13 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
   /// Initializes the cubit by loading the persisted configuration from storage.
   Future<void> initialize() async {
     final result = await _storageRepository.loadVaultConfig();
+    if (isClosed) return;
     switch (result) {
       case VaultSuccess<VaultConfig>(:final data):
         _lastKnownGoodConfig = data;
-        _configStreamController.add(_lastKnownGoodConfig);
+        if (!_configStreamController.isClosed) {
+          _configStreamController.add(_lastKnownGoodConfig);
+        }
         emit(const SettingsMutationSyncedIdleState());
       case VaultFailureResult<VaultConfig>():
         emit(const SettingsMutationSyncedIdleState());
@@ -279,6 +283,14 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
         reason: error.toString(),
       );
     }
+  }
+
+  /// Directly updates and persists the biometric authentication policy.
+  Future<void> applyBiometricPolicy(BiometricAuthPolicyEnum newPolicy) async {
+    final updated = _lastKnownGoodConfig.copyWith(biometricAuth: newPolicy);
+    await _storageRepository.saveVaultConfig(updated);
+    _lastKnownGoodConfig = updated;
+    _configStreamController.add(_lastKnownGoodConfig);
   }
 
   /// Cancels an in-flight sensitive mutation request.

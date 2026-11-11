@@ -1,17 +1,22 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/player/presentation/screens/debug_now_playing_screen.dart';
+import 'package:musify_mu/features/vault/application/coordinator/vault_coordinator.dart';
+import 'package:musify_mu/features/vault/application/gesture/gesture_engine_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
+import 'package:musify_mu/features/vault/application/settings/settings_mutation_cubit.dart';
 import 'package:musify_mu/features/vault/data/gesture/default_gesture_template.dart';
 import 'package:musify_mu/features/vault/data/services/gesture_recognizer_service.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_gesture_recognizer.dart';
 import 'package:musify_mu/features/vault/domain/policies/gesture_sensitivity_tier.dart';
 import 'package:musify_mu/features/vault/domain/policies/gesture_visibility_policy.dart';
+import 'package:musify_mu/features/vault/domain/states/settings_mutation_state.dart';
 import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/stealth_gesture_pad.dart';
 
@@ -22,6 +27,9 @@ class DrawerMenu extends StatefulWidget {
   final GestureSensitivityTierEnum gestureSensitivityTier;
   final GestureVisibilityPolicyEnum gestureVisibilityPolicy;
   final VaultSessionBloc? vaultSessionBloc;
+  final GestureEngineCubit? gestureEngineCubit;
+  final SettingsMutationCubit? settingsMutationCubit;
+  final VaultCoordinator? vaultCoordinator;
 
   static final IGestureRecognizer _sharedRecognizer =
       GestureRecognizerService();
@@ -34,6 +42,9 @@ class DrawerMenu extends StatefulWidget {
     this.gestureSensitivityTier = GestureSensitivityTierEnum.balanced84Percent,
     this.gestureVisibilityPolicy = GestureVisibilityPolicyEnum.invisibleStealth,
     this.vaultSessionBloc,
+    this.gestureEngineCubit,
+    this.settingsMutationCubit,
+    this.vaultCoordinator,
   });
 
   @override
@@ -95,14 +106,7 @@ class _DrawerMenuState extends State<DrawerMenu> {
                 const _DrawerMenuItem(
                     icon: Icons.headset, title: 'Equalizer'),
                 Expanded(
-                  child: StealthGesturePad(
-                    onGestureMatched: () => _handleVaultGestureMatched(context),
-                    recognizer: widget.gestureRecognizer ?? DrawerMenu._sharedRecognizer,
-                    activeTemplate: widget.gestureTemplate ??
-                        DefaultGestureTemplate.canonicalVShape,
-                    sensitivityTier: widget.gestureSensitivityTier,
-                    visibilityPolicy: widget.gestureVisibilityPolicy,
-                  ),
+                  child: _buildStealthGesturePad(context),
                 ),
                 if (user != null)
                   GestureDetector(
@@ -126,6 +130,59 @@ class _DrawerMenuState extends State<DrawerMenu> {
           },
         ),
       ),
+    );
+  }
+
+  Widget _buildStealthGesturePad(BuildContext context) {
+    final gestureEngine = _resolveGestureEngine(context);
+    final settingsCubit = _resolveSettingsMutation(context);
+
+    // If both cubits are in context, rebuild dynamically on configuration mutations.
+    if (settingsCubit != null) {
+      return BlocBuilder<SettingsMutationCubit, SettingsMutationState>(
+        bloc: settingsCubit,
+        builder: (context, _) {
+          return _buildConfiguredPad(context, gestureEngine, settingsCubit);
+        },
+      );
+    }
+
+    return _buildConfiguredPad(context, gestureEngine, settingsCubit);
+  }
+
+  Widget _buildConfiguredPad(
+    BuildContext context,
+    GestureEngineCubit? gestureEngine,
+    SettingsMutationCubit? settingsCubit,
+  ) {
+    final activeConfig = settingsCubit?.currentConfig;
+
+    final template = widget.gestureTemplate ??
+        gestureEngine?.activeTemplate ??
+        DefaultGestureTemplate.canonicalVShape;
+
+    final sensitivity = widget.gestureSensitivityTier != GestureSensitivityTierEnum.balanced84Percent
+        ? widget.gestureSensitivityTier
+        : (gestureEngine?.sensitivityTier ??
+            activeConfig?.gestureSensitivity ??
+            GestureSensitivityTierEnum.balanced84Percent);
+
+    final visibility = widget.gestureVisibilityPolicy != GestureVisibilityPolicyEnum.invisibleStealth
+        ? widget.gestureVisibilityPolicy
+        : (activeConfig?.gestureVisibility ??
+            GestureVisibilityPolicyEnum.invisibleStealth);
+
+    final recognizer = widget.gestureRecognizer ??
+        (GetIt.I.isRegistered<IGestureRecognizer>()
+            ? GetIt.I<IGestureRecognizer>()
+            : DrawerMenu._sharedRecognizer);
+
+    return StealthGesturePad(
+      onGestureMatched: () => _handleVaultGestureMatched(context),
+      recognizer: recognizer,
+      activeTemplate: template,
+      sensitivityTier: sensitivity,
+      visibilityPolicy: visibility,
     );
   }
 
@@ -167,6 +224,39 @@ class _DrawerMenuState extends State<DrawerMenu> {
     }
   }
 
+  GestureEngineCubit? _resolveGestureEngine(BuildContext context) {
+    if (widget.gestureEngineCubit != null) {
+      return widget.gestureEngineCubit;
+    }
+    try {
+      return context.read<GestureEngineCubit>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  SettingsMutationCubit? _resolveSettingsMutation(BuildContext context) {
+    if (widget.settingsMutationCubit != null) {
+      return widget.settingsMutationCubit;
+    }
+    try {
+      return context.read<SettingsMutationCubit>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  VaultCoordinator? _resolveVaultCoordinator(BuildContext context) {
+    if (widget.vaultCoordinator != null) {
+      return widget.vaultCoordinator;
+    }
+    try {
+      return context.read<VaultCoordinator>();
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _handleVaultGestureMatched(BuildContext context) {
     if (widget.onVaultGestureMatched != null) {
       widget.onVaultGestureMatched!();
@@ -178,6 +268,14 @@ class _DrawerMenuState extends State<DrawerMenu> {
     }
 
     _isNavigating = true;
+
+    // Delegate navigation strictly to the VaultCoordinator SSOT when available.
+    final coordinator = _resolveVaultCoordinator(context);
+    if (coordinator != null) {
+      coordinator.onStealthGestureTriggered(context);
+      _isNavigating = false;
+      return;
+    }
 
     final sessionBloc = _resolveVaultSessionBloc(context);
     final currentState = sessionBloc?.state;

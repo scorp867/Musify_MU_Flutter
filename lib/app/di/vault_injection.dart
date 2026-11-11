@@ -42,12 +42,12 @@ void setupVaultInjection(GetIt sl) {
   // ---------------------------------------------------------------------------
   if (!sl.isRegistered<FlutterSecureStorage>()) {
     sl.registerLazySingleton<FlutterSecureStorage>(
-      () => const FlutterSecureStorage(),
+          () => const FlutterSecureStorage(),
     );
   }
 
   sl.registerLazySingleton<VaultPbkdf2Derivation>(
-    () => const VaultPbkdf2Derivation(),
+        () => const VaultPbkdf2Derivation(),
   );
 
   sl.registerLazySingleton<VaultDatabase>(
@@ -56,7 +56,7 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<INativeVaultCryptoBridge>(
-    () => const NativeVaultCryptoBridge(),
+        () => const NativeVaultCryptoBridge(),
   );
 
   sl.registerLazySingleton<IMonotonicClock>(
@@ -77,9 +77,9 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<IVaultMediaIsolationManager>(
-    () => VaultMediaIsolationManager(
+        () => VaultMediaIsolationManager(
       localDatabase:
-          sl.isRegistered<AppDatabase>() ? sl<AppDatabase>() : null,
+      sl.isRegistered<AppDatabase>() ? sl<AppDatabase>() : null,
     ),
   );
 
@@ -87,16 +87,17 @@ void setupVaultInjection(GetIt sl) {
   // Tier 2: Storage Repositories & Cryptographic Auth Services
   // ---------------------------------------------------------------------------
   sl.registerLazySingleton<IVaultStorageRepository>(
-    () => VaultStorageRepository(
+        () => VaultStorageRepository(
       database: sl<VaultDatabase>(),
       cryptoBridge: sl<INativeVaultCryptoBridge>(),
       onShredMediaFiles: () =>
           sl<IVaultMediaIsolationManager>().shredAllIsolatedMedia(),
+      secureStorage: sl<FlutterSecureStorage>(),
     ),
   );
 
   sl.registerLazySingleton<IVaultAuthService>(
-    () => VaultAuthService(
+        () => VaultAuthService(
       cryptoBridge: sl<INativeVaultCryptoBridge>(),
       storageRepository: sl<IVaultStorageRepository>(),
       monotonicClock: sl<IMonotonicClock>(),
@@ -114,10 +115,10 @@ void setupVaultInjection(GetIt sl) {
   // Tier 3: Audio Playback & Privacy Proxies
   // ---------------------------------------------------------------------------
   sl.registerLazySingleton<PlaybackPrivacyProxy>(
-    () => PlaybackPrivacyProxy(
-      vaultAuthService: sl<IVaultAuthService>(),
+        () => PlaybackPrivacyProxy(
       mobiusController: sl<PlayerQueueMobiusController>(),
       storageRepository: sl<IVaultStorageRepository>(),
+      vaultAuthService: sl<IVaultAuthService>(),
       controlClient: sl.isRegistered<ContextPlayerControlClient>()
           ? sl<ContextPlayerControlClient>()
           : null,
@@ -126,7 +127,7 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<VaultAudioPlaybackService>(
-    () => VaultAudioPlaybackService(
+        () => VaultAudioPlaybackService(
       mobiusController: sl<PlayerQueueMobiusController>(),
       privacyProxy: sl<PlaybackPrivacyProxy>(),
       isolationManager: sl<IVaultMediaIsolationManager>(),
@@ -137,29 +138,29 @@ void setupVaultInjection(GetIt sl) {
   // Tier 4: Domain Interactor Use Cases
   // ---------------------------------------------------------------------------
   sl.registerLazySingleton<UnlockVaultUseCase>(
-    () => UnlockVaultUseCase(authService: sl<IVaultAuthService>()),
+        () => UnlockVaultUseCase(authService: sl<IVaultAuthService>()),
   );
 
   sl.registerLazySingleton<RotatePinUseCase>(
-    () => RotatePinUseCase(authService: sl<IVaultAuthService>()),
+        () => RotatePinUseCase(authService: sl<IVaultAuthService>()),
   );
 
   sl.registerLazySingleton<PurgeVaultDataUseCase>(
-    () => PurgeVaultDataUseCase(
+        () => PurgeVaultDataUseCase(
       authService: sl<IVaultAuthService>(),
       storageRepository: sl<IVaultStorageRepository>(),
     ),
   );
 
   sl.registerLazySingleton<MutateVaultConfigUseCase>(
-    () => MutateVaultConfigUseCase(
+        () => MutateVaultConfigUseCase(
       authService: sl<IVaultAuthService>(),
       storageRepository: sl<IVaultStorageRepository>(),
     ),
   );
 
   sl.registerLazySingleton<EnrollGestureUseCase>(
-    () => EnrollGestureUseCase(
+        () => EnrollGestureUseCase(
       authService: sl<IVaultAuthService>(),
       recognizer: sl<IGestureRecognizer>(),
       storageRepository: sl<IVaultStorageRepository>(),
@@ -167,14 +168,14 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<VerifySessionCoolOffUseCase>(
-    () => VerifySessionCoolOffUseCase(clock: sl<IMonotonicClock>()),
+        () => VerifySessionCoolOffUseCase(clock: sl<IMonotonicClock>()),
   );
 
   // ---------------------------------------------------------------------------
   // Tier 5: Presentation BLoCs & Cubits
   // ---------------------------------------------------------------------------
   sl.registerLazySingleton<VaultSessionBloc>(
-    () => VaultSessionBloc(
+        () => VaultSessionBloc(
       authService: sl<IVaultAuthService>(),
       storageRepository: sl<IVaultStorageRepository>(),
       monotonicClock: sl<IMonotonicClock>(),
@@ -184,7 +185,7 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<SettingsMutationCubit>(
-    () => SettingsMutationCubit(
+        () => SettingsMutationCubit(
       storageRepository: sl<IVaultStorageRepository>(),
       mutateVaultConfigUseCase: sl<MutateVaultConfigUseCase>(),
       authService: sl<IVaultAuthService>(),
@@ -194,7 +195,7 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<ScreenPrivacyCubit>(
-    () => ScreenPrivacyCubit(
+        () => ScreenPrivacyCubit(
       privacyController: sl<IScreenPrivacyController>(),
       monotonicClock: sl<IMonotonicClock>(),
     ),
@@ -202,7 +203,7 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<GestureEngineCubit>(
-    () => GestureEngineCubit(
+        () => GestureEngineCubit(
       recognizer: sl<IGestureRecognizer>(),
       storageRepository: sl<IVaultStorageRepository>(),
       vaultAuthService: sl<IVaultAuthService>(),
@@ -211,23 +212,24 @@ void setupVaultInjection(GetIt sl) {
   );
 
   sl.registerLazySingleton<PinPadCubit>(
-    () => PinPadCubit(
+        () => PinPadCubit(
       unlockVaultUseCase: sl<UnlockVaultUseCase>(),
       authService: sl<IVaultAuthService>(),
       monotonicClock: sl<IMonotonicClock>(),
+      sessionBloc: sl<VaultSessionBloc>(),
     ),
     dispose: (cubit) => cubit.close(),
   );
 
   sl.registerFactory<VaultPlaylistsCubit>(
-    () => VaultPlaylistsCubit(storageRepository: sl<IVaultStorageRepository>()),
+        () => VaultPlaylistsCubit(storageRepository: sl<IVaultStorageRepository>()),
   );
 
   // ---------------------------------------------------------------------------
   // Tier 6: Central Coordinator Orchestrator & Route Observer
   // ---------------------------------------------------------------------------
   sl.registerLazySingleton<VaultCoordinator>(
-    () => VaultCoordinator(
+        () => VaultCoordinator(
       sessionBloc: sl<VaultSessionBloc>(),
       playbackPrivacyProxy: sl<PlaybackPrivacyProxy>(),
       screenPrivacyCubit: sl<ScreenPrivacyCubit>(),
@@ -235,11 +237,11 @@ void setupVaultInjection(GetIt sl) {
       settingsMutationCubit: sl<SettingsMutationCubit>(),
       pinPadCubit: sl<PinPadCubit>(),
       monotonicClock: sl<IMonotonicClock>(),
-    )..initialize(),
+    ),
     dispose: (coordinator) => coordinator.dispose(),
   );
 
   sl.registerLazySingleton<VaultRouteObserver>(
-    () => VaultRouteObserver(privacyCubit: sl<ScreenPrivacyCubit>()),
+        () => VaultRouteObserver(privacyCubit: sl<ScreenPrivacyCubit>()),
   );
 }

@@ -148,6 +148,9 @@ final class FakeVaultStorageRepository implements IVaultStorageRepository {
   VaultResult<void>? purgeResult;
 
   @override
+  Future<bool> hasEnrolledVault() async => true;
+
+  @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() async {
     return VaultResult.success(persistedConfig);
   }

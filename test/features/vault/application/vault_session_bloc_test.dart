@@ -33,6 +33,9 @@ class FakeVaultStorageRepository implements IVaultStorageRepository {
   int? persistedDeadlineMs;
 
   @override
+  Future<bool> hasEnrolledVault() async => template != null;
+
+  @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() async =>
       VaultResult.success(config);
 

@@ -406,10 +406,6 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify on Settings screen
-      final nav = Navigator.of(tester.element(find.byType(PrivateVaultDashboardScreen)));
-      nav.pushNamed('/vault/settings');
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(VaultSettingsScreen), findsOneWidget);
 
       // Modify setting: theme palette

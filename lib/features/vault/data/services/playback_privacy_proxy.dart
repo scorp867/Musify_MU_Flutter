@@ -28,13 +28,12 @@ typedef PlaybackPrivacyIdleState = PlaybackPrivacyPublicPassthroughState;
 /// Intercepts outgoing [ContextTrack] metadata and governs playback responses
 /// to vault lock/unlock events without duplicating the underlying audio engine.
 class PlaybackPrivacyProxy {
-  final IVaultAuthService _vaultAuthService;
   final PlayerQueueMobiusController _mobiusController;
   final IVaultStorageRepository _storageRepository;
   final ContextPlayerControlClient? _controlClient;
 
   final Map<MetadataVisibilityPolicyEnum, IMediaMaskingStrategy>
-      _maskingStrategies;
+  _maskingStrategies;
   final Map<LockPlaybackBehaviorEnum, ILockPlaybackStrategy> _lockStrategies;
 
   final StreamController<PlaybackPrivacyState> _stateController;
@@ -44,41 +43,41 @@ class PlaybackPrivacyProxy {
   PlaybackPrivacyState _currentState;
   VaultConfig _cachedConfig;
   bool _isDisposed = false;
+  bool _isInitialized = false;
 
   /// Pure constructor injection. Zero Service Locator calls.
   PlaybackPrivacyProxy({
-    required IVaultAuthService vaultAuthService,
     required PlayerQueueMobiusController mobiusController,
     required IVaultStorageRepository storageRepository,
+    IVaultAuthService? vaultAuthService,
     ContextPlayerControlClient? controlClient,
     Map<MetadataVisibilityPolicyEnum, IMediaMaskingStrategy>? maskingStrategies,
     Map<LockPlaybackBehaviorEnum, ILockPlaybackStrategy>? lockStrategies,
     VaultConfig? initialConfig,
     PlaybackPrivacyState initialPrivacyState =
-        const PlaybackPrivacyPublicPassthroughState(),
-  })  : _vaultAuthService = vaultAuthService,
-        _mobiusController = mobiusController,
+    const PlaybackPrivacyPublicPassthroughState(),
+  })  : _mobiusController = mobiusController,
         _storageRepository = storageRepository,
         _controlClient = controlClient,
         _maskingStrategies = switch (maskingStrategies) {
           final m? => Map.unmodifiable(m),
           null => Map.unmodifiable({
-              MetadataVisibilityPolicyEnum.maskWithPlaceholder:
-                  const DecoyMediaMaskingStrategy(),
-              MetadataVisibilityPolicyEnum.showActualMetadata:
-                  const PassthroughMediaMaskingStrategy(),
-            }),
+            MetadataVisibilityPolicyEnum.maskWithPlaceholder:
+            const DecoyMediaMaskingStrategy(),
+            MetadataVisibilityPolicyEnum.showActualMetadata:
+            const PassthroughMediaMaskingStrategy(),
+          }),
         },
         _lockStrategies = switch (lockStrategies) {
           final l? => Map.unmodifiable(l),
           null => Map.unmodifiable({
-              LockPlaybackBehaviorEnum.stopImmediately:
-                  const StopImmediatelyLockStrategy(),
-              LockPlaybackBehaviorEnum.finishCurrentTrack:
-                  const FinishCurrentTrackLockStrategy(),
-              LockPlaybackBehaviorEnum.continueMaskedInBackground:
-                  const ContinueMaskedLockStrategy(),
-            }),
+            LockPlaybackBehaviorEnum.stopImmediately:
+            const StopImmediatelyLockStrategy(),
+            LockPlaybackBehaviorEnum.finishCurrentTrack:
+            const FinishCurrentTrackLockStrategy(),
+            LockPlaybackBehaviorEnum.continueMaskedInBackground:
+            const ContinueMaskedLockStrategy(),
+          }),
         },
         _cachedConfig = switch (initialConfig) {
           final c? => c,
@@ -114,17 +113,17 @@ class PlaybackPrivacyProxy {
 
   /// Whether decoy persona strings are currently being projected.
   bool get isDecoyActive => switch (_currentState) {
-        PlaybackPrivacyPublicPassthroughState() => false,
-        PlaybackPrivacyVaultTrackActiveState(:final maskingStatus) =>
-          maskingStatus == PlaybackMaskingStatusEnum.decoyPersonaProjected,
-        PlaybackPrivacyExecutingLockStrategyState() => true,
-      };
+    PlaybackPrivacyPublicPassthroughState() => false,
+    PlaybackPrivacyVaultTrackActiveState(:final maskingStatus) =>
+    maskingStatus == PlaybackMaskingStatusEnum.decoyPersonaProjected,
+    PlaybackPrivacyExecutingLockStrategyState() => true,
+  };
 
-  /// Initializes subscriptions to [IVaultAuthService.sessionStateStream],
-  /// [PlayerQueueMobiusController.stream], and optional [configStream],
-  /// and loads initial [VaultConfig].
+  /// Initializes subscriptions to [PlayerQueueMobiusController.stream]
+  /// and optional [configStream], and loads initial [VaultConfig].
   Future<void> initialize({Stream<VaultConfig>? configStream}) async {
-    if (_isDisposed) return;
+    if (_isDisposed || _isInitialized) return;
+    _isInitialized = true;
 
     final configResult = await _storageRepository.loadVaultConfig();
     if (configResult case VaultSuccess(:final data)) {
@@ -134,13 +133,6 @@ class PlaybackPrivacyProxy {
     if (configStream != null) {
       bindConfigStream(configStream);
     }
-
-    _subscriptions.add(
-      _vaultAuthService.sessionStateStream.listen(
-        _handleSessionStateChange,
-        onError: _handleStreamError,
-      ),
-    );
 
     _subscriptions.add(
       _mobiusController.stream.listen(
@@ -172,9 +164,9 @@ class PlaybackPrivacyProxy {
       case PlaybackPrivacyVaultTrackActiveState(:final vaultTrackId):
         final newMaskingStatus = switch (_cachedConfig.metadataVisibility) {
           MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
-            PlaybackMaskingStatusEnum.decoyPersonaProjected,
+          PlaybackMaskingStatusEnum.decoyPersonaProjected,
           MetadataVisibilityPolicyEnum.showActualMetadata =>
-            PlaybackMaskingStatusEnum.unmasked,
+          PlaybackMaskingStatusEnum.unmasked,
         };
         _transitionTo(
           PlaybackPrivacyVaultTrackActiveState(
@@ -186,7 +178,7 @@ class PlaybackPrivacyProxy {
       case PlaybackPrivacyExecutingLockStrategyState(
           :final activeVaultTrackId,
           :final executingBehavior,
-        ):
+      ):
         final newBehavior = _cachedConfig.lockPlaybackBehavior;
         if (newBehavior != executingBehavior) {
           _transitionTo(
@@ -220,7 +212,7 @@ class PlaybackPrivacyProxy {
     switch (_currentState) {
       case PlaybackPrivacyPublicPassthroughState():
         final strategy =
-            _resolveMaskingStrategy(_cachedConfig.metadataVisibility);
+        _resolveMaskingStrategy(_cachedConfig.metadataVisibility);
         return strategy.projectTrack(
           originalTrack: track,
           config: _cachedConfig,
@@ -253,9 +245,9 @@ class PlaybackPrivacyProxy {
 
     final maskingStatus = switch (_cachedConfig.metadataVisibility) {
       MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
-        PlaybackMaskingStatusEnum.decoyPersonaProjected,
+      PlaybackMaskingStatusEnum.decoyPersonaProjected,
       MetadataVisibilityPolicyEnum.showActualMetadata =>
-        PlaybackMaskingStatusEnum.unmasked,
+      PlaybackMaskingStatusEnum.unmasked,
     };
 
     _transitionTo(
@@ -265,6 +257,11 @@ class PlaybackPrivacyProxy {
         visibilityPolicy: _cachedConfig.metadataVisibility,
       ),
     );
+  }
+
+  /// Directly handles session state transition forwarded from central coordinator or session bloc.
+  void handleSessionStateTransition(VaultSessionState sessionState) {
+    _handleSessionStateChange(sessionState);
   }
 
   void _handleSessionStateChange(VaultSessionState sessionState) {
@@ -279,15 +276,15 @@ class PlaybackPrivacyProxy {
       case VaultLockoutCooldownState():
         _executeLockTransition();
       case VaultAuthenticatingState():
-        // Retain current privacy status while user authenticates.
+      // Retain current privacy status while user authenticates.
         break;
       case VaultUnlockedState():
         _executeUnlockRecovery();
       case VaultBackgroundGraceState():
-        // Active session remains valid during background grace.
+      // Active session remains valid during background grace.
         break;
       case VaultPendingReauthState():
-        // Non-destructive step-up re-auth: audio continues uninterrupted.
+      // Non-destructive step-up re-auth: audio continues uninterrupted.
         break;
     }
   }
@@ -317,25 +314,25 @@ class PlaybackPrivacyProxy {
               vaultTrackId: vaultTrackId,
               maskingStatus: switch (_cachedConfig.metadataVisibility) {
                 MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
-                  PlaybackMaskingStatusEnum.decoyPersonaProjected,
+                PlaybackMaskingStatusEnum.decoyPersonaProjected,
                 MetadataVisibilityPolicyEnum.showActualMetadata =>
-                  PlaybackMaskingStatusEnum.unmasked,
+                PlaybackMaskingStatusEnum.unmasked,
               },
               visibilityPolicy: _cachedConfig.metadataVisibility,
             ),
           );
         case PlaybackPrivacyVaultTrackActiveState(
-            vaultTrackId: final currentId,
-          ):
+        vaultTrackId: final currentId,
+        ):
           if (currentId != vaultTrackId) {
             _transitionTo(
               PlaybackPrivacyVaultTrackActiveState(
                 vaultTrackId: vaultTrackId,
                 maskingStatus: switch (_cachedConfig.metadataVisibility) {
                   MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
-                    PlaybackMaskingStatusEnum.decoyPersonaProjected,
+                  PlaybackMaskingStatusEnum.decoyPersonaProjected,
                   MetadataVisibilityPolicyEnum.showActualMetadata =>
-                    PlaybackMaskingStatusEnum.unmasked,
+                  PlaybackMaskingStatusEnum.unmasked,
                 },
                 visibilityPolicy: _cachedConfig.metadataVisibility,
               ),
@@ -344,9 +341,9 @@ class PlaybackPrivacyProxy {
         case PlaybackPrivacyExecutingLockStrategyState(
             :final activeVaultTrackId,
             :final executingBehavior,
-          ):
+        ):
           if (executingBehavior ==
-                  LockPlaybackBehaviorEnum.finishCurrentTrack &&
+              LockPlaybackBehaviorEnum.finishCurrentTrack &&
               activeVaultTrackId != vaultTrackId) {
             _haltFinishedCurrentTrackPlayback();
           }
@@ -357,7 +354,7 @@ class PlaybackPrivacyProxy {
   Future<void> _executeLockTransition() async {
     switch (_currentState) {
       case PlaybackPrivacyPublicPassthroughState():
-        // No private media playing; zero action required.
+      // No private media playing; zero action required.
         break;
       case PlaybackPrivacyVaultTrackActiveState(:final vaultTrackId):
         final behavior = _cachedConfig.lockPlaybackBehavior;
@@ -379,7 +376,7 @@ class PlaybackPrivacyProxy {
           _transitionTo(const PlaybackPrivacyPublicPassthroughState());
         }
       case PlaybackPrivacyExecutingLockStrategyState():
-        // Already executing lock strategy.
+      // Already executing lock strategy.
         break;
     }
   }
@@ -395,9 +392,9 @@ class PlaybackPrivacyProxy {
               vaultTrackId: vaultTrackId,
               maskingStatus: switch (_cachedConfig.metadataVisibility) {
                 MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
-                  PlaybackMaskingStatusEnum.decoyPersonaProjected,
+                PlaybackMaskingStatusEnum.decoyPersonaProjected,
                 MetadataVisibilityPolicyEnum.showActualMetadata =>
-                  PlaybackMaskingStatusEnum.unmasked,
+                PlaybackMaskingStatusEnum.unmasked,
               },
               visibilityPolicy: _cachedConfig.metadataVisibility,
             ),
@@ -405,7 +402,7 @@ class PlaybackPrivacyProxy {
         }
       case PlaybackPrivacyExecutingLockStrategyState(
           :final activeVaultTrackId,
-        ):
+      ):
         final nowPlaying = _mobiusController.state.nowPlaying;
         if (nowPlaying != null && _isVaultTrack(nowPlaying)) {
           _transitionTo(
@@ -413,9 +410,9 @@ class PlaybackPrivacyProxy {
               vaultTrackId: activeVaultTrackId,
               maskingStatus: switch (_cachedConfig.metadataVisibility) {
                 MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
-                  PlaybackMaskingStatusEnum.decoyPersonaProjected,
+                PlaybackMaskingStatusEnum.decoyPersonaProjected,
                 MetadataVisibilityPolicyEnum.showActualMetadata =>
-                  PlaybackMaskingStatusEnum.unmasked,
+                PlaybackMaskingStatusEnum.unmasked,
               },
               visibilityPolicy: _cachedConfig.metadataVisibility,
             ),
@@ -424,7 +421,7 @@ class PlaybackPrivacyProxy {
           _transitionTo(const PlaybackPrivacyPublicPassthroughState());
         }
       case PlaybackPrivacyVaultTrackActiveState():
-        // Already active; zero action required.
+      // Already active; zero action required.
         break;
     }
   }
@@ -455,7 +452,7 @@ class PlaybackPrivacyProxy {
       return true;
     }
     if (track.metadata[ContextTrackMetadata.keyLocalFilePath]
-        case final path?) {
+    case final path?) {
       if (path.contains('vault_media/.nomedia')) {
         return true;
       }
@@ -477,8 +474,8 @@ class PlaybackPrivacyProxy {
   }
 
   IMediaMaskingStrategy _resolveMaskingStrategy(
-    MetadataVisibilityPolicyEnum policy,
-  ) {
+      MetadataVisibilityPolicyEnum policy,
+      ) {
     final strategy = _maskingStrategies[policy];
     if (strategy case final s?) {
       return s;
@@ -487,8 +484,8 @@ class PlaybackPrivacyProxy {
   }
 
   ILockPlaybackStrategy _resolveLockStrategy(
-    LockPlaybackBehaviorEnum behavior,
-  ) {
+      LockPlaybackBehaviorEnum behavior,
+      ) {
     final strategy = _lockStrategies[behavior];
     if (strategy case final s?) {
       return s;

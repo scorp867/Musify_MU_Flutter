@@ -17,6 +17,9 @@ import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart'
 
 /// Navigation request targets emitted by [VaultCoordinator].
 enum VaultNavigationTarget {
+  /// Navigate to dedicated first-time provisioning/setup screen.
+  setupScreen,
+
   /// Navigate to dedicated full-screen authentication pad.
   unlockScreen,
 
@@ -47,6 +50,7 @@ class VaultCoordinator {
   final List<StreamSubscription<Object?>> _subscriptions;
 
   bool _isDisposed = false;
+  bool _isInitialized = false;
 
   VaultCoordinator({
     required VaultSessionBloc sessionBloc,
@@ -75,7 +79,11 @@ class VaultCoordinator {
 
   /// Initializes cross-subsystem stream bindings and event listeners.
   void initialize() {
-    if (_isDisposed) return;
+    if (_isDisposed || _isInitialized) return;
+    _isInitialized = true;
+
+    // Sync initial configuration with PinPadCubit
+    _pinPadCubit.updateKeypadLayout(_settingsMutationCubit.currentConfig.keypadLayout);
 
     // 1. Listen to Region A session state transitions
     _subscriptions.add(
@@ -114,7 +122,10 @@ class VaultCoordinator {
     final sessionState = _sessionBloc.state;
     switch (sessionState) {
       case VaultUninitializedState():
+        _sessionBloc.add(const VaultSetupRequested());
+        _navigationController.add(VaultNavigationTarget.setupScreen);
       case VaultProvisioningState():
+        _navigationController.add(VaultNavigationTarget.setupScreen);
       case VaultLockedState():
       case VaultLockoutCooldownState():
       case VaultAuthenticatingState():
@@ -131,8 +142,19 @@ class VaultCoordinator {
     final monotonicNowMs = _monotonicClock.currentMonotonicMs;
 
     switch (state) {
-      case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
+        // System dialogs, notification shade, or native BiometricPrompt cause temporary focus loss.
+        // Shield window recents if configured, but DO NOT background or lock the vault session!
+        final config = _settingsMutationCubit.currentConfig;
+        if (config.screenSecurity ==
+            ScreenSecurityPolicyEnum.blockScreenshotsAndRecents) {
+          _screenPrivacyCubit.engageSecureFlag(
+            reason: ScreenPrivacyEngageReasonEnum.appBackgroundWithVaultLoaded,
+          );
+        }
+
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
         _sessionBloc.add(
           VaultAppBackgrounded(pausedAtMonotonicMs: monotonicNowMs),
         );
@@ -148,18 +170,13 @@ class VaultCoordinator {
         _sessionBloc.add(
           VaultAppForegrounded(resumedAtMonotonicMs: monotonicNowMs),
         );
-        final config = _settingsMutationCubit.currentConfig;
-        if (config.screenSecurity == ScreenSecurityPolicyEnum.allowCapture &&
-            _sessionBloc.state is! VaultActiveSessionState) {
-          _screenPrivacyCubit.releaseSecureFlag(
-            reason: ScreenPrivacyEngageReasonEnum.appBackgroundWithVaultLoaded,
-          );
-        }
+        _screenPrivacyCubit.releaseSecureFlag(
+          reason: ScreenPrivacyEngageReasonEnum.appBackgroundWithVaultLoaded,
+        );
 
       case AppLifecycleState.detached:
-      case AppLifecycleState.hidden:
         _sessionBloc.add(
-          const VaultQuickLockRequested(reason: 'App detached/hidden'),
+          const VaultQuickLockRequested(reason: 'App detached'),
         );
     }
   }
@@ -175,6 +192,8 @@ class VaultCoordinator {
   void _handleSessionStateChange(VaultSessionState state) {
     if (_isDisposed) return;
 
+    _playbackPrivacyProxy.handleSessionStateTransition(state);
+
     switch (state) {
       case VaultUninitializedState():
       case VaultProvisioningState():
@@ -182,7 +201,7 @@ class VaultCoordinator {
         _pinPadCubit.resetToIdle();
 
       case VaultUnlockedState():
-        break;
+        _pinPadCubit.resetToIdle();
 
       case VaultBackgroundGraceState():
         break;
@@ -210,6 +229,9 @@ class VaultCoordinator {
 
     // 4. Update Region A VaultSessionBloc
     _sessionBloc.add(VaultConfigUpdated(config: config));
+
+    // 5. Update Keypad Layout in PinPadCubit
+    _pinPadCubit.updateKeypadLayout(config.keypadLayout);
   }
 
   void _handleError(Object error, StackTrace stack) {

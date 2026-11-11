@@ -3,10 +3,15 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/application/settings/settings_mutation_cubit.dart';
+import 'package:musify_mu/features/vault/data/services/vault_audio_playback_service.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.dart';
+import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/domain/policies/vault_theme_palette_policy.dart';
+import 'package:musify_mu/features/vault/domain/states/settings_mutation_state.dart';
 import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
+import 'package:musify_mu/features/vault/domain/usecases/purge_vault_data_use_case.dart';
+import 'package:musify_mu/features/vault/domain/usecases/rotate_pin_use_case.dart';
 import 'package:musify_mu/features/vault/domain/usecases/unlock_vault_use_case.dart';
 import 'package:musify_mu/features/vault/presentation/screens/gesture_enrollment_screen.dart';
 import 'package:musify_mu/features/vault/presentation/screens/private_playlist_detail_screen.dart';
@@ -118,6 +123,19 @@ abstract final class VaultRoutes {
           effectiveScreen = targetScreen;
         }
 
+        if (settingsCubit != null) {
+          return BlocBuilder<SettingsMutationCubit, SettingsMutationState>(
+            bloc: settingsCubit,
+            builder: (context, _) {
+              final palette = settingsCubit.currentConfig.themePalette;
+              return VaultTheme(
+                data: VaultThemeData.fromPalette(palette),
+                child: effectiveScreen,
+              );
+            },
+          );
+        }
+
         final palette = settingsCubit?.currentConfig.themePalette ??
             VaultThemePalettePolicyEnum.warmEspresso;
         return VaultTheme(
@@ -162,7 +180,14 @@ abstract final class VaultRoutes {
     }
 
     if (name == settings) {
-      return const VaultSettingsScreen();
+      final sl = GetIt.I;
+      return VaultSettingsScreen(
+        authService: sl.isRegistered<IVaultAuthService>() ? sl<IVaultAuthService>() : null,
+        monotonicClock: sl.isRegistered<IMonotonicClock>() ? sl<IMonotonicClock>() : null,
+        unlockVaultUseCase: sl.isRegistered<UnlockVaultUseCase>() ? sl<UnlockVaultUseCase>() : null,
+        rotatePinUseCase: sl.isRegistered<RotatePinUseCase>() ? sl<RotatePinUseCase>() : null,
+        purgeVaultDataUseCase: sl.isRegistered<PurgeVaultDataUseCase>() ? sl<PurgeVaultDataUseCase>() : null,
+      );
     }
 
     if (name == settingsAppearance) {
@@ -170,7 +195,13 @@ abstract final class VaultRoutes {
     }
 
     if (name == settingsSecurity) {
-      return const VaultSecuritySettingsScreen();
+      final sl = GetIt.I;
+      return VaultSecuritySettingsScreen(
+        authService: sl.isRegistered<IVaultAuthService>() ? sl<IVaultAuthService>() : null,
+        monotonicClock: sl.isRegistered<IMonotonicClock>() ? sl<IMonotonicClock>() : null,
+        unlockVaultUseCase: sl.isRegistered<UnlockVaultUseCase>() ? sl<UnlockVaultUseCase>() : null,
+        rotatePinUseCase: sl.isRegistered<RotatePinUseCase>() ? sl<RotatePinUseCase>() : null,
+      );
     }
 
     if (name == settingsPrivacy) {
@@ -182,7 +213,13 @@ abstract final class VaultRoutes {
     }
 
     if (name == settingsDanger) {
-      return const VaultDangerZoneScreen();
+      final sl = GetIt.I;
+      return VaultDangerZoneScreen(
+        authService: sl.isRegistered<IVaultAuthService>() ? sl<IVaultAuthService>() : null,
+        monotonicClock: sl.isRegistered<IMonotonicClock>() ? sl<IMonotonicClock>() : null,
+        unlockVaultUseCase: sl.isRegistered<UnlockVaultUseCase>() ? sl<UnlockVaultUseCase>() : null,
+        purgeVaultDataUseCase: sl.isRegistered<PurgeVaultDataUseCase>() ? sl<PurgeVaultDataUseCase>() : null,
+      );
     }
 
     if (name == enrollment) {
@@ -194,12 +231,22 @@ abstract final class VaultRoutes {
 
     if (name.startsWith(playlistPrefix)) {
       final playlistId = name.substring(playlistPrefix.length);
-      return PrivatePlaylistDetailScreen(playlistId: playlistId);
+      final sl = GetIt.I;
+      return PrivatePlaylistDetailScreen(
+        playlistId: playlistId,
+        storageRepository: sl.isRegistered<IVaultStorageRepository>() ? sl<IVaultStorageRepository>() : null,
+        audioPlaybackService: sl.isRegistered<VaultAudioPlaybackService>() ? sl<VaultAudioPlaybackService>() : null,
+      );
     }
 
     if (name == playlist) {
       if (arguments is String && arguments.isNotEmpty) {
-        return PrivatePlaylistDetailScreen(playlistId: arguments);
+        final sl = GetIt.I;
+        return PrivatePlaylistDetailScreen(
+          playlistId: arguments,
+          storageRepository: sl.isRegistered<IVaultStorageRepository>() ? sl<IVaultStorageRepository>() : null,
+          audioPlaybackService: sl.isRegistered<VaultAudioPlaybackService>() ? sl<VaultAudioPlaybackService>() : null,
+        );
       }
       return null;
     }

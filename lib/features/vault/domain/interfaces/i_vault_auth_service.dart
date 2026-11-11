@@ -4,7 +4,6 @@ import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
 import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
-import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
 
 /// Pure abstract interface defining the cryptographic and authentication service
 /// for the Secure Vault (Harel Region A: Root Security Authority).
@@ -60,7 +59,4 @@ abstract interface class IVaultAuthService {
   /// Immediately zeros and dereferences all unwrapped cryptographic session keys,
   /// Master Vault Keys, and intermediate buffers in RAM.
   void clearSessionKeysFromRam();
-
-  /// Stream of root [VaultSessionState] transitions governing the vault security lifecycle.
-  Stream<VaultSessionState> get sessionStateStream;
 }

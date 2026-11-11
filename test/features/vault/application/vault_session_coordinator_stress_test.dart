@@ -117,6 +117,9 @@ class AdversarialVaultStorageRepository implements IVaultStorageRepository {
   int clearDeadlineCount = 0;
 
   @override
+  Future<bool> hasEnrolledVault() async => template != null;
+
+  @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() async =>
       VaultResult.success(config);
 

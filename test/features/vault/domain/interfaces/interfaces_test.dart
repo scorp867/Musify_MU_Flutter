@@ -121,6 +121,9 @@ final class TestVaultStorageRepository implements IVaultStorageRepository {
   int? _lockoutDeadline;
 
   @override
+  Future<bool> hasEnrolledVault() async => true;
+
+  @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() async {
     return VaultResult.success(_config);
   }

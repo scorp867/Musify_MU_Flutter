@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
+import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.dart';
@@ -19,6 +21,7 @@ class PinPadCubit extends Cubit<PinPadState> {
   final UnlockVaultUseCase _unlockVaultUseCase;
   final IVaultAuthService _authService;
   final IMonotonicClock _monotonicClock;
+  final VaultSessionBloc? _sessionBloc;
   KeypadLayoutPolicyEnum _keypadLayout;
   final Future<VaultResult<dynamic>> Function(String pin)? _customPinSubmitter;
 
@@ -31,19 +34,25 @@ class PinPadCubit extends Cubit<PinPadState> {
     required UnlockVaultUseCase unlockVaultUseCase,
     required IVaultAuthService authService,
     required IMonotonicClock monotonicClock,
+    VaultSessionBloc? sessionBloc,
     KeypadLayoutPolicyEnum initialLayout = KeypadLayoutPolicyEnum.standardOrdered,
     Future<VaultResult<dynamic>> Function(String pin)? customPinSubmitter,
     Random? secureRandom,
   })  : _unlockVaultUseCase = unlockVaultUseCase,
         _authService = authService,
         _monotonicClock = monotonicClock,
+        _sessionBloc = sessionBloc,
         _keypadLayout = initialLayout,
         _customPinSubmitter = customPinSubmitter,
         _secureRandom = secureRandom ?? Random.secure(),
         super(PinPadIdleInputState(
-          enteredDigitsCount: 0,
-          keypadLayout: initialLayout,
-        )) {
+        enteredDigitsCount: 0,
+        keypadLayout: initialLayout,
+        digits: initialLayout == KeypadLayoutPolicyEnum.randomizedPerAttempt
+            ? (List<int>.from(KeypadLayoutPolicyEnum.standardDigits)
+          ..shuffle(secureRandom ?? Random.secure()))
+            : KeypadLayoutPolicyEnum.standardDigits,
+      )) {
     _regenerateKeypadDigits();
   }
 
@@ -102,6 +111,7 @@ class PinPadCubit extends Cubit<PinPadState> {
       emit(PinPadIdleInputState(
         enteredDigitsCount: _digits.length,
         keypadLayout: _keypadLayout,
+        digits: _currentKeypadDigits,
       ));
     } else {
       emit(const PinPadEvaluatingState());
@@ -122,6 +132,7 @@ class PinPadCubit extends Cubit<PinPadState> {
     emit(PinPadIdleInputState(
       enteredDigitsCount: _digits.length,
       keypadLayout: _keypadLayout,
+      digits: _currentKeypadDigits,
     ));
   }
 
@@ -134,6 +145,7 @@ class PinPadCubit extends Cubit<PinPadState> {
     emit(PinPadIdleInputState(
       enteredDigitsCount: 0,
       keypadLayout: _keypadLayout,
+      digits: _currentKeypadDigits,
     ));
   }
 
@@ -156,6 +168,7 @@ class PinPadCubit extends Cubit<PinPadState> {
     emit(PinPadIdleInputState(
       enteredDigitsCount: 0,
       keypadLayout: _keypadLayout,
+      digits: _currentKeypadDigits,
     ));
   }
 
@@ -167,6 +180,7 @@ class PinPadCubit extends Cubit<PinPadState> {
       emit(PinPadIdleInputState(
         enteredDigitsCount: _digits.length,
         keypadLayout: _keypadLayout,
+        digits: _currentKeypadDigits,
       ));
     }
   }
@@ -187,10 +201,26 @@ class PinPadCubit extends Cubit<PinPadState> {
     if (isClosed) return;
 
     switch (result) {
-      case VaultSuccess<dynamic>():
-        emit(const PinPadSuccessState());
+      case VaultSuccess<dynamic>(:final data):
+        final session = data is AuthSession ? data : null;
+        if (session != null) {
+          _sessionBloc?.add(VaultAuthSucceeded(session: session));
+        }
+        emit(PinPadSuccessState(session: session));
       case VaultFailureResult<dynamic>(:final failure):
         if (failure is VaultLockoutFailure) {
+          final nowMs = _monotonicClock.currentMonotonicMs;
+          _sessionBloc?.add(
+            VaultLockoutTriggered(
+              tier: failure.remainingCooldownSeconds > 30
+                  ? LockoutCooldownTierEnum.tier2FiveMinutes
+                  : LockoutCooldownTierEnum.tier1ThirtySeconds,
+              cooldownStartedMonotonicMs: nowMs,
+              durationMs: failure.remainingCooldownSeconds * 1000,
+              deadlineMonotonicMs: failure.deadlineMonotonicMs,
+              failedAttemptsCount: failure.remainingCooldownSeconds > 30 ? 10 : 5,
+            ),
+          );
           _startLockoutCountdown(
             deadlineMonotonicMs: failure.deadlineMonotonicMs,
             initialRemainingSeconds: failure.remainingCooldownSeconds,
@@ -203,9 +233,15 @@ class PinPadCubit extends Cubit<PinPadState> {
             VaultStorageFailure() ||
             VaultGestureFailure() ||
             VaultValidationFailure() =>
-              0,
+            0,
           };
           final lockout = await _authService.getLockoutStatus();
+          _sessionBloc?.add(
+            VaultAuthFailed(
+              attemptNumber: lockout.consecutiveFailedAttempts,
+              remainingAttemptsBeforeCooldown: remaining,
+            ),
+          );
           emit(PinPadFailureShakeState(
             failedAttemptsCount: lockout.consecutiveFailedAttempts,
             remainingAttemptsBeforeCooldown: remaining,

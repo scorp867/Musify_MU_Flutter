@@ -170,6 +170,9 @@ final class AdversarialStorageRepository implements IVaultStorageRepository {
   int saveConfigCalls = 0;
   int saveTemplateCalls = 0;
 
+  @override
+  Future<bool> hasEnrolledVault() async => true;
+
   VaultResult<void>? saveConfigFailure;
   VaultResult<void>? saveTemplateFailure;
   VaultResult<void>? purgeFailure;

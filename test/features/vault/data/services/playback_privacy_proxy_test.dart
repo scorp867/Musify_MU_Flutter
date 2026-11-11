@@ -63,7 +63,7 @@ class FakeMobiusController extends ChangeNotifier
     implements PlayerQueueMobiusController {
   final List<QueueEvent> dispatchedEvents = <QueueEvent>[];
   final StreamController<QueueModel> _modelController =
-      StreamController<QueueModel>.broadcast();
+  StreamController<QueueModel>.broadcast();
   QueueModel _model = const QueueModel();
   bool _closed = false;
 
@@ -106,10 +106,10 @@ class FakeMobiusController extends ChangeNotifier
 
   @override
   Future<void> playContext(
-    Context context, {
-    PreparePlayOptions? options,
-    PlayOrigin? playOrigin,
-  }) async {}
+      Context context, {
+        PreparePlayOptions? options,
+        PlayOrigin? playOrigin,
+      }) async {}
 
   @override
   Future<void> close() async {
@@ -122,19 +122,6 @@ class FakeMobiusController extends ChangeNotifier
 }
 
 class MockVaultAuthService implements IVaultAuthService {
-  final StreamController<VaultSessionState> sessionController =
-      StreamController<VaultSessionState>.broadcast();
-
-  @override
-  Stream<VaultSessionState> get sessionStateStream =>
-      sessionController.stream;
-
-  void emitSessionState(VaultSessionState state) {
-    if (!sessionController.isClosed) {
-      sessionController.add(state);
-    }
-  }
-
   @override
   Future<VaultResult<AuthSession>> authenticateWithPin({
     required String pin,
@@ -177,7 +164,7 @@ class MockVaultAuthService implements IVaultAuthService {
       const VaultResult.success(null);
 
   @override
-  Future<void> clearSessionKeysFromRam() async {}
+  void clearSessionKeysFromRam() {}
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -222,7 +209,6 @@ void main() {
     tearDown(() async {
       await proxy.dispose();
       await mobiusController.close();
-      await authService.sessionController.close();
     });
 
     const publicTrack = ContextTrack(
@@ -242,7 +228,7 @@ void main() {
       metadata: {
         ContextTrackMetadata.keyIsLocal: 'true',
         ContextTrackMetadata.keyLocalFilePath:
-            '/data/vault_media/.nomedia/vtrack_1.mp3',
+        '/data/vault_media/.nomedia/vtrack_1.mp3',
         ContextTrackMetadata.keyTitle: 'Secret Vault Song',
         ContextTrackMetadata.keyArtistName: 'Secret Artist',
         ContextTrackMetadata.keyAlbumTitle: 'Confidential Album',
@@ -418,7 +404,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(proxy.isVaultTrackActive, isTrue);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         const VaultLockedState(lockedAtMonotonicMs: 1000),
       );
       await Future<void>.delayed(Duration.zero);
@@ -439,7 +425,7 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         const VaultLockedState(lockedAtMonotonicMs: 1000),
       );
       await Future<void>.delayed(Duration.zero);
@@ -449,7 +435,7 @@ void main() {
       expect(proxy.currentState, isA<PlaybackPrivacyExecutingLockStrategyState>());
 
       final lockState =
-          proxy.currentState as PlaybackPrivacyExecutingLockStrategyState;
+      proxy.currentState as PlaybackPrivacyExecutingLockStrategyState;
       expect(lockState.executingBehavior, LockPlaybackBehaviorEnum.finishCurrentTrack);
       expect(lockState.activeVaultTrackId, 'vtrack_1');
 
@@ -474,7 +460,7 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         const VaultLockedState(lockedAtMonotonicMs: 1000),
       );
       await Future<void>.delayed(Duration.zero);
@@ -498,7 +484,7 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         const VaultLockoutCooldownState(
           tier: LockoutCooldownTierEnum.tier1ThirtySeconds,
           cooldownStartedMonotonicMs: 1000,
@@ -521,7 +507,7 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         VaultBackgroundGraceState(
           session: standardSession,
           enteredBackgroundMonotonicMs: 1000,
@@ -532,7 +518,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(proxy.isVaultTrackActive, isTrue);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         VaultPendingReauthState(
           session: standardSession,
           reauthTriggeredAtMonotonicMs: 1000,
@@ -555,13 +541,13 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         const VaultLockedState(lockedAtMonotonicMs: 1000),
       );
       await Future<void>.delayed(Duration.zero);
       expect(proxy.currentState, isA<PlaybackPrivacyExecutingLockStrategyState>());
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         VaultUnlockedState(
           session: standardSession,
           unlockedAtMonotonicMs: 2000,
@@ -588,14 +574,14 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         const VaultLockedState(lockedAtMonotonicMs: 1000),
       );
       await Future<void>.delayed(Duration.zero);
 
       mobiusController.emitModel(const QueueModel(currentTrack: null));
 
-      authService.emitSessionState(
+      proxy.handleSessionStateTransition(
         VaultUnlockedState(
           session: standardSession,
           unlockedAtMonotonicMs: 2000,

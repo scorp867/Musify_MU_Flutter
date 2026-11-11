@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:musify_mu/app/routes/vault_routes.dart';
 import 'package:musify_mu/features/vault/application/gesture/gesture_engine_cubit.dart';
 import 'package:musify_mu/features/vault/application/pin_pad/pin_pad_cubit.dart';
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
@@ -246,10 +247,21 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
     }
   }
 
-  void _navigateToSection(Widget screen) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => screen),
-    );
+  void _navigateToSection(String routeName, Widget fallbackScreen) {
+    final nav = Navigator.of(context);
+    try {
+      nav.pushNamed(routeName);
+    } catch (_) {
+      final theme = VaultTheme.of(context);
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => VaultTheme(
+            data: theme,
+            child: fallbackScreen,
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -346,6 +358,7 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
               subtitle: 'Theme palette, blur intensity, and lock preview',
               vaultTheme: vaultTheme,
               onTap: () => _navigateToSection(
+                VaultRoutes.settingsAppearance,
                 VaultAppearanceSettingsScreen(
                   settingsMutationCubit: widget.settingsMutationCubit,
                   screenPrivacyCubit: widget.screenPrivacyCubit,
@@ -361,6 +374,7 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
                   'Biometrics, grace timeout, re-auth interval, keypad, and PIN',
               vaultTheme: vaultTheme,
               onTap: () => _navigateToSection(
+                VaultRoutes.settingsSecurity,
                 VaultSecuritySettingsScreen(
                   settingsMutationCubit: widget.settingsMutationCubit,
                   sessionBloc: widget.sessionBloc,
@@ -382,6 +396,7 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
                   'Screen security, metadata masking, decoy persona, auto-lock',
               vaultTheme: vaultTheme,
               onTap: () => _navigateToSection(
+                VaultRoutes.settingsPrivacy,
                 VaultPrivacySettingsScreen(
                   settingsMutationCubit: widget.settingsMutationCubit,
                   screenPrivacyCubit: widget.screenPrivacyCubit,
@@ -397,6 +412,7 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
                   'Stealth sensor, sensitivity, ink visibility, re-enrollment',
               vaultTheme: vaultTheme,
               onTap: () => _navigateToSection(
+                VaultRoutes.settingsGesture,
                 VaultGestureSettingsScreen(
                   settingsMutationCubit: widget.settingsMutationCubit,
                   sessionBloc: widget.sessionBloc,
@@ -416,6 +432,7 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
               vaultTheme: vaultTheme,
               isDanger: true,
               onTap: () => _navigateToSection(
+                VaultRoutes.settingsDanger,
                 VaultDangerZoneScreen(
                   settingsMutationCubit: widget.settingsMutationCubit,
                   sessionBloc: widget.sessionBloc,
@@ -648,64 +665,84 @@ class _VaultAppearanceSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final vaultTheme = VaultTheme.of(context);
     final cubit = _resolveSettingsCubit();
-    final currentConfig = cubit?.currentConfig ?? const VaultConfig.constant();
 
-    return Scaffold(
-      key: const ValueKey('vault_appearance_screen'),
-      backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
+    Widget buildScaffold(BuildContext context, VaultConfig currentConfig) {
+      final vaultTheme = VaultTheme.of(context);
+      return Scaffold(
+        key: const ValueKey('vault_appearance_screen'),
         backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('vault_appearance_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
-          ),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: Text(
-          'Appearance',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            _buildSectionHeader(
-              title: 'Theme Palette',
-              subtitle: 'Choose tone-on-tone color system for vault screens',
-              vaultTheme: vaultTheme,
+        appBar: AppBar(
+          backgroundColor: vaultTheme.scaffold,
+          elevation: 0,
+          leading: IconButton(
+            key: const ValueKey('vault_appearance_back_button'),
+            icon: Icon(
+              Icons.arrow_back,
+              color: vaultTheme.textHighSalience,
             ),
-            const SizedBox(height: 12.0),
-            _buildPaletteSelector(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 24.0),
-            _buildSectionHeader(
-              title: 'Frosted Glass Blur Calibration',
-              subtitle:
-                  'Adjust privacy blur intensity applied to hidden album art and session re-auth overlays',
-              vaultTheme: vaultTheme,
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
+          ),
+          title: Text(
+            'Appearance',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontSize: 18.0,
+              fontWeight: FontWeight.w600,
+              color: vaultTheme.textHighSalience,
             ),
-            const SizedBox(height: 12.0),
-            _buildBlurSlider(vaultTheme),
-            const SizedBox(height: 16.0),
-            _buildBlurPreviewMockup(vaultTheme),
-          ],
+          ),
         ),
-      ),
-    );
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              _buildSectionHeader(
+                title: 'Theme Palette',
+                subtitle: 'Choose tone-on-tone color system for vault screens',
+                vaultTheme: vaultTheme,
+              ),
+              const SizedBox(height: 12.0),
+              _buildPaletteSelector(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 24.0),
+              _buildSectionHeader(
+                title: 'Frosted Glass Blur Calibration',
+                subtitle:
+                    'Adjust privacy blur intensity applied to hidden album art and session re-auth overlays',
+                vaultTheme: vaultTheme,
+              ),
+              const SizedBox(height: 12.0),
+              _buildBlurSlider(vaultTheme),
+              const SizedBox(height: 16.0),
+              _buildBlurPreviewMockup(vaultTheme),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (cubit != null) {
+      return StreamBuilder<VaultConfig>(
+        stream: cubit.configStream,
+        initialData: cubit.currentConfig,
+        builder: (context, snapshot) {
+          final config = snapshot.data ?? cubit.currentConfig;
+          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          return VaultTheme(
+            data: themeData,
+            child: Builder(
+              builder: (innerCtx) => buildScaffold(innerCtx, config),
+            ),
+          );
+        },
+      );
+    }
+
+    return buildScaffold(context, const VaultConfig.constant());
   }
 
   Widget _buildSectionHeader({
@@ -766,7 +803,6 @@ class _VaultAppearanceSettingsScreenState
                 themePalette: VaultThemePalettePolicyEnum.warmEspresso,
               ),
             );
-            setState(() {});
           },
         ),
         const SizedBox(height: 12.0),
@@ -791,7 +827,6 @@ class _VaultAppearanceSettingsScreenState
                 themePalette: VaultThemePalettePolicyEnum.forestNoir,
               ),
             );
-            setState(() {});
           },
         ),
       ],
@@ -1229,17 +1264,9 @@ class _VaultSecuritySettingsScreenState
         final newPolicy = enable
             ? BiometricAuthPolicyEnum.pinAndBiometricStrong
             : BiometricAuthPolicyEnum.pinOnly;
-        final updated = cubit.currentConfig.copyWith(biometricAuth: newPolicy);
-        // Persist directly to storage when confirmed
-        try {
-          final storage = context.read<IVaultStorageRepository>();
-          await storage.saveVaultConfig(updated);
-        } on ProviderNotFoundException {
-          // Handled via cubit reload
-        }
+        await cubit.applyBiometricPolicy(newPolicy);
       },
     );
-    setState(() {});
   }
 
   Future<void> _startPinRotationFlow() async {
@@ -1434,55 +1461,75 @@ class _VaultSecuritySettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final vaultTheme = VaultTheme.of(context);
     final cubit = _resolveSettingsCubit();
-    final currentConfig = cubit?.currentConfig ?? const VaultConfig.constant();
 
-    return Scaffold(
-      key: const ValueKey('vault_security_screen'),
-      backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
+    Widget buildScaffold(BuildContext context, VaultConfig currentConfig) {
+      final vaultTheme = VaultTheme.of(context);
+      return Scaffold(
+        key: const ValueKey('vault_security_screen'),
         backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('vault_security_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
+        appBar: AppBar(
+          backgroundColor: vaultTheme.scaffold,
+          elevation: 0,
+          leading: IconButton(
+            key: const ValueKey('vault_security_back_button'),
+            icon: Icon(
+              Icons.arrow_back,
+              color: vaultTheme.textHighSalience,
+            ),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: Text(
-          'Security & Authentication',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
+          title: Text(
+            'Security & Authentication',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontSize: 18.0,
+              fontWeight: FontWeight.w600,
+              color: vaultTheme.textHighSalience,
+            ),
           ),
         ),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            _buildBiometricTile(currentConfig, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildGraceTimeoutSection(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildReauthIntervalSection(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildKeypadLayoutSection(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildPinRotationTile(vaultTheme),
-          ],
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              _buildBiometricTile(currentConfig, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildGraceTimeoutSection(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildReauthIntervalSection(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildKeypadLayoutSection(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildPinRotationTile(vaultTheme),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    if (cubit != null) {
+      return StreamBuilder<VaultConfig>(
+        stream: cubit.configStream,
+        initialData: cubit.currentConfig,
+        builder: (context, snapshot) {
+          final config = snapshot.data ?? cubit.currentConfig;
+          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          return VaultTheme(
+            data: themeData,
+            child: Builder(
+              builder: (innerCtx) => buildScaffold(innerCtx, config),
+            ),
+          );
+        },
+      );
+    }
+
+    return buildScaffold(context, const VaultConfig.constant());
   }
 
   Widget _buildBiometricTile(
@@ -2022,53 +2069,73 @@ class _VaultPrivacySettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final vaultTheme = VaultTheme.of(context);
     final cubit = _resolveSettingsCubit();
-    final currentConfig = cubit?.currentConfig ?? const VaultConfig.constant();
 
-    return Scaffold(
-      key: const ValueKey('vault_privacy_screen'),
-      backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
+    Widget buildScaffold(BuildContext context, VaultConfig currentConfig) {
+      final vaultTheme = VaultTheme.of(context);
+      return Scaffold(
+        key: const ValueKey('vault_privacy_screen'),
         backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('vault_privacy_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
+        appBar: AppBar(
+          backgroundColor: vaultTheme.scaffold,
+          elevation: 0,
+          leading: IconButton(
+            key: const ValueKey('vault_privacy_back_button'),
+            icon: Icon(
+              Icons.arrow_back,
+              color: vaultTheme.textHighSalience,
+            ),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: Text(
-          'Playback & Privacy',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
+          title: Text(
+            'Playback & Privacy',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontSize: 18.0,
+              fontWeight: FontWeight.w600,
+              color: vaultTheme.textHighSalience,
+            ),
           ),
         ),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            _buildScreenSecurityTile(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 14.0),
-            _buildMetadataMaskingTile(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildDecoyPersonaSection(cubit, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildLockPlaybackSection(currentConfig, cubit, vaultTheme),
-          ],
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              _buildScreenSecurityTile(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 14.0),
+              _buildMetadataMaskingTile(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildDecoyPersonaSection(cubit, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildLockPlaybackSection(currentConfig, cubit, vaultTheme),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    if (cubit != null) {
+      return StreamBuilder<VaultConfig>(
+        stream: cubit.configStream,
+        initialData: cubit.currentConfig,
+        builder: (context, snapshot) {
+          final config = snapshot.data ?? cubit.currentConfig;
+          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          return VaultTheme(
+            data: themeData,
+            child: Builder(
+              builder: (innerCtx) => buildScaffold(innerCtx, config),
+            ),
+          );
+        },
+      );
+    }
+
+    return buildScaffold(context, const VaultConfig.constant());
   }
 
   Widget _buildScreenSecurityTile(
@@ -2614,53 +2681,73 @@ class _VaultGestureSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final vaultTheme = VaultTheme.of(context);
     final cubit = _resolveSettingsCubit();
-    final currentConfig = cubit?.currentConfig ?? const VaultConfig.constant();
 
-    return Scaffold(
-      key: const ValueKey('vault_gesture_screen'),
-      backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
+    Widget buildScaffold(BuildContext context, VaultConfig currentConfig) {
+      final vaultTheme = VaultTheme.of(context);
+      return Scaffold(
+        key: const ValueKey('vault_gesture_screen'),
         backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('vault_gesture_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
+        appBar: AppBar(
+          backgroundColor: vaultTheme.scaffold,
+          elevation: 0,
+          leading: IconButton(
+            key: const ValueKey('vault_gesture_back_button'),
+            icon: Icon(
+              Icons.arrow_back,
+              color: vaultTheme.textHighSalience,
+            ),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: Text(
-          'Gesture Controls',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
+          title: Text(
+            'Gesture Controls',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontSize: 18.0,
+              fontWeight: FontWeight.w600,
+              color: vaultTheme.textHighSalience,
+            ),
           ),
         ),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            _buildStatusCard(vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildSensitivitySection(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 20.0),
-            _buildInkVisibilityTile(currentConfig, cubit, vaultTheme),
-            const SizedBox(height: 24.0),
-            _buildReEnrollButton(vaultTheme),
-          ],
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16.0),
+            children: [
+              _buildStatusCard(vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildSensitivitySection(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 20.0),
+              _buildInkVisibilityTile(currentConfig, cubit, vaultTheme),
+              const SizedBox(height: 24.0),
+              _buildReEnrollButton(vaultTheme),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    if (cubit != null) {
+      return StreamBuilder<VaultConfig>(
+        stream: cubit.configStream,
+        initialData: cubit.currentConfig,
+        builder: (context, snapshot) {
+          final config = snapshot.data ?? cubit.currentConfig;
+          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          return VaultTheme(
+            data: themeData,
+            child: Builder(
+              builder: (innerCtx) => buildScaffold(innerCtx, config),
+            ),
+          );
+        },
+      );
+    }
+
+    return buildScaffold(context, const VaultConfig.constant());
   }
 
   Widget _buildStatusCard(VaultThemeData vaultTheme) {
@@ -3294,68 +3381,90 @@ class _VaultDangerZoneScreenState extends State<VaultDangerZoneScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final vaultTheme = VaultTheme.of(context);
+    final cubit = _resolveSettingsCubit();
 
-    return Scaffold(
-      key: const ValueKey('vault_danger_zone_screen'),
-      backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
+    Widget buildScaffold(BuildContext context) {
+      final vaultTheme = VaultTheme.of(context);
+      return Scaffold(
+        key: const ValueKey('vault_danger_zone_screen'),
         backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('vault_danger_zone_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
+        appBar: AppBar(
+          backgroundColor: vaultTheme.scaffold,
+          elevation: 0,
+          leading: IconButton(
+            key: const ValueKey('vault_danger_zone_back_button'),
+            icon: Icon(
+              Icons.arrow_back,
+              color: vaultTheme.textHighSalience,
+            ),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: Text(
-          'Danger Zone',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.danger,
+          title: Text(
+            'Danger Zone',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontSize: 18.0,
+              fontWeight: FontWeight.w600,
+              color: vaultTheme.danger,
+            ),
           ),
         ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildWarningCard(vaultTheme),
-              const Spacer(),
-              ElevatedButton(
-                key: const ValueKey('purge_vault_button'),
-                onPressed: _handlePurge,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: vaultTheme.danger,
-                  foregroundColor: Colors.white,
-                  shape: VaultTheme.shape8,
-                  padding: const EdgeInsets.symmetric(vertical: 14.0),
-                ),
-                child: const Text(
-                  'Purge All Vault Data',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w600,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildWarningCard(vaultTheme),
+                const Spacer(),
+                ElevatedButton(
+                  key: const ValueKey('purge_vault_button'),
+                  onPressed: _handlePurge,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: vaultTheme.danger,
+                    foregroundColor: Colors.white,
+                    shape: VaultTheme.shape8,
+                    padding: const EdgeInsets.symmetric(vertical: 14.0),
+                  ),
+                  child: const Text(
+                    'Purge All Vault Data',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 14.0,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16.0),
-            ],
+                const SizedBox(height: 16.0),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    }
+
+    if (cubit != null) {
+      return StreamBuilder<VaultConfig>(
+        stream: cubit.configStream,
+        initialData: cubit.currentConfig,
+        builder: (context, snapshot) {
+          final config = snapshot.data ?? cubit.currentConfig;
+          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          return VaultTheme(
+            data: themeData,
+            child: Builder(
+              builder: (innerCtx) => buildScaffold(innerCtx),
+            ),
+          );
+        },
+      );
+    }
+
+    return buildScaffold(context);
   }
 
   Widget _buildWarningCard(VaultThemeData vaultTheme) {

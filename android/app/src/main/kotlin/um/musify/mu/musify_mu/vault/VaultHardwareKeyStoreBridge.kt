@@ -84,10 +84,16 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
             }
 
             "generateMasterKey" -> {
+                val forceOverwrite = call.argument<Boolean>("forceOverwrite") ?: false
                 bridgeScope.launch {
                     try {
                         withContext(Dispatchers.IO) {
-                            generateHardwareKeys()
+                            val keyStore = getKeyStore()
+                            if (keyStore.containsAlias(MASTER_KEY_ALIAS) && !forceOverwrite) {
+                                Log.i(TAG, "Master key already exists; preserving existing hardware key")
+                            } else {
+                                generateHardwareKeys()
+                            }
                         }
                         isSessionUnlocked.set(true)
                         result.success(true)

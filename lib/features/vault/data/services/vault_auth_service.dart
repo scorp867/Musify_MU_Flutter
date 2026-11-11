@@ -16,8 +16,9 @@ import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.dart';
 import 'package:musify_mu/features/vault/domain/states/crypto_engine_state.dart';
-import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
 import 'package:uuid/uuid.dart';
+
+import '../../domain/states/vault_session_state.dart';
 
 /// Implementation of [IVaultAuthService] governing the cryptographic security lifecycle,
 /// PIN derivation, hardware KeyStore biometric challenges, brute-force lockout tracking,
@@ -38,10 +39,8 @@ class VaultAuthService implements IVaultAuthService {
   final FlutterSecureStorage _secureStorage;
   final VaultPbkdf2Derivation _pbkdf2Derivation;
 
-  final StreamController<VaultSessionState> _sessionStateController;
   final StreamController<CryptoEngineState> _cryptoStateController;
 
-  VaultSessionState _currentSessionState;
   CryptoEngineState _currentCryptoState;
   int _consecutiveFailedAttempts;
   final List<Uint8List> _transientKeyBuffers;
@@ -53,7 +52,6 @@ class VaultAuthService implements IVaultAuthService {
     required IMonotonicClock monotonicClock,
     FlutterSecureStorage? secureStorage,
     VaultPbkdf2Derivation? pbkdf2Derivation,
-    VaultSessionState initialSessionState = const VaultUninitializedState(),
     CryptoEngineState initialCryptoState = const CryptoEngineUnprovisionedState(),
   })  : _cryptoBridge = cryptoBridge,
         _storageRepository = storageRepository,
@@ -66,18 +64,10 @@ class VaultAuthService implements IVaultAuthService {
           final p? => p,
           null => const VaultPbkdf2Derivation(),
         },
-        _sessionStateController = StreamController<VaultSessionState>.broadcast(),
         _cryptoStateController = StreamController<CryptoEngineState>.broadcast(),
-        _currentSessionState = initialSessionState,
         _currentCryptoState = initialCryptoState,
         _consecutiveFailedAttempts = 0,
         _transientKeyBuffers = <Uint8List>[];
-
-  @override
-  Stream<VaultSessionState> get sessionStateStream => _sessionStateController.stream;
-
-  /// Returns the current root security session state.
-  VaultSessionState get currentSessionState => _currentSessionState;
 
   /// Stream of cryptographic engine lifecycle transitions.
   Stream<CryptoEngineState> get cryptoEngineStateStream => _cryptoStateController.stream;
@@ -180,28 +170,9 @@ class VaultAuthService implements IVaultAuthService {
       authMethod: AuthMethodEnum.pin,
     );
 
-    var reauthDeadlineMonotonicMs = 0;
-    final configResult = await _storageRepository.loadVaultConfig();
-    switch (configResult) {
-      case VaultSuccess<VaultConfig>(data: final config):
-        if (config.activeReauthInterval.milliseconds case final intervalMs?) {
-          reauthDeadlineMonotonicMs = nowMonotonicMs + intervalMs;
-        }
-      case VaultFailureResult<VaultConfig>():
-        reauthDeadlineMonotonicMs = 0;
-    }
-
     _emitCryptoState(
       CryptoEngineMasterKeyUnwrappedInRamState(
         unwrappedAtMonotonicMs: nowMonotonicMs,
-      ),
-    );
-
-    _emitSessionState(
-      VaultUnlockedState(
-        session: session,
-        unlockedAtMonotonicMs: nowMonotonicMs,
-        reauthDeadlineMonotonicMs: reauthDeadlineMonotonicMs,
       ),
     );
 
@@ -273,27 +244,9 @@ class VaultAuthService implements IVaultAuthService {
         authMethod: AuthMethodEnum.biometric,
       );
 
-      var reauthDeadlineMonotonicMs = 0;
-      switch (configResult) {
-        case VaultSuccess<VaultConfig>(data: final config):
-          if (config.activeReauthInterval.milliseconds case final intervalMs?) {
-            reauthDeadlineMonotonicMs = nowMonotonicMs + intervalMs;
-          }
-        case VaultFailureResult<VaultConfig>():
-          reauthDeadlineMonotonicMs = 0;
-      }
-
       _emitCryptoState(
         CryptoEngineMasterKeyUnwrappedInRamState(
           unwrappedAtMonotonicMs: nowMonotonicMs,
-        ),
-      );
-
-      _emitSessionState(
-        VaultUnlockedState(
-          session: session,
-          unlockedAtMonotonicMs: nowMonotonicMs,
-          reauthDeadlineMonotonicMs: reauthDeadlineMonotonicMs,
         ),
       );
 
@@ -309,14 +262,6 @@ class VaultAuthService implements IVaultAuthService {
           const CryptoEngineCryptoFaultState(
             faultReason: CryptoFaultReasonEnum.keyStoreInvalidated,
             errorMessage: 'Biometric hardware key invalidated by OS credential change.',
-          ),
-        );
-
-        _emitSessionState(
-          const VaultAuthenticatingState(
-            authSessionId: 'slot1-fallback-recovery',
-            attemptNumber: 1,
-            remainingAttemptsBeforeCooldown: _kTier1Threshold,
           ),
         );
 
@@ -499,11 +444,7 @@ class VaultAuthService implements IVaultAuthService {
 
       await resetFailedAttempts();
 
-      final nowMonotonicMs = _monotonicClock.currentMonotonicMs;
       _emitCryptoState(const CryptoEngineKeyWrappedAtRestState());
-      _emitSessionState(
-        VaultLockedState(lockedAtMonotonicMs: nowMonotonicMs),
-      );
 
       return const VaultResult.success(null);
     } catch (e) {
@@ -538,11 +479,6 @@ class VaultAuthService implements IVaultAuthService {
       } else {
         await _storageRepository.clearPersistedLockoutDeadline();
         _consecutiveFailedAttempts = 0;
-        if (_currentSessionState is VaultLockoutCooldownState) {
-          _emitSessionState(
-            VaultLockedState(lockedAtMonotonicMs: nowMonotonicMs),
-          );
-        }
         return LockoutCooldownInfo.none();
       }
     }
@@ -563,36 +499,9 @@ class VaultAuthService implements IVaultAuthService {
     if (_consecutiveFailedAttempts >= _kTier2Threshold) {
       final deadline = nowMonotonicMs + _kTier2DurationMs;
       await _storageRepository.persistLockoutDeadlineMs(deadline);
-      _emitSessionState(
-        VaultLockoutCooldownState(
-          tier: LockoutCooldownTierEnum.tier2FiveMinutes,
-          cooldownStartedMonotonicMs: nowMonotonicMs,
-          durationMs: _kTier2DurationMs,
-          deadlineMonotonicMs: deadline,
-          failedAttemptsCount: _consecutiveFailedAttempts,
-        ),
-      );
     } else if (_consecutiveFailedAttempts >= _kTier1Threshold) {
       final deadline = nowMonotonicMs + _kTier1DurationMs;
       await _storageRepository.persistLockoutDeadlineMs(deadline);
-      _emitSessionState(
-        VaultLockoutCooldownState(
-          tier: LockoutCooldownTierEnum.tier1ThirtySeconds,
-          cooldownStartedMonotonicMs: nowMonotonicMs,
-          durationMs: _kTier1DurationMs,
-          deadlineMonotonicMs: deadline,
-          failedAttemptsCount: _consecutiveFailedAttempts,
-        ),
-      );
-    } else {
-      final remaining = _kTier1Threshold - _consecutiveFailedAttempts;
-      _emitSessionState(
-        VaultAuthenticatingState(
-          authSessionId: 'auth-attempt-$_consecutiveFailedAttempts',
-          attemptNumber: _consecutiveFailedAttempts,
-          remainingAttemptsBeforeCooldown: remaining,
-        ),
-      );
     }
   }
 
@@ -600,41 +509,19 @@ class VaultAuthService implements IVaultAuthService {
   Future<void> resetFailedAttempts() async {
     _consecutiveFailedAttempts = 0;
     await _storageRepository.clearPersistedLockoutDeadline();
-    if (_currentSessionState is VaultLockoutCooldownState) {
-      _emitSessionState(
-        VaultLockedState(
-          lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs,
-        ),
-      );
-    }
   }
 
   @override
   void clearSessionKeysFromRam() {
     _wipeTransientBuffers();
     unawaited(_cryptoBridge.lockSession());
-    if (_currentSessionState is VaultActiveSessionState) {
-      _emitSessionState(
-        VaultLockedState(
-          lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs,
-        ),
-      );
-    }
     _emitCryptoState(const CryptoEngineKeyWrappedAtRestState());
   }
 
   /// Closes internal broadcast streams.
   Future<void> close() async {
     _wipeTransientBuffers();
-    await _sessionStateController.close();
     await _cryptoStateController.close();
-  }
-
-  void _emitSessionState(VaultSessionState state) {
-    _currentSessionState = state;
-    if (!_sessionStateController.isClosed) {
-      _sessionStateController.add(state);
-    }
   }
 
   void _emitCryptoState(CryptoEngineState state) {

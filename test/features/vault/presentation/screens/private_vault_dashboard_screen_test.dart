@@ -210,11 +210,11 @@ void main() {
     Widget buildTestWidget({
       VaultPlaylistsCubit? playlistsCubit,
       VaultThemePalettePolicyEnum palette = VaultThemePalettePolicyEnum.warmEspresso,
-      VoidCallback? onSettingsPressed,
-      ValueChanged<PrivatePlaylist>? onPlaylistTap,
-      VoidCallback? onQuickLock,
     }) {
       return MaterialApp(
+        routes: {
+          '/vault/settings': (_) => const Scaffold(body: Text('Settings Screen')),
+        },
         home: VaultTheme(
           data: VaultThemeData.fromPalette(palette),
           child: MultiBlocProvider(
@@ -227,9 +227,6 @@ void main() {
               storageRepository: storageRepo,
               sessionBloc: sessionBloc,
               screenPrivacyCubit: privacyCubit,
-              onSettingsPressed: onSettingsPressed,
-              onPlaylistTap: onPlaylistTap,
-              onQuickLock: onQuickLock,
             ),
           ),
         ),
@@ -368,43 +365,34 @@ void main() {
       final cubit = VaultPlaylistsCubit(storageRepository: storageRepo);
       await cubit.loadPlaylists();
 
-      var quickLockCalled = false;
       await tester.pumpWidget(buildTestWidget(
         playlistsCubit: cubit,
-        onQuickLock: () {
-          quickLockCalled = true;
-        },
       ));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('vault_dashboard_quick_lock_button')));
       await tester.pumpAndSettle();
 
-      expect(quickLockCalled, isTrue);
       expect(sessionBloc.lastEvent, isA<VaultQuickLockRequested>());
 
       await cubit.close();
     });
 
-    testWidgets('Top App Bar gear icon calls onSettingsPressed', (
+    testWidgets('Top App Bar gear icon navigates to settings route', (
       WidgetTester tester,
     ) async {
       final cubit = VaultPlaylistsCubit(storageRepository: storageRepo);
       await cubit.loadPlaylists();
 
-      var settingsCalled = false;
       await tester.pumpWidget(buildTestWidget(
         playlistsCubit: cubit,
-        onSettingsPressed: () {
-          settingsCalled = true;
-        },
       ));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('vault_dashboard_settings_button')));
       await tester.pumpAndSettle();
 
-      expect(settingsCalled, isTrue);
+      expect(find.text('Settings Screen'), findsOneWidget);
 
       await cubit.close();
     });

@@ -39,6 +39,9 @@ class AdversarialFakeStorageRepository implements IVaultStorageRepository {
   int? persistedDeadlineMs;
 
   @override
+  Future<bool> hasEnrolledVault() async => true;
+
+  @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() async => VaultResult.success(config);
 
   @override

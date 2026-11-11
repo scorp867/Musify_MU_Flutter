@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
+import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/policies/keypad_layout_policy.dart';
 
 /// Governs the presentation and lifecycle of the fixed 6-digit PIN pad.
@@ -53,16 +54,20 @@ final class PinPadIdleInputState extends PinPadState {
   const PinPadIdleInputState({
     required this.enteredDigitsCount,
     required this.keypadLayout,
+    this.digits = KeypadLayoutPolicyEnum.standardDigits,
   }) : assert(
-          enteredDigitsCount >= 0 && enteredDigitsCount <= 6,
-          'enteredDigitsCount must be between 0 and 6, but was $enteredDigitsCount',
-        );
+  enteredDigitsCount >= 0 && enteredDigitsCount <= 6,
+  'enteredDigitsCount must be between 0 and 6, but was $enteredDigitsCount',
+  );
 
   /// Number of digits currently entered by the user (0 to 6).
   final int enteredDigitsCount;
 
   /// Active keypad arrangement policy (standard ordered vs randomized per attempt).
   final KeypadLayoutPolicyEnum keypadLayout;
+
+  /// Immutable sequence of digits defining the active keypad layout arrangement.
+  final List<int> digits;
 
   @override
   PinPadStateEnum get stateEnum => PinPadStateEnum.idleInput;
@@ -75,6 +80,7 @@ final class PinPadIdleInputState extends PinPadState {
     return PinPadIdleInputState(
       enteredDigitsCount: enteredDigitsCount + 1,
       keypadLayout: keypadLayout,
+      digits: digits,
     );
   }
 
@@ -86,19 +92,21 @@ final class PinPadIdleInputState extends PinPadState {
     return PinPadIdleInputState(
       enteredDigitsCount: enteredDigitsCount - 1,
       keypadLayout: keypadLayout,
+      digits: digits,
     );
   }
 
   /// Returns a new instance with all entered digits cleared.
-  PinPadIdleInputState clearDigits() {
+  PinPadIdleInputState clearDigits({List<int>? newDigits}) {
     return PinPadIdleInputState(
       enteredDigitsCount: 0,
       keypadLayout: keypadLayout,
+      digits: newDigits ?? digits,
     );
   }
 
   @override
-  List<Object?> get props => [enteredDigitsCount, keypadLayout];
+  List<Object?> get props => [enteredDigitsCount, keypadLayout, digits];
 }
 
 /// Exactly 6 digits entered; isolate is deriving key via PBKDF2-HMAC-SHA256.
@@ -113,10 +121,15 @@ final class PinPadEvaluatingState extends PinPadState {
 /// Derived key successfully authenticated against stored verification slot.
 @immutable
 final class PinPadSuccessState extends PinPadState {
-  const PinPadSuccessState();
+  final AuthSession? session;
+
+  const PinPadSuccessState({this.session});
 
   @override
   PinPadStateEnum get stateEnum => PinPadStateEnum.authSuccess;
+
+  @override
+  List<Object?> get props => [session];
 }
 
 /// Incorrect PIN entered; triggers tactile error shake animation and decrements remaining attempts.
@@ -126,13 +139,9 @@ final class PinPadFailureShakeState extends PinPadState {
     required this.failedAttemptsCount,
     required this.remainingAttemptsBeforeCooldown,
   }) : assert(
-          failedAttemptsCount >= 0,
-          'failedAttemptsCount must be non-negative',
-        ),
-        assert(
-          remainingAttemptsBeforeCooldown >= 0,
-          'remainingAttemptsBeforeCooldown must be non-negative',
-        );
+  failedAttemptsCount >= 0,
+  'failedAttemptsCount must be non-negative',
+  );
 
   /// Total consecutive failed attempts accumulated in this session.
   final int failedAttemptsCount;
@@ -145,9 +154,9 @@ final class PinPadFailureShakeState extends PinPadState {
 
   @override
   List<Object?> get props => [
-        failedAttemptsCount,
-        remainingAttemptsBeforeCooldown,
-      ];
+    failedAttemptsCount,
+    remainingAttemptsBeforeCooldown,
+  ];
 }
 
 /// Excessive failed PIN attempts; monotonic lockout cooldown timer is counting down.
@@ -157,9 +166,9 @@ final class PinPadLockedOutState extends PinPadState {
     required this.cooldownRemainingSeconds,
     required this.deadlineMonotonicMs,
   }) : assert(
-          cooldownRemainingSeconds >= 0,
-          'cooldownRemainingSeconds must be non-negative',
-        );
+  cooldownRemainingSeconds >= 0,
+  'cooldownRemainingSeconds must be non-negative',
+  );
 
   /// Remaining seconds until lockout cooldown expires.
   final int cooldownRemainingSeconds;
@@ -172,7 +181,7 @@ final class PinPadLockedOutState extends PinPadState {
 
   @override
   List<Object?> get props => [
-        cooldownRemainingSeconds,
-        deadlineMonotonicMs,
-      ];
+    cooldownRemainingSeconds,
+    deadlineMonotonicMs,
+  ];
 }

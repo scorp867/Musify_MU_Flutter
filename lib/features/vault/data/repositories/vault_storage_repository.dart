@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:musify_mu/features/vault/data/database/dtos/gesture_template_dto.dart';
 import 'package:musify_mu/features/vault/data/database/dtos/vault_config_dto.dart';
 import 'package:musify_mu/features/vault/data/database/dtos/vault_track_metadata_dto.dart';
@@ -29,6 +30,7 @@ class VaultStorageRepository implements IVaultStorageRepository {
   final INativeVaultCryptoBridge _cryptoBridge;
   final Future<void> Function()? _onShredMediaFiles;
   final Uuid _uuid;
+  final FlutterSecureStorage _secureStorage;
 
   /// Constructs a [VaultStorageRepository] with explicit dependencies.
   VaultStorageRepository({
@@ -36,10 +38,34 @@ class VaultStorageRepository implements IVaultStorageRepository {
     required INativeVaultCryptoBridge cryptoBridge,
     Future<void> Function()? onShredMediaFiles,
     Uuid uuid = const Uuid(),
+    FlutterSecureStorage? secureStorage,
   })  : _database = database,
         _cryptoBridge = cryptoBridge,
         _onShredMediaFiles = onShredMediaFiles,
-        _uuid = uuid;
+        _uuid = uuid,
+        _secureStorage = secureStorage ?? const FlutterSecureStorage();
+
+  @override
+  Future<bool> hasEnrolledVault() async {
+    try {
+      final isEnrolled = await _secureStorage.read(key: 'musify_vault_is_enrolled');
+      if (isEnrolled == 'true') {
+        return true;
+      }
+      final verifier = await _secureStorage.read(key: 'musify_vault_pin_verifier');
+      if (verifier != null && verifier.isNotEmpty) {
+        return true;
+      }
+    } catch (_) {
+      // Platform channels might not be initialized in non-widget unit tests
+    }
+
+    try {
+      return await _cryptoBridge.hasMasterKey();
+    } catch (_) {
+      return false;
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Internal Cryptographic Helpers (with RAM Plaintext Zeroing)
@@ -619,13 +645,33 @@ class VaultStorageRepository implements IVaultStorageRepository {
   @override
   Future<VaultResult<GestureTemplate>> loadGestureTemplate() async {
     try {
+      final pointsStr = await _secureStorage.read(key: 'musify_vault_gesture_points');
+      final rubineStr = await _secureStorage.read(key: 'musify_vault_gesture_rubine');
+      final updatedAtStr = await _secureStorage.read(key: 'musify_vault_gesture_updated_at');
+
+      if (pointsStr != null && rubineStr != null) {
+        final pointsJson = jsonDecode(pointsStr);
+        final points = GestureTemplateDto.pointsFromJson(pointsJson);
+        final rubineJson = jsonDecode(rubineStr);
+        final rubine = GestureTemplateDto.rubineFromJson(rubineJson);
+        final updatedAt = int.tryParse(updatedAtStr ?? '') ?? DateTime.now().millisecondsSinceEpoch;
+
+        final template = GestureTemplate(
+          id: 'master_gesture',
+          normalizedPoints: points,
+          rubineFeatureVector: rubine,
+          createdAtEpochMs: updatedAt,
+        );
+        return VaultSuccess<GestureTemplate>(template);
+      }
+
       final entry = await (_database.select(_database.vaultGestureTemplatesTable)
             ..where((tbl) => tbl.id.equals('master_gesture')))
           .getSingleOrNull();
 
       if (entry == null) {
         return const VaultFailureResult<GestureTemplate>(
-          VaultStorageFailure('Golden master gesture template not found in encrypted storage.'),
+          VaultStorageFailure('Golden master gesture template not found in storage.'),
         );
       }
 
@@ -656,9 +702,23 @@ class VaultStorageRepository implements IVaultStorageRepository {
   Future<VaultResult<void>> saveGestureTemplate(GestureTemplate template) async {
     try {
       final pointsMapList = GestureTemplateDto.pointsToJson(template.normalizedPoints);
-      final encPoints = await _encryptJson(pointsMapList);
+      final pointsJson = jsonEncode(pointsMapList);
 
       final rubineList = GestureTemplateDto.rubineToJson(template.rubineFeatureVector);
+      final rubineJson = jsonEncode(rubineList);
+
+      try {
+        await _secureStorage.write(key: 'musify_vault_gesture_points', value: pointsJson);
+        await _secureStorage.write(key: 'musify_vault_gesture_rubine', value: rubineJson);
+        await _secureStorage.write(
+          key: 'musify_vault_gesture_updated_at',
+          value: template.createdAtEpochMs.toString(),
+        );
+      } catch (_) {
+        // Platform secure storage might not be bound in non-widget unit tests
+      }
+
+      final encPoints = await _encryptJson(pointsMapList);
       final encRubine = await _encryptJson(rubineList);
 
       await _database.into(_database.vaultGestureTemplatesTable).insertOnConflictUpdate(
@@ -694,6 +754,17 @@ class VaultStorageRepository implements IVaultStorageRepository {
         await _database.delete(_database.vaultGestureTemplatesTable).go();
         await _database.delete(_database.vaultLockoutDeadlineTable).go();
       });
+
+      try {
+        await _secureStorage.delete(key: 'musify_vault_is_enrolled');
+        await _secureStorage.delete(key: 'musify_vault_pin_salt');
+        await _secureStorage.delete(key: 'musify_vault_pin_verifier');
+        await _secureStorage.delete(key: 'musify_vault_gesture_points');
+        await _secureStorage.delete(key: 'musify_vault_gesture_rubine');
+        await _secureStorage.delete(key: 'musify_vault_gesture_updated_at');
+      } catch (_) {
+        // Platform secure storage might not be bound in non-widget unit tests
+      }
 
       final shredMediaHook = _onShredMediaFiles;
       if (shredMediaHook != null) {

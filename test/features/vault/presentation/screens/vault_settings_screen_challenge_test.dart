@@ -474,9 +474,10 @@ void main() {
       expect(find.byKey(const ValueKey('pin_shake_container')), findsOneWidget);
       expect(authService.rotatePinCalls, equals(0));
 
-      // Empirical Check: PinPadFailureShakeState persists on cubit
+      // Empirical Check: Digits automatically reset to idle after shake
       final scopedCubit = tester.element(find.byType(Scaffold).last).read<PinPadCubit>();
-      expect(scopedCubit.state, isA<PinPadFailureShakeState>());
+      expect(scopedCubit.state, isA<PinPadIdleInputState>());
+      expect((scopedCubit.state as PinPadIdleInputState).enteredDigitsCount, equals(0));
 
       // Canceling returns cleanly to security screen
       final backButton = findAuthScreenBackButton();

@@ -5,6 +5,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:meta/meta.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
+import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
@@ -141,6 +142,33 @@ final class VaultLockoutDeadlineElapsed extends VaultSessionEvent {
   const VaultLockoutDeadlineElapsed();
 }
 
+/// Dispatched when excessive failed authentication attempts trigger a monotonic lockout cooldown.
+@immutable
+final class VaultLockoutTriggered extends VaultSessionEvent {
+  final LockoutCooldownTierEnum tier;
+  final int cooldownStartedMonotonicMs;
+  final int durationMs;
+  final int deadlineMonotonicMs;
+  final int failedAttemptsCount;
+
+  const VaultLockoutTriggered({
+    required this.tier,
+    required this.cooldownStartedMonotonicMs,
+    required this.durationMs,
+    required this.deadlineMonotonicMs,
+    required this.failedAttemptsCount,
+  });
+
+  @override
+  List<Object?> get props => [
+    tier,
+    cooldownStartedMonotonicMs,
+    durationMs,
+    deadlineMonotonicMs,
+    failedAttemptsCount,
+  ];
+}
+
 /// Dispatched when user taps the quick-lock action icon.
 @immutable
 class VaultQuickLockRequested extends VaultSessionEvent {
@@ -163,17 +191,6 @@ class VaultConfigUpdated extends VaultSessionEvent {
 
   @override
   List<Object?> get props => [config];
-}
-
-/// Dispatched when underlying IVaultAuthService emits a session state transition.
-@immutable
-final class VaultServiceStateChanged extends VaultSessionEvent {
-  final VaultSessionState serviceState;
-
-  const VaultServiceStateChanged(this.serviceState);
-
-  @override
-  List<Object?> get props => [serviceState];
 }
 
 /// Dispatched when destructive data purge completes, returning state to uninitialized.
@@ -212,10 +229,10 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   final VerifySessionCoolOffUseCase _verifyCoolOffUseCase;
 
   VaultConfig _config;
-  StreamSubscription<VaultSessionState>? _authServiceSubscription;
   Timer? _graceTimer;
   Timer? _reauthTimer;
   Timer? _lockoutTimer;
+  int? _currentReauthDeadlineMs;
 
   VaultSessionBloc({
     required IVaultAuthService authService,
@@ -243,33 +260,27 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
     on<VaultStepUpAuthCanceled>(_onStepUpAuthCanceled, transformer: sequential());
     on<VaultGraceDeadlineElapsed>(_onGraceDeadlineElapsed, transformer: sequential());
     on<VaultLockoutDeadlineElapsed>(_onLockoutDeadlineElapsed, transformer: sequential());
+    on<VaultLockoutTriggered>(_onLockoutTriggered, transformer: sequential());
     on<VaultQuickLockRequested>(_onQuickLockRequested, transformer: sequential());
     on<VaultConfigUpdated>(_onConfigUpdated, transformer: sequential());
-    on<VaultServiceStateChanged>(_onServiceStateChanged, transformer: sequential());
     on<VaultPurged>(_onPurged, transformer: sequential());
     on<VaultSetupRequested>(_onSetupRequested, transformer: sequential());
     on<VaultSetupCanceled>(_onSetupCanceled, transformer: sequential());
-
-    _authServiceSubscription = _authService.sessionStateStream.listen((serviceState) {
-      add(VaultServiceStateChanged(serviceState));
-    });
   }
 
   /// Current cached vault configuration.
   VaultConfig get config => _config;
 
   Future<void> _onInitializeRequested(
-    VaultInitializeRequested event,
-    Emitter<VaultSessionState> emit,
-  ) async {
+      VaultInitializeRequested event,
+      Emitter<VaultSessionState> emit,
+      ) async {
     final nowMs = _monotonicClock.currentMonotonicMs;
 
-    final configResult = await _storageRepository.loadVaultConfig();
-    switch (configResult) {
-      case VaultSuccess<VaultConfig>(data: final loadedConfig):
-        _config = loadedConfig;
-      case VaultFailureResult<VaultConfig>():
-        break;
+    final isEnrolled = await _storageRepository.hasEnrolledVault();
+    if (!isEnrolled) {
+      emit(const VaultUninitializedState());
+      return;
     }
 
     final persistedDeadline = await _storageRepository.getPersistedLockoutDeadlineMs();
@@ -297,19 +308,13 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       }
     }
 
-    final templateResult = await _storageRepository.loadGestureTemplate();
-    switch (templateResult) {
-      case VaultSuccess():
-        emit(VaultLockedState(lockedAtMonotonicMs: nowMs));
-      case VaultFailureResult():
-        emit(const VaultUninitializedState());
-    }
+    emit(VaultLockedState(lockedAtMonotonicMs: nowMs));
   }
 
   void _onAuthStarted(
-    VaultAuthStarted event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultAuthStarted event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultLockedState) {
       emit(
         VaultAuthenticatingState(
@@ -322,12 +327,13 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onAuthSucceeded(
-    VaultAuthSucceeded event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultAuthSucceeded event,
+      Emitter<VaultSessionState> emit,
+      ) {
     _cancelAllTimers();
     final nowMs = _monotonicClock.currentMonotonicMs;
     final reauthDeadline = _calculateReauthDeadline(nowMs);
+    _currentReauthDeadlineMs = reauthDeadline;
 
     emit(
       VaultUnlockedState(
@@ -341,9 +347,9 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onAuthFailed(
-    VaultAuthFailed event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultAuthFailed event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultAuthenticatingState) {
       emit(
         VaultAuthenticatingState(
@@ -356,18 +362,18 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onAuthCanceled(
-    VaultAuthCanceled event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultAuthCanceled event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultAuthenticatingState) {
       emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
     }
   }
 
   void _onAppBackgrounded(
-    VaultAppBackgrounded event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultAppBackgrounded event,
+      Emitter<VaultSessionState> emit,
+      ) {
     final currentState = state;
     if (currentState is! VaultActiveSessionState) {
       if (currentState is VaultAuthenticatingState) {
@@ -378,11 +384,22 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       return;
     }
 
+    if (currentState is VaultPendingReauthState) {
+      if (_config.backgroundGraceTimeout.isImmediate) {
+        _cancelAllTimers();
+        _authService.clearSessionKeysFromRam();
+        _currentReauthDeadlineMs = null;
+        emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
+      }
+      return;
+    }
+
     _cancelReauthTimer();
 
     if (_config.backgroundGraceTimeout.isImmediate) {
       _cancelAllTimers();
       _authService.clearSessionKeysFromRam();
+      _currentReauthDeadlineMs = null;
       emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
       return;
     }
@@ -404,9 +421,9 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onAppForegrounded(
-    VaultAppForegrounded event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultAppForegrounded event,
+      Emitter<VaultSessionState> emit,
+      ) {
     final currentState = state;
     final nowMs = _monotonicClock.currentMonotonicMs;
 
@@ -415,6 +432,7 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
 
       if (nowMs >= currentState.graceDeadlineMonotonicMs) {
         _authService.clearSessionKeysFromRam();
+        _currentReauthDeadlineMs = null;
         emit(VaultLockedState(lockedAtMonotonicMs: nowMs));
         return;
       }
@@ -426,25 +444,47 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       switch (decisionResult) {
         case VaultSuccess(data: CoolOffDecisionEnum.graceExpiredLock):
           _authService.clearSessionKeysFromRam();
+          _currentReauthDeadlineMs = null;
           emit(VaultLockedState(lockedAtMonotonicMs: nowMs));
           return;
-        case VaultSuccess(data: CoolOffDecisionEnum.sessionValid):
         case VaultSuccess(data: CoolOffDecisionEnum.reauthRequired):
+          emit(
+            VaultPendingReauthState(
+              session: currentState.session,
+              reauthTriggeredAtMonotonicMs: nowMs,
+              remainingAttempts: 5,
+            ),
+          );
+          return;
+        case VaultSuccess(data: CoolOffDecisionEnum.sessionValid):
         case VaultSuccess(data: CoolOffDecisionEnum.lockoutElapsedReset):
         case VaultSuccess(data: CoolOffDecisionEnum.lockoutActive):
         case VaultFailureResult():
           break;
       }
 
-      final reauthDeadline = _calculateReauthDeadline(nowMs);
+      final existingDeadline = _currentReauthDeadlineMs;
+      if (existingDeadline != null && nowMs >= existingDeadline) {
+        emit(
+          VaultPendingReauthState(
+            session: currentState.session,
+            reauthTriggeredAtMonotonicMs: nowMs,
+            remainingAttempts: 5,
+          ),
+        );
+        return;
+      }
+
+      final effectiveDeadline = existingDeadline ?? _calculateReauthDeadline(nowMs);
+      _currentReauthDeadlineMs = effectiveDeadline;
       emit(
         VaultUnlockedState(
           session: currentState.session,
           unlockedAtMonotonicMs: nowMs,
-          reauthDeadlineMonotonicMs: reauthDeadline,
+          reauthDeadlineMonotonicMs: effectiveDeadline,
         ),
       );
-      _scheduleReauthTimer(reauthDeadline - nowMs);
+      _scheduleReauthTimer(effectiveDeadline - nowMs);
     } else if (currentState is VaultLockoutCooldownState) {
       if (nowMs >= currentState.deadlineMonotonicMs) {
         _cancelLockoutTimer();
@@ -456,9 +496,9 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onReauthDeadlineElapsed(
-    VaultReauthDeadlineElapsed event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultReauthDeadlineElapsed event,
+      Emitter<VaultSessionState> emit,
+      ) {
     final currentState = state;
     if (currentState is VaultUnlockedState) {
       emit(
@@ -472,12 +512,13 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onStepUpAuthSucceeded(
-    VaultStepUpAuthSucceeded event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultStepUpAuthSucceeded event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultPendingReauthState) {
       final nowMs = _monotonicClock.currentMonotonicMs;
       final reauthDeadline = _calculateReauthDeadline(nowMs);
+      _currentReauthDeadlineMs = reauthDeadline;
 
       emit(
         VaultUnlockedState(
@@ -492,15 +533,16 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onStepUpAuthFailed(
-    VaultStepUpAuthFailed event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultStepUpAuthFailed event,
+      Emitter<VaultSessionState> emit,
+      ) {
     final currentState = state;
     if (currentState is VaultPendingReauthState) {
       final updatedRemaining = currentState.remainingAttempts - 1;
       if (updatedRemaining <= 0) {
         _cancelAllTimers();
         _authService.clearSessionKeysFromRam();
+        _currentReauthDeadlineMs = null;
         unawaited(_authService.recordFailedAttempt());
         emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
       } else {
@@ -510,52 +552,75 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   }
 
   void _onStepUpAuthCanceled(
-    VaultStepUpAuthCanceled event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultStepUpAuthCanceled event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultPendingReauthState) {
       _cancelAllTimers();
       _authService.clearSessionKeysFromRam();
+      _currentReauthDeadlineMs = null;
       emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
     }
   }
 
   void _onGraceDeadlineElapsed(
-    VaultGraceDeadlineElapsed event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultGraceDeadlineElapsed event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultBackgroundGraceState) {
       _cancelAllTimers();
       _authService.clearSessionKeysFromRam();
+      _currentReauthDeadlineMs = null;
       emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
     }
   }
 
   Future<void> _onLockoutDeadlineElapsed(
-    VaultLockoutDeadlineElapsed event,
-    Emitter<VaultSessionState> emit,
-  ) async {
+      VaultLockoutDeadlineElapsed event,
+      Emitter<VaultSessionState> emit,
+      ) async {
     if (state is VaultLockoutCooldownState) {
       _cancelLockoutTimer();
+      _currentReauthDeadlineMs = null;
       await _storageRepository.clearPersistedLockoutDeadline();
       await _authService.resetFailedAttempts();
       emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
     }
   }
 
+  void _onLockoutTriggered(
+      VaultLockoutTriggered event,
+      Emitter<VaultSessionState> emit,
+      ) {
+    _cancelAllTimers();
+    final nowMs = _monotonicClock.currentMonotonicMs;
+    final remainingMs = event.deadlineMonotonicMs - nowMs;
+    _scheduleLockoutTimer(remainingMs);
+    emit(
+      VaultLockoutCooldownState(
+        tier: event.tier,
+        cooldownStartedMonotonicMs: event.cooldownStartedMonotonicMs,
+        durationMs: event.durationMs,
+        deadlineMonotonicMs: event.deadlineMonotonicMs,
+        failedAttemptsCount: event.failedAttemptsCount,
+      ),
+    );
+  }
+
   void _onQuickLockRequested(
-    VaultQuickLockRequested event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultQuickLockRequested event,
+      Emitter<VaultSessionState> emit,
+      ) {
     _cancelAllTimers();
     _authService.clearSessionKeysFromRam();
+    _currentReauthDeadlineMs = null;
     emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
   }
 
   void _onConfigUpdated(
-    VaultConfigUpdated event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultConfigUpdated event,
+      Emitter<VaultSessionState> emit,
+      ) {
     _config = event.config;
     final currentState = state;
     final nowMs = _monotonicClock.currentMonotonicMs;
@@ -568,73 +633,27 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
     }
   }
 
-  void _onServiceStateChanged(
-    VaultServiceStateChanged event,
-    Emitter<VaultSessionState> emit,
-  ) {
-    final nextState = event.serviceState;
-    switch (nextState) {
-      case VaultUnlockedState():
-        _cancelAllTimers();
-        final nowMs = _monotonicClock.currentMonotonicMs;
-        final deadline = _calculateReauthDeadline(nowMs);
-        emit(
-          VaultUnlockedState(
-            session: nextState.session,
-            unlockedAtMonotonicMs: nowMs,
-            reauthDeadlineMonotonicMs: deadline,
-          ),
-        );
-        _scheduleReauthTimer(deadline - nowMs);
-
-      case VaultLockoutCooldownState():
-        _cancelAllTimers();
-        final nowMs = _monotonicClock.currentMonotonicMs;
-        final remainingMs = nextState.deadlineMonotonicMs - nowMs;
-        _scheduleLockoutTimer(remainingMs);
-        emit(nextState);
-
-      case VaultLockedState():
-        _cancelAllTimers();
-        emit(nextState);
-
-      case VaultAuthenticatingState():
-        emit(nextState);
-
-      case VaultUninitializedState():
-        _cancelAllTimers();
-        emit(nextState);
-
-      case VaultProvisioningState():
-        emit(nextState);
-
-      case VaultBackgroundGraceState():
-      case VaultPendingReauthState():
-        emit(nextState);
-    }
-  }
-
   void _onPurged(
-    VaultPurged event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultPurged event,
+      Emitter<VaultSessionState> emit,
+      ) {
     _cancelAllTimers();
     emit(const VaultUninitializedState());
   }
 
   void _onSetupRequested(
-    VaultSetupRequested event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultSetupRequested event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultUninitializedState) {
       emit(const VaultProvisioningState());
     }
   }
 
   void _onSetupCanceled(
-    VaultSetupCanceled event,
-    Emitter<VaultSessionState> emit,
-  ) {
+      VaultSetupCanceled event,
+      Emitter<VaultSessionState> emit,
+      ) {
     if (state is VaultProvisioningState) {
       emit(const VaultUninitializedState());
     }
@@ -699,7 +718,6 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   @override
   Future<void> close() {
     _cancelAllTimers();
-    _authServiceSubscription?.cancel();
     return super.close();
   }
 }

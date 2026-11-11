@@ -13,6 +13,7 @@ import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
+import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.dart';
 import 'package:musify_mu/features/vault/domain/policies/keypad_layout_policy.dart';
 import 'package:musify_mu/features/vault/domain/policies/vault_theme_palette_policy.dart';
 import 'package:musify_mu/features/vault/domain/states/pin_pad_state.dart';
@@ -230,6 +231,7 @@ void main() {
       AdversarialVaultSessionBloc? blocOverride,
       ValueChanged<bool>? onAuthComplete,
       VaultThemePalettePolicyEnum palette = VaultThemePalettePolicyEnum.warmEspresso,
+      BiometricAuthPolicyEnum? biometricPolicy = BiometricAuthPolicyEnum.pinAndBiometricStrong,
     }) {
       final activeCubit = cubitOverride ?? pinPadCubit;
       final activeBloc = blocOverride ?? sessionBloc;
@@ -247,6 +249,7 @@ void main() {
               onAuthComplete: onAuthComplete,
               pinPadCubit: activeCubit,
               sessionBloc: activeBloc,
+              biometricPolicy: biometricPolicy,
             ),
           ),
         ),

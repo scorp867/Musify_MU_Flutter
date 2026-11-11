@@ -4,11 +4,18 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/vault/application/pin_pad/pin_pad_cubit.dart';
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
+import 'package:musify_mu/features/vault/application/settings/settings_mutation_cubit.dart';
+import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
+import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
+import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
+import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.dart';
 import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.dart';
 import 'package:musify_mu/features/vault/domain/policies/keypad_layout_policy.dart';
 import 'package:musify_mu/features/vault/domain/states/pin_pad_state.dart';
 import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+
+import '../../domain/states/vault_session_state.dart';
 
 /// Operational mode governing authentication context, copy, and completion actions.
 enum VaultAuthScreenMode {
@@ -30,8 +37,8 @@ enum VaultAuthScreenMode {
   /// Returns whether this mode operates within an existing active session.
   bool get isSubSessionMode =>
       this == VaultAuthScreenMode.stepUp ||
-      this == VaultAuthScreenMode.verifyOldPin ||
-      this == VaultAuthScreenMode.purgeConfirmation;
+          this == VaultAuthScreenMode.verifyOldPin ||
+          this == VaultAuthScreenMode.purgeConfirmation;
 }
 
 /// Dedicated full-screen route for Secure Vault authentication.
@@ -66,8 +73,11 @@ class VaultAuthScreen extends StatelessWidget {
   final ScreenPrivacyCubit? screenPrivacyCubit;
 
   /// Active biometric auth policy governing fingerprint button visibility.
-  /// When null, defaults to [BiometricAuthPolicyEnum.pinOnly] (fingerprint hidden).
+  /// When null, resolves dynamically from SettingsMutationCubit.
   final BiometricAuthPolicyEnum? biometricPolicy;
+
+  /// Optional scoped [IVaultAuthService] instance. When omitted, resolves from ancestor context.
+  final IVaultAuthService? authService;
 
   const VaultAuthScreen({
     required this.mode,
@@ -77,6 +87,7 @@ class VaultAuthScreen extends StatelessWidget {
     this.sessionBloc,
     this.screenPrivacyCubit,
     this.biometricPolicy,
+    this.authService,
     super.key,
   });
 
@@ -92,6 +103,7 @@ class VaultAuthScreen extends StatelessWidget {
           sessionBlocOverride: sessionBloc,
           screenPrivacyCubitOverride: screenPrivacyCubit,
           biometricPolicy: biometricPolicy,
+          authServiceOverride: authService,
         ),
       );
     }
@@ -103,6 +115,7 @@ class VaultAuthScreen extends StatelessWidget {
       sessionBlocOverride: sessionBloc,
       screenPrivacyCubitOverride: screenPrivacyCubit,
       biometricPolicy: biometricPolicy,
+      authServiceOverride: authService,
     );
   }
 }
@@ -114,6 +127,7 @@ class _VaultAuthScreenView extends StatefulWidget {
   final VaultSessionBloc? sessionBlocOverride;
   final ScreenPrivacyCubit? screenPrivacyCubitOverride;
   final BiometricAuthPolicyEnum? biometricPolicy;
+  final IVaultAuthService? authServiceOverride;
 
   const _VaultAuthScreenView({
     required this.mode,
@@ -122,6 +136,7 @@ class _VaultAuthScreenView extends StatefulWidget {
     required this.sessionBlocOverride,
     required this.screenPrivacyCubitOverride,
     required this.biometricPolicy,
+    required this.authServiceOverride,
   });
 
   @override
@@ -132,7 +147,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     with SingleTickerProviderStateMixin {
   late final AnimationController _shakeController;
   late final Animation<double> _shakeAnimation;
-  bool _hasCompleted = false;
+  String? _biometricFeedbackMessage;
 
   @override
   void initState() {
@@ -157,6 +172,16 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     );
 
     _engageScreenPrivacy();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        final pinPad = _resolvePinPadCubit();
+        try {
+          final settingsCubit = context.read<SettingsMutationCubit>();
+          pinPad?.updateKeypadLayout(settingsCubit.currentConfig.keypadLayout);
+        } catch (_) {}
+        pinPad?.resetToIdle();
+      }
+    });
   }
 
   void _engageScreenPrivacy() {
@@ -191,17 +216,89 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     }
   }
 
+  PinPadCubit? _resolvePinPadCubit() {
+    try {
+      return context.read<PinPadCubit>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  IVaultAuthService? _resolveAuthService() {
+    if (widget.authServiceOverride case final s?) {
+      return s;
+    }
+    try {
+      return context.read<IVaultAuthService>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  BiometricAuthPolicyEnum _resolveBiometricPolicy() {
+    if (widget.biometricPolicy case final policy?) {
+      return policy;
+    }
+    try {
+      final cubit = context.read<SettingsMutationCubit>();
+      return cubit.currentConfig.biometricAuth;
+    } catch (_) {
+      return BiometricAuthPolicyEnum.pinOnly;
+    }
+  }
+
+  Future<void> _handleBiometricTap() async {
+    HapticFeedback.lightImpact();
+    final authService = _resolveAuthService();
+    if (authService == null) return;
+
+    final result = await authService.authenticateWithBiometrics();
+    if (!mounted) return;
+
+    switch (result) {
+      case VaultSuccess<AuthSession>(:final data):
+        final sessionBloc = _resolveSessionBloc();
+        if (widget.mode == VaultAuthScreenMode.unlock) {
+          sessionBloc?.add(VaultAuthSucceeded(session: data));
+        } else if (widget.mode == VaultAuthScreenMode.stepUp) {
+          sessionBloc?.add(VaultStepUpAuthSucceeded(session: data));
+        }
+        _handleSuccess();
+      case VaultFailureResult<AuthSession>(:final failure):
+        HapticFeedback.heavyImpact();
+        if (failure is VaultLockoutFailure) {
+          final sessionBloc = _resolveSessionBloc();
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          sessionBloc?.add(
+            VaultLockoutTriggered(
+              tier: failure.remainingCooldownSeconds > 30
+                  ? LockoutCooldownTierEnum.tier2FiveMinutes
+                  : LockoutCooldownTierEnum.tier1ThirtySeconds,
+              cooldownStartedMonotonicMs: nowMs,
+              durationMs: failure.remainingCooldownSeconds * 1000,
+              deadlineMonotonicMs: failure.deadlineMonotonicMs,
+              failedAttemptsCount: failure.remainingCooldownSeconds > 30 ? 10 : 5,
+            ),
+          );
+          final pinPad = _resolvePinPadCubit();
+          pinPad?.enterLockout(deadlineMonotonicMs: failure.deadlineMonotonicMs);
+        } else {
+          setState(() {
+            _biometricFeedbackMessage = 'Biometric canceled or unavailable. Enter PIN.';
+          });
+        }
+    }
+  }
+
   @override
   void dispose() {
+    _resolvePinPadCubit()?.resetToIdle();
     _releaseScreenPrivacy();
     _shakeController.dispose();
     super.dispose();
   }
 
   void _handleBackNavigation() {
-    if (_hasCompleted) return;
-    _hasCompleted = true;
-
     final sessionBloc = _resolveSessionBloc();
     if (widget.mode == VaultAuthScreenMode.unlock) {
       sessionBloc?.add(const VaultAuthCanceled());
@@ -216,9 +313,6 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
   }
 
   void _handleSuccess() {
-    if (_hasCompleted) return;
-    _hasCompleted = true;
-
     HapticFeedback.mediumImpact();
     widget.onAuthComplete?.call(true);
 
@@ -245,7 +339,15 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
               break;
             case PinPadEvaluatingState():
               break;
-            case PinPadSuccessState():
+            case PinPadSuccessState(:final session):
+              if (session != null) {
+                final sessionBloc = _resolveSessionBloc();
+                if (widget.mode == VaultAuthScreenMode.unlock) {
+                  sessionBloc?.add(VaultAuthSucceeded(session: session));
+                } else if (widget.mode == VaultAuthScreenMode.stepUp) {
+                  sessionBloc?.add(VaultStepUpAuthSucceeded(session: session));
+                }
+              }
               _handleSuccess();
             case PinPadFailureShakeState():
               HapticFeedback.heavyImpact();
@@ -276,40 +378,23 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
               builder: (context, constraints) {
                 return SingleChildScrollView(
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            children: [
-                              const SizedBox(height: 8.0),
-                              _buildModeHeader(vaultTheme),
-                              if (widget.mode.isDestructive) ...[
-                                const SizedBox(height: 16.0),
-                                _buildDestructiveWarningCard(vaultTheme),
-                              ],
-                              const SizedBox(height: 24.0),
-                              AnimatedBuilder(
-                                animation: _shakeAnimation,
-                                builder: (context, child) {
-                                  return Transform.translate(
-                                    key: const ValueKey('pin_shake_container'),
-                                    offset: Offset(_shakeAnimation.value, 0),
-                                    child: child,
-                                  );
-                                },
-                                child: _buildPinDotsRow(vaultTheme),
-                              ),
-                              const SizedBox(height: 16.0),
-                              _buildStatusFeedback(vaultTheme),
-                            ],
-                          ),
-                          _buildKeypadSection(vaultTheme),
-                        ],
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 16),
+                            _buildHeader(vaultTheme),
+                            const SizedBox(height: 32),
+                            _buildPinIndicators(vaultTheme),
+                            const SizedBox(height: 16),
+                            _buildStatusMessage(vaultTheme),
+                            const Spacer(),
+                            _buildKeypad(vaultTheme),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -322,120 +407,53 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     );
   }
 
-  Widget _buildModeHeader(VaultThemeData vaultTheme) {
-    final IconData modeIcon;
-    final String modeTitle;
-    final String modeSubtitle;
+  Widget _buildHeader(VaultThemeData vaultTheme) {
+    final title = widget.titleOverride ??
+        switch (widget.mode) {
+          VaultAuthScreenMode.unlock => 'Enter Vault PIN',
+          VaultAuthScreenMode.stepUp => 'Confirm Your Identity',
+          VaultAuthScreenMode.verifyOldPin => 'Enter Current PIN',
+          VaultAuthScreenMode.purgeConfirmation => 'Authorize Vault Purge',
+        };
 
-    switch (widget.mode) {
-      case VaultAuthScreenMode.unlock:
-        modeIcon = Icons.lock_outline;
-        modeTitle = 'Enter Master PIN';
-        modeSubtitle = 'Enter 6-digit master PIN to unlock';
-      case VaultAuthScreenMode.stepUp:
-        modeIcon = Icons.security_outlined;
-        modeTitle = 'Step-Up Verification';
-        modeSubtitle = 'Enter master PIN to authorize changes';
-      case VaultAuthScreenMode.verifyOldPin:
-        modeIcon = Icons.pin_outlined;
-        modeTitle = 'Verify Current PIN';
-        modeSubtitle = 'Enter current 6-digit PIN to continue';
-      case VaultAuthScreenMode.purgeConfirmation:
-        modeIcon = Icons.warning_amber_rounded;
-        modeTitle = 'Confirm Vault Purge';
-        modeSubtitle = 'Warning: Irrevocable action. Enter master PIN to destroy vault.';
-    }
-
-    final displayTitle = widget.titleOverride ?? modeTitle;
+    final subtitle = switch (widget.mode) {
+      VaultAuthScreenMode.unlock => 'Enter your 6-digit PIN to access private media',
+      VaultAuthScreenMode.stepUp => 'Authentication required to modify security settings',
+      VaultAuthScreenMode.verifyOldPin => 'Verify your existing PIN before setting a new one',
+      VaultAuthScreenMode.purgeConfirmation =>
+      'Irreversible action: all private playlists and keys will be deleted',
+    };
 
     return Column(
       children: [
-        Container(
-          width: 56.0,
-          height: 56.0,
-          decoration: BoxDecoration(
-            color: widget.mode.isDestructive
-                ? vaultTheme.danger.withValues(alpha: 0.15)
-                : vaultTheme.surfaceSubtle,
-            borderRadius: VaultTheme.borderRadius8,
-            border: Border.all(
-              color: widget.mode.isDestructive
-                  ? vaultTheme.danger
-                  : vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
-          ),
-          child: Icon(
-            modeIcon,
-            size: 28.0,
-            color: widget.mode.isDestructive
-                ? vaultTheme.danger
-                : vaultTheme.textHighSalience,
-          ),
-        ),
-        const SizedBox(height: 16.0),
         Text(
-          displayTitle,
+          title,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 22.0,
+            fontSize: 22,
             fontWeight: FontWeight.w600,
-            color: widget.mode.isDestructive
-                ? vaultTheme.danger
-                : vaultTheme.textHighSalience,
-            letterSpacing: 0.15,
+            color: vaultTheme.textHighSalience,
+            letterSpacing: -0.3,
           ),
         ),
-        const SizedBox(height: 8.0),
+        const SizedBox(height: 8),
         Text(
-          modeSubtitle,
+          subtitle,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 14.0,
+            fontSize: 14,
             fontWeight: FontWeight.w400,
-            color: vaultTheme.textMediumSalience,
-            letterSpacing: 0.25,
+            color: widget.mode.isDestructive
+                ? vaultTheme.danger
+                : vaultTheme.textMediumSalience,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDestructiveWarningCard(VaultThemeData vaultTheme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.danger.withValues(alpha: 0.12),
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.danger.withValues(alpha: 0.50),
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Text(
-        'Warning: This action permanently shreds encryption keys in RAM and disk, deletes database records, and unlinks media files. This action cannot be reversed.',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: VaultTheme.fontFamily,
-          fontSize: 12.0,
-          fontWeight: FontWeight.w500,
-          color: vaultTheme.danger,
-          height: 1.4,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPinDotsRow(VaultThemeData vaultTheme) {
+  Widget _buildPinIndicators(VaultThemeData vaultTheme) {
     return BlocBuilder<PinPadCubit, PinPadState>(
-      buildWhen: (previous, current) =>
-          previous.runtimeType != current.runtimeType ||
-          (previous is PinPadIdleInputState &&
-              current is PinPadIdleInputState &&
-              previous.enteredDigitsCount != current.enteredDigitsCount),
       builder: (context, state) {
         final enteredCount = switch (state) {
           PinPadIdleInputState(:final enteredDigitsCount) => enteredDigitsCount,
@@ -445,377 +463,300 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
           PinPadLockedOutState() => 0,
         };
 
-        final isError = state is PinPadFailureShakeState;
-        final isSuccess = state is PinPadSuccessState;
-
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(6, (index) {
-            final isFilled = index < enteredCount;
-            final Color fillColor;
-            final Color borderColor;
-
-            if (isError) {
-              fillColor = vaultTheme.danger;
-              borderColor = vaultTheme.danger;
-            } else if (isSuccess) {
-              fillColor = vaultTheme.accent;
-              borderColor = vaultTheme.accent;
-            } else if (isFilled) {
-              fillColor = vaultTheme.textHighSalience;
-              borderColor = vaultTheme.textHighSalience;
-            } else {
-              fillColor = vaultTheme.surfaceSubtle;
-              borderColor = vaultTheme.border;
-            }
-
-            return Padding(
-              key: ValueKey('pin_dot_slot_$index'),
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Container(
-                key: isFilled
-                    ? const ValueKey('pin_dot_filled')
-                    : ValueKey('pin_dot_empty_$index'),
-                width: 16.0,
-                height: 16.0,
+        return AnimatedBuilder(
+          animation: _shakeAnimation,
+          builder: (context, child) {
+            return Transform.translate(
+              offset: Offset(_shakeAnimation.value, 0),
+              child: child,
+            );
+          },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(6, (index) {
+              final isFilled = index < enteredCount;
+              return Container(
+                width: 44,
+                height: 52,
+                margin: const EdgeInsets.symmetric(horizontal: 5),
                 decoration: BoxDecoration(
-                  color: fillColor,
-                  borderRadius: VaultTheme.borderRadius8,
+                  color: isFilled ? vaultTheme.surfaceSubtle : vaultTheme.surface,
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: borderColor,
-                    width: VaultTheme.borderWidth,
+                    color: isFilled
+                        ? vaultTheme.accent
+                        : vaultTheme.border,
+                    width: 1.0,
                   ),
                 ),
-              ),
-            );
-          }),
+                alignment: Alignment.center,
+                child: isFilled
+                    ? Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: vaultTheme.accent,
+                    shape: BoxShape.circle,
+                  ),
+                )
+                    : null,
+              );
+            }),
+          ),
         );
       },
     );
   }
 
-  Widget _buildStatusFeedback(VaultThemeData vaultTheme) {
+  Widget _buildStatusMessage(VaultThemeData vaultTheme) {
     return BlocBuilder<PinPadCubit, PinPadState>(
       builder: (context, state) {
         switch (state) {
           case PinPadIdleInputState():
-            return const SizedBox(height: 24.0);
+            if (_biometricFeedbackMessage case final msg?) {
+              return Text(
+                msg,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: vaultTheme.danger,
+                ),
+              );
+            }
+            return const SizedBox(height: 18);
+
           case PinPadEvaluatingState():
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 16.0,
-                  height: 16.0,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.0,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      vaultTheme.textHighSalience,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8.0),
-                Text(
-                  'Verifying PIN...',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 13.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.textHighSalience,
-                  ),
-                ),
-              ],
+            return Text(
+              'Verifying...',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: vaultTheme.textMediumSalience,
+              ),
             );
+
+          case PinPadSuccessState():
+            return Text(
+              'Unlocked',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: vaultTheme.accent,
+              ),
+            );
+
           case PinPadFailureShakeState(:final remainingAttemptsBeforeCooldown):
             return Text(
               'Incorrect PIN. $remainingAttemptsBeforeCooldown attempts remaining.',
-              textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 13.0,
+                fontSize: 13,
                 fontWeight: FontWeight.w500,
                 color: vaultTheme.danger,
               ),
             );
-          case PinPadSuccessState():
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.check_circle_outline,
-                  size: 16.0,
-                  color: vaultTheme.accent,
-                ),
-                const SizedBox(width: 8.0),
-                Text(
-                  'Verified',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 13.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.accent,
-                  ),
-                ),
-              ],
-            );
+
           case PinPadLockedOutState(:final cooldownRemainingSeconds):
             final minutes = (cooldownRemainingSeconds ~/ 60).toString().padLeft(2, '0');
             final seconds = (cooldownRemainingSeconds % 60).toString().padLeft(2, '0');
-            return Column(
-              children: [
-                Text(
-                  'Vault Locked',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 18.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.danger,
-                  ),
-                ),
-                const SizedBox(height: 4.0),
-                Text(
-                  '$minutes:$seconds',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 28.0,
-                    fontWeight: FontWeight.w700,
-                    color: vaultTheme.danger,
-                  ),
-                ),
-                const SizedBox(height: 4.0),
-                Text(
-                  'Too many consecutive failed attempts. Please wait for cooldown to expire.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    color: vaultTheme.textMediumSalience,
-                  ),
-                ),
-              ],
+            return Text(
+              'Lockout cooldown active: $minutes:$seconds',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: vaultTheme.danger,
+              ),
             );
         }
       },
     );
   }
 
-  Widget _buildKeypadSection(VaultThemeData vaultTheme) {
+  Widget _buildKeypad(VaultThemeData vaultTheme) {
     return BlocBuilder<PinPadCubit, PinPadState>(
       builder: (context, state) {
-        final cubit = context.read<PinPadCubit>();
         final isLockedOut = state is PinPadLockedOutState;
         final isEvaluating = state is PinPadEvaluatingState;
         final isDisabled = isLockedOut || isEvaluating;
 
-        final digits = cubit.currentKeypadDigits.isNotEmpty
-            ? cubit.currentKeypadDigits
-            : KeypadLayoutPolicyEnum.standardDigits;
+        final cubit = context.read<PinPadCubit>();
+        final digits = cubit.currentKeypadDigits;
 
-        return AbsorbPointer(
-          absorbing: isDisabled,
-          child: Opacity(
-            opacity: isDisabled ? 0.35 : 1.0,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 24.0, top: 12.0),
-              child: Column(
-                children: [
-                  _buildKeypadRow(
-                    vaultTheme: vaultTheme,
-                    cubit: cubit,
-                    digits: [digits[0], digits[1], digits[2]],
-                  ),
-                  const SizedBox(height: 12.0),
-                  _buildKeypadRow(
-                    vaultTheme: vaultTheme,
-                    cubit: cubit,
-                    digits: [digits[3], digits[4], digits[5]],
-                  ),
-                  const SizedBox(height: 12.0),
-                  _buildKeypadRow(
-                    vaultTheme: vaultTheme,
-                    cubit: cubit,
-                    digits: [digits[6], digits[7], digits[8]],
-                  ),
-                  const SizedBox(height: 12.0),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildBiometricOrEmptyButton(vaultTheme),
-                      _buildKeypadButton(
-                        vaultTheme: vaultTheme,
-                        digit: digits[9],
-                        onTap: () => _handleDigitTap(cubit, digits[9]),
+        return Column(
+          children: [
+            for (var row = 0; row < 3; row++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var col = 0; col < 3; col++)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                        child: _buildDigitButton(
+                          digit: digits[row * 3 + col],
+                          vaultTheme: vaultTheme,
+                          isDisabled: isDisabled,
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            cubit.onDigitEntered(digits[row * 3 + col]);
+                          },
+                        ),
                       ),
-                      _buildBackspaceButton(vaultTheme, cubit),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                  child: _buildBiometricOrEmptyButton(vaultTheme, isDisabled),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                  child: _buildDigitButton(
+                    digit: digits[9],
+                    vaultTheme: vaultTheme,
+                    isDisabled: isDisabled,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      cubit.onDigitEntered(digits[9]);
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                  child: _buildActionButton(
+                    icon: Icons.backspace_outlined,
+                    vaultTheme: vaultTheme,
+                    isDisabled: isDisabled,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      cubit.onBackspace();
+                    },
+                  ),
+                ),
+              ],
             ),
-          ),
+          ],
         );
       },
     );
   }
 
-  Widget _buildKeypadRow({
-    required VaultThemeData vaultTheme,
-    required PinPadCubit cubit,
-    required List<int> digits,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: digits.map((digit) {
-        return _buildKeypadButton(
-          vaultTheme: vaultTheme,
-          digit: digit,
-          onTap: () => _handleDigitTap(cubit, digit),
-        );
-      }).toList(growable: false),
-    );
-  }
-
-  void _handleDigitTap(PinPadCubit cubit, int digit) {
-    HapticFeedback.lightImpact();
-    cubit.onDigitEntered(digit);
-  }
-
-  void _handleBackspaceTap(PinPadCubit cubit) {
-    HapticFeedback.lightImpact();
-    cubit.onBackspace();
-  }
-
-  Widget _buildKeypadButton({
-    required VaultThemeData vaultTheme,
+  Widget _buildDigitButton({
     required int digit,
+    required VaultThemeData vaultTheme,
+    required bool isDisabled,
     required VoidCallback onTap,
   }) {
-    final letters = switch (digit) {
-      1 => '',
-      2 => 'ABC',
-      3 => 'DEF',
-      4 => 'GHI',
-      5 => 'JKL',
-      6 => 'MNO',
-      7 => 'PQRS',
-      8 => 'TUV',
-      9 => 'WXYZ',
-      0 => '+',
-      _ => '',
-    };
-
-    return Material(
-      color: vaultTheme.surfaceSubtle,
-      borderRadius: VaultTheme.borderRadius8,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: VaultTheme.borderRadius8,
-        child: Container(
-          width: 80.0,
-          height: 64.0,
-          decoration: BoxDecoration(
-            borderRadius: VaultTheme.borderRadius8,
-            border: Border.all(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: Material(
+        color: vaultTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: vaultTheme.border,
+            width: 1.0,
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '$digit',
-                style: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontSize: 24.0,
-                  fontWeight: FontWeight.w600,
-                  color: vaultTheme.textHighSalience,
-                ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: isDisabled ? null : onTap,
+          splashColor: vaultTheme.accent.withValues(alpha: 0.15),
+          highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
+          child: Center(
+            child: Text(
+              '$digit',
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w500,
+                color: isDisabled
+                    ? vaultTheme.textLowSalience
+                    : vaultTheme.textHighSalience,
               ),
-              if (letters.isNotEmpty)
-                Text(
-                  letters,
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 9.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.textMediumSalience,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBackspaceButton(VaultThemeData vaultTheme, PinPadCubit cubit) {
-    return Material(
-      color: vaultTheme.surfaceSubtle,
-      borderRadius: VaultTheme.borderRadius8,
-      child: InkWell(
-        onTap: () => _handleBackspaceTap(cubit),
-        borderRadius: VaultTheme.borderRadius8,
-        child: Container(
-          width: 80.0,
-          height: 64.0,
-          decoration: BoxDecoration(
-            borderRadius: VaultTheme.borderRadius8,
-            border: Border.all(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
             ),
           ),
-          child: Icon(
-            Icons.backspace_outlined,
-            size: 22.0,
-            color: vaultTheme.textHighSalience,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required VaultThemeData vaultTheme,
+    required bool isDisabled,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: Material(
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: vaultTheme.border,
+            width: 1.0,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: isDisabled ? null : onTap,
+          splashColor: vaultTheme.accent.withValues(alpha: 0.15),
+          highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
+          child: Center(
+            child: Icon(
+              icon,
+              size: 24,
+              color: isDisabled
+                  ? vaultTheme.textLowSalience
+                  : vaultTheme.textHighSalience,
+            ),
           ),
         ),
       ),
     );
   }
 
-  /// Biometric fingerprint button is shown ONLY when ALL conditions are met:
-  /// 1. Mode supports biometric auth (unlock or stepUp)
-  /// 2. Biometric policy is explicitly [BiometricAuthPolicyEnum.pinAndBiometricStrong]
-  ///
-  /// On an uninitialized vault or when biometrics are not configured,
-  /// an empty spacer is rendered instead.
-  Widget _buildBiometricOrEmptyButton(VaultThemeData vaultTheme) {
-    final modeAllowsBiometric = widget.mode == VaultAuthScreenMode.unlock ||
-        widget.mode == VaultAuthScreenMode.stepUp;
-    final policyAllowsBiometric =
-        widget.biometricPolicy?.allowsBiometrics ?? false;
+  Widget _buildBiometricOrEmptyButton(
+      VaultThemeData vaultTheme,
+      bool isDisabled,
+      ) {
+    final policy = _resolveBiometricPolicy();
+    final isBiometricEnabled = policy.allowsBiometrics &&
+        widget.mode == VaultAuthScreenMode.unlock;
 
-    if (!modeAllowsBiometric || !policyAllowsBiometric) {
-      return const SizedBox(width: 80.0, height: 64.0);
+    if (!isBiometricEnabled) {
+      return const SizedBox(width: 72, height: 72);
     }
 
-    return Material(
-      color: vaultTheme.surfaceSubtle,
-      borderRadius: VaultTheme.borderRadius8,
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          // Biometric challenge trigger
-        },
-        borderRadius: VaultTheme.borderRadius8,
-        child: Container(
-          width: 80.0,
-          height: 64.0,
-          decoration: BoxDecoration(
-            borderRadius: VaultTheme.borderRadius8,
-            border: Border.all(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
+    return SizedBox(
+      width: 72,
+      height: 72,
+      child: Material(
+        color: vaultTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: vaultTheme.border,
+            width: 1.0,
           ),
-          child: Icon(
-            Icons.fingerprint,
-            size: 28.0,
-            color: vaultTheme.textHighSalience,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: isDisabled ? null : _handleBiometricTap,
+          splashColor: vaultTheme.accent.withValues(alpha: 0.15),
+          highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
+          child: Center(
+            child: Icon(
+              Icons.fingerprint,
+              size: 30,
+              color: isDisabled
+                  ? vaultTheme.textLowSalience
+                  : vaultTheme.accent,
+            ),
           ),
         ),
       ),
