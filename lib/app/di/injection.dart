@@ -1,5 +1,8 @@
 import 'package:get_it/get_it.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
+import 'package:musify_mu/app/di/vault_injection.dart';
+
+export 'package:musify_mu/app/di/vault_injection.dart';
 import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
 import 'package:musify_mu/core/audio/native_playback_session_bridge.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
@@ -493,4 +496,7 @@ Future<void> setupInjection() async {
       pageInstanceIdHolder: getIt<PageInstanceIdHolder>(),
     ),
   );
+
+  // --- Secure Vault Subsystem (Phase 4 / Milestone 5) ---
+  setupVaultInjection(getIt);
 }

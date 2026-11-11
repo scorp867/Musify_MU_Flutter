@@ -5,9 +5,43 @@ import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/player/presentation/screens/debug_now_playing_screen.dart';
+import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
+import 'package:musify_mu/features/vault/data/gesture/default_gesture_template.dart';
+import 'package:musify_mu/features/vault/data/services/gesture_recognizer_service.dart';
+import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
+import 'package:musify_mu/features/vault/domain/interfaces/i_gesture_recognizer.dart';
+import 'package:musify_mu/features/vault/domain/policies/gesture_sensitivity_tier.dart';
+import 'package:musify_mu/features/vault/domain/policies/gesture_visibility_policy.dart';
+import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/stealth_gesture_pad.dart';
 
-class DrawerMenu extends StatelessWidget {
-  const DrawerMenu({super.key});
+class DrawerMenu extends StatefulWidget {
+  final VoidCallback? onVaultGestureMatched;
+  final IGestureRecognizer? gestureRecognizer;
+  final GestureTemplate? gestureTemplate;
+  final GestureSensitivityTierEnum gestureSensitivityTier;
+  final GestureVisibilityPolicyEnum gestureVisibilityPolicy;
+  final VaultSessionBloc? vaultSessionBloc;
+
+  static final IGestureRecognizer _sharedRecognizer =
+      GestureRecognizerService();
+
+  const DrawerMenu({
+    super.key,
+    this.onVaultGestureMatched,
+    this.gestureRecognizer,
+    this.gestureTemplate,
+    this.gestureSensitivityTier = GestureSensitivityTierEnum.balanced84Percent,
+    this.gestureVisibilityPolicy = GestureVisibilityPolicyEnum.invisibleStealth,
+    this.vaultSessionBloc,
+  });
+
+  @override
+  State<DrawerMenu> createState() => _DrawerMenuState();
+}
+
+class _DrawerMenuState extends State<DrawerMenu> {
+  bool _isNavigating = false;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +76,7 @@ class DrawerMenu extends StatelessWidget {
                       fontSize: 14, color: Colors.grey),
                 ),
                 const SizedBox(height: 48),
-                _DrawerMenuItem(
+                const _DrawerMenuItem(
                     icon: Icons.person, title: 'Profile'),
                 GestureDetector(
                   onTap: () {
@@ -55,12 +89,21 @@ class DrawerMenu extends StatelessWidget {
                   child: const _DrawerMenuItem(
                       icon: Icons.bug_report, title: 'Debug: NowPlaying'),
                 ),
-                _DrawerMenuItem(
+                const _DrawerMenuItem(
                     icon: Icons.history,
                     title: 'Listening History'),
-                _DrawerMenuItem(
+                const _DrawerMenuItem(
                     icon: Icons.headset, title: 'Equalizer'),
-                const Spacer(),
+                Expanded(
+                  child: StealthGesturePad(
+                    onGestureMatched: () => _handleVaultGestureMatched(context),
+                    recognizer: widget.gestureRecognizer ?? DrawerMenu._sharedRecognizer,
+                    activeTemplate: widget.gestureTemplate ??
+                        DefaultGestureTemplate.canonicalVShape,
+                    sensitivityTier: widget.gestureSensitivityTier,
+                    visibilityPolicy: widget.gestureVisibilityPolicy,
+                  ),
+                ),
                 if (user != null)
                   GestureDetector(
                     onTap: () => context
@@ -111,6 +154,108 @@ class DrawerMenu extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  VaultSessionBloc? _resolveVaultSessionBloc(BuildContext context) {
+    if (widget.vaultSessionBloc != null) {
+      return widget.vaultSessionBloc;
+    }
+    try {
+      return context.read<VaultSessionBloc>();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _handleVaultGestureMatched(BuildContext context) {
+    if (widget.onVaultGestureMatched != null) {
+      widget.onVaultGestureMatched!();
+      return;
+    }
+
+    if (_isNavigating) {
+      return;
+    }
+
+    _isNavigating = true;
+
+    final sessionBloc = _resolveVaultSessionBloc(context);
+    final currentState = sessionBloc?.state;
+    final navigator = Navigator.of(context, rootNavigator: true);
+
+    try {
+      if (currentState is VaultActiveSessionState) {
+        // Session already active: go directly to dashboard.
+        navigator.pushNamed<dynamic>('/vault/dashboard').whenComplete(() {
+          if (mounted) {
+            setState(() {
+              _isNavigating = false;
+            });
+          }
+        });
+      } else if (currentState is VaultUninitializedState) {
+        // No vault provisioned: route to first-time setup, then dashboard.
+        sessionBloc?.add(const VaultSetupRequested());
+        navigator.pushNamed<dynamic>('/vault/setup').then((setupResult) {
+          if (setupResult == true && mounted) {
+            navigator
+                .pushNamed<dynamic>('/vault/dashboard')
+                .whenComplete(() {
+              if (mounted) {
+                setState(() {
+                  _isNavigating = false;
+                });
+              }
+            });
+          } else {
+            if (mounted) {
+              setState(() {
+                _isNavigating = false;
+              });
+            }
+          }
+        }).catchError((_) {
+          if (mounted) {
+            setState(() {
+              _isNavigating = false;
+            });
+          }
+        });
+      } else {
+        // Vault is locked (or authenticating/lockout): route to auth, then dashboard.
+        navigator.pushNamed<dynamic>('/vault/auth').then((unlocked) {
+          if (unlocked == true && mounted) {
+            navigator
+                .pushNamed<dynamic>('/vault/dashboard')
+                .whenComplete(() {
+              if (mounted) {
+                setState(() {
+                  _isNavigating = false;
+                });
+              }
+            });
+          } else {
+            if (mounted) {
+              setState(() {
+                _isNavigating = false;
+              });
+            }
+          }
+        }).catchError((_) {
+          if (mounted) {
+            setState(() {
+              _isNavigating = false;
+            });
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+        });
+      }
+    }
   }
 }
 

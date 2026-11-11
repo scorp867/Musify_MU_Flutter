@@ -174,6 +174,10 @@ class $LocalTracksTable extends LocalTracks
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {songId},
+  ];
+  @override
   LocalTrack map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return LocalTrack(
@@ -746,7 +750,16 @@ class $$LocalTracksTableTableManager
                 dateModified: dateModified,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$LocalTracksTable, LocalTrack>(table),
+                  BaseReferences<_$AppDatabase, $LocalTracksTable, LocalTrack>(
+                    db,
+                    table,
+                    e,
+                  ),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

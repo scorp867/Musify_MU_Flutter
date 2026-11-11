@@ -6,7 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.webkit.CookieManager
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
+import um.musify.mu.musify_mu.vault.VaultHardwareKeyStoreBridge
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -166,7 +167,9 @@ object NativeHeadDownloader {
     }
 }
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
+    private var vaultBridge: VaultHardwareKeyStoreBridge? = null
+    private var screenPrivacyChannel: MethodChannel? = null
     companion object {
         init {
             try {
@@ -181,6 +184,7 @@ class MainActivity : FlutterActivity() {
     private val OBSERVER_CHANNEL = "musify_mu/mediastore_observer"
     private val COOKIE_CHANNEL = "com.musify.mu/cookies"
     private val DRM_CHANNEL = "com.musify.mu/drm"
+    private val SCREEN_PRIVACY_CHANNEL = "um.musify.mu/screen_privacy"
 
     private var eventSink: EventChannel.EventSink? = null
     private var observer: ContentObserver? = null
@@ -201,6 +205,11 @@ class MainActivity : FlutterActivity() {
             System.loadLibrary("musify_audio")
         } catch (_: Throwable) {}
         super.configureFlutterEngine(flutterEngine)
+
+        // Register Vault Hardware KeyStore Bridge
+        val bridge = VaultHardwareKeyStoreBridge(this)
+        bridge.register(flutterEngine.dartExecutor.binaryMessenger)
+        vaultBridge = bridge
 
         // Cookie method channel - reads HttpOnly cookies via Android's native CookieManager.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, COOKIE_CHANNEL)
@@ -260,6 +269,45 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Register Screen Privacy Method Channel
+        val privacyChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREEN_PRIVACY_CHANNEL)
+        privacyChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "enableSecureFlag" -> setWindowSecureFlag(true, result)
+                "disableSecureFlag" -> setWindowSecureFlag(false, result)
+                "setSecureFlag" -> {
+                    val enabled = call.argument<Boolean>("enabled")
+                    if (enabled != null) {
+                        setWindowSecureFlag(enabled, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Missing 'enabled' parameter in setSecureFlag", null)
+                    }
+                }
+                "isSecureFlagEngaged" -> {
+                    runOnUiThread {
+                        try {
+                            if (isFinishing || isDestroyed) {
+                                result.error("ACTIVITY_DESTROYED", "Cannot inspect window on finishing/destroyed Activity", null)
+                                return@runOnUiThread
+                            }
+                            val win = window
+                            if (win == null) {
+                                result.error("WINDOW_NULL", "Window reference is null", null)
+                                return@runOnUiThread
+                            }
+                            val flags = win.attributes.flags
+                            val isSecure = (flags and android.view.WindowManager.LayoutParams.FLAG_SECURE) != 0
+                            result.success(isSecure)
+                        } catch (e: Exception) {
+                            result.error("QUERY_ERROR", "Failed to query FLAG_SECURE: ${e.message}", null)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+        screenPrivacyChannel = privacyChannel
+
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, OBSERVER_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
@@ -275,18 +323,54 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun setWindowSecureFlag(enable: Boolean, result: MethodChannel.Result) {
+        runOnUiThread {
+            try {
+                if (isFinishing || isDestroyed) {
+                    result.error("ACTIVITY_DESTROYED", "Cannot mutate window flags on finishing/destroyed Activity", null)
+                    return@runOnUiThread
+                }
+                val win = window
+                if (win == null) {
+                    result.error("WINDOW_NULL", "Window reference is null on current Activity", null)
+                    return@runOnUiThread
+                }
+                if (enable) {
+                    win.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                    android.util.Log.i("MainActivity", "Engaged WindowManager.LayoutParams.FLAG_SECURE")
+                } else {
+                    win.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+                    android.util.Log.i("MainActivity", "Released WindowManager.LayoutParams.FLAG_SECURE")
+                }
+                result.success(true)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Failed to mutate FLAG_SECURE: ${e.message}", e)
+                result.error("WINDOW_FLAG_ERROR", "Failed to update FLAG_SECURE: ${e.message}", null)
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        screenPrivacyChannel?.setMethodCallHandler(null)
+        screenPrivacyChannel = null
+        vaultBridge?.detach()
+        vaultBridge = null
+        super.onDestroy()
+    }
+
     private fun registerObserver() {
         if (observer == null) {
-            observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            val newObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
                 override fun onChange(selfChange: Boolean, uri: Uri?) {
                     super.onChange(selfChange, uri)
                     eventSink?.success("changed")
                 }
             }
+            observer = newObserver
             contentResolver.registerContentObserver(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 true,
-                observer!!
+                newObserver
             )
         }
     }
