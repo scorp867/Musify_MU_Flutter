@@ -158,7 +158,6 @@ final class AdversarialAuthService implements IVaultAuthService {
     clearKeysCount++;
   }
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _stateController.stream;
 }
 

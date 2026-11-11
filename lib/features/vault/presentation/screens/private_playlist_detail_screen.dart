@@ -222,7 +222,9 @@ class _PrivatePlaylistDetailScaffoldState
   void didChangeDependencies() {
     super.didChangeDependencies();
     _resolveDependencies();
-    _loadPlaylist();
+    if (_state is PrivatePlaylistDetailLoadingState) {
+      _loadPlaylist();
+    }
   }
 
   void _resolveDependencies() {
@@ -609,8 +611,7 @@ class _PrivatePlaylistDetailScaffoldState
     if (sessionBloc != null) {
       content = BlocListener<VaultSessionBloc, VaultSessionState>(
         bloc: sessionBloc,
-        listenWhen: (previous, current) =>
-            current is VaultLockedState || current is VaultUninitializedState,
+        listenWhen: (previous, current) => current is! VaultActiveSessionState,
         listener: (context, sessionState) {
           if (mounted) {
             Navigator.of(context).popUntil((route) => route.isFirst);

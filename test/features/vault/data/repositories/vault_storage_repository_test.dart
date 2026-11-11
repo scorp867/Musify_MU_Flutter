@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/vault/data/database/vault_database.dart';
 import 'package:musify_mu/features/vault/data/repositories/vault_storage_repository.dart';
@@ -23,11 +24,14 @@ import 'package:musify_mu/features/vault/domain/policies/vault_theme_palette_pol
 import '../../helpers/mock_native_vault_crypto_bridge.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late VaultDatabase database;
   late MockNativeVaultCryptoBridge cryptoBridge;
   late VaultStorageRepository repository;
 
   setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
     database = VaultDatabase.forTesting(NativeDatabase.memory());
     cryptoBridge = MockNativeVaultCryptoBridge(
       hasMasterKey: true,

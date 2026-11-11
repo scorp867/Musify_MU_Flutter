@@ -4,7 +4,6 @@ import 'package:musify_mu/features/vault/data/services/vault_auth_service.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_point.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
-import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_track_ref.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';

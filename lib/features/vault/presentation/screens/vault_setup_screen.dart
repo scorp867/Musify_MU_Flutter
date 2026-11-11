@@ -142,6 +142,8 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
     widget.onSetupComplete?.call(false);
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop(false);
+    } else {
+      SystemNavigator.pop();
     }
   }
 

@@ -21,6 +21,9 @@ class ScreenPrivacyCubit extends Cubit<ScreenPrivacyState> {
   /// Multi-reason reference registry ensuring safe flag management without race conditions.
   final Set<ScreenPrivacyEngageReasonEnum> _activeReasons;
 
+  /// Serialized FIFO execution chain preventing out-of-order platform channel calls.
+  Future<void>? _pendingOperation;
+
   ScreenPrivacyCubit({
     required IScreenPrivacyController privacyController,
     required IMonotonicClock monotonicClock,
@@ -41,115 +44,152 @@ class ScreenPrivacyCubit extends Cubit<ScreenPrivacyState> {
   /// Synchronous boolean indicator of engaged protection.
   bool get isSecureFlagEngaged => state is ScreenPrivacySecureFlagEngagedState;
 
+  Future<void> _enqueueOperation(Future<void> Function() action) {
+    final prev = _pendingOperation;
+    final completer = Completer<void>();
+    _pendingOperation = completer.future;
+
+    void run() async {
+      try {
+        await action();
+        completer.complete();
+      } catch (e, st) {
+        completer.completeError(e, st);
+      } finally {
+        if (_pendingOperation == completer.future) {
+          _pendingOperation = null;
+        }
+      }
+    }
+
+    if (prev == null) {
+      run();
+    } else {
+      prev.whenComplete(run);
+    }
+
+    return completer.future;
+  }
+
   /// Engages native FLAG_SECURE for the specified [reason].
-  Future<void> engageSecureFlag({required ScreenPrivacyEngageReasonEnum reason}) async {
-    if (isClosed) return;
+  Future<void> engageSecureFlag({required ScreenPrivacyEngageReasonEnum reason}) {
+    if (isClosed) return Future<void>.value();
     _activeReasons.add(reason);
 
-    if (!_securityPolicy.requiresSecureFlag) {
-      if (state is! ScreenPrivacyPublicUnrestrictedState) {
-        if (!isClosed) emit(const ScreenPrivacyPublicUnrestrictedState());
+    return _enqueueOperation(() async {
+      if (isClosed) return;
+
+      if (!_securityPolicy.requiresSecureFlag) {
+        if (state is! ScreenPrivacyPublicUnrestrictedState) {
+          if (!isClosed) emit(const ScreenPrivacyPublicUnrestrictedState());
+        }
+        return;
       }
-      return;
-    }
 
-    if (state is ScreenPrivacySecureFlagEngagedState &&
-        (state as ScreenPrivacySecureFlagEngagedState).reason == reason) {
-      return;
-    }
+      if (state is ScreenPrivacySecureFlagEngagedState &&
+          (state as ScreenPrivacySecureFlagEngagedState).reason == reason) {
+        return;
+      }
 
-    final requestedAtMs = _monotonicClock.currentMonotonicMs;
-    if (!isClosed) {
-      emit(
-        ScreenPrivacyPlatformSyncPendingState(
-          targetState: ScreenPrivacyStateEnum.secureFlagEngaged,
-          requestedAtMonotonicMs: requestedAtMs,
-        ),
-      );
-    }
-
-    try {
-      await _privacyController.enableSecureFlag();
+      final requestedAtMs = _monotonicClock.currentMonotonicMs;
       if (!isClosed) {
-        emit(ScreenPrivacySecureFlagEngagedState(reason: reason));
+        emit(
+          ScreenPrivacyPlatformSyncPendingState(
+            targetState: ScreenPrivacyStateEnum.secureFlagEngaged,
+            requestedAtMonotonicMs: requestedAtMs,
+          ),
+        );
       }
-    } catch (e, st) {
-      dev.log(
-        'Failed to engage FLAG_SECURE on platform: $e',
-        name: 'ScreenPrivacyCubit',
-        error: e,
-        stackTrace: st,
-      );
-      if (!isClosed) {
-        emit(const ScreenPrivacyPublicUnrestrictedState());
+
+      try {
+        await _privacyController.enableSecureFlag();
+        if (!isClosed) {
+          emit(ScreenPrivacySecureFlagEngagedState(reason: reason));
+        }
+      } catch (e, st) {
+        dev.log(
+          'Failed to engage FLAG_SECURE on platform: $e',
+          name: 'ScreenPrivacyCubit',
+          error: e,
+          stackTrace: st,
+        );
+        if (!isClosed) {
+          emit(const ScreenPrivacyPublicUnrestrictedState());
+        }
       }
-    }
+    });
   }
 
   /// Releases native FLAG_SECURE for the specified [reason].
-  Future<void> releaseSecureFlag({required ScreenPrivacyEngageReasonEnum reason}) async {
-    if (isClosed) return;
+  Future<void> releaseSecureFlag({required ScreenPrivacyEngageReasonEnum reason}) {
+    if (isClosed) return Future<void>.value();
     _activeReasons.remove(reason);
 
-    if (_activeReasons.isNotEmpty && _securityPolicy.requiresSecureFlag) {
-      final remainingReason = _activeReasons.first;
-      if (state is! ScreenPrivacySecureFlagEngagedState ||
-          (state as ScreenPrivacySecureFlagEngagedState).reason != remainingReason) {
+    return _enqueueOperation(() async {
+      if (isClosed) return;
+
+      if (_activeReasons.isNotEmpty && _securityPolicy.requiresSecureFlag) {
+        final remainingReason = _activeReasons.first;
+        if (state is! ScreenPrivacySecureFlagEngagedState ||
+            (state as ScreenPrivacySecureFlagEngagedState).reason != remainingReason) {
+          if (!isClosed) {
+            emit(ScreenPrivacySecureFlagEngagedState(reason: remainingReason));
+          }
+        }
+        return;
+      }
+
+      if (state is ScreenPrivacyPublicUnrestrictedState) {
+        return;
+      }
+
+      final requestedAtMs = _monotonicClock.currentMonotonicMs;
+      if (!isClosed) {
+        emit(
+          ScreenPrivacyPlatformSyncPendingState(
+            targetState: ScreenPrivacyStateEnum.publicUnrestricted,
+            requestedAtMonotonicMs: requestedAtMs,
+          ),
+        );
+      }
+
+      try {
+        await _privacyController.disableSecureFlag();
         if (!isClosed) {
-          emit(ScreenPrivacySecureFlagEngagedState(reason: remainingReason));
+          emit(const ScreenPrivacyPublicUnrestrictedState());
+        }
+      } catch (e, st) {
+        dev.log(
+          'Failed to release FLAG_SECURE on platform: $e',
+          name: 'ScreenPrivacyCubit',
+          error: e,
+          stackTrace: st,
+        );
+        if (!isClosed) {
+          emit(const ScreenPrivacyPublicUnrestrictedState());
         }
       }
-      return;
-    }
-
-    if (state is ScreenPrivacyPublicUnrestrictedState) {
-      return;
-    }
-
-    final requestedAtMs = _monotonicClock.currentMonotonicMs;
-    if (!isClosed) {
-      emit(
-        ScreenPrivacyPlatformSyncPendingState(
-          targetState: ScreenPrivacyStateEnum.publicUnrestricted,
-          requestedAtMonotonicMs: requestedAtMs,
-        ),
-      );
-    }
-
-    try {
-      await _privacyController.disableSecureFlag();
-      if (!isClosed) {
-        emit(const ScreenPrivacyPublicUnrestrictedState());
-      }
-    } catch (e, st) {
-      dev.log(
-        'Failed to release FLAG_SECURE on platform: $e',
-        name: 'ScreenPrivacyCubit',
-        error: e,
-        stackTrace: st,
-      );
-      if (!isClosed) {
-        emit(const ScreenPrivacyPublicUnrestrictedState());
-      }
-    }
+    });
   }
 
   /// Updates the user's screen security preference dynamically at runtime.
-  Future<void> updateSecurityPolicy(ScreenSecurityPolicyEnum newPolicy) async {
-    if (isClosed) return;
+  Future<void> updateSecurityPolicy(ScreenSecurityPolicyEnum newPolicy) {
+    if (isClosed) return Future<void>.value();
     _securityPolicy = newPolicy;
 
     if (!newPolicy.requiresSecureFlag) {
-      if (state is! ScreenPrivacyPublicUnrestrictedState) {
+      if (state is ScreenPrivacyPublicUnrestrictedState) {
+        return Future<void>.value();
+      }
+      return _enqueueOperation(() async {
+        if (isClosed || state is ScreenPrivacyPublicUnrestrictedState) return;
         final requestedAtMs = _monotonicClock.currentMonotonicMs;
-        if (!isClosed) {
-          emit(
-            ScreenPrivacyPlatformSyncPendingState(
-              targetState: ScreenPrivacyStateEnum.publicUnrestricted,
-              requestedAtMonotonicMs: requestedAtMs,
-            ),
-          );
-        }
+        emit(
+          ScreenPrivacyPlatformSyncPendingState(
+            targetState: ScreenPrivacyStateEnum.publicUnrestricted,
+            requestedAtMonotonicMs: requestedAtMs,
+          ),
+        );
         try {
           await _privacyController.disableSecureFlag();
         } catch (e, st) {
@@ -163,19 +203,21 @@ class ScreenPrivacyCubit extends Cubit<ScreenPrivacyState> {
         if (!isClosed) {
           emit(const ScreenPrivacyPublicUnrestrictedState());
         }
-      }
+      });
     } else {
-      if (_activeReasons.isNotEmpty && state is! ScreenPrivacySecureFlagEngagedState) {
-        final reason = _activeReasons.first;
+      if (_activeReasons.isEmpty || state is ScreenPrivacySecureFlagEngagedState) {
+        return Future<void>.value();
+      }
+      final reason = _activeReasons.first;
+      return _enqueueOperation(() async {
+        if (isClosed || _activeReasons.isEmpty || state is ScreenPrivacySecureFlagEngagedState) return;
         final requestedAtMs = _monotonicClock.currentMonotonicMs;
-        if (!isClosed) {
-          emit(
-            ScreenPrivacyPlatformSyncPendingState(
-              targetState: ScreenPrivacyStateEnum.secureFlagEngaged,
-              requestedAtMonotonicMs: requestedAtMs,
-            ),
-          );
-        }
+        emit(
+          ScreenPrivacyPlatformSyncPendingState(
+            targetState: ScreenPrivacyStateEnum.secureFlagEngaged,
+            requestedAtMonotonicMs: requestedAtMs,
+          ),
+        );
         try {
           await _privacyController.enableSecureFlag();
           if (!isClosed) {
@@ -192,7 +234,7 @@ class ScreenPrivacyCubit extends Cubit<ScreenPrivacyState> {
             emit(const ScreenPrivacyPublicUnrestrictedState());
           }
         }
-      }
+      });
     }
   }
 

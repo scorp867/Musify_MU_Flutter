@@ -599,8 +599,7 @@ class _PrivateVaultDashboardScreenViewState
     if (sessionBloc != null) {
       viewContent = BlocListener<VaultSessionBloc, VaultSessionState>(
         bloc: sessionBloc,
-        listenWhen: (previous, current) =>
-            current is VaultLockedState || current is VaultUninitializedState,
+        listenWhen: (previous, current) => current is! VaultActiveSessionState,
         listener: (context, state) {
           if (mounted) {
             Navigator.of(context).popUntil((route) => route.isFirst);

@@ -134,7 +134,6 @@ final class FakeVaultAuthService implements IVaultAuthService {
     clearSessionKeysCalled++;
   }
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _stateController.stream;
 }
 

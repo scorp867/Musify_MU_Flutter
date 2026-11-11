@@ -67,7 +67,6 @@ class FakeVaultAuthService implements IVaultAuthService {
   int resetAttemptsCount = 0;
   int failedAttemptsRecorded = 0;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => sessionController.stream;
 
   @override

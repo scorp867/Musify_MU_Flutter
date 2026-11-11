@@ -189,6 +189,10 @@ final class FakeVaultStorageRepository implements IVaultStorageRepository {
         template = initialTemplate ?? DefaultGestureTemplate.canonicalVShape;
 
   @override
+  Future<bool> hasEnrolledVault() =>
+      SynchronousFuture(template != null);
+
+  @override
   Future<VaultResult<VaultConfig>> loadVaultConfig() =>
       SynchronousFuture(VaultResult.success(config));
 
@@ -338,7 +342,6 @@ final class FakeVaultAuthService implements IVaultAuthService {
 
   FakeVaultAuthService({this.currentPin = '123456'});
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _sessionController.stream;
 
   @override

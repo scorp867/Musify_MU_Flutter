@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_conditional_assignment
+
 import 'dart:math' as math;
 
 import 'package:equatable/equatable.dart';
@@ -7,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/vault/application/gesture/gesture_engine_cubit.dart';
 import 'package:musify_mu/features/vault/application/pin_pad/pin_pad_cubit.dart';
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
+import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/data/gesture/raw_touch_filter.dart';
 import 'package:musify_mu/features/vault/data/services/gesture_recognizer_service.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_point.dart';
@@ -22,6 +25,7 @@ import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart
 import 'package:musify_mu/features/vault/domain/usecases/enroll_gesture_use_case.dart';
 import 'package:musify_mu/features/vault/presentation/screens/vault_auth_screen.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_session_scaffold_guard.dart';
 
 /// Exhaustive sealed state hierarchy governing the gesture enrollment wizard and sandbox testing.
 @immutable
@@ -109,11 +113,22 @@ final class GestureSandboxTestingState extends GestureEnrollmentState {
     RecognitionScore? lastScore,
   }) {
     return GestureSandboxTestingState(
-      synthesizedTemplate: synthesizedTemplate ?? this.synthesizedTemplate,
-      testAttemptsCount: testAttemptsCount ?? this.testAttemptsCount,
-      successfulMatchesCount:
-          successfulMatchesCount ?? this.successfulMatchesCount,
-      lastScore: lastScore ?? this.lastScore,
+      synthesizedTemplate: switch (synthesizedTemplate) {
+        final t? => t,
+        null => this.synthesizedTemplate,
+      },
+      testAttemptsCount: switch (testAttemptsCount) {
+        final c? => c,
+        null => this.testAttemptsCount,
+      },
+      successfulMatchesCount: switch (successfulMatchesCount) {
+        final m? => m,
+        null => this.successfulMatchesCount,
+      },
+      lastScore: switch (lastScore) {
+        final s? => s,
+        null => this.lastScore,
+      },
     );
   }
 
@@ -185,6 +200,9 @@ class GestureEnrollmentScreen extends StatefulWidget {
   /// Optional screen privacy cubit for FLAG_SECURE management.
   final ScreenPrivacyCubit? screenPrivacyCubit;
 
+  /// Optional vault session bloc for security state observation.
+  final VaultSessionBloc? sessionBloc;
+
   /// Optional PIN pad cubit for step-up authentication.
   final PinPadCubit? pinPadCubit;
 
@@ -201,6 +219,7 @@ class GestureEnrollmentScreen extends StatefulWidget {
     this.authService,
     this.enrollGestureUseCase,
     this.screenPrivacyCubit,
+    this.sessionBloc,
     this.pinPadCubit,
     this.onEnrollmentComplete,
     this.initialAuthorizationPin,
@@ -234,14 +253,30 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _screenPrivacyCubit ??= _resolveScreenPrivacyCubit();
+    if (_screenPrivacyCubit == null) {
+      _screenPrivacyCubit = _resolveScreenPrivacyCubit();
+    }
   }
 
   void _engageScreenPrivacy() {
-    _screenPrivacyCubit ??= _resolveScreenPrivacyCubit();
+    if (_screenPrivacyCubit == null) {
+      _screenPrivacyCubit = _resolveScreenPrivacyCubit();
+    }
     _screenPrivacyCubit?.engageSecureFlag(
       reason: ScreenPrivacyEngageReasonEnum.vaultRouteActive,
     );
+  }
+
+  VaultSessionBloc? _resolveSessionBloc() {
+    if (widget.sessionBloc case final bloc?) {
+      return bloc;
+    }
+    if (!mounted) return null;
+    try {
+      return context.read<VaultSessionBloc>();
+    } catch (_) {
+      return null;
+    }
   }
 
   void _releaseScreenPrivacy() {
@@ -531,7 +566,11 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
           builder: (_) => VaultAuthScreen(
             mode: VaultAuthScreenMode.stepUp,
             titleOverride: 'Authorize Gesture Enrollment',
-            pinPadCubit: widget.pinPadCubit ?? _resolvePinPadCubit(),
+            pinPadCubit: switch (widget.pinPadCubit) {
+              final c? => c,
+              null => _resolvePinPadCubit(),
+            },
+            sessionBloc: _resolveSessionBloc(),
             screenPrivacyCubit: _resolveScreenPrivacyCubit(),
           ),
         ),
@@ -593,8 +632,10 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   Widget build(BuildContext context) {
     final vaultTheme = VaultTheme.of(context);
 
-    return Scaffold(
-      key: const ValueKey('gesture_enrollment_scaffold'),
+    return VaultSessionScaffoldGuard(
+      sessionBlocOverride: _resolveSessionBloc(),
+      child: Scaffold(
+        key: const ValueKey('gesture_enrollment_scaffold'),
       backgroundColor: vaultTheme.scaffold,
       appBar: AppBar(
         backgroundColor: vaultTheme.scaffold,
@@ -683,8 +724,9 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildStepIndicator(VaultThemeData vaultTheme) {
     final activeIndex = switch (_enrollmentState) {

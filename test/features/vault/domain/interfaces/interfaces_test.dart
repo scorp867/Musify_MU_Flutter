@@ -101,7 +101,6 @@ final class TestVaultAuthService implements IVaultAuthService {
     ramKeysCleared = true;
   }
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _stateController.stream;
 
   void emitState(VaultSessionState state) {

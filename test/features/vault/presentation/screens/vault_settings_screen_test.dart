@@ -88,7 +88,6 @@ class FakeVaultAuthService implements IVaultAuthService {
   String? lastRotatedOldPin;
   String? lastRotatedNewPin;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream =>
       _sessionController.stream;
 

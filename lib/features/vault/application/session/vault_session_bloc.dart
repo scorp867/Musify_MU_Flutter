@@ -5,7 +5,6 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:meta/meta.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
-import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
@@ -330,6 +329,11 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       VaultAuthSucceeded event,
       Emitter<VaultSessionState> emit,
       ) {
+    // Strictly guard unlock transitions: cannot bypass active lockout cooldown
+    if (state is VaultLockoutCooldownState) {
+      return;
+    }
+
     _cancelAllTimers();
     final nowMs = _monotonicClock.currentMonotonicMs;
     final reauthDeadline = _calculateReauthDeadline(nowMs);
@@ -375,6 +379,11 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       Emitter<VaultSessionState> emit,
       ) {
     final currentState = state;
+    // Prevent indefinite grace extension: if already in grace, do not reschedule deadline
+    if (currentState is VaultBackgroundGraceState) {
+      return;
+    }
+
     if (currentState is! VaultActiveSessionState) {
       if (currentState is VaultAuthenticatingState) {
         emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
@@ -385,12 +394,26 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
     }
 
     if (currentState is VaultPendingReauthState) {
+      _cancelReauthTimer();
       if (_config.backgroundGraceTimeout.isImmediate) {
         _cancelAllTimers();
         _authService.clearSessionKeysFromRam();
         _currentReauthDeadlineMs = null;
         emit(VaultLockedState(lockedAtMonotonicMs: _monotonicClock.currentMonotonicMs));
+        return;
       }
+      final nowMs = _monotonicClock.currentMonotonicMs;
+      final timeoutMs = _config.backgroundGraceTimeout.milliseconds;
+      final deadlineMs = nowMs + timeoutMs;
+      emit(
+        VaultBackgroundGraceState(
+          session: currentState.session,
+          enteredBackgroundMonotonicMs: nowMs,
+          graceTimeoutMs: timeoutMs,
+          graceDeadlineMonotonicMs: deadlineMs,
+        ),
+      );
+      _scheduleGraceTimer(timeoutMs);
       return;
     }
 
@@ -463,19 +486,27 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
           break;
       }
 
-      final existingDeadline = _currentReauthDeadlineMs;
-      if (existingDeadline != null && nowMs >= existingDeadline) {
-        emit(
-          VaultPendingReauthState(
-            session: currentState.session,
-            reauthTriggeredAtMonotonicMs: nowMs,
-            remainingAttempts: 5,
-          ),
-        );
-        return;
+      // Check reauth deadline only when activeReauthInterval is not 'never'
+      if (_config.activeReauthInterval != ActiveReauthIntervalEnum.never) {
+        if (_currentReauthDeadlineMs case final existingDeadline?) {
+          if (nowMs >= existingDeadline) {
+            emit(
+              VaultPendingReauthState(
+                session: currentState.session,
+                reauthTriggeredAtMonotonicMs: nowMs,
+                remainingAttempts: 5,
+              ),
+            );
+            return;
+          }
+        }
       }
 
-      final effectiveDeadline = existingDeadline ?? _calculateReauthDeadline(nowMs);
+      final effectiveDeadline = switch (_currentReauthDeadlineMs) {
+        final deadline? => deadline,
+        null => _calculateReauthDeadline(nowMs),
+      };
+
       _currentReauthDeadlineMs = effectiveDeadline;
       emit(
         VaultUnlockedState(
@@ -593,6 +624,9 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       Emitter<VaultSessionState> emit,
       ) {
     _cancelAllTimers();
+    // Zero RAM keys immediately upon lockout
+    _authService.clearSessionKeysFromRam();
+    _currentReauthDeadlineMs = null;
     final nowMs = _monotonicClock.currentMonotonicMs;
     final remainingMs = event.deadlineMonotonicMs - nowMs;
     _scheduleLockoutTimer(remainingMs);
@@ -611,6 +645,10 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       VaultQuickLockRequested event,
       Emitter<VaultSessionState> emit,
       ) {
+    // Quick lock cannot bypass an active brute-force lockout
+    if (state is VaultLockoutCooldownState) {
+      return;
+    }
     _cancelAllTimers();
     _authService.clearSessionKeysFromRam();
     _currentReauthDeadlineMs = null;

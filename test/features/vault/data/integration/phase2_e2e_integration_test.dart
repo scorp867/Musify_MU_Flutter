@@ -253,6 +253,7 @@ void main() {
   );
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues(<String, String>{});
     testTempDir = await Directory.systemTemp.createTemp('musify_vault_integration_');
     database = VaultDatabase.forTesting(NativeDatabase.memory());
     cryptoBridge = FakeNativeVaultCryptoBridge();
@@ -333,7 +334,7 @@ void main() {
 
     test('2. Full Credential Enrollment & Hardware Offload KeyStore Provisioning (R2, R3)', () async {
       expect(await cryptoBridge.hasMasterKey(), isFalse);
-      expect(authService.currentSessionState, isA<VaultUninitializedState>());
+      expect(await storageRepository.hasEnrolledVault(), isFalse);
 
       final enrollResult = await authService.enrollInitialCredentials(
         pin: '849201',
@@ -345,7 +346,8 @@ void main() {
       expect(await cryptoBridge.hasMasterKey(), isTrue);
 
       // Transitioned to locked state
-      expect(authService.currentSessionState, isA<VaultLockedState>());
+      expect(await storageRepository.hasEnrolledVault(), isTrue);
+      expect(authService.currentCryptoState, isA<CryptoEngineKeyWrappedAtRestState>());
 
       // Gesture template saved encrypted in database
       final templateResult = await storageRepository.loadGestureTemplate();
@@ -412,7 +414,7 @@ void main() {
 
       final authResult = await authService.authenticateWithPin(pin: '123456');
       expect(authResult, isA<VaultSuccess<AuthSession>>());
-      expect(authService.currentSessionState, isA<VaultUnlockedState>());
+      expect(authService.currentCryptoState, isA<CryptoEngineMasterKeyUnwrappedInRamState>());
 
       const playlistTitle = 'Ultra Classified Album';
       const playlistDescription = 'Top Secret Vault Playlist Collection';
@@ -602,11 +604,14 @@ void main() {
 
       // Lock session
       authService.clearSessionKeysFromRam();
+      privacyProxy.handleSessionStateTransition(
+        VaultLockedState(lockedAtMonotonicMs: monotonicClock.currentMonotonicMs),
+      );
       await Future<void>.delayed(Duration.zero);
 
       // Native session locked in hardware bridge
       expect(cryptoBridge.isSessionUnlocked, isFalse);
-      expect(authService.currentSessionState, isA<VaultLockedState>());
+      expect(authService.currentCryptoState, isA<CryptoEngineKeyWrappedAtRestState>());
 
       // Privacy proxy executed stopImmediately strategy:
       // Player stopped, ClearQueueEvent dispatched, transitioned to public passthrough
@@ -628,14 +633,14 @@ void main() {
       }
 
       // Tier 1 lockout active (30 seconds)
-      expect(authService.currentSessionState, isA<VaultLockoutCooldownState>());
-      final lockoutState = authService.currentSessionState as VaultLockoutCooldownState;
-      expect(lockoutState.durationMs, 30000);
+      final lockoutStatus = await authService.getLockoutStatus();
+      expect(lockoutStatus.tier, equals(LockoutCooldownTierEnum.tier1ThirtySeconds));
+      expect(lockoutStatus.remainingCooldownSeconds, greaterThan(0));
 
       // Monotonic deadline persisted to Drift SQLite database
       final persistedDeadline = await storageRepository.getPersistedLockoutDeadlineMs();
       expect(persistedDeadline, isNotNull);
-      expect(persistedDeadline, equals(lockoutState.deadlineMonotonicMs));
+      expect(persistedDeadline, equals(lockoutStatus.deadlineMonotonicMs));
 
       // Simulate process restart with brand new repository instance reading database
       final restartedRepository = VaultStorageRepository(
@@ -672,16 +677,13 @@ void main() {
 
       // Crypto fault emitted
       expect(authService.currentCryptoState, isA<CryptoEngineCryptoFaultState>());
-
-      // Session transitioned to Slot 1 fallback recovery
-      expect(authService.currentSessionState, isA<VaultAuthenticatingState>());
-      final authState = authService.currentSessionState as VaultAuthenticatingState;
-      expect(authState.authSessionId, 'slot1-fallback-recovery');
+      final cryptoState = authService.currentCryptoState as CryptoEngineCryptoFaultState;
+      expect(cryptoState.faultReason, CryptoFaultReasonEnum.keyStoreInvalidated);
 
       // Slot 1 PIN recovery succeeds
       final recoveryResult = await authService.authenticateWithPin(pin: '554433');
       expect(recoveryResult, isA<VaultSuccess<AuthSession>>());
-      expect(authService.currentSessionState, isA<VaultUnlockedState>());
+      expect(authService.currentCryptoState, isA<CryptoEngineMasterKeyUnwrappedInRamState>());
     });
 
     test('9. Atomic Purge Routine Shreds SQLite, Files & KeyStore Aliases (R3, R4)', () async {

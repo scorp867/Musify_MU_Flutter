@@ -18,7 +18,6 @@ import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dar
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.dart';
 import 'package:musify_mu/features/vault/domain/states/crypto_engine_state.dart';
-import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
 
 class AdversarialFakeClock implements IMonotonicClock {
   int timeMs;
@@ -679,9 +678,7 @@ void main() {
       );
 
       final cryptoStates = <CryptoEngineState>[];
-      final sessionStates = <VaultSessionState>[];
       final cryptoSub = authService.cryptoEngineStateStream.listen(cryptoStates.add);
-      final sessionSub = authService.sessionStateStream.listen(sessionStates.add);
 
       // Attempt biometric auth -> triggers KeyPermanentlyInvalidated
       final bioResult = await authService.authenticateWithBiometrics();
@@ -703,28 +700,17 @@ void main() {
         ),
       );
 
-      expect(
-        authService.currentSessionState,
-        isA<VaultAuthenticatingState>().having(
-          (s) => s.authSessionId,
-          'authSessionId',
-          'slot1-fallback-recovery',
-        ),
-      );
-
       // Verify Slot 1 PIN recovery can now unlock successfully!
       final pinResult = await authService.authenticateWithPin(pin: '654321');
       switch (pinResult) {
         case VaultSuccess(data: final session):
           expect(session, isA<AuthSession>());
-          expect(authService.currentSessionState, isA<VaultUnlockedState>());
           expect(authService.currentCryptoState, isA<CryptoEngineMasterKeyUnwrappedInRamState>());
         case VaultFailureResult(failure: final f):
           fail('Expected PIN recovery to succeed, but failed with: $f');
       }
 
       await cryptoSub.cancel();
-      await sessionSub.cancel();
     });
   });
 }

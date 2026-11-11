@@ -136,8 +136,10 @@ abstract final class VaultRoutes {
           );
         }
 
-        final palette = settingsCubit?.currentConfig.themePalette ??
-            VaultThemePalettePolicyEnum.warmEspresso;
+        final palette = switch (settingsCubit?.currentConfig.themePalette) {
+          final p? => p,
+          null => VaultThemePalettePolicyEnum.warmEspresso,
+        };
         return VaultTheme(
           data: VaultThemeData.fromPalette(palette),
           child: effectiveScreen,

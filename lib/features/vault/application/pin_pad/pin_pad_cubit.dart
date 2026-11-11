@@ -44,13 +44,19 @@ class PinPadCubit extends Cubit<PinPadState> {
         _sessionBloc = sessionBloc,
         _keypadLayout = initialLayout,
         _customPinSubmitter = customPinSubmitter,
-        _secureRandom = secureRandom ?? Random.secure(),
+        _secureRandom = switch (secureRandom) {
+          final rng? => rng,
+          null => Random.secure(),
+        },
         super(PinPadIdleInputState(
         enteredDigitsCount: 0,
         keypadLayout: initialLayout,
         digits: initialLayout == KeypadLayoutPolicyEnum.randomizedPerAttempt
             ? (List<int>.from(KeypadLayoutPolicyEnum.standardDigits)
-          ..shuffle(secureRandom ?? Random.secure()))
+          ..shuffle(switch (secureRandom) {
+            final rng? => rng,
+            null => Random.secure(),
+          }))
             : KeypadLayoutPolicyEnum.standardDigits,
       )) {
     _regenerateKeypadDigits();
@@ -79,7 +85,10 @@ class PinPadCubit extends Cubit<PinPadState> {
     int? initialRemainingSeconds,
   }) {
     final remainingMs = deadlineMonotonicMs - _monotonicClock.currentMonotonicMs;
-    final remainingSec = initialRemainingSeconds ?? ((remainingMs + 999) ~/ 1000);
+    final remainingSec = switch (initialRemainingSeconds) {
+      final sec? => sec,
+      null => (remainingMs + 999) ~/ 1000,
+    };
     if (remainingSec > 0) {
       _startLockoutCountdown(
         deadlineMonotonicMs: deadlineMonotonicMs,
@@ -236,6 +245,8 @@ class PinPadCubit extends Cubit<PinPadState> {
             0,
           };
           final lockout = await _authService.getLockoutStatus();
+          if (isClosed) return;
+
           _sessionBloc?.add(
             VaultAuthFailed(
               attemptNumber: lockout.consecutiveFailedAttempts,

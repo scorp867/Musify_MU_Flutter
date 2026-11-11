@@ -358,7 +358,8 @@ void main() {
       expect(lockoutResult, isA<VaultFailureResult<AuthSession>>());
       final lockoutFailure = (lockoutResult as VaultFailureResult<AuthSession>).failure;
       expect(lockoutFailure, isA<VaultLockoutFailure>());
-      expect(authService.currentSessionState, isA<VaultLockoutCooldownState>());
+      final lockoutStatus = await authService.getLockoutStatus();
+      expect(lockoutStatus.tier, equals(LockoutCooldownTierEnum.tier1ThirtySeconds));
       expect(storageRepository.persistedDeadlineMs, equals(clock.currentMonotonicMs + 30000));
 
       // Attempt while locked out MUST be rejected immediately without modifying persisted deadline
@@ -438,7 +439,8 @@ void main() {
       for (var i = 0; i < 5; i++) {
         await authService.authenticateWithPin(pin: '000000');
       }
-      expect(authService.currentSessionState, isA<VaultLockoutCooldownState>());
+      final lockoutStatus = await authService.getLockoutStatus();
+      expect(lockoutStatus.tier, equals(LockoutCooldownTierEnum.tier1ThirtySeconds));
 
       // Cooldown expires
       clock.timeMs += 31000;

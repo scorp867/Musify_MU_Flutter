@@ -57,7 +57,6 @@ class FakeVaultAuthService implements IVaultAuthService {
   final StreamController<VaultSessionState> _sessionController =
       StreamController<VaultSessionState>.broadcast();
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _sessionController.stream;
 
   @override

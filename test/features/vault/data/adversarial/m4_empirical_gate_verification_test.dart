@@ -122,7 +122,6 @@ class EmpiricalMockAuthService implements IVaultAuthService {
   final StreamController<VaultSessionState> _stateStreamController =
       StreamController<VaultSessionState>.broadcast();
 
-  @override
   Stream<VaultSessionState> get sessionStateStream =>
       _stateStreamController.stream;
 
@@ -218,6 +217,13 @@ void main() {
         vaultAuthService: authService,
         mobiusController: mobiusController,
         storageRepository: storageRepository,
+      );
+
+      authService.sessionStateStream.listen(
+        (state) {
+          proxy.handleSessionStateTransition(state);
+        },
+        onError: (Object error, StackTrace stack) {},
       );
 
       playbackService = VaultAudioPlaybackService(

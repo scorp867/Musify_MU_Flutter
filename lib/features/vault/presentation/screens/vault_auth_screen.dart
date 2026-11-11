@@ -6,11 +6,9 @@ import 'package:musify_mu/features/vault/application/screen_privacy/screen_priva
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/application/settings/settings_mutation_cubit.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
-import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_auth_service.dart';
 import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.dart';
-import 'package:musify_mu/features/vault/domain/policies/keypad_layout_policy.dart';
 import 'package:musify_mu/features/vault/domain/states/pin_pad_state.dart';
 import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
@@ -144,7 +142,7 @@ class _VaultAuthScreenView extends StatefulWidget {
 }
 
 class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final AnimationController _shakeController;
   late final Animation<double> _shakeAnimation;
   String? _biometricFeedbackMessage;
@@ -152,6 +150,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _shakeController = AnimationController(
       vsync: this,
@@ -291,7 +290,15 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _resolvePinPadCubit()?.resetToIdle();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _resolvePinPadCubit()?.resetToIdle();
     _releaseScreenPrivacy();
     _shakeController.dispose();
@@ -309,6 +316,8 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     widget.onAuthComplete?.call(false);
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop(false);
+    } else {
+      SystemNavigator.pop();
     }
   }
 
@@ -366,6 +375,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
             backgroundColor: Colors.transparent,
             elevation: 0,
             leading: IconButton(
+              key: const ValueKey('vault_auth_back_button'),
               icon: Icon(
                 Icons.arrow_back,
                 color: vaultTheme.textHighSalience,
@@ -408,24 +418,41 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
   }
 
   Widget _buildHeader(VaultThemeData vaultTheme) {
-    final title = widget.titleOverride ??
-        switch (widget.mode) {
-          VaultAuthScreenMode.unlock => 'Enter Vault PIN',
-          VaultAuthScreenMode.stepUp => 'Confirm Your Identity',
-          VaultAuthScreenMode.verifyOldPin => 'Enter Current PIN',
-          VaultAuthScreenMode.purgeConfirmation => 'Authorize Vault Purge',
-        };
+    final modeIcon = switch (widget.mode) {
+      VaultAuthScreenMode.unlock => Icons.lock_outline,
+      VaultAuthScreenMode.stepUp => Icons.security_outlined,
+      VaultAuthScreenMode.verifyOldPin => Icons.pin_outlined,
+      VaultAuthScreenMode.purgeConfirmation => Icons.warning_amber_rounded,
+    };
+
+    final title = switch (widget.titleOverride) {
+      final override? => override,
+      null => switch (widget.mode) {
+          VaultAuthScreenMode.unlock => 'Enter Master PIN',
+          VaultAuthScreenMode.stepUp => 'Step-Up Verification',
+          VaultAuthScreenMode.verifyOldPin => 'Verify Current PIN',
+          VaultAuthScreenMode.purgeConfirmation => 'Confirm Vault Purge',
+        },
+    };
 
     final subtitle = switch (widget.mode) {
-      VaultAuthScreenMode.unlock => 'Enter your 6-digit PIN to access private media',
-      VaultAuthScreenMode.stepUp => 'Authentication required to modify security settings',
-      VaultAuthScreenMode.verifyOldPin => 'Verify your existing PIN before setting a new one',
+      VaultAuthScreenMode.unlock => 'Enter 6-digit master PIN to unlock',
+      VaultAuthScreenMode.stepUp => 'Enter master PIN to authorize changes',
+      VaultAuthScreenMode.verifyOldPin => 'Enter current 6-digit PIN to continue',
       VaultAuthScreenMode.purgeConfirmation =>
-      'Irreversible action: all private playlists and keys will be deleted',
+        'Enter master PIN to permanently purge vault',
     };
 
     return Column(
       children: [
+        Icon(
+          modeIcon,
+          size: 40,
+          color: widget.mode.isDestructive
+              ? vaultTheme.danger
+              : vaultTheme.accent,
+        ),
+        const SizedBox(height: 16),
         Text(
           title,
           textAlign: TextAlign.center,
@@ -463,10 +490,14 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
           PinPadLockedOutState() => 0,
         };
 
+        final isError = state is PinPadFailureShakeState;
+        final dotColor = isError ? vaultTheme.danger : vaultTheme.accent;
+
         return AnimatedBuilder(
           animation: _shakeAnimation,
           builder: (context, child) {
             return Transform.translate(
+              key: const ValueKey('pin_shake_container'),
               offset: Offset(_shakeAnimation.value, 0),
               child: child,
             );
@@ -475,6 +506,10 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(6, (index) {
               final isFilled = index < enteredCount;
+              final borderColor = isError
+                  ? vaultTheme.danger
+                  : (isFilled ? vaultTheme.accent : vaultTheme.border);
+
               return Container(
                 width: 44,
                 height: 52,
@@ -483,22 +518,21 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
                   color: isFilled ? vaultTheme.surfaceSubtle : vaultTheme.surface,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: isFilled
-                        ? vaultTheme.accent
-                        : vaultTheme.border,
+                    color: borderColor,
                     width: 1.0,
                   ),
                 ),
                 alignment: Alignment.center,
                 child: isFilled
                     ? Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: vaultTheme.accent,
-                    shape: BoxShape.circle,
-                  ),
-                )
+                        key: const ValueKey('pin_dot_filled'),
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: dotColor,
+                          shape: BoxShape.circle,
+                        ),
+                      )
                     : null,
               );
             }),
@@ -525,18 +559,34 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
             return const SizedBox(height: 18);
 
           case PinPadEvaluatingState():
-            return Text(
-              'Verifying...',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: vaultTheme.textMediumSalience,
-              ),
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      vaultTheme.accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Verifying PIN...',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: vaultTheme.textMediumSalience,
+                  ),
+                ),
+              ],
             );
 
           case PinPadSuccessState():
             return Text(
-              'Unlocked',
+              'Verified',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -557,13 +607,35 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
           case PinPadLockedOutState(:final cooldownRemainingSeconds):
             final minutes = (cooldownRemainingSeconds ~/ 60).toString().padLeft(2, '0');
             final seconds = (cooldownRemainingSeconds % 60).toString().padLeft(2, '0');
-            return Text(
-              'Lockout cooldown active: $minutes:$seconds',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.danger,
-              ),
+            return Column(
+              children: [
+                Text(
+                  'Vault Locked',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: vaultTheme.danger,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$minutes:$seconds',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: vaultTheme.danger,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Too many consecutive failed attempts. Please wait for cooldown to expire.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: vaultTheme.textMediumSalience,
+                  ),
+                ),
+              ],
             );
         }
       },

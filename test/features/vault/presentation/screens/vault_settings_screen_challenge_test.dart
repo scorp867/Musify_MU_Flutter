@@ -90,7 +90,6 @@ class ChallengeVaultAuthService implements IVaultAuthService {
   String? lastRotatedNewPin;
   int clearRamCalls = 0;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _sessionController.stream;
 
   @override

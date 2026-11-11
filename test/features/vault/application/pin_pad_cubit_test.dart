@@ -34,7 +34,6 @@ class FakeVaultAuthService implements IVaultAuthService {
   LockoutCooldownTierEnum activeTier = LockoutCooldownTierEnum.none;
   int lockoutDeadlineMs = 0;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _sessionController.stream;
 
   @override

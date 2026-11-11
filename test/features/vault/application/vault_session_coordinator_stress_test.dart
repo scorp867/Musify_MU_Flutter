@@ -165,7 +165,6 @@ class AdversarialVaultAuthService implements IVaultAuthService {
   int resetFailedAttemptsCallCount = 0;
   int recordFailedAttemptCallCount = 0;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => sessionController.stream;
 
   @override
@@ -672,7 +671,15 @@ void main() {
       storage.persistedDeadlineMs = 40000;
 
       // Transition to lockout
-      authService.sessionController.add(lockoutState);
+      sessionBloc.add(
+        VaultLockoutTriggered(
+          tier: lockoutState.tier,
+          cooldownStartedMonotonicMs: lockoutState.cooldownStartedMonotonicMs,
+          durationMs: lockoutState.durationMs,
+          deadlineMonotonicMs: lockoutState.deadlineMonotonicMs,
+          failedAttemptsCount: lockoutState.failedAttemptsCount,
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(sessionBloc.state, isA<VaultLockoutCooldownState>());
@@ -705,7 +712,15 @@ void main() {
       );
       storage.persistedDeadlineMs = 40000;
 
-      authService.sessionController.add(lockoutState);
+      sessionBloc.add(
+        VaultLockoutTriggered(
+          tier: lockoutState.tier,
+          cooldownStartedMonotonicMs: lockoutState.cooldownStartedMonotonicMs,
+          durationMs: lockoutState.durationMs,
+          deadlineMonotonicMs: lockoutState.deadlineMonotonicMs,
+          failedAttemptsCount: lockoutState.failedAttemptsCount,
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(sessionBloc.state, isA<VaultLockoutCooldownState>());
@@ -736,7 +751,15 @@ void main() {
       );
       storage.persistedDeadlineMs = 40000;
 
-      authService.sessionController.add(lockoutState);
+      sessionBloc.add(
+        VaultLockoutTriggered(
+          tier: lockoutState.tier,
+          cooldownStartedMonotonicMs: lockoutState.cooldownStartedMonotonicMs,
+          durationMs: lockoutState.durationMs,
+          deadlineMonotonicMs: lockoutState.deadlineMonotonicMs,
+          failedAttemptsCount: lockoutState.failedAttemptsCount,
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(sessionBloc.state, isA<VaultLockoutCooldownState>());

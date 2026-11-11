@@ -77,7 +77,6 @@ class AdversarialAuthService implements IVaultAuthService {
   int lockoutDeadlineMs = 0;
   int resetAttemptsCallCount = 0;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => _sessionController.stream;
 
   @override

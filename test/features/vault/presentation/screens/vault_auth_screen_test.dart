@@ -64,7 +64,6 @@ class FakeVaultAuthService implements IVaultAuthService {
   int lockoutDeadlineMs = 0;
   bool keysClearedFromRam = false;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => sessionController.stream;
 
   @override

@@ -154,7 +154,6 @@ class SimpleScreenPrivacyController implements IScreenPrivacyController {
 }
 
 class SimpleAuthService implements IVaultAuthService {
-  @override
   Stream<VaultSessionState> get sessionStateStream => const Stream.empty();
   @override
   void clearSessionKeysFromRam() {}

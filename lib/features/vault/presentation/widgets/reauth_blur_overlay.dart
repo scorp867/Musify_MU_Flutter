@@ -12,7 +12,7 @@ import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
 /// Frosted glass non-destructive re-authentication overlay.
 ///
 /// Displayed over active vault views (e.g. Dashboard, Playlist Detail, Settings)
-/// when [VaultSessionBloc] transitions to [VaultPendingReauthState].
+/// when [VaultSessionBloc] transitions to [VaultPendingReauthState] or [VaultLockoutCooldownState].
 ///
 /// Invariants:
 /// 1. Non-destructive: [child] remains continuously mounted at [Stack] index 0,
@@ -34,7 +34,7 @@ class ReauthBlurOverlay extends StatelessWidget {
   final VoidCallback onReauthRequested;
 
   /// Optional explicit blur control for testing or manual overrides.
-  /// When null, defaults to inspecting [VaultSessionBloc] state for [VaultPendingReauthState].
+  /// When null, defaults to inspecting [VaultSessionBloc] state for [VaultPendingReauthState] or [VaultLockoutCooldownState].
   final bool? isBlurActive;
 
   /// Optional explicit palette policy override for testing.
@@ -49,12 +49,17 @@ class ReauthBlurOverlay extends StatelessWidget {
     super.key,
   });
 
+  static bool _isShieldState(VaultSessionState state) {
+    return state is VaultPendingReauthState || state is VaultLockoutCooldownState;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isBlurActive case final explicitActive?) {
       return _buildStack(
         context: context,
         isPendingReauth: explicitActive,
+        isLockout: false,
       );
     }
 
@@ -63,16 +68,17 @@ class ReauthBlurOverlay extends StatelessWidget {
       return _buildStack(
         context: context,
         isPendingReauth: false,
+        isLockout: false,
       );
     }
 
     return BlocListener<VaultSessionBloc, VaultSessionState>(
       listenWhen: (previous, current) =>
-          (previous is VaultPendingReauthState) != (current is VaultPendingReauthState),
+          _isShieldState(previous) != _isShieldState(current),
       listener: (context, state) {
         if (_isScreenPrivacyAvailable(context)) {
           final privacyCubit = context.read<ScreenPrivacyCubit>();
-          if (state is VaultPendingReauthState) {
+          if (_isShieldState(state)) {
             privacyCubit.engageSecureFlag(
               reason: ScreenPrivacyEngageReasonEnum.reauthOverlayPresented,
             );
@@ -85,10 +91,12 @@ class ReauthBlurOverlay extends StatelessWidget {
       },
       child: BlocBuilder<VaultSessionBloc, VaultSessionState>(
         builder: (context, state) {
-          final isPendingReauth = state is VaultPendingReauthState;
+          final isPendingReauth = _isShieldState(state);
+          final isLockout = state is VaultLockoutCooldownState;
           return _buildStack(
             context: context,
             isPendingReauth: isPendingReauth,
+            isLockout: isLockout,
           );
         },
       ),
@@ -98,6 +106,7 @@ class ReauthBlurOverlay extends StatelessWidget {
   Widget _buildStack({
     required BuildContext context,
     required bool isPendingReauth,
+    required bool isLockout,
   }) {
     final vaultTheme = _resolveVaultTheme(context);
 
@@ -117,6 +126,7 @@ class ReauthBlurOverlay extends StatelessWidget {
             child: _ReauthFrostedShield(
               vaultTheme: vaultTheme,
               onReauthRequested: onReauthRequested,
+              isLockout: isLockout,
             ),
           ),
       ],
@@ -150,17 +160,44 @@ class ReauthBlurOverlay extends StatelessWidget {
 }
 
 /// Internal frosted glass shield with exact sigma 12 blur, touch absorption, and re-auth trigger.
-class _ReauthFrostedShield extends StatelessWidget {
+class _ReauthFrostedShield extends StatefulWidget {
   final VaultThemeData vaultTheme;
   final VoidCallback onReauthRequested;
+  final bool isLockout;
 
   const _ReauthFrostedShield({
     required this.vaultTheme,
     required this.onReauthRequested,
+    this.isLockout = false,
   });
 
   @override
+  State<_ReauthFrostedShield> createState() => _ReauthFrostedShieldState();
+}
+
+class _ReauthFrostedShieldState extends State<_ReauthFrostedShield> {
+  bool _isNavigating = false;
+
+  void _handleTap() {
+    if (_isNavigating || widget.isLockout) return;
+    setState(() {
+      _isNavigating = true;
+    });
+    widget.onReauthRequested();
+    // Allow re-enabling after route transition completes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+        });
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final vaultTheme = widget.vaultTheme;
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {}, // Absorbs taps on the background so they do not penetrate to child
@@ -200,14 +237,18 @@ class _ReauthFrostedShield extends StatelessWidget {
                           ),
                         ),
                         child: Icon(
-                          Icons.lock_clock_outlined,
+                          widget.isLockout
+                              ? Icons.lock_clock
+                              : Icons.lock_clock_outlined,
                           size: 28.0,
                           color: vaultTheme.textHighSalience,
                         ),
                       ),
                       const SizedBox(height: 16.0),
                       Text(
-                        'Session Timed Out',
+                        widget.isLockout
+                            ? 'Security Lockout Active'
+                            : 'Session Timed Out',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontFamily: VaultTheme.fontFamily,
@@ -219,7 +260,9 @@ class _ReauthFrostedShield extends StatelessWidget {
                       ),
                       const SizedBox(height: 8.0),
                       Text(
-                        'Your vault session has timed out. Re-authenticate to access private playlists.',
+                        widget.isLockout
+                            ? 'Multiple failed authentication attempts triggered brute-force cooldown.'
+                            : 'Your vault session has timed out. Re-authenticate to access private playlists.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontFamily: VaultTheme.fontFamily,
@@ -230,45 +273,46 @@ class _ReauthFrostedShield extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 24.0),
-                      Material(
-                        color: vaultTheme.surfaceHighlight,
-                        borderRadius: VaultTheme.borderRadius8,
-                        child: InkWell(
-                          onTap: onReauthRequested,
+                      if (!widget.isLockout)
+                        Material(
+                          color: vaultTheme.surfaceHighlight,
                           borderRadius: VaultTheme.borderRadius8,
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14.0),
-                            decoration: BoxDecoration(
-                              borderRadius: VaultTheme.borderRadius8,
-                              border: Border.all(
-                                color: vaultTheme.border,
-                                width: VaultTheme.borderWidth,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.lock_open_outlined,
-                                  size: 18.0,
-                                  color: vaultTheme.textHighSalience,
+                          child: InkWell(
+                            onTap: _handleTap,
+                            borderRadius: VaultTheme.borderRadius8,
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14.0),
+                              decoration: BoxDecoration(
+                                borderRadius: VaultTheme.borderRadius8,
+                                border: Border.all(
+                                  color: vaultTheme.border,
+                                  width: VaultTheme.borderWidth,
                                 ),
-                                const SizedBox(width: 8.0),
-                                Text(
-                                  'Re-authenticate',
-                                  style: TextStyle(
-                                    fontFamily: VaultTheme.fontFamily,
-                                    fontSize: 14.0,
-                                    fontWeight: FontWeight.w600,
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.lock_open_outlined,
+                                    size: 18.0,
                                     color: vaultTheme.textHighSalience,
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 8.0),
+                                  Text(
+                                    'Re-authenticate',
+                                    style: TextStyle(
+                                      fontFamily: VaultTheme.fontFamily,
+                                      fontSize: 14.0,
+                                      fontWeight: FontWeight.w600,
+                                      color: vaultTheme.textHighSalience,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),

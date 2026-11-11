@@ -67,7 +67,6 @@ class AdversarialVaultAuthService implements IVaultAuthService {
   bool resetFailedAttemptsCalled = false;
   bool clearSessionKeysCalled = false;
 
-  @override
   Stream<VaultSessionState> get sessionStateStream => sessionController.stream;
 
   @override

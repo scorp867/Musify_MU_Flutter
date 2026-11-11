@@ -81,7 +81,11 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
 
     switch (target) {
       case VaultNavigationTarget.setupScreen:
-        nav.pushNamed(VaultRoutes.setup);
+        nav.pushNamed(VaultRoutes.setup).then((setupResult) {
+          if (setupResult == true) {
+            nav.pushNamed(VaultRoutes.dashboard);
+          }
+        });
       case VaultNavigationTarget.unlockScreen:
         nav.pushNamed(VaultRoutes.auth).then((unlocked) {
           if (unlocked == true) {

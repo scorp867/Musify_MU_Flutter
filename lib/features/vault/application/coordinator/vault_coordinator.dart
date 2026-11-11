@@ -154,7 +154,6 @@ class VaultCoordinator {
         }
 
       case AppLifecycleState.paused:
-      case AppLifecycleState.hidden:
         _sessionBloc.add(
           VaultAppBackgrounded(pausedAtMonotonicMs: monotonicNowMs),
         );
@@ -174,9 +173,10 @@ class VaultCoordinator {
           reason: ScreenPrivacyEngageReasonEnum.appBackgroundWithVaultLoaded,
         );
 
+      case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
         _sessionBloc.add(
-          const VaultQuickLockRequested(reason: 'App detached'),
+          const VaultQuickLockRequested(reason: 'App hidden or detached'),
         );
     }
   }
