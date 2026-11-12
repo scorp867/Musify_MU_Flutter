@@ -77,6 +77,12 @@ final class FakeAdversarialCryptoBridge implements INativeVaultCryptoBridge {
   }
 
   @override
+  Future<Uint8List> encryptConfigPayload(Uint8List plaintext) async => encryptPayload(plaintext);
+
+  @override
+  Future<Uint8List> decryptConfigPayload(Uint8List ciphertext) async => decryptPayload(ciphertext);
+
+  @override
   Future<bool> authenticateBiometrics({
     required String title,
     required String subtitle,

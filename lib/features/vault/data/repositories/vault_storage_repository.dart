@@ -71,17 +71,22 @@ class VaultStorageRepository implements IVaultStorageRepository {
   // Internal Cryptographic Helpers (with RAM Plaintext Zeroing)
   // ---------------------------------------------------------------------------
 
-  Future<Uint8List> _encryptString(String text) async {
+  Future<Uint8List> _encryptString(String text, {bool isConfig = false}) async {
     final plaintextBytes = Uint8List.fromList(utf8.encode(text));
     try {
+      if (isConfig) {
+        return await _cryptoBridge.encryptConfigPayload(plaintextBytes);
+      }
       return await _cryptoBridge.encryptPayload(plaintextBytes);
     } finally {
       VaultMemoryWiper.zeroBuffer(plaintextBytes);
     }
   }
 
-  Future<String> _decryptString(Uint8List ciphertext) async {
-    final decryptedBytes = await _cryptoBridge.decryptPayload(ciphertext);
+  Future<String> _decryptString(Uint8List ciphertext, {bool isConfig = false}) async {
+    final decryptedBytes = isConfig
+        ? await _cryptoBridge.decryptConfigPayload(ciphertext)
+        : await _cryptoBridge.decryptPayload(ciphertext);
     try {
       return utf8.decode(decryptedBytes);
     } finally {
@@ -89,13 +94,13 @@ class VaultStorageRepository implements IVaultStorageRepository {
     }
   }
 
-  Future<Uint8List> _encryptJson(Object jsonObject) async {
+  Future<Uint8List> _encryptJson(Object jsonObject, {bool isConfig = false}) async {
     final jsonString = jsonEncode(jsonObject);
-    return _encryptString(jsonString);
+    return _encryptString(jsonString, isConfig: isConfig);
   }
 
-  Future<Object?> _decryptJson(Uint8List ciphertext) async {
-    final jsonString = await _decryptString(ciphertext);
+  Future<Object?> _decryptJson(Uint8List ciphertext, {bool isConfig = false}) async {
+    final jsonString = await _decryptString(ciphertext, isConfig: isConfig);
     return jsonDecode(jsonString);
   }
 
@@ -116,7 +121,7 @@ class VaultStorageRepository implements IVaultStorageRepository {
         );
       }
 
-      final jsonObject = await _decryptJson(entry.encryptedPayload);
+      final jsonObject = await _decryptJson(entry.encryptedPayload, isConfig: true);
       final config = VaultConfigDto.fromJson(jsonObject);
       return VaultSuccess<VaultConfig>(config);
     } on VaultFailure catch (failure) {
@@ -132,7 +137,7 @@ class VaultStorageRepository implements IVaultStorageRepository {
   Future<VaultResult<void>> saveVaultConfig(VaultConfig config) async {
     try {
       final jsonMap = VaultConfigDto.toJson(config);
-      final encryptedBytes = await _encryptJson(jsonMap);
+      final encryptedBytes = await _encryptJson(jsonMap, isConfig: true);
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
       await _database.into(_database.vaultConfigTable).insertOnConflictUpdate(
@@ -645,24 +650,38 @@ class VaultStorageRepository implements IVaultStorageRepository {
   @override
   Future<VaultResult<GestureTemplate>> loadGestureTemplate() async {
     try {
-      final pointsStr = await _secureStorage.read(key: 'musify_vault_gesture_points');
-      final rubineStr = await _secureStorage.read(key: 'musify_vault_gesture_rubine');
-      final updatedAtStr = await _secureStorage.read(key: 'musify_vault_gesture_updated_at');
+      try {
+        final pointsStr = await _secureStorage.read(key: 'musify_vault_gesture_points');
+        final rubineStr = await _secureStorage.read(key: 'musify_vault_gesture_rubine');
+        final updatedAtStr = await _secureStorage.read(key: 'musify_vault_gesture_updated_at');
 
-      if (pointsStr != null && rubineStr != null) {
-        final pointsJson = jsonDecode(pointsStr);
-        final points = GestureTemplateDto.pointsFromJson(pointsJson);
-        final rubineJson = jsonDecode(rubineStr);
-        final rubine = GestureTemplateDto.rubineFromJson(rubineJson);
-        final updatedAt = int.tryParse(updatedAtStr ?? '') ?? DateTime.now().millisecondsSinceEpoch;
+        if (pointsStr != null && rubineStr != null) {
+          final pointsJson = jsonDecode(pointsStr);
+          final points = GestureTemplateDto.pointsFromJson(pointsJson);
+          final rubineJson = jsonDecode(rubineStr);
+          final rubine = GestureTemplateDto.rubineFromJson(rubineJson);
+          final int updatedAt;
+          if (updatedAtStr != null) {
+            final parsed = int.tryParse(updatedAtStr);
+            if (parsed != null) {
+              updatedAt = parsed;
+            } else {
+              updatedAt = DateTime.now().millisecondsSinceEpoch;
+            }
+          } else {
+            updatedAt = DateTime.now().millisecondsSinceEpoch;
+          }
 
-        final template = GestureTemplate(
-          id: 'master_gesture',
-          normalizedPoints: points,
-          rubineFeatureVector: rubine,
-          createdAtEpochMs: updatedAt,
-        );
-        return VaultSuccess<GestureTemplate>(template);
+          final template = GestureTemplate(
+            id: 'master_gesture',
+            normalizedPoints: points,
+            rubineFeatureVector: rubine,
+            createdAtEpochMs: updatedAt,
+          );
+          return VaultSuccess<GestureTemplate>(template);
+        }
+      } catch (_) {
+        // Platform secure storage might not be bound in non-widget unit tests, fallback to SQLite
       }
 
       final entry = await (_database.select(_database.vaultGestureTemplatesTable)
@@ -675,10 +694,10 @@ class VaultStorageRepository implements IVaultStorageRepository {
         );
       }
 
-      final pointsJson = await _decryptJson(entry.encryptedPoints64);
+      final pointsJson = await _decryptJson(entry.encryptedPoints64, isConfig: true);
       final points = GestureTemplateDto.pointsFromJson(pointsJson);
 
-      final rubineJson = await _decryptJson(entry.encryptedRubine7d);
+      final rubineJson = await _decryptJson(entry.encryptedRubine7d, isConfig: true);
       final rubine = GestureTemplateDto.rubineFromJson(rubineJson);
 
       final template = GestureTemplate(
@@ -718,8 +737,8 @@ class VaultStorageRepository implements IVaultStorageRepository {
         // Platform secure storage might not be bound in non-widget unit tests
       }
 
-      final encPoints = await _encryptJson(pointsMapList);
-      final encRubine = await _encryptJson(rubineList);
+      final encPoints = await _encryptJson(pointsMapList, isConfig: true);
+      final encRubine = await _encryptJson(rubineList, isConfig: true);
 
       await _database.into(_database.vaultGestureTemplatesTable).insertOnConflictUpdate(
             VaultGestureTemplatesTableCompanion(

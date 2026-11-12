@@ -19,7 +19,7 @@ import 'package:path/path.dart' as p;
 ///
 /// Simulates native Android KeyStore TEE / StrongBox lifecycle:
 /// - Generates 28-byte cryptographic envelopes: [12-byte IV + Ciphertext + 16-byte Tag].
-/// - Enforces session locking and master key presence constraints.
+/// - Enforces session locking for media payload tier and independent config tier.
 /// - Validates AEAD authentication tag integrity.
 class AdversarialMockCryptoBridge implements INativeVaultCryptoBridge {
   bool _hasMasterKey;
@@ -81,17 +81,7 @@ class AdversarialMockCryptoBridge implements INativeVaultCryptoBridge {
     return true;
   }
 
-  @override
-  Future<Uint8List> encryptPayload(Uint8List plaintext) async {
-    encryptCallCount++;
-    if (!_hasMasterKey) {
-      throw const VaultCryptoFailure('Master key is not provisioned in Android KeyStore.');
-    }
-    if (!_isSessionUnlocked) {
-      throw const VaultCryptoFailure(
-        'Vault session is locked. Complete PIN or biometric authentication first.',
-      );
-    }
+  Uint8List _encryptEnvelope(Uint8List plaintext) {
     if (plaintext.isEmpty) {
       throw const VaultValidationFailure('Plaintext payload must not be empty.');
     }
@@ -111,17 +101,7 @@ class AdversarialMockCryptoBridge implements INativeVaultCryptoBridge {
     return envelope;
   }
 
-  @override
-  Future<Uint8List> decryptPayload(Uint8List ciphertext) async {
-    decryptCallCount++;
-    if (!_hasMasterKey) {
-      throw const VaultCryptoFailure('Master key is not provisioned in Android KeyStore.');
-    }
-    if (!_isSessionUnlocked) {
-      throw const VaultCryptoFailure(
-        'Vault session is locked. Complete PIN or biometric authentication first.',
-      );
-    }
+  Uint8List _decryptEnvelope(Uint8List ciphertext) {
     if (ciphertext.length < 28) {
       throw const VaultValidationFailure('Ciphertext envelope smaller than 28 bytes.');
     }
@@ -142,6 +122,50 @@ class AdversarialMockCryptoBridge implements INativeVaultCryptoBridge {
       plaintext[i] = ciphertext[12 + i] ^ 0x5A;
     }
     return plaintext;
+  }
+
+  @override
+  Future<Uint8List> encryptPayload(Uint8List plaintext) async {
+    encryptCallCount++;
+    if (!_hasMasterKey) {
+      throw const VaultCryptoFailure('Master key is not provisioned in Android KeyStore.');
+    }
+    if (!_isSessionUnlocked) {
+      throw const VaultCryptoFailure(
+        'Vault session is locked. Complete PIN or biometric authentication first.',
+      );
+    }
+    return _encryptEnvelope(plaintext);
+  }
+
+  @override
+  Future<Uint8List> decryptPayload(Uint8List ciphertext) async {
+    decryptCallCount++;
+    if (!_hasMasterKey) {
+      throw const VaultCryptoFailure('Master key is not provisioned in Android KeyStore.');
+    }
+    if (!_isSessionUnlocked) {
+      throw const VaultCryptoFailure(
+        'Vault session is locked. Complete PIN or biometric authentication first.',
+      );
+    }
+    return _decryptEnvelope(ciphertext);
+  }
+
+  @override
+  Future<Uint8List> encryptConfigPayload(Uint8List plaintext) async {
+    if (!_hasMasterKey) {
+      throw const VaultCryptoFailure('Master key is not provisioned in Android KeyStore.');
+    }
+    return _encryptEnvelope(plaintext);
+  }
+
+  @override
+  Future<Uint8List> decryptConfigPayload(Uint8List ciphertext) async {
+    if (!_hasMasterKey) {
+      throw const VaultCryptoFailure('Master key is not provisioned in Android KeyStore.');
+    }
+    return _decryptEnvelope(ciphertext);
   }
 }
 
@@ -572,12 +596,10 @@ void main() {
     );
 
     test(
-      'EMPIRICAL-3.3: loadVaultConfig() under locked session fails safely without crashing',
+      'EMPIRICAL-3.3: loadVaultConfig() under locked session rehydrates cleanly at rest (Dual-Tier KeyStore Invariant)',
       () async {
         final result = await repo.loadVaultConfig();
-        expect(result, isA<VaultFailureResult<VaultConfig>>());
-        final failure = (result as VaultFailureResult<VaultConfig>).failure;
-        expect(failure, anyOf(isA<VaultCryptoFailure>(), isA<VaultStorageFailure>()));
+        expect(result, isA<VaultSuccess<VaultConfig>>());
       },
     );
 
@@ -593,25 +615,23 @@ void main() {
     );
 
     test(
-      'EMPIRICAL-3.5: loadGestureTemplate() under locked session fails safely without leaking template coordinates',
+      'EMPIRICAL-3.5: loadGestureTemplate() under locked session rehydrates cleanly at rest to arm stealth sensor',
       () async {
         final result = await repo.loadGestureTemplate();
-        expect(result, isA<VaultFailureResult<GestureTemplate>>());
-        final failure = (result as VaultFailureResult<GestureTemplate>).failure;
-        expect(failure, anyOf(isA<VaultCryptoFailure>(), isA<VaultStorageFailure>()));
+        expect(result, isA<VaultSuccess<GestureTemplate>>());
       },
     );
 
     test(
-      'EMPIRICAL-3.6: saveVaultConfig() and saveGestureTemplate() under locked session reject modifications cleanly',
+      'EMPIRICAL-3.6: saveVaultConfig() and saveGestureTemplate() under locked session update config tier cleanly at rest',
       () async {
         final saveConfigResult = await repo.saveVaultConfig(
-          VaultConfig(decoyTitle: 'Malicious Update'),
+          VaultConfig(decoyTitle: 'Updated Decoy Title'),
         );
-        expect(saveConfigResult, isA<VaultFailureResult<void>>());
+        expect(saveConfigResult, isA<VaultSuccess<void>>());
 
         final saveGestureResult = await repo.saveGestureTemplate(createTestGestureTemplate());
-        expect(saveGestureResult, isA<VaultFailureResult<void>>());
+        expect(saveGestureResult, isA<VaultSuccess<void>>());
       },
     );
 

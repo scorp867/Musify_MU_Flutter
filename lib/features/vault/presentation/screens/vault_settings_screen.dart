@@ -843,8 +843,8 @@ class _VaultAppearanceSettingsScreenState
               VaultThemePalettePolicyEnum.warmEspresso,
           vaultTheme: vaultTheme,
           onTap: () {
-            cubit?.updateGeneralPolicy(
-              currentConfig.copyWith(
+            cubit?.mutatePolicy(
+              (current) => current.copyWith(
                 themePalette: VaultThemePalettePolicyEnum.warmEspresso,
               ),
             );
@@ -867,8 +867,8 @@ class _VaultAppearanceSettingsScreenState
               VaultThemePalettePolicyEnum.forestNoir,
           vaultTheme: vaultTheme,
           onTap: () {
-            cubit?.updateGeneralPolicy(
-              currentConfig.copyWith(
+            cubit?.mutatePolicy(
+              (current) => current.copyWith(
                 themePalette: VaultThemePalettePolicyEnum.forestNoir,
               ),
             );
@@ -1725,10 +1725,9 @@ class _VaultSecuritySettingsScreenState
             isSelected: config.backgroundGraceTimeout == opt.$1,
             vaultTheme: vaultTheme,
             onTap: () {
-              cubit?.updateGeneralPolicy(
-                config.copyWith(backgroundGraceTimeout: opt.$1),
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(backgroundGraceTimeout: opt.$1),
               );
-              setState(() {});
             },
           ),
           const SizedBox(height: 8.0),
@@ -1799,10 +1798,9 @@ class _VaultSecuritySettingsScreenState
             isSelected: config.activeReauthInterval == opt.$1,
             vaultTheme: vaultTheme,
             onTap: () {
-              cubit?.updateGeneralPolicy(
-                config.copyWith(activeReauthInterval: opt.$1),
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(activeReauthInterval: opt.$1),
               );
-              setState(() {});
             },
           ),
           const SizedBox(height: 8.0),
@@ -1861,10 +1859,9 @@ class _VaultSecuritySettingsScreenState
             isSelected: config.keypadLayout == opt.$1,
             vaultTheme: vaultTheme,
             onTap: () {
-              cubit?.updateGeneralPolicy(
-                config.copyWith(keypadLayout: opt.$1),
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(keypadLayout: opt.$1),
               );
-              setState(() {});
             },
           ),
           const SizedBox(height: 8.0),
@@ -2055,6 +2052,7 @@ class _VaultPrivacySettingsScreenState
   late final FocusNode _artistFocus;
   late final FocusNode _albumFocus;
   ScreenPrivacyCubit? _screenPrivacyCubit;
+  SettingsMutationCubit? _settingsMutationCubit;
 
   @override
   void initState() {
@@ -2081,13 +2079,17 @@ class _VaultPrivacySettingsScreenState
     if (_screenPrivacyCubit == null) {
       _screenPrivacyCubit = _resolveScreenPrivacyCubit();
     }
+    if (_settingsMutationCubit == null) {
+      _settingsMutationCubit = _resolveSettingsCubit();
+    }
   }
 
   void _onFocusChange() {
     if (!_titleFocus.hasFocus &&
         !_artistFocus.hasFocus &&
         !_albumFocus.hasFocus) {
-      _resolveSettingsCubit()?.flushDecoyPersonaImmediately();
+      final cubit = _settingsMutationCubit ?? _resolveSettingsCubit();
+      cubit?.flushDecoyPersonaImmediately();
     }
   }
 
@@ -2147,7 +2149,12 @@ class _VaultPrivacySettingsScreenState
 
   @override
   void dispose() {
+    final cubit = _settingsMutationCubit ?? _resolveSettingsCubit();
+    cubit?.flushDecoyPersonaImmediately();
     _releaseScreenPrivacy();
+    _titleFocus.removeListener(_onFocusChange);
+    _artistFocus.removeListener(_onFocusChange);
+    _albumFocus.removeListener(_onFocusChange);
     _titleFocus.dispose();
     _artistFocus.dispose();
     _albumFocus.dispose();
@@ -2293,11 +2300,10 @@ class _VaultPrivacySettingsScreenState
               final newPolicy = val
                   ? ScreenSecurityPolicyEnum.blockScreenshotsAndRecents
                   : ScreenSecurityPolicyEnum.allowCapture;
-              cubit?.updateGeneralPolicy(
-                config.copyWith(screenSecurity: newPolicy),
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(screenSecurity: newPolicy),
               );
               _resolveScreenPrivacyCubit()?.updateSecurityPolicy(newPolicy);
-              setState(() {});
             },
           ),
         ],
@@ -2364,10 +2370,9 @@ class _VaultPrivacySettingsScreenState
               final newPolicy = val
                   ? MetadataVisibilityPolicyEnum.maskWithPlaceholder
                   : MetadataVisibilityPolicyEnum.showActualMetadata;
-              cubit?.updateGeneralPolicy(
-                config.copyWith(metadataVisibility: newPolicy),
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(metadataVisibility: newPolicy),
               );
-              setState(() {});
             },
           ),
         ],
@@ -2565,10 +2570,9 @@ class _VaultPrivacySettingsScreenState
               child: InkWell(
                 borderRadius: VaultTheme.borderRadius8,
                 onTap: () {
-                  cubit?.updateGeneralPolicy(
-                    config.copyWith(lockPlaybackBehavior: opt.$1),
+                  cubit?.mutatePolicy(
+                    (current) => current.copyWith(lockPlaybackBehavior: opt.$1),
                   );
-                  setState(() {});
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -3056,11 +3060,10 @@ class _VaultGestureSettingsScreenState
               child: InkWell(
                 borderRadius: VaultTheme.borderRadius8,
                 onTap: () {
-                  cubit?.updateGeneralPolicy(
-                    config.copyWith(gestureSensitivity: opt.$1),
+                  cubit?.mutatePolicy(
+                    (current) => current.copyWith(gestureSensitivity: opt.$1),
                   );
                   _resolveGestureEngineCubit()?.updateSensitivityTier(opt.$1);
-                  setState(() {});
                 },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -3193,10 +3196,9 @@ class _VaultGestureSettingsScreenState
               final newPolicy = val
                   ? GestureVisibilityPolicyEnum.faintDissipatingHairline
                   : GestureVisibilityPolicyEnum.invisibleStealth;
-              cubit?.updateGeneralPolicy(
-                config.copyWith(gestureVisibility: newPolicy),
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(gestureVisibility: newPolicy),
               );
-              setState(() {});
             },
           ),
         ],

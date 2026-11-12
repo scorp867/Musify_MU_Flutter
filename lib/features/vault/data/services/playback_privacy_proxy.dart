@@ -38,6 +38,7 @@ class PlaybackPrivacyProxy {
 
   final StreamController<PlaybackPrivacyState> _stateController;
   final List<StreamSubscription<Object?>> _subscriptions;
+  final Map<String, ContextTrack> _originalVaultTracks = <String, ContextTrack>{};
   StreamSubscription<VaultConfig>? _configSubscription;
 
   PlaybackPrivacyState _currentState;
@@ -175,6 +176,7 @@ class PlaybackPrivacyProxy {
             visibilityPolicy: _cachedConfig.metadataVisibility,
           ),
         );
+        _reprojectActiveQueue();
       case PlaybackPrivacyExecutingLockStrategyState(
           :final activeVaultTrackId,
           :final executingBehavior,
@@ -197,8 +199,46 @@ class PlaybackPrivacyProxy {
             _mobiusController.dispatch(const ClearQueueEvent());
           }
         }
+        _reprojectActiveQueue();
       case PlaybackPrivacyPublicPassthroughState():
+        final nowPlaying = _mobiusController.state.nowPlaying;
+        if (nowPlaying != null && _isVaultTrack(nowPlaying)) {
+          _reprojectActiveQueue();
+        }
         break;
+    }
+  }
+
+  /// Re-projects all vault tracks currently loaded in the active queue to propagate
+  /// updated masking or unmasked metadata to the OS MediaSession immediately.
+  void _reprojectActiveQueue() {
+    final currentQueue = _mobiusController.state.playerQueue;
+    final currentTrack = currentQueue.track;
+    if (currentTrack != null && _isVaultTrack(currentTrack)) {
+      final vaultTrackId = _resolveVaultTrackId(currentTrack);
+      final original = switch (_originalVaultTracks[vaultTrackId]) {
+        final orig? => orig,
+        null => currentTrack,
+      };
+      final projectedTrack = projectTrack(original);
+      final projectedNextTracks = currentQueue.nextTracks.map((t) {
+        if (_isVaultTrack(t)) {
+          final tId = _resolveVaultTrackId(t);
+          final origT = switch (_originalVaultTracks[tId]) {
+            final o? => o,
+            null => t,
+          };
+          return projectTrack(origT);
+        }
+        return t;
+      }).toList(growable: false);
+
+      final updatedQueue = currentQueue.toBuilder()
+          .track(projectedTrack)
+          .nextTracks(projectedNextTracks)
+          .build();
+
+      _mobiusController.dispatch(QueueUpdatedEvent(updatedQueue));
     }
   }
 
@@ -242,6 +282,10 @@ class PlaybackPrivacyProxy {
     required ContextTrack track,
   }) {
     if (_isDisposed) return;
+
+    if (track.metadata['musify_vault_masked'] != 'true') {
+      _originalVaultTracks[vaultTrackId] = track;
+    }
 
     final maskingStatus = switch (_cachedConfig.metadataVisibility) {
       MetadataVisibilityPolicyEnum.maskWithPlaceholder =>
@@ -307,6 +351,9 @@ class PlaybackPrivacyProxy {
       }
     } else {
       final vaultTrackId = _resolveVaultTrackId(nowPlaying);
+      if (nowPlaying.metadata['musify_vault_masked'] != 'true') {
+        _originalVaultTracks[vaultTrackId] = nowPlaying;
+      }
       switch (_currentState) {
         case PlaybackPrivacyPublicPassthroughState():
           _transitionTo(
@@ -352,6 +399,7 @@ class PlaybackPrivacyProxy {
   }
 
   Future<void> _executeLockTransition() async {
+    _originalVaultTracks.clear();
     switch (_currentState) {
       case PlaybackPrivacyPublicPassthroughState():
       // No private media playing; zero action required.
@@ -399,6 +447,7 @@ class PlaybackPrivacyProxy {
               visibilityPolicy: _cachedConfig.metadataVisibility,
             ),
           );
+          _reprojectActiveQueue();
         }
       case PlaybackPrivacyExecutingLockStrategyState(
           :final activeVaultTrackId,
@@ -417,6 +466,7 @@ class PlaybackPrivacyProxy {
               visibilityPolicy: _cachedConfig.metadataVisibility,
             ),
           );
+          _reprojectActiveQueue();
         } else {
           _transitionTo(const PlaybackPrivacyPublicPassthroughState());
         }
@@ -523,6 +573,7 @@ class PlaybackPrivacyProxy {
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
+    _originalVaultTracks.clear();
     await _configSubscription?.cancel();
     _configSubscription = null;
     for (final sub in _subscriptions) {

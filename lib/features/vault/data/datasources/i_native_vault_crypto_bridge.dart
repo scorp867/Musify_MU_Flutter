@@ -24,6 +24,8 @@ abstract interface class INativeVaultCryptoBridge {
 
   /// Encrypts [plaintext] bytes using native AES-256-GCM backed by the Android KeyStore hardware key.
   ///
+  /// Enforces active session unlock authorization (`isSessionUnlocked == true`).
+  /// Used exclusively for sensitive private media and playlist content.
   /// Returns a [Uint8List] containing the self-contained cryptographic envelope:
   /// `[12-byte IV + AES-GCM Ciphertext + 16-byte GCM Authentication Tag]`.
   /// Throws [VaultValidationFailure] if [plaintext] is empty.
@@ -33,12 +35,36 @@ abstract interface class INativeVaultCryptoBridge {
 
   /// Decrypts [ciphertext] bytes using native AES-256-GCM backed by the Android KeyStore hardware key.
   ///
+  /// Enforces active session unlock authorization (`isSessionUnlocked == true`).
+  /// Used exclusively for sensitive private media and playlist content.
   /// Expects [ciphertext] formatted as `[12-byte IV + AES-GCM Ciphertext + 16-byte Tag]`.
   /// Returns the decrypted plaintext as a mutable [Uint8List].
   /// Throws [VaultValidationFailure] if [ciphertext] is smaller than the minimum envelope size (28 bytes).
   /// Throws [VaultCryptoFailure] if authentication tag verification fails, the payload is corrupted,
   /// the session is locked, or the native KeyStore has been invalidated.
   Future<Uint8List> decryptPayload(Uint8List ciphertext);
+
+  /// Encrypts configuration [plaintext] bytes using native AES-256-GCM backed by the Android KeyStore hardware key.
+  ///
+  /// Does NOT require user session unlock authorization, permitting configuration persistence at any time
+  /// while guaranteeing full hardware encryption at rest against offline device extraction.
+  /// Returns a [Uint8List] containing the self-contained cryptographic envelope:
+  /// `[12-byte IV + AES-GCM Ciphertext + 16-byte GCM Authentication Tag]`.
+  /// Throws [VaultValidationFailure] if [plaintext] is empty.
+  /// Throws [VaultCryptoFailure] if the master key is not provisioned or encryption fails.
+  Future<Uint8List> encryptConfigPayload(Uint8List plaintext);
+
+  /// Decrypts configuration [ciphertext] bytes using native AES-256-GCM backed by the Android KeyStore hardware key.
+  ///
+  /// Does NOT require user session unlock authorization, permitting deterministic cold-start rehydration
+  /// before the user enters their PIN so pre-unlock security gates (drawer gesture sensor, auth pad, theme)
+  /// are armed immediately on Frame 0.
+  /// Expects [ciphertext] formatted as `[12-byte IV + AES-GCM Ciphertext + 16-byte Tag]`.
+  /// Returns the decrypted plaintext as a mutable [Uint8List].
+  /// Throws [VaultValidationFailure] if [ciphertext] is smaller than the minimum envelope size (28 bytes).
+  /// Throws [VaultCryptoFailure] if authentication tag verification fails, payload is corrupted,
+  /// or the native KeyStore encounters an error.
+  Future<Uint8List> decryptConfigPayload(Uint8List ciphertext);
 
   /// Triggers native Android BiometricPrompt challenge backed by `BiometricPrompt.CryptoObject`.
   ///

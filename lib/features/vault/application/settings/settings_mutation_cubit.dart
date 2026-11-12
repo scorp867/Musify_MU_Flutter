@@ -25,6 +25,7 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
 
   VaultConfig _lastKnownGoodConfig;
   final StreamController<VaultConfig> _configStreamController;
+  final StreamController<SettingsMutationRejectionEvent> _rejectionEventController;
 
   Timer? _decoyDebounceTimer;
   String? _pendingDecoyTitle;
@@ -45,6 +46,7 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
         _monotonicClock = monotonicClock,
         _lastKnownGoodConfig = initialConfig,
         _configStreamController = StreamController<VaultConfig>.broadcast(),
+        _rejectionEventController = StreamController<SettingsMutationRejectionEvent>.broadcast(),
         super(const SettingsMutationSyncedIdleState());
 
   /// The underlying authentication service used for step-up verification.
@@ -52,6 +54,9 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
 
   /// Broadcast stream of configuration changes for dependent services.
   Stream<VaultConfig> get configStream => _configStreamController.stream;
+
+  /// Dedicated broadcast stream emitting one-shot rejection events for UI snackbars and error alerts.
+  Stream<SettingsMutationRejectionEvent> get rejectionEvents => _rejectionEventController.stream;
 
   /// The active, verified last known good configuration snapshot.
   VaultConfig get currentConfig => _lastKnownGoodConfig;
@@ -92,9 +97,48 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     return completer.future;
   }
 
+  /// Atomically transforms and persists configuration using a pure functional reducer.
+  ///
+  /// Guarantees Zero-Snapshot Clobbering: Each queued mutation applies strictly against the
+  /// latest verified `_lastKnownGoodConfig` rather than an outdated UI snapshot.
+  Future<bool> mutatePolicy(VaultConfig Function(VaultConfig current) transform) async {
+    final completer = Completer<bool>();
+    await _enqueueGeneralMutation(() async {
+      if (isClosed) {
+        if (!completer.isCompleted) completer.complete(false);
+        return;
+      }
+
+      final VaultConfig nextConfig;
+      try {
+        nextConfig = transform(_lastKnownGoodConfig);
+      } catch (error) {
+        _rejectMutation(
+          mutationType: SensitiveSettingMutationEnum.generalConfigUpdate,
+          reason: error.toString(),
+        );
+        if (!completer.isCompleted) completer.complete(false);
+        return;
+      }
+
+      if (nextConfig.biometricAuth != _lastKnownGoodConfig.biometricAuth) {
+        _rejectMutation(
+          mutationType: SensitiveSettingMutationEnum.generalConfigUpdate,
+          reason: 'Sensitive policy mutation attempted without step-up authentication.',
+        );
+        if (!completer.isCompleted) completer.complete(false);
+        return;
+      }
+
+      final success = await _executeGeneralPolicyUpdate(nextConfig);
+      if (!completer.isCompleted) completer.complete(success);
+    });
+    return completer.future;
+  }
+
   /// Updates a general, non-sensitive configuration policy directly.
   ///
-  /// Intercepts and rejects sensitive policy changes (`biometricAuth`) that require step-up authentication.
+  /// Delegates directly to [mutatePolicy] to preserve FIFO order and prevent snapshot clobbering.
   Future<void> updateGeneralPolicy(VaultConfig updatedConfig) async {
     final hasSensitiveMutation =
         updatedConfig.biometricAuth != _lastKnownGoodConfig.biometricAuth;
@@ -107,20 +151,11 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
       return;
     }
 
-    await _enqueueGeneralMutation(() async {
-      if (updatedConfig.biometricAuth != _lastKnownGoodConfig.biometricAuth) {
-        _rejectMutation(
-          mutationType: SensitiveSettingMutationEnum.generalConfigUpdate,
-          reason: 'Sensitive policy mutation attempted without step-up authentication.',
-        );
-        return;
-      }
-
-      await _executeGeneralPolicyUpdate(updatedConfig);
-    });
+    await mutatePolicy((_) => updatedConfig);
   }
 
   Future<bool> _executeGeneralPolicyUpdate(VaultConfig updatedConfig) async {
+    final previousState = state;
     emit(const SettingsMutationPersistingConfigState(
       mutationType: SensitiveSettingMutationEnum.generalConfigUpdate,
     ));
@@ -136,8 +171,14 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     switch (result) {
       case VaultSuccess<VaultConfig>(:final data):
         _lastKnownGoodConfig = data;
-        _configStreamController.add(_lastKnownGoodConfig);
-        emit(const SettingsMutationSyncedIdleState());
+        if (!_configStreamController.isClosed) {
+          _configStreamController.add(_lastKnownGoodConfig);
+        }
+        if (previousState is SettingsMutationAwaitingStepUpAuthState) {
+          emit(previousState);
+        } else {
+          emit(const SettingsMutationSyncedIdleState());
+        }
         return true;
       case VaultFailureResult<VaultConfig>(:final failure):
         _rejectMutation(
@@ -164,7 +205,7 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     });
   }
 
-  /// Flushes any pending decoy persona text immediately (e.g. on focus-loss / blur).
+  /// Flushes any pending decoy persona text immediately (e.g. on focus-loss, screen pop, or exit).
   Future<void> flushDecoyPersonaImmediately() async {
     _decoyDebounceTimer?.cancel();
     _decoyDebounceTimer = null;
@@ -179,53 +220,26 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     final savedArtist = _pendingDecoyArtist;
     final savedAlbum = _pendingDecoyAlbum;
 
-    final checkTitle = savedTitle ?? _lastKnownGoodConfig.decoyTitle;
-    final checkArtist = savedArtist ?? _lastKnownGoodConfig.decoyArtist;
-    final checkAlbum = savedAlbum ?? _lastKnownGoodConfig.decoyAlbum;
+    _pendingDecoyTitle = null;
+    _pendingDecoyArtist = null;
+    _pendingDecoyAlbum = null;
 
-    if (checkTitle.trim().isEmpty ||
-        checkArtist.trim().isEmpty ||
-        checkAlbum.trim().isEmpty) {
-      _rejectMutation(
-        mutationType: SensitiveSettingMutationEnum.generalConfigUpdate,
-        reason: 'Decoy persona fields must not be empty or whitespace.',
-      );
-      return;
-    }
-
-    await _enqueueGeneralMutation(() async {
-      final targetTitle = savedTitle ?? _lastKnownGoodConfig.decoyTitle;
-      final targetArtist = savedArtist ?? _lastKnownGoodConfig.decoyArtist;
-      final targetAlbum = savedAlbum ?? _lastKnownGoodConfig.decoyAlbum;
+    await mutatePolicy((current) {
+      final targetTitle = savedTitle ?? current.decoyTitle;
+      final targetArtist = savedArtist ?? current.decoyArtist;
+      final targetAlbum = savedAlbum ?? current.decoyAlbum;
 
       if (targetTitle.trim().isEmpty ||
           targetArtist.trim().isEmpty ||
           targetAlbum.trim().isEmpty) {
-        _rejectMutation(
-          mutationType: SensitiveSettingMutationEnum.generalConfigUpdate,
-          reason: 'Decoy persona fields must not be empty or whitespace.',
-        );
-        return;
+        throw const FormatException('Decoy persona fields must not be empty or whitespace.');
       }
 
-      final updatedConfig = _lastKnownGoodConfig.copyWith(
+      return current.copyWith(
         decoyTitle: targetTitle,
         decoyArtist: targetArtist,
         decoyAlbum: targetAlbum,
       );
-
-      final success = await _executeGeneralPolicyUpdate(updatedConfig);
-      if (success) {
-        if (_pendingDecoyTitle == savedTitle) {
-          _pendingDecoyTitle = null;
-        }
-        if (_pendingDecoyArtist == savedArtist) {
-          _pendingDecoyArtist = null;
-        }
-        if (_pendingDecoyAlbum == savedAlbum) {
-          _pendingDecoyAlbum = null;
-        }
-      }
     });
   }
 
@@ -274,7 +288,9 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
       final reloadResult = await _storageRepository.loadVaultConfig();
       if (reloadResult case VaultSuccess<VaultConfig>(:final data)) {
         _lastKnownGoodConfig = data;
-        _configStreamController.add(_lastKnownGoodConfig);
+        if (!_configStreamController.isClosed) {
+          _configStreamController.add(_lastKnownGoodConfig);
+        }
       }
       emit(const SettingsMutationSyncedIdleState());
     } catch (error) {
@@ -290,7 +306,9 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     final updated = _lastKnownGoodConfig.copyWith(biometricAuth: newPolicy);
     await _storageRepository.saveVaultConfig(updated);
     _lastKnownGoodConfig = updated;
-    _configStreamController.add(_lastKnownGoodConfig);
+    if (!_configStreamController.isClosed) {
+      _configStreamController.add(_lastKnownGoodConfig);
+    }
   }
 
   /// Cancels an in-flight sensitive mutation request.
@@ -314,6 +332,16 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     required SensitiveSettingMutationEnum mutationType,
     required String reason,
   }) {
+    if (!_rejectionEventController.isClosed) {
+      _rejectionEventController.add(
+        SettingsMutationRejectionEvent(
+          mutationType: mutationType,
+          reason: reason,
+          timestampMonotonicMs: _monotonicClock.currentMonotonicMs,
+        ),
+      );
+    }
+
     emit(SettingsMutationMutationRejectedState(
       mutationType: mutationType,
       rejectionReason: reason,
@@ -331,6 +359,7 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     _decoyDebounceTimer?.cancel();
     _decoyDebounceTimer = null;
     _configStreamController.close();
+    _rejectionEventController.close();
     return super.close();
   }
 }

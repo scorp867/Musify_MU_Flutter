@@ -11,6 +11,7 @@ import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 /// - 12-byte IV prepended to ciphertext.
 /// - 16-byte HMAC authentication tag appended to ciphertext.
 /// - Full authentication tag verification and corruption rejection.
+/// - Support for unauthenticated device configuration encryption at rest.
 /// - Zero external native Android dependencies.
 final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   static const int gcmIvLengthBytes = 12;
@@ -66,21 +67,13 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     _isSessionUnlocked = true;
   }
 
-  @override
-  Future<Uint8List> encryptPayload(Uint8List plaintext) async {
-    encryptCallCount++;
-
+  Uint8List _encryptInternal(Uint8List plaintext) {
     if (simulateHardwareFailure) {
       throw const VaultCryptoFailure('Simulated hardware KeyStore failure.');
     }
     if (!_hasMasterKey) {
       throw const VaultCryptoFailure(
         'Master key is not provisioned in Android KeyStore.',
-      );
-    }
-    if (!_isSessionUnlocked) {
-      throw const VaultCryptoFailure(
-        'Vault session is locked. Complete PIN or biometric authentication first.',
       );
     }
     if (plaintext.isEmpty) {
@@ -121,21 +114,13 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     return result;
   }
 
-  @override
-  Future<Uint8List> decryptPayload(Uint8List ciphertext) async {
-    decryptCallCount++;
-
+  Uint8List _decryptInternal(Uint8List ciphertext) {
     if (simulateHardwareFailure) {
       throw const VaultCryptoFailure('Simulated hardware KeyStore failure.');
     }
     if (!_hasMasterKey) {
       throw const VaultCryptoFailure(
         'Master key is not provisioned in Android KeyStore.',
-      );
-    }
-    if (!_isSessionUnlocked) {
-      throw const VaultCryptoFailure(
-        'Vault session is locked. Complete PIN or biometric authentication first.',
       );
     }
     if (ciphertext.length < minCiphertextEnvelopeBytes) {
@@ -176,6 +161,40 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     }
 
     return plaintext;
+  }
+
+  @override
+  Future<Uint8List> encryptPayload(Uint8List plaintext) async {
+    encryptCallCount++;
+    if (!_isSessionUnlocked) {
+      throw const VaultCryptoFailure(
+        'Vault session is locked. Complete PIN or biometric authentication first.',
+      );
+    }
+    return _encryptInternal(plaintext);
+  }
+
+  @override
+  Future<Uint8List> decryptPayload(Uint8List ciphertext) async {
+    decryptCallCount++;
+    if (!_isSessionUnlocked) {
+      throw const VaultCryptoFailure(
+        'Vault session is locked. Complete PIN or biometric authentication first.',
+      );
+    }
+    return _decryptInternal(ciphertext);
+  }
+
+  @override
+  Future<Uint8List> encryptConfigPayload(Uint8List plaintext) async {
+    encryptCallCount++;
+    return _encryptInternal(plaintext);
+  }
+
+  @override
+  Future<Uint8List> decryptConfigPayload(Uint8List ciphertext) async {
+    decryptCallCount++;
+    return _decryptInternal(ciphertext);
   }
 
   @override

@@ -8,9 +8,10 @@ import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 ///
 /// Accurately simulates:
 /// 1. Self-contained 28-byte cryptographic envelope: `[12-byte IV + AES-GCM Ciphertext + 16-byte Tag]`.
-/// 2. Session locking behavior: throws [VaultCryptoFailure] on encryption/decryption when locked.
-/// 3. AEAD authentication tag verification: throws [VaultCryptoFailure] when ciphertext or tag is modified.
-/// 4. KeyStore lifecycle: simulates key generation, unlocking, locking, and destruction.
+/// 2. Session locking behavior: throws [VaultCryptoFailure] on encryption/decryption when locked for media payloads.
+/// 3. Device configuration encryption/decryption at rest without requiring user session unlock.
+/// 4. AEAD authentication tag verification: throws [VaultCryptoFailure] when ciphertext or tag is modified.
+/// 5. KeyStore lifecycle: simulates key generation, unlocking, locking, and destruction.
 class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   bool _hasMasterKey;
   bool _isSessionUnlocked;
@@ -49,16 +50,12 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     _hasMasterKey = true;
   }
 
-  @override
-  Future<Uint8List> encryptPayload(Uint8List plaintext) async {
+  Uint8List _encryptInternal(Uint8List plaintext) {
     if (plaintext.isEmpty) {
       throw const VaultValidationFailure('Plaintext payload must not be empty.');
     }
     if (!_hasMasterKey) {
       throw const VaultCryptoFailure('Master key has not been generated or provisioned.');
-    }
-    if (!_isSessionUnlocked) {
-      throw const VaultCryptoFailure('Vault session is locked. Authenticate first.');
     }
 
     // Generate 12-byte deterministic IV
@@ -91,8 +88,7 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     return envelope;
   }
 
-  @override
-  Future<Uint8List> decryptPayload(Uint8List ciphertext) async {
+  Uint8List _decryptInternal(Uint8List ciphertext) {
     if (ciphertext.length < 28) {
       throw VaultValidationFailure(
         'Ciphertext envelope is shorter than minimum 28 bytes: ${ciphertext.length}',
@@ -100,9 +96,6 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     }
     if (!_hasMasterKey) {
       throw const VaultCryptoFailure('Master key has not been generated or provisioned.');
-    }
-    if (!_isSessionUnlocked) {
-      throw const VaultCryptoFailure('Vault session is locked. Authenticate first.');
     }
 
     final iv = ciphertext.sublist(0, 12);
@@ -132,6 +125,32 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     }
 
     return plaintext;
+  }
+
+  @override
+  Future<Uint8List> encryptPayload(Uint8List plaintext) async {
+    if (!_isSessionUnlocked) {
+      throw const VaultCryptoFailure('Vault session is locked. Authenticate first.');
+    }
+    return _encryptInternal(plaintext);
+  }
+
+  @override
+  Future<Uint8List> decryptPayload(Uint8List ciphertext) async {
+    if (!_isSessionUnlocked) {
+      throw const VaultCryptoFailure('Vault session is locked. Authenticate first.');
+    }
+    return _decryptInternal(ciphertext);
+  }
+
+  @override
+  Future<Uint8List> encryptConfigPayload(Uint8List plaintext) async {
+    return _encryptInternal(plaintext);
+  }
+
+  @override
+  Future<Uint8List> decryptConfigPayload(Uint8List ciphertext) async {
+    return _decryptInternal(ciphertext);
   }
 
   @override

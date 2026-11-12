@@ -456,16 +456,22 @@ void main() {
   });
 
   group('VaultStorageRepository - Tamper Detection & Hardware Security Invariants', () {
-    test('fails gracefully when session is locked during encrypted operations', () async {
+    test('fails gracefully when session is locked during sensitive media operations, while config rehydrates at rest', () async {
       final config = VaultConfig();
       await repository.saveVaultConfig(config);
+      await repository.createPlaylist(name: 'Secret Playlist', description: 'Classified');
 
       // Lock session
       cryptoBridge.setSessionUnlocked(false);
 
+      // Config rehydrates successfully at rest without session unlock (Dual-Tier KeyStore Invariant)
       final loadResult = await repository.loadVaultConfig();
-      expect(loadResult, isA<VaultFailureResult<VaultConfig>>());
-      if (loadResult case VaultFailureResult(:final failure)) {
+      expect(loadResult, isA<VaultSuccess<VaultConfig>>());
+
+      // Sensitive media operations strictly fail when session is locked
+      final playlistResult = await repository.getPlaylists();
+      expect(playlistResult, isA<VaultFailureResult<List<PrivatePlaylist>>>());
+      if (playlistResult case VaultFailureResult(:final failure)) {
         expect(failure, isA<VaultCryptoFailure>());
         expect(failure.message, contains('locked'));
       }

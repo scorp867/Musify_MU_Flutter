@@ -151,6 +151,44 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
                 }
             }
 
+            "encryptConfigPayload" -> {
+                val payload = extractByteArray(call, "payload")
+                if (payload == null) {
+                    result.error("INVALID_ARGUMENT", "Payload byte array is required for configuration encryption", null)
+                    return
+                }
+
+                bridgeScope.launch {
+                    try {
+                        val ciphertext = withContext(Dispatchers.IO) {
+                            encryptPayloadInternal(payload)
+                        }
+                        result.success(ciphertext)
+                    } catch (e: Exception) {
+                        handleException(e, result)
+                    }
+                }
+            }
+
+            "decryptConfigPayload" -> {
+                val payload = extractByteArray(call, "payload")
+                if (payload == null) {
+                    result.error("INVALID_ARGUMENT", "Payload byte array is required for configuration decryption", null)
+                    return
+                }
+
+                bridgeScope.launch {
+                    try {
+                        val plaintext = withContext(Dispatchers.IO) {
+                            decryptPayloadInternal(payload)
+                        }
+                        result.success(plaintext)
+                    } catch (e: Exception) {
+                        handleException(e, result)
+                    }
+                }
+            }
+
             "authenticateBiometrics" -> {
                 val title = call.argument<String>("title") ?: "Unlock Secure Vault"
                 val subtitle = call.argument<String>("subtitle") ?: "Verify your identity"

@@ -488,7 +488,7 @@ void main() {
       await sub.cancel();
     });
 
-    test('Calling updateGeneralPolicy while awaiting step-up clobbers awaiting state', () async {
+    test('Calling updateGeneralPolicy while awaiting step-up preserves awaiting state without clobbering', () async {
       await cubit.requestSensitiveMutation(
         mutationType: SensitiveSettingMutationEnum.pinRotation,
       );
@@ -499,8 +499,8 @@ void main() {
         cubit.currentConfig.copyWith(themePalette: VaultThemePalettePolicyEnum.forestNoir),
       );
 
-      // The step-up awaiting state was clobbered by the general policy persistence
-      expect(cubit.state, isA<SettingsMutationSyncedIdleState>());
+      // The step-up awaiting state is safely preserved across general policy persistence
+      expect(cubit.state, isA<SettingsMutationAwaitingStepUpAuthState>());
       expect(cubit.currentConfig.themePalette, equals(VaultThemePalettePolicyEnum.forestNoir));
     });
   });

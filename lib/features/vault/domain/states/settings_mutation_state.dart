@@ -131,3 +131,25 @@ final class SettingsMutationMutationRejectedState extends SettingsMutationState 
   @override
   List<Object?> get props => [mutationType, rejectionReason];
 }
+
+/// One-shot domain event representing a rejected settings mutation for UI error telemetry.
+@immutable
+final class SettingsMutationRejectionEvent extends Equatable {
+  const SettingsMutationRejectionEvent({
+    required this.mutationType,
+    required this.reason,
+    required this.timestampMonotonicMs,
+  });
+
+  /// The setting mutation category that was rejected.
+  final SensitiveSettingMutationEnum mutationType;
+
+  /// The human-readable or error diagnostic rejection reason.
+  final String reason;
+
+  /// Monotonic timestamp when the rejection occurred.
+  final int timestampMonotonicMs;
+
+  @override
+  List<Object?> get props => [mutationType, reason, timestampMonotonicMs];
+}

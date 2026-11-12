@@ -233,7 +233,7 @@ void main() {
       );
     });
 
-    test('1.4 Locked cryptographic session gracefully returns VaultFailureResult across all repository methods', () async {
+    test('1.4 Locked cryptographic session gracefully returns VaultFailureResult across sensitive media methods while config tier rehydrates at rest', () async {
       // Save valid data while unlocked
       final template = createTestGestureTemplate();
       final saveGesture = await repository.saveGestureTemplate(template);
@@ -249,23 +249,21 @@ void main() {
       // Lock the session
       await cryptoBridge.lockSession();
 
-      // Read operations must return VaultFailureResult gracefully
+      // Dual-tier KeyStore: Config & Gesture template rehydrate at rest (pre-unlock gates)
       final readConfig = await repository.loadVaultConfig();
-      expect(readConfig, isA<VaultFailureResult<VaultConfig>>());
+      expect(readConfig, isA<VaultSuccess<VaultConfig>>());
 
       final readGesture = await repository.loadGestureTemplate();
-      expect(readGesture, isA<VaultFailureResult<GestureTemplate>>());
+      expect(readGesture, isA<VaultSuccess<GestureTemplate>>());
 
+      // Sensitive media operations strictly return VaultFailureResult when session is locked
       final readPlaylist = await repository.getPlaylistById(plId);
       expect(readPlaylist, isA<VaultFailureResult<PrivatePlaylist>>());
 
       final readAllPlaylists = await repository.getPlaylists();
       expect(readAllPlaylists, isA<VaultFailureResult<List<PrivatePlaylist>>>());
 
-      // Write operations requiring encryption must return VaultFailureResult
-      final writeConfig = await repository.saveVaultConfig(VaultConfig());
-      expect(writeConfig, isA<VaultFailureResult<void>>());
-
+      // Sensitive media write operations requiring session unlock return VaultFailureResult
       final createPl = await repository.createPlaylist(name: 'New PL', description: 'Desc');
       expect(createPl, isA<VaultFailureResult<PrivatePlaylist>>());
 
@@ -274,6 +272,10 @@ void main() {
         trackRef: createTestTrackRef(id: 'track_locked_1', playlistId: plId, sortOrder: 0),
       );
       expect(addTrack, isA<VaultFailureResult<void>>());
+
+      // Config write operations work at rest without requiring session unlock
+      final writeConfig = await repository.saveVaultConfig(VaultConfig());
+      expect(writeConfig, isA<VaultSuccess<void>>());
     });
 
     test('1.5 Unencrypted Lockout Deadline survives session locking and process restarts', () async {

@@ -129,6 +129,77 @@ final class NativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   }
 
   @override
+  Future<Uint8List> encryptConfigPayload(Uint8List plaintext) async {
+    if (plaintext.isEmpty) {
+      throw const VaultValidationFailure(
+        'Cannot encrypt an empty plaintext payload.',
+      );
+    }
+
+    try {
+      final Object? result = await _channel.invokeMethod<Object?>(
+        'encryptConfigPayload',
+        <String, Object>{
+          'payload': plaintext,
+        },
+      );
+
+      if (result is Uint8List) {
+        if (result.length < minCiphertextEnvelopeBytes) {
+          throw VaultCryptoFailure(
+            'Native bridge returned malformed ciphertext envelope (< $minCiphertextEnvelopeBytes bytes): ${result.length}',
+          );
+        }
+        return Uint8List.fromList(result);
+      } else if (result is List<int>) {
+        if (result.length < minCiphertextEnvelopeBytes) {
+          throw VaultCryptoFailure(
+            'Native bridge returned malformed ciphertext envelope (< $minCiphertextEnvelopeBytes bytes): ${result.length}',
+          );
+        }
+        return Uint8List.fromList(result);
+      }
+
+      throw VaultCryptoFailure(
+        'Native bridge encryptConfigPayload returned invalid type: ${result.runtimeType}',
+      );
+    } on PlatformException catch (e) {
+      _handlePlatformException(e);
+    }
+  }
+
+  @override
+  Future<Uint8List> decryptConfigPayload(Uint8List ciphertext) async {
+    if (ciphertext.length < minCiphertextEnvelopeBytes) {
+      throw VaultValidationFailure(
+        'Ciphertext payload length (${ciphertext.length} bytes) is shorter than minimum required '
+        '($minCiphertextEnvelopeBytes bytes: 12-byte IV + 16-byte tag).',
+      );
+    }
+
+    try {
+      final Object? result = await _channel.invokeMethod<Object?>(
+        'decryptConfigPayload',
+        <String, Object>{
+          'payload': ciphertext,
+        },
+      );
+
+      if (result is Uint8List) {
+        return Uint8List.fromList(result);
+      } else if (result is List<int>) {
+        return Uint8List.fromList(result);
+      }
+
+      throw VaultCryptoFailure(
+        'Native bridge decryptConfigPayload returned invalid type: ${result.runtimeType}',
+      );
+    } on PlatformException catch (e) {
+      _handlePlatformException(e);
+    }
+  }
+
+  @override
   Future<bool> authenticateBiometrics({
     required String title,
     required String subtitle,

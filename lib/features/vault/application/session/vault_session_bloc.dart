@@ -192,6 +192,12 @@ class VaultConfigUpdated extends VaultSessionEvent {
   List<Object?> get props => [config];
 }
 
+/// Dispatched when user activity (touch/interaction) occurs within the unlocked vault session.
+@immutable
+final class VaultUserActivityRecorded extends VaultSessionEvent {
+  const VaultUserActivityRecorded();
+}
+
 /// Dispatched when destructive data purge completes, returning state to uninitialized.
 @immutable
 final class VaultPurged extends VaultSessionEvent {
@@ -232,6 +238,7 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
   Timer? _reauthTimer;
   Timer? _lockoutTimer;
   int? _currentReauthDeadlineMs;
+  int _lastUserActivityMonotonicMs = 0;
 
   VaultSessionBloc({
     required IVaultAuthService authService,
@@ -262,6 +269,7 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
     on<VaultLockoutTriggered>(_onLockoutTriggered, transformer: sequential());
     on<VaultQuickLockRequested>(_onQuickLockRequested, transformer: sequential());
     on<VaultConfigUpdated>(_onConfigUpdated, transformer: sequential());
+    on<VaultUserActivityRecorded>(_onUserActivityRecorded, transformer: sequential());
     on<VaultPurged>(_onPurged, transformer: sequential());
     on<VaultSetupRequested>(_onSetupRequested, transformer: sequential());
     on<VaultSetupCanceled>(_onSetupCanceled, transformer: sequential());
@@ -269,6 +277,9 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
 
   /// Current cached vault configuration.
   VaultConfig get config => _config;
+
+  /// Monotonic timestamp in milliseconds when user interaction was last recorded.
+  int get lastUserActivityMonotonicMs => _lastUserActivityMonotonicMs;
 
   Future<void> _onInitializeRequested(
       VaultInitializeRequested event,
@@ -336,6 +347,7 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
 
     _cancelAllTimers();
     final nowMs = _monotonicClock.currentMonotonicMs;
+    _lastUserActivityMonotonicMs = nowMs;
     final reauthDeadline = _calculateReauthDeadline(nowMs);
     _currentReauthDeadlineMs = reauthDeadline;
 
@@ -548,6 +560,7 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
       ) {
     if (state is VaultPendingReauthState) {
       final nowMs = _monotonicClock.currentMonotonicMs;
+      _lastUserActivityMonotonicMs = nowMs;
       final reauthDeadline = _calculateReauthDeadline(nowMs);
       _currentReauthDeadlineMs = reauthDeadline;
 
@@ -665,10 +678,76 @@ class VaultSessionBloc extends Bloc<VaultSessionEvent, VaultSessionState> {
 
     if (currentState is VaultUnlockedState) {
       _cancelReauthTimer();
-      final newDeadline = _calculateReauthDeadline(nowMs);
-      emit(currentState.copyWith(reauthDeadlineMonotonicMs: newDeadline));
-      _scheduleReauthTimer(newDeadline - nowMs);
+      if (_config.activeReauthInterval == ActiveReauthIntervalEnum.never) {
+        _currentReauthDeadlineMs = null;
+        emit(currentState.copyWith(reauthDeadlineMonotonicMs: 0));
+        return;
+      }
+
+      final intervalMs = _config.activeReauthInterval.milliseconds;
+      if (intervalMs == null || intervalMs <= 0) {
+        _currentReauthDeadlineMs = null;
+        emit(currentState.copyWith(reauthDeadlineMonotonicMs: 0));
+        return;
+      }
+
+      final elapsedSinceActivity = nowMs - _lastUserActivityMonotonicMs;
+      final remainingMs = intervalMs - elapsedSinceActivity;
+
+      if (remainingMs <= 0) {
+        _currentReauthDeadlineMs = null;
+        emit(
+          VaultPendingReauthState(
+            session: currentState.session,
+            reauthTriggeredAtMonotonicMs: nowMs,
+            remainingAttempts: 3,
+          ),
+        );
+      } else {
+        final newDeadline = nowMs + remainingMs;
+        _currentReauthDeadlineMs = newDeadline;
+        emit(currentState.copyWith(reauthDeadlineMonotonicMs: newDeadline));
+        _scheduleReauthTimer(remainingMs);
+      }
+    } else if (currentState is VaultBackgroundGraceState) {
+      _cancelGraceTimer();
+      if (_config.backgroundGraceTimeout.isImmediate) {
+        _cancelAllTimers();
+        _authService.clearSessionKeysFromRam();
+        _currentReauthDeadlineMs = null;
+        emit(VaultLockedState(lockedAtMonotonicMs: nowMs));
+        return;
+      }
+
+      final graceLimitMs = _config.backgroundGraceTimeout.milliseconds;
+      final elapsedGraceMs = nowMs - currentState.enteredBackgroundMonotonicMs;
+      final remainingGraceMs = graceLimitMs - elapsedGraceMs;
+
+      if (remainingGraceMs <= 0) {
+        _cancelAllTimers();
+        _authService.clearSessionKeysFromRam();
+        _currentReauthDeadlineMs = null;
+        emit(VaultLockedState(lockedAtMonotonicMs: nowMs));
+      } else {
+        final newGraceDeadline = nowMs + remainingGraceMs;
+        emit(
+          VaultBackgroundGraceState(
+            session: currentState.session,
+            enteredBackgroundMonotonicMs: currentState.enteredBackgroundMonotonicMs,
+            graceTimeoutMs: graceLimitMs,
+            graceDeadlineMonotonicMs: newGraceDeadline,
+          ),
+        );
+        _scheduleGraceTimer(remainingGraceMs);
+      }
     }
+  }
+
+  void _onUserActivityRecorded(
+      VaultUserActivityRecorded event,
+      Emitter<VaultSessionState> emit,
+      ) {
+    _lastUserActivityMonotonicMs = _monotonicClock.currentMonotonicMs;
   }
 
   void _onPurged(
