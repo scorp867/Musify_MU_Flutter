@@ -1,10 +1,15 @@
 import 'dart:async';
 
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
+import 'package:musify_mu/features/vault/data/cache/vault_session_cache.dart';
+import 'package:musify_mu/features/vault/data/database/vault_database.dart';
+import 'package:musify_mu/features/vault/data/repositories/vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/data/services/vault_audio_playback_service.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
@@ -21,6 +26,8 @@ import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart'
 import 'package:musify_mu/features/vault/domain/usecases/verify_session_cool_off_use_case.dart';
 import 'package:musify_mu/features/vault/presentation/screens/private_playlist_detail_screen.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+
+import '../../helpers/mock_native_vault_crypto_bridge.dart';
 
 class FakeMonotonicClock implements IMonotonicClock {
   int timeMs = 10000;
@@ -520,5 +527,82 @@ void main() {
       expect(find.text('2'), findsOneWidget);
       expect(find.byIcon(Icons.volume_up_rounded), findsNothing);
     });
+
+    testWidgets(
+      'Frame-0 cache hit renders PrivatePlaylistDetailScreen immediately without loading spinner flash on reopen',
+      (WidgetTester tester) async {
+        FlutterSecureStorage.setMockInitialValues(<String, String>{});
+        final db = VaultDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(db.close);
+
+        final bridge = MockNativeVaultCryptoBridge(
+          hasMasterKey: true,
+          isSessionUnlocked: true,
+        );
+        final sessionCache = VaultSessionCache();
+        final cachedRepo = VaultStorageRepository(
+          database: db,
+          cryptoBridge: bridge,
+          sessionCache: sessionCache,
+        );
+
+        final createResult = await cachedRepo.createPlaylist(
+          name: 'Cached Instant Playlist',
+          description: 'Opens on frame zero',
+        );
+        final String playlistId;
+        if (createResult case VaultSuccess(:final data)) {
+          playlistId = data.id;
+        } else {
+          fail('Playlist creation failed');
+        }
+
+        await cachedRepo.addTrackToPlaylist(
+          playlistId: playlistId,
+          trackRef: PrivateTrackRef(
+            id: 'cached_track_1',
+            playlistId: playlistId,
+            trackUri: 'spotify:track:cached_1',
+            title: 'Instant Track',
+            artistName: 'Instant Artist',
+            albumTitle: 'Instant Album',
+            durationMs: 180000,
+            sourceType: TrackSourceTypeEnum.spotify,
+            sortOrder: 0,
+            addedAtEpochMs: 1700000000000,
+          ),
+        );
+        expect(cachedRepo.getCachedPlaylistSync(playlistId), isNotNull);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: VaultTheme(
+              data: VaultThemeData.fromPalette(
+                VaultThemePalettePolicyEnum.warmEspresso,
+              ),
+              child: MultiBlocProvider(
+                providers: [
+                  BlocProvider<VaultSessionBloc>.value(value: sessionBloc),
+                  BlocProvider<ScreenPrivacyCubit>.value(value: privacyCubit),
+                ],
+                child: PrivatePlaylistDetailScreen(
+                  playlistId: playlistId,
+                  storageRepository: cachedRepo,
+                  audioPlaybackService: playbackService,
+                  sessionBloc: sessionBloc,
+                  screenPrivacyCubit: privacyCubit,
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // Assert synchronously right after the initial frame (no pumpAndSettle):
+        // no loading spinner and playlist + track render immediately.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.text('Cached Instant Playlist'), findsAtLeastNWidgets(1));
+        expect(find.text('Instant Track'), findsOneWidget);
+      },
+    );
   });
 }

@@ -54,14 +54,18 @@ class AppCacheManager {
 
   /// Returns the root directory for the current user's cache.
   Future<Directory> get userDir async {
-    if (_userDir != null) return _userDir!;
-    assert(_userId != null, 'Call setUser() before accessing cache directories');
+    if (_userDir case final existing?) return existing;
     final schema = await _schemaDir;
-    _userDir = Directory('${schema.path}${Platform.pathSeparator}$_userId');
-    if (!await _userDir!.exists()) {
-      await _userDir!.create(recursive: true);
+    final folder = switch (_userId) {
+      final id? when id.isNotEmpty => id,
+      _ => '_guest',
+    };
+    final dir = Directory('${schema.path}${Platform.pathSeparator}$folder');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
     }
-    return _userDir!;
+    _userDir = dir;
+    return dir;
   }
 
   /// Returns a directory scoped to the current user and feature namespace.

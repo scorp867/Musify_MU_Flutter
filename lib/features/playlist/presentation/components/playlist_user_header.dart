@@ -3,6 +3,7 @@ library;
 import 'package:flutter/material.dart';
 import '../../../../core/navigation/spotify_uri_navigator.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
+import '../../../../core/widgets/app_network_image.dart';
 import '../../domain/models/playlist_metadata.dart';
 import '../../domain/policies/playlist_curation_policy.dart';
 
@@ -146,11 +147,16 @@ class PlaylistUserHeader extends StatelessWidget {
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: metadata.picture.isNotEmpty
-                      ? Image.network(
-                          metadata.picture,
+                      ? AppNetworkImage(
+                          imageUrl: metadata.picture,
+                          width: 216,
+                          height: 216,
+                          memCacheWidth: 432,
+                          memCacheHeight: 432,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              _buildPlaceholderCover(),
+                          fadeInDuration: Duration.zero,
+                          placeholder: (_, _) => _buildPlaceholderCover(),
+                          errorWidget: (_, _, _) => _buildPlaceholderCover(),
                         )
                       : _buildPlaceholderCover(),
                 ),
@@ -225,11 +231,21 @@ class PlaylistUserHeader extends StatelessWidget {
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: metadata.ownerAvatarUrl.isNotEmpty
-                    ? Image.network(
-                        metadata.ownerAvatarUrl,
+                    ? AppNetworkImage(
+                        imageUrl: metadata.ownerAvatarUrl,
+                        width: 24,
+                        height: 24,
+                        memCacheWidth: 64,
+                        memCacheHeight: 64,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Center(
+                        fadeInDuration: Duration.zero,
+                        placeholder: (_, _) => Center(
+                          child: SpotifyIcon.user(
+                            size: 15,
+                            color: Colors.white70,
+                          ),
+                        ),
+                        errorWidget: (_, _, _) => Center(
                           child: SpotifyIcon.user(
                             size: 15,
                             color: Colors.white70,

@@ -111,6 +111,32 @@ abstract final class LocalFileUri {
   static bool isAnyLocalUri(String? uri) =>
       isLocalTrackUri(uri) || isLocalImageUri(uri);
 
+  static bool isFileSystemUri(String? uri) =>
+      uri != null && (uri.startsWith('file://') || uri.startsWith('/'));
+
+  static bool isResolvableLocalArtworkUri(String? uri) =>
+      isAnyLocalUri(uri) || isFileSystemUri(uri);
+
+  static String? toFilePath(String? uri) {
+    if (uri == null || uri.isEmpty) return null;
+    if (uri.startsWith('file://')) {
+      final parsed = Uri.tryParse(uri);
+      if (parsed != null && parsed.scheme == 'file') {
+        return parsed.toFilePath();
+      }
+      return uri.substring('file://'.length);
+    }
+    if (uri.startsWith('/')) {
+      return uri;
+    }
+    return null;
+  }
+
+  static String toFileUri(String filePath) {
+    if (filePath.startsWith('file://')) return filePath;
+    return Uri.file(filePath).toString();
+  }
+
   /// Builds a canonical Spotify [ContextTrack] for a [LocalFile].
   static ContextTrack toContextTrack(LocalFile file, {required int uidIndex}) {
     final meta = switch (file.metadata) {

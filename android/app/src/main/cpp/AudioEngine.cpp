@@ -134,10 +134,55 @@ extern "C" JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* /*reserved*/) {
 
 AudioEngine::AudioEngine() {
     mState.store(EngineState::Idle, std::memory_order_release);
+    mEosDispatcherThread = std::thread(&AudioEngine::eosDispatcherFunc, this);
 }
 
 AudioEngine::~AudioEngine() {
+    mMonitorShouldStop.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(mEosMutex);
+        mEosCallback = nullptr;
+        mEosPending = false;
+        mEosWorkerStop = true;
+    }
+    mEosCv.notify_all();
+    if (mEosDispatcherThread.joinable()) {
+        if (mEosDispatcherThread.get_id() != std::this_thread::get_id()) {
+            mEosDispatcherThread.join();
+        } else {
+            LOGE("AudioEngine: Refusing self-join on mEosDispatcherThread in destructor");
+        }
+    }
     stopPlayback();
+}
+
+void AudioEngine::eosDispatcherFunc() {
+    while (true) {
+        EosCallback cb;
+        {
+            std::unique_lock<std::mutex> lock(mEosMutex);
+            mEosCv.wait(lock, [this]() { return mEosPending || mEosWorkerStop; });
+            if (mEosWorkerStop && !mEosPending) {
+                break;
+            }
+            mEosPending = false;
+            cb = mEosCallback;
+        }
+        if (cb) {
+            cb();
+        }
+    }
+}
+
+void AudioEngine::joinMonitorThread() {
+    mMonitorShouldStop.store(true, std::memory_order_release);
+    if (mMonitorThread.joinable()) {
+        if (mMonitorThread.get_id() == std::this_thread::get_id()) {
+            LOGE("AudioEngine: Refusing self-join on mMonitorThread");
+        } else {
+            mMonitorThread.join();
+        }
+    }
 }
 
 void AudioEngine::setEosCallback(EosCallback cb) {
@@ -218,9 +263,10 @@ void AudioEngine::stopPlayback() {
     }
     mActiveDrmSessionId.clear();
 
-    mMonitorShouldStop.store(true, std::memory_order_release);
-    if (mMonitorThread.joinable()) {
-        mMonitorThread.join();
+    joinMonitorThread();
+    {
+        std::lock_guard<std::mutex> lock(mEosMutex);
+        mEosPending = false;
     }
 
     if (mDataSource) {
@@ -602,10 +648,7 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
     }
 
     // 6. Start monitor thread
-    if (mMonitorThread.joinable()) {
-        mMonitorShouldStop.store(true, std::memory_order_release);
-        mMonitorThread.join();
-    }
+    joinMonitorThread();
     mMonitorShouldStop.store(false, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
@@ -802,10 +845,7 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
         return status;
     }
 
-    if (mMonitorThread.joinable()) {
-        mMonitorShouldStop.store(true, std::memory_order_release);
-        mMonitorThread.join();
-    }
+    joinMonitorThread();
     mMonitorShouldStop.store(false, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
@@ -1360,10 +1400,7 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
         return status;
     }
 
-    if (mMonitorThread.joinable()) {
-        mMonitorShouldStop.store(true, std::memory_order_release);
-        mMonitorThread.join();
-    }
+    joinMonitorThread();
     mMonitorShouldStop.store(false, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
@@ -1472,15 +1509,12 @@ void AudioEngine::decoderMonitorFunc() {
         if (currentState == EngineState::Stopped) {
             if (!mEosNotified.load(std::memory_order_relaxed)) {
                 mEosNotified.store(true, std::memory_order_relaxed);
-                LOGI("AudioEngine: EOS reached, triggering EOS callback");
-                EosCallback cb;
+                LOGI("AudioEngine: EOS reached, scheduling EOS dispatcher");
                 {
                     std::lock_guard<std::mutex> lock(mEosMutex);
-                    cb = mEosCallback;
+                    mEosPending = true;
                 }
-                if (cb) {
-                    cb();
-                }
+                mEosCv.notify_one();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;

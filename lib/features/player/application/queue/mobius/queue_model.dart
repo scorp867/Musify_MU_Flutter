@@ -250,16 +250,25 @@ class QueueModel extends Equatable {
     Restrictions? restrictions,
     bool? isLoading,
     String? errorMessage,
+    bool clearCurrentTrack = false,
+    bool clearNextTrack = false,
+    bool clearPlayerState = false,
+    bool clearRestrictions = false,
+    bool clearErrorMessage = false,
   }) {
     return QueueModel(
-      currentTrack: switch (currentTrack) {
-        final val? => val,
-        null => this.currentTrack,
-      },
-      nextTrack: switch (nextTrack) {
-        final val? => val,
-        null => this.nextTrack,
-      },
+      currentTrack: clearCurrentTrack
+          ? null
+          : switch (currentTrack) {
+              final val? => val,
+              null => this.currentTrack,
+            },
+      nextTrack: clearNextTrack
+          ? null
+          : switch (nextTrack) {
+              final val? => val,
+              null => this.nextTrack,
+            },
       userQueue: switch (userQueue) {
         final val? => val,
         null => this.userQueue,
@@ -280,22 +289,28 @@ class QueueModel extends Equatable {
         final val? => val,
         null => this.playerQueue,
       },
-      playerState: switch (playerState) {
-        final val? => val,
-        null => this.playerState,
-      },
-      restrictions: switch (restrictions) {
-        final val? => val,
-        null => this.restrictions,
-      },
+      playerState: clearPlayerState
+          ? null
+          : switch (playerState) {
+              final val? => val,
+              null => this.playerState,
+            },
+      restrictions: clearRestrictions
+          ? null
+          : switch (restrictions) {
+              final val? => val,
+              null => this.restrictions,
+            },
       isLoading: switch (isLoading) {
         final val? => val,
         null => this.isLoading,
       },
-      errorMessage: switch (errorMessage) {
-        final val? => val,
-        null => this.errorMessage,
-      },
+      errorMessage: clearErrorMessage
+          ? null
+          : switch (errorMessage) {
+              final val? => val,
+              null => this.errorMessage,
+            },
     );
   }
 

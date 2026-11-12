@@ -6,6 +6,9 @@ enum TrackSourceTypeEnum {
   /// Public Spotify streaming track reference (preserves canonical Spotify track URI and metadata).
   spotify(id: 'SPOTIFY', displayName: 'Spotify Stream'),
 
+  /// Reference to a local file residing on public device storage (file remains public).
+  localReference(id: 'LOCAL_REFERENCE', displayName: 'Local Device File (Reference)'),
+
   /// App-internal local audio file isolated inside `<app_storage>/vault_media/.nomedia/`.
   localSandbox(id: 'LOCAL_SANDBOX', displayName: 'Local Sandbox (.nomedia)');
 
@@ -69,11 +72,12 @@ class PrivateTrackRef extends Equatable {
   /// Track playback duration in milliseconds.
   final int durationMs;
 
-  /// Source classification (Spotify stream vs. isolated local sandbox file).
+  /// Source classification (Spotify stream, local reference, or isolated local sandbox file).
   final TrackSourceTypeEnum sourceType;
 
   /// Relative path within the vault media sandbox directory (`vault_media/.nomedia/<track_id>.mp3`).
-  /// Mandatory when [sourceType] is [TrackSourceTypeEnum.localSandbox]; must be null for Spotify tracks.
+  /// Mandatory when [sourceType] is [TrackSourceTypeEnum.localSandbox]; must be null for Spotify tracks
+  /// and local reference tracks.
   final String? localRelativePath;
 
   /// Zero-based position index within the playlist track sequence.
@@ -82,11 +86,14 @@ class PrivateTrackRef extends Equatable {
   /// Epoch timestamp in milliseconds when this track was added to the private playlist.
   final int addedAtEpochMs;
 
+  /// Optional artwork URI (`https://...`, `spotify:localfileimage:...`, or `file://...`).
+  final String? artworkUri;
+
   /// Constructs a validated [PrivateTrackRef] instance.
   ///
   /// Throws [FormatException] if any required string field is empty, [durationMs] is negative,
   /// [sortOrder] is negative, [addedAtEpochMs] is non-positive, [localRelativePath] is missing for
-  /// a local track, or [localRelativePath] is specified for a Spotify track.
+  /// a local sandbox track, or [localRelativePath] is specified for a Spotify or local reference track.
   PrivateTrackRef({
     required this.id,
     required this.playlistId,
@@ -99,6 +106,7 @@ class PrivateTrackRef extends Equatable {
     this.localRelativePath,
     required this.sortOrder,
     required this.addedAtEpochMs,
+    this.artworkUri,
   }) {
     if (id.trim().isEmpty) {
       throw const FormatException('PrivateTrackRef id must not be empty.');
@@ -143,11 +151,18 @@ class PrivateTrackRef extends Equatable {
           );
         }
       case TrackSourceTypeEnum.spotify:
+      case TrackSourceTypeEnum.localReference:
         if (localRelativePath != null) {
           throw const FormatException(
-            'PrivateTrackRef localRelativePath must be null when sourceType is spotify.',
+            'PrivateTrackRef localRelativePath must be null when sourceType is spotify or localReference.',
           );
         }
+    }
+
+    if (artworkUri case final art? when art.trim().isEmpty) {
+      throw const FormatException(
+        'PrivateTrackRef artworkUri must not be empty when provided.',
+      );
     }
   }
 
@@ -164,6 +179,8 @@ class PrivateTrackRef extends Equatable {
     String? localRelativePath,
     int? sortOrder,
     int? addedAtEpochMs,
+    String? artworkUri,
+    bool clearArtworkUri = false,
   }) {
     return PrivateTrackRef(
       id: id ?? this.id,
@@ -177,6 +194,7 @@ class PrivateTrackRef extends Equatable {
       localRelativePath: localRelativePath ?? this.localRelativePath,
       sortOrder: sortOrder ?? this.sortOrder,
       addedAtEpochMs: addedAtEpochMs ?? this.addedAtEpochMs,
+      artworkUri: clearArtworkUri ? null : (artworkUri ?? this.artworkUri),
     );
   }
 
@@ -193,5 +211,6 @@ class PrivateTrackRef extends Equatable {
         localRelativePath,
         sortOrder,
         addedAtEpochMs,
+        artworkUri,
       ];
 }

@@ -3,6 +3,8 @@ import 'package:get_it/get_it.dart';
 import 'package:musify_mu/features/local_music/data/database/app_database.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_queue_client.dart';
 import 'package:musify_mu/features/vault/application/coordinator/vault_coordinator.dart';
 import 'package:musify_mu/features/vault/application/gesture/gesture_engine_cubit.dart';
 import 'package:musify_mu/features/vault/application/pin_pad/pin_pad_cubit.dart';
@@ -10,6 +12,7 @@ import 'package:musify_mu/features/vault/application/playlists/vault_playlists_c
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/application/settings/settings_mutation_cubit.dart';
+import 'package:musify_mu/features/vault/data/cache/vault_session_cache.dart';
 import 'package:musify_mu/features/vault/data/database/vault_database.dart';
 import 'package:musify_mu/features/vault/data/datasources/i_native_vault_crypto_bridge.dart';
 import 'package:musify_mu/features/vault/data/datasources/native_vault_crypto_bridge.dart';
@@ -83,6 +86,11 @@ void setupVaultInjection(GetIt sl) {
     ),
   );
 
+  sl.registerLazySingleton<VaultSessionCache>(
+    VaultSessionCache.new,
+    dispose: (cache) => cache.clear(),
+  );
+
   // ---------------------------------------------------------------------------
   // Tier 2: Storage Repositories & Cryptographic Auth Services
   // ---------------------------------------------------------------------------
@@ -93,6 +101,7 @@ void setupVaultInjection(GetIt sl) {
       onShredMediaFiles: () =>
           sl<IVaultMediaIsolationManager>().shredAllIsolatedMedia(),
       secureStorage: sl<FlutterSecureStorage>(),
+      sessionCache: sl<VaultSessionCache>(),
     ),
   );
 
@@ -103,6 +112,7 @@ void setupVaultInjection(GetIt sl) {
       monotonicClock: sl<IMonotonicClock>(),
       secureStorage: sl<FlutterSecureStorage>(),
       pbkdf2Derivation: sl<VaultPbkdf2Derivation>(),
+      sessionCache: sl<VaultSessionCache>(),
     ),
     dispose: (auth) {
       if (auth is VaultAuthService) {
@@ -122,6 +132,12 @@ void setupVaultInjection(GetIt sl) {
       controlClient: sl.isRegistered<ContextPlayerControlClient>()
           ? sl<ContextPlayerControlClient>()
           : null,
+      playClient: sl.isRegistered<ContextPlayerPlayClient>()
+          ? sl<ContextPlayerPlayClient>()
+          : null,
+      queueClient: sl.isRegistered<ContextPlayerQueueClient>()
+          ? sl<ContextPlayerQueueClient>()
+          : null,
     ),
     dispose: (proxy) => proxy.dispose(),
   );
@@ -131,6 +147,7 @@ void setupVaultInjection(GetIt sl) {
       mobiusController: sl<PlayerQueueMobiusController>(),
       privacyProxy: sl<PlaybackPrivacyProxy>(),
       isolationManager: sl<IVaultMediaIsolationManager>(),
+      sessionCache: sl<VaultSessionCache>(),
     ),
   );
 
@@ -237,6 +254,7 @@ void setupVaultInjection(GetIt sl) {
       settingsMutationCubit: sl<SettingsMutationCubit>(),
       pinPadCubit: sl<PinPadCubit>(),
       monotonicClock: sl<IMonotonicClock>(),
+      sessionCache: sl<VaultSessionCache>(),
     ),
     dispose: (coordinator) => coordinator.dispose(),
   );

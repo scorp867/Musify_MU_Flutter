@@ -24,6 +24,12 @@ class VaultPlaylistsTable extends Table {
   /// Last modification epoch timestamp in milliseconds.
   IntColumn get updatedAt => integer()();
 
+  /// Schema row payload version (`1` = legacy per-field blobs, `2` = consolidated JSON payload).
+  IntColumn get payloadVersion => integer().withDefault(const Constant(1))();
+
+  /// Consolidated v2 AES-256-GCM encrypted playlist metadata JSON (`description`, `coverUri`).
+  BlobColumn get encryptedPlaylistPayload => blob().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

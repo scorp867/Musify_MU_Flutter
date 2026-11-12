@@ -90,14 +90,19 @@ class NowPlayingViewModel {
       },
     };
 
+    final isVaultMasked = track?.metadata['musify_vault_masked'] == 'true' ||
+        state?.nowPlaying?.metadata['musify_vault_masked'] == 'true';
+
     final title = switch (track?.title) {
       final t? when t.isNotEmpty => t,
       _ => switch (state?.title) {
           final t? when t.isNotEmpty => t,
-          _ => switch (fallbackTitle) {
-              final t? when t.isNotEmpty => t,
-              _ => '',
-            },
+          _ => isVaultMasked
+              ? ''
+              : switch (fallbackTitle) {
+                  final t? when t.isNotEmpty => t,
+                  _ => '',
+                },
         },
     };
 
@@ -105,10 +110,12 @@ class NowPlayingViewModel {
       final a? when a.isNotEmpty => a,
       _ => switch (state?.artist) {
           final a? when a.isNotEmpty => a,
-          _ => switch (fallbackArtist) {
-              final a? when a.isNotEmpty => a,
-              _ => '',
-            },
+          _ => isVaultMasked
+              ? ''
+              : switch (fallbackArtist) {
+                  final a? when a.isNotEmpty => a,
+                  _ => '',
+                },
         },
     };
 
@@ -116,10 +123,12 @@ class NowPlayingViewModel {
       final a? when a.isNotEmpty => a,
       _ => switch (state?.album) {
           final a? when a.isNotEmpty => a,
-          _ => switch (fallbackAlbum) {
-              final a? when a.isNotEmpty => a,
-              _ => '',
-            },
+          _ => isVaultMasked
+              ? ''
+              : switch (fallbackAlbum) {
+                  final a? when a.isNotEmpty => a,
+                  _ => '',
+                },
         },
     };
 
@@ -134,13 +143,15 @@ class NowPlayingViewModel {
         },
     };
 
-    final imageUrl = switch (track?.imageUrl) {
-      final url? when url.isNotEmpty => url,
-      _ => switch (state?.imageUrl) {
-          final url? when url.isNotEmpty => url,
-          _ => fallbackImageUrl,
-        },
-    };
+    final imageUrl = isVaultMasked
+        ? null
+        : switch (track?.imageUrl) {
+            final url? when url.isNotEmpty => url,
+            _ => switch (state?.imageUrl) {
+                final url? when url.isNotEmpty => url,
+                _ => fallbackImageUrl,
+              },
+          };
 
     final isPlaying = switch (state?.isPlaying) {
       final playing? => playing,

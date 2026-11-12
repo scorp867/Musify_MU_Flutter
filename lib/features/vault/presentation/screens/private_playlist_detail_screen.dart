@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:equatable/equatable.dart';
@@ -10,12 +9,15 @@ import 'package:musify_mu/features/vault/data/services/playback_privacy_proxy.da
 import 'package:musify_mu/features/vault/data/services/vault_audio_playback_service.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_track_ref.dart';
+import 'package:musify_mu/features/vault/domain/extensions/vault_storage_batch_ops.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart';
 import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
 import 'package:musify_mu/features/vault/presentation/screens/vault_auth_screen.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/reauth_blur_overlay.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_artwork_image.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_local_song_picker_sheet.dart';
 
 /// Artwork privacy peek state on the playlist detail header.
 enum ArtworkPeekStateEnum {
@@ -87,12 +89,32 @@ final class PrivatePlaylistDetailLoadedState extends PrivatePlaylistDetailState 
     bool clearActiveTrack = false,
   }) {
     return PrivatePlaylistDetailLoadedState(
-      playlist: playlist ?? this.playlist,
-      searchQuery: searchQuery ?? this.searchQuery,
-      filteredTracks: filteredTracks ?? this.filteredTracks,
-      artworkPeekState: artworkPeekState ?? this.artworkPeekState,
-      activeTrackId: clearActiveTrack ? null : (activeTrackId ?? this.activeTrackId),
-      playbackStatus: playbackStatus ?? this.playbackStatus,
+      playlist: switch (playlist) {
+        final p? => p,
+        null => this.playlist,
+      },
+      searchQuery: switch (searchQuery) {
+        final q? => q,
+        null => this.searchQuery,
+      },
+      filteredTracks: switch (filteredTracks) {
+        final f? => f,
+        null => this.filteredTracks,
+      },
+      artworkPeekState: switch (artworkPeekState) {
+        final a? => a,
+        null => this.artworkPeekState,
+      },
+      activeTrackId: clearActiveTrack
+          ? null
+          : switch (activeTrackId) {
+              final id? => id,
+              null => this.activeTrackId,
+            },
+      playbackStatus: switch (playbackStatus) {
+        final s? => s,
+        null => this.playbackStatus,
+      },
     );
   }
 
@@ -208,6 +230,8 @@ class _PrivatePlaylistDetailScaffoldState
   IVaultStorageRepository? _resolvedRepository;
   VaultAudioPlaybackService? _resolvedPlaybackService;
   ScreenPrivacyCubit? _screenPrivacyCubit;
+  bool _hasRequestedInitialLoad = false;
+  bool _isLoadingPlaylist = false;
 
   @override
   void initState() {
@@ -222,8 +246,22 @@ class _PrivatePlaylistDetailScaffoldState
   void didChangeDependencies() {
     super.didChangeDependencies();
     _resolveDependencies();
-    if (_state is PrivatePlaylistDetailLoadingState) {
-      _loadPlaylist();
+    if (!_hasRequestedInitialLoad) {
+      _hasRequestedInitialLoad = true;
+      final cachedPlaylist =
+          _resolvedRepository?.getCachedPlaylistSync(widget.playlistId);
+      if (cachedPlaylist != null) {
+        _state = PrivatePlaylistDetailLoadedState(
+          playlist: cachedPlaylist,
+          searchQuery: _searchController.text,
+          filteredTracks:
+              _filterTracks(cachedPlaylist.trackRefs, _searchController.text),
+          artworkPeekState: ArtworkPeekStateEnum.frostedPeek,
+          playbackStatus: PlaylistPlaybackStatusEnum.stopped,
+        );
+      } else {
+        _loadPlaylist();
+      }
     }
   }
 
@@ -277,6 +315,7 @@ class _PrivatePlaylistDetailScaffoldState
   }
 
   Future<void> _loadPlaylist() async {
+    if (_isLoadingPlaylist) return;
     final repo = _resolvedRepository;
     if (repo == null) {
       setState(() {
@@ -287,27 +326,33 @@ class _PrivatePlaylistDetailScaffoldState
       return;
     }
 
-    final result = await repo.getPlaylistById(widget.playlistId);
-    if (!mounted) return;
+    _isLoadingPlaylist = true;
+    try {
+      final result = await repo.getPlaylistById(widget.playlistId);
+      if (!mounted) return;
 
-    result.fold(
-      onSuccess: (playlist) {
-        setState(() {
-          _state = PrivatePlaylistDetailLoadedState(
-            playlist: playlist,
-            searchQuery: _searchController.text,
-            filteredTracks: _filterTracks(playlist.trackRefs, _searchController.text),
-            artworkPeekState: ArtworkPeekStateEnum.frostedPeek,
-            playbackStatus: PlaylistPlaybackStatusEnum.stopped,
-          );
-        });
-      },
-      onFailure: (failure) {
-        setState(() {
-          _state = PrivatePlaylistDetailErrorState(message: failure.message);
-        });
-      },
-    );
+      result.fold(
+        onSuccess: (playlist) {
+          setState(() {
+            _state = PrivatePlaylistDetailLoadedState(
+              playlist: playlist,
+              searchQuery: _searchController.text,
+              filteredTracks:
+                  _filterTracks(playlist.trackRefs, _searchController.text),
+              artworkPeekState: ArtworkPeekStateEnum.frostedPeek,
+              playbackStatus: PlaylistPlaybackStatusEnum.stopped,
+            );
+          });
+        },
+        onFailure: (failure) {
+          setState(() {
+            _state = PrivatePlaylistDetailErrorState(message: failure.message);
+          });
+        },
+      );
+    } finally {
+      _isLoadingPlaylist = false;
+    }
   }
 
   List<PrivateTrackRef> _filterTracks(
@@ -389,13 +434,14 @@ class _PrivatePlaylistDetailScaffoldState
     // Suppress reordering during active search filter
     if (loaded.searchQuery.trim().isNotEmpty) return;
 
-    if (newIndex > oldIndex) {
-      newIndex -= 1;
+    var targetIndex = newIndex;
+    if (targetIndex > oldIndex) {
+      targetIndex -= 1;
     }
 
     final updated = List<PrivateTrackRef>.from(loaded.playlist.trackRefs);
     final movedItem = updated.removeAt(oldIndex);
-    updated.insert(newIndex, movedItem);
+    updated.insert(targetIndex, movedItem);
 
     final updatedPlaylist = loaded.playlist.copyWith(trackRefs: updated);
     setState(() {
@@ -471,7 +517,7 @@ class _PrivatePlaylistDetailScaffoldState
         ],
       ),
     );
-    return result ?? false;
+    return result == true;
   }
 
   Future<void> _handleRemoveTrack(PrivateTrackRef track) async {
@@ -594,6 +640,17 @@ class _PrivatePlaylistDetailScaffoldState
     );
   }
 
+  Future<void> _openAddLocalSongsPicker(PrivatePlaylist playlist) async {
+    final result = await VaultLocalSongPickerSheet.show(
+      context,
+      playlist: playlist,
+      storageRepository: _resolvedRepository,
+    );
+    if (result == true && mounted) {
+      _loadPlaylist();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final vaultTheme = VaultTheme.of(context);
@@ -648,6 +705,13 @@ class _PrivatePlaylistDetailScaffoldState
         ),
       ),
       actions: [
+        if (_state case PrivatePlaylistDetailLoadedState loaded)
+          IconButton(
+            key: const ValueKey('playlist_detail_add_songs_button'),
+            tooltip: 'Add Local Songs',
+            icon: Icon(Icons.add_rounded, color: vaultTheme.accent),
+            onPressed: () => _openAddLocalSongsPicker(loaded.playlist),
+          ),
         IconButton(
           tooltip: 'Quick Lock',
           icon: Icon(Icons.lock_outline_rounded, color: vaultTheme.accent),
@@ -712,6 +776,7 @@ class _PrivatePlaylistDetailScaffoldState
       scrollController: _scrollController,
       buildDefaultDragHandles: false,
       padding: const EdgeInsets.only(bottom: 80.0),
+      itemExtent: 62.0,
       header: _buildHeader(state, vaultTheme),
       itemCount: state.filteredTracks.length,
       // ignore: deprecated_member_use
@@ -755,29 +820,27 @@ class _PrivatePlaylistDetailScaffoldState
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    // Underlying Image or Placeholder
-                    if (playlist.coverUri case final uri? when uri.isNotEmpty)
-                      Image.file(
-                        File(uri),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            _buildPlaceholderArt(vaultTheme),
-                      )
-                    else
-                      _buildPlaceholderArt(vaultTheme),
+                    VaultArtworkImage.forPlaylist(
+                      playlist,
+                      size: 140.0,
+                      placeholderIconSize: 56.0,
+                      vaultTheme: vaultTheme,
+                    ),
 
-                    // Frosted Privacy Overlay
+                    // Frosted Glass Peek Blur Filter
                     if (!isUnblurred)
                       BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0),
+                        filter: ImageFilter.blur(
+                          sigmaX: vaultTheme.blurSigma,
+                          sigmaY: vaultTheme.blurSigma,
+                        ),
                         child: Container(
-                          color: vaultTheme.overlayTint.withValues(alpha: 0.55),
-                          child: Center(
-                            child: Icon(
-                              Icons.visibility_off_outlined,
-                              size: 28.0,
-                              color: vaultTheme.textMediumSalience,
-                            ),
+                          color: Colors.black.withValues(alpha: 0.25),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            Icons.visibility_off_outlined,
+                            size: 28.0,
+                            color: vaultTheme.textMediumSalience,
                           ),
                         ),
                       ),
@@ -788,7 +851,7 @@ class _PrivatePlaylistDetailScaffoldState
           ),
           const SizedBox(height: 16.0),
 
-          // Playlist Title
+          // Playlist Title (max 2 lines)
           Text(
             playlist.name,
             textAlign: TextAlign.center,
@@ -796,7 +859,7 @@ class _PrivatePlaylistDetailScaffoldState
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontFamily: VaultTheme.fontFamily,
-              fontSize: 22.0,
+              fontSize: 20.0,
               fontWeight: FontWeight.w700,
               color: vaultTheme.textHighSalience,
               letterSpacing: 0.15,
@@ -822,7 +885,7 @@ class _PrivatePlaylistDetailScaffoldState
           ],
           const SizedBox(height: 8.0),
 
-          // Metadata Telemetry Row (Track count \u2022 Total duration)
+          // Metadata Telemetry Row (Track count • Total duration)
           Text(
             '${playlist.trackCount} ${playlist.trackCount == 1 ? 'track' : 'tracks'} \u2022 ${_formatDuration(playlist.totalDurationMs)}',
             style: TextStyle(
@@ -984,32 +1047,73 @@ class _PrivatePlaylistDetailScaffoldState
                   fontSize: 13.0,
                   color: vaultTheme.textLowSalience,
                 ),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: Icon(
-                          Icons.close_rounded,
-                          size: 16.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                        onPressed: () {
-                          _searchController.clear();
-                        },
-                      )
-                    : null,
+                suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, value, _) {
+                    if (value.text.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return IconButton(
+                      icon: Icon(
+                        Icons.close_rounded,
+                        size: 16.0,
+                        color: vaultTheme.textMediumSalience,
+                      ),
+                      onPressed: () {
+                        _searchController.clear();
+                      },
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildPlaceholderArt(VaultThemeData vaultTheme) {
-    return Center(
-      child: Icon(
-        Icons.album_outlined,
-        size: 56.0,
-        color: vaultTheme.textLowSalience,
+          // Empty state placeholder if playlist has no tracks
+          if (playlist.trackRefs.isEmpty) ...[
+            const SizedBox(height: 36.0),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.music_off_outlined,
+                    size: 48.0,
+                    color: vaultTheme.textLowSalience,
+                  ),
+                  const SizedBox(height: 12.0),
+                  Text(
+                    'No songs in this playlist yet',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 14.0,
+                      fontWeight: FontWeight.w500,
+                      color: vaultTheme.textMediumSalience,
+                    ),
+                  ),
+                  const SizedBox(height: 16.0),
+                  OutlinedButton.icon(
+                    key: const ValueKey('playlist_detail_empty_add_songs_button'),
+                    onPressed: () => _openAddLocalSongsPicker(playlist),
+                    icon: Icon(Icons.add, color: vaultTheme.accent, size: 18),
+                    label: Text(
+                      'Add Songs',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        color: vaultTheme.accent,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: vaultTheme.border),
+                      shape: VaultTheme.shape8,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1052,49 +1156,75 @@ class _PrivatePlaylistDetailScaffoldState
         ),
       ),
       child: Material(
-        key: ValueKey<String>('vault_track_${track.id}'),
-        color: isActiveTrack ? vaultTheme.surfaceHighlight : Colors.transparent,
+        color: Colors.transparent,
         child: InkWell(
+          key: ValueKey<String>('vault_track_${track.id}'),
           onTap: () => _playTrack(track),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+            height: 62.0,
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
             decoration: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
-                  color: vaultTheme.borderSubtle,
-                  width: VaultTheme.borderWidth,
+                  color: vaultTheme.border.withValues(alpha: 0.3),
+                  width: 0.5,
                 ),
               ),
             ),
             child: Row(
               children: [
-                // Index or Active Playing Equalizer Indicator
+                // Track Index or Active Equalizer Indicator
                 SizedBox(
                   width: 28.0,
-                  child: isActiveTrack &&
-                          state.playbackStatus == PlaylistPlaybackStatusEnum.playing
+                  child: isActiveTrack && state.playbackStatus.isPlaying
                       ? Icon(
                           Icons.volume_up_rounded,
-                          size: 16.0,
+                          size: 18.0,
                           color: vaultTheme.accent,
                         )
                       : Text(
                           '${index + 1}',
-                          textAlign: TextAlign.center,
                           style: TextStyle(
                             fontFamily: VaultTheme.fontFamily,
-                            fontSize: 12.0,
+                            fontSize: 13.0,
                             fontWeight: FontWeight.w500,
-                            color: vaultTheme.textMediumSalience,
+                            color: isActiveTrack
+                                ? vaultTheme.accent
+                                : vaultTheme.textLowSalience,
                           ),
                         ),
                 ),
+                const SizedBox(width: 8.0),
+
+                // Artwork Thumbnail (36x36)
+                Container(
+                  width: 36.0,
+                  height: 36.0,
+                  decoration: BoxDecoration(
+                    color: vaultTheme.surfaceSubtle,
+                    borderRadius: VaultTheme.borderRadius8,
+                    border: Border.all(
+                      color: vaultTheme.border,
+                      width: VaultTheme.borderWidth,
+                    ),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: VaultTheme.borderRadius8,
+                    child: VaultArtworkImage.forTrack(
+                      track,
+                      size: 36.0,
+                      placeholderIconSize: 18.0,
+                      vaultTheme: vaultTheme,
+                    ),
+                  ),
+                ),
                 const SizedBox(width: 12.0),
 
-                // Title & Artist \u2022 Album
+                // Title and Artist Column
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
                         track.title,
@@ -1103,8 +1233,7 @@ class _PrivatePlaylistDetailScaffoldState
                         style: TextStyle(
                           fontFamily: VaultTheme.fontFamily,
                           fontSize: 14.0,
-                          fontWeight:
-                              isActiveTrack ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight: isActiveTrack ? FontWeight.w700 : FontWeight.w500,
                           color: isActiveTrack
                               ? vaultTheme.accent
                               : vaultTheme.textHighSalience,
@@ -1112,7 +1241,7 @@ class _PrivatePlaylistDetailScaffoldState
                       ),
                       const SizedBox(height: 2.0),
                       Text(
-                        '${track.artistName} \u2022 ${track.albumTitle}',
+                        track.artistName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1127,7 +1256,7 @@ class _PrivatePlaylistDetailScaffoldState
                 ),
                 const SizedBox(width: 8.0),
 
-                // Source Badge (Local sandbox vs. Spotify stream)
+                // Source Badge (Local sandbox vs. Local reference vs. Spotify stream)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
                   decoration: BoxDecoration(
@@ -1141,6 +1270,7 @@ class _PrivatePlaylistDetailScaffoldState
                   child: Text(
                     switch (track.sourceType) {
                       TrackSourceTypeEnum.localSandbox => 'Local',
+                      TrackSourceTypeEnum.localReference => 'Local Ref',
                       TrackSourceTypeEnum.spotify => 'Spotify',
                     },
                     style: TextStyle(

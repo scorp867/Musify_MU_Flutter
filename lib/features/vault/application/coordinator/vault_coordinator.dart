@@ -8,6 +8,7 @@ import 'package:musify_mu/features/vault/application/pin_pad/pin_pad_cubit.dart'
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/application/settings/settings_mutation_cubit.dart';
+import 'package:musify_mu/features/vault/data/cache/vault_session_cache.dart';
 import 'package:musify_mu/features/vault/data/services/playback_privacy_proxy.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
@@ -45,6 +46,7 @@ class VaultCoordinator {
   final SettingsMutationCubit _settingsMutationCubit;
   final PinPadCubit _pinPadCubit;
   final IMonotonicClock _monotonicClock;
+  final VaultSessionCache? _sessionCache;
 
   final StreamController<VaultNavigationTarget> _navigationController;
   final List<StreamSubscription<Object?>> _subscriptions;
@@ -60,6 +62,7 @@ class VaultCoordinator {
     required SettingsMutationCubit settingsMutationCubit,
     required PinPadCubit pinPadCubit,
     required IMonotonicClock monotonicClock,
+    VaultSessionCache? sessionCache,
   })  : _sessionBloc = sessionBloc,
         _playbackPrivacyProxy = playbackPrivacyProxy,
         _screenPrivacyCubit = screenPrivacyCubit,
@@ -67,6 +70,7 @@ class VaultCoordinator {
         _settingsMutationCubit = settingsMutationCubit,
         _pinPadCubit = pinPadCubit,
         _monotonicClock = monotonicClock,
+        _sessionCache = sessionCache,
         _navigationController = StreamController<VaultNavigationTarget>.broadcast(),
         _subscriptions = <StreamSubscription<Object?>>[];
 
@@ -199,6 +203,7 @@ class VaultCoordinator {
       case VaultUninitializedState():
       case VaultProvisioningState():
       case VaultLockedState():
+        _sessionCache?.clear();
         _pinPadCubit.resetToIdle();
 
       case VaultUnlockedState():
@@ -211,6 +216,7 @@ class VaultCoordinator {
         _navigationController.add(VaultNavigationTarget.reauthOverlay);
 
       case VaultLockoutCooldownState(:final deadlineMonotonicMs):
+        _sessionCache?.clear();
         _pinPadCubit.enterLockout(deadlineMonotonicMs: deadlineMonotonicMs);
 
       case VaultAuthenticatingState():
@@ -251,6 +257,7 @@ class VaultCoordinator {
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;
+    _sessionCache?.clear();
     for (final sub in _subscriptions) {
       await sub.cancel();
     }

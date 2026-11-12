@@ -179,6 +179,16 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
           await qc.setQueue(command);
           return null;
 
+        case ResetQueueEffect():
+          final qc = queueClient;
+          if (qc != null) {
+            final command = SetQueueCommand.builder(playerQueue: PlayerQueue.empty)
+                .options(CommandOptions.builder().overrideRestrictions(true).build())
+                .build();
+            await qc.setQueue(command);
+          }
+          return null;
+
         // 1:1 with Spotify bpp.java line 767 / uyb0.java line 140
         case SkipToTrackEffect(:final track):
           final ctrl = controlClient;

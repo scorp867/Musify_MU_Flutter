@@ -17,6 +17,8 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   bool _isSessionUnlocked;
   bool _isBiometricEnrolled;
   int _ivCounter = 1;
+  int encryptBatchCallCount = 0;
+  int decryptBatchCallCount = 0;
 
   /// Creates a [MockNativeVaultCryptoBridge] with configurable initial state.
   MockNativeVaultCryptoBridge({
@@ -153,6 +155,26 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
       throw const VaultCryptoFailure('Vault session is locked. Authenticate first.');
     }
     return _decryptInternal(ciphertext);
+  }
+
+  @override
+  Future<List<Uint8List>> encryptPayloadsBatch(List<Uint8List> plaintexts) async {
+    encryptBatchCallCount++;
+    final result = <Uint8List>[];
+    for (final plaintext in plaintexts) {
+      result.add(await encryptPayload(plaintext));
+    }
+    return result;
+  }
+
+  @override
+  Future<List<Uint8List>> decryptPayloadsBatch(List<Uint8List> ciphertexts) async {
+    decryptBatchCallCount++;
+    final result = <Uint8List>[];
+    for (final ciphertext in ciphertexts) {
+      result.add(await decryptPayload(ciphertext));
+    }
+    return result;
   }
 
   @override

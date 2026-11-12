@@ -63,6 +63,9 @@ public:
     /// Synchronizes and reorders lookahead context tracks following active index (1:1 with liborbit.so QueueImpl::setQueueWithinSlice)
     void set_next_tracks_slice(const std::vector<context_view::Entry>& reordered_next);
 
+    /// Clears all tracks, shuffle state, and page metadata cleanly.
+    void clear();
+
     /// Navigation controls
     bool skip_next();
     bool skip_prev();

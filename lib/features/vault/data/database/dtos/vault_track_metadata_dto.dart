@@ -17,11 +17,15 @@ final class VaultTrackMetadataDto extends Equatable {
   /// Epoch timestamp in milliseconds when the track was added to the playlist.
   final int addedAtEpochMs;
 
+  /// Optional artwork URI (`https://...`, `spotify:localfileimage:...`, or `file://...`).
+  final String? artworkUri;
+
   /// Constructs a validated [VaultTrackMetadataDto].
   const VaultTrackMetadataDto({
     required this.trackUri,
     required this.sourceType,
     required this.addedAtEpochMs,
+    this.artworkUri,
   });
 
   /// Serializes this DTO to a JSON-compatible Map.
@@ -30,6 +34,8 @@ final class VaultTrackMetadataDto extends Equatable {
       'trackUri': trackUri,
       'sourceType': sourceType.id,
       'addedAtEpochMs': addedAtEpochMs,
+      if (artworkUri case final art? when art.trim().isNotEmpty)
+        'artworkUri': art.trim(),
     };
   }
 
@@ -56,13 +62,23 @@ final class VaultTrackMetadataDto extends Equatable {
       throw const FormatException('Missing or invalid "addedAtEpochMs" in VaultTrackMetadataDto.');
     }
 
+    String? artworkUri;
+    if (json.containsKey('artworkUri') && json['artworkUri'] != null) {
+      final rawArt = json['artworkUri'];
+      if (rawArt is! String || rawArt.trim().isEmpty) {
+        throw const FormatException('Invalid "artworkUri" in VaultTrackMetadataDto.');
+      }
+      artworkUri = rawArt.trim();
+    }
+
     return VaultTrackMetadataDto(
       trackUri: trackUriRaw,
       sourceType: TrackSourceTypeEnum.fromId(sourceTypeRaw),
       addedAtEpochMs: addedAtEpochMsRaw,
+      artworkUri: artworkUri,
     );
   }
 
   @override
-  List<Object?> get props => [trackUri, sourceType, addedAtEpochMs];
+  List<Object?> get props => [trackUri, sourceType, addedAtEpochMs, artworkUri];
 }

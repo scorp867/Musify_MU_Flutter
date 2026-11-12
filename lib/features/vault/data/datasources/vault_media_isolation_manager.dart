@@ -477,6 +477,61 @@ final class VaultMediaIsolationManager implements IVaultMediaIsolationManager {
     );
   }
 
+  /// Resolves multiple sandboxed track IDs using at most one directory scan.
+  Future<Map<String, File>> getIsolatedTrackFilesBatch(
+    Iterable<String> trackIds,
+  ) async {
+    final cleanIds = <String>[];
+    for (final rawId in trackIds) {
+      final cleanId = rawId.trim();
+      if (cleanId.isEmpty) {
+        throw const FormatException('trackId must not be empty or whitespace.');
+      }
+      if (cleanId == '.nomedia' ||
+          cleanId == '.' ||
+          cleanId.contains('..') ||
+          cleanId.contains('/') ||
+          cleanId.contains(r'\') ||
+          p.basename(cleanId) != cleanId) {
+        continue;
+      }
+      cleanIds.add(cleanId);
+    }
+
+    if (cleanIds.isEmpty) {
+      return const <String, File>{};
+    }
+
+    final mediaDir = await getVaultMediaDirectory();
+    final canonicalSandbox = p.canonicalize(mediaDir.path);
+    final entities = await mediaDir.list().toList();
+
+    final byExactName = <String, File>{};
+    final byBaseName = <String, File>{};
+
+    for (final entity in entities) {
+      if (entity is! File) continue;
+      final name = p.basename(entity.path);
+      if (name == '.nomedia') continue;
+      if (!_isContainedSandboxFile(entity, canonicalSandbox, mediaDir.path)) {
+        continue;
+      }
+      byExactName[name] = entity;
+      byBaseName.putIfAbsent(p.basenameWithoutExtension(name), () => entity);
+    }
+
+    final resolved = <String, File>{};
+    for (final cleanId in cleanIds) {
+      final file = byExactName[cleanId] ??
+          byExactName['$cleanId.mp3'] ??
+          byBaseName[p.basenameWithoutExtension(cleanId)];
+      if (file != null) {
+        resolved[cleanId] = file;
+      }
+    }
+    return resolved;
+  }
+
   @override
   Future<void> removeIsolatedTrack(String trackId) async {
     final cleanId = trackId.trim();

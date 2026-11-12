@@ -170,6 +170,13 @@ object NativeHeadDownloader {
 class MainActivity : FlutterFragmentActivity() {
     private var vaultBridge: VaultHardwareKeyStoreBridge? = null
     private var screenPrivacyChannel: MethodChannel? = null
+    private var localArtworkChannel: MethodChannel? = null
+    private val artworkExecutor = Executors.newFixedThreadPool(2)
+    private val artworkCacheLock = Any()
+    private val artworkInFlight = mutableMapOf<String, MutableList<MethodChannel.Result>>()
+    private val artworkCache = object : android.util.LruCache<String, ByteArray>(8 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ByteArray): Int = value.size.coerceAtLeast(1)
+    }
     companion object {
         init {
             try {
@@ -185,6 +192,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val COOKIE_CHANNEL = "com.musify.mu/cookies"
     private val DRM_CHANNEL = "com.musify.mu/drm"
     private val SCREEN_PRIVACY_CHANNEL = "um.musify.mu/screen_privacy"
+    private val LOCAL_ARTWORK_CHANNEL = "um.musify.mu/local_artwork"
 
     private var eventSink: EventChannel.EventSink? = null
     private var observer: ContentObserver? = null
@@ -308,6 +316,101 @@ class MainActivity : FlutterFragmentActivity() {
         }
         screenPrivacyChannel = privacyChannel
 
+        val artworkChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LOCAL_ARTWORK_CHANNEL)
+        artworkChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "extractEmbeddedArtwork" -> {
+                    val rawPath = call.argument<String>("filePath")?.trim()
+                    if (rawPath.isNullOrEmpty()) {
+                        result.error("INVALID_ARGUMENT", "Missing 'filePath' parameter", null)
+                        return@setMethodCallHandler
+                    }
+                    val maxDimension = (call.argument<Int>("maxDimension") ?: 720).coerceIn(64, 1024)
+                    val resolvedPath = if (rawPath.startsWith("file://")) {
+                        Uri.parse(rawPath).path ?: rawPath.removePrefix("file://")
+                    } else {
+                        rawPath
+                    }
+                    val cacheKey = "$resolvedPath#$maxDimension"
+                    val cachedBytes: ByteArray?
+                    val isLeader: Boolean
+                    synchronized(artworkCacheLock) {
+                        cachedBytes = artworkCache.get(cacheKey)
+                        if (cachedBytes != null) {
+                            isLeader = false
+                        } else {
+                            val existingWaiters = artworkInFlight[cacheKey]
+                            if (existingWaiters != null) {
+                                existingWaiters.add(result)
+                                isLeader = false
+                            } else {
+                                artworkInFlight[cacheKey] = mutableListOf(result)
+                                isLeader = true
+                            }
+                        }
+                    }
+                    if (cachedBytes != null) {
+                        result.success(cachedBytes)
+                        return@setMethodCallHandler
+                    }
+                    if (!isLeader) {
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        artworkExecutor.submit {
+                            val retriever = android.media.MediaMetadataRetriever()
+                            val mainHandler = Handler(Looper.getMainLooper())
+                            var outBytes: ByteArray? = null
+                            var errorMessage: String? = null
+                            try {
+                                val file = java.io.File(resolvedPath)
+                                if (file.exists() && file.isFile) {
+                                    retriever.setDataSource(resolvedPath)
+                                    val rawPicture = retriever.embeddedPicture
+                                    if (rawPicture != null && rawPicture.isNotEmpty()) {
+                                        val processed = downsampleArtwork(rawPicture, maxDimension)
+                                        synchronized(artworkCacheLock) {
+                                            artworkCache.put(cacheKey, processed)
+                                        }
+                                        outBytes = processed
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.w("MainActivity", "Failed to extract embedded artwork for $resolvedPath: ${e.message}")
+                                errorMessage = e.message ?: "Artwork extraction error"
+                            } finally {
+                                try {
+                                    retriever.release()
+                                } catch (_: Exception) {}
+                            }
+                            val waiters: List<MethodChannel.Result> = synchronized(artworkCacheLock) {
+                                artworkInFlight.remove(cacheKey)?.toList() ?: emptyList()
+                            }
+                            mainHandler.post {
+                                for (waiter in waiters) {
+                                    if (errorMessage != null) {
+                                        waiter.error("ARTWORK_EXTRACT_ERROR", errorMessage, null)
+                                    } else {
+                                        waiter.success(outBytes)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: java.util.concurrent.RejectedExecutionException) {
+                        val waiters: List<MethodChannel.Result> = synchronized(artworkCacheLock) {
+                            artworkInFlight.remove(cacheKey)?.toList() ?: emptyList()
+                        }
+                        for (waiter in waiters) {
+                            waiter.success(null)
+                        }
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+        localArtworkChannel = artworkChannel
+        localArtworkChannel = artworkChannel
+
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, OBSERVER_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
@@ -350,7 +453,72 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            synchronized(artworkCacheLock) {
+                artworkCache.evictAll()
+            }
+        }
+    }
+
+    private fun downsampleArtwork(rawBytes: ByteArray, maxDimension: Int): ByteArray {
+        val bounds = android.graphics.BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
+        val srcW = bounds.outWidth
+        val srcH = bounds.outHeight
+        if (srcW <= 0 || srcH <= 0) {
+            return rawBytes
+        }
+        val largestDim = maxOf(srcW, srcH)
+        if (largestDim <= maxDimension && rawBytes.size <= 256 * 1024) {
+            return rawBytes
+        }
+        var inSampleSize = 1
+        while ((srcW / inSampleSize) >= maxDimension * 2 && (srcH / inSampleSize) >= maxDimension * 2) {
+            inSampleSize *= 2
+        }
+        val decodeOpts = android.graphics.BitmapFactory.Options().apply {
+            this.inSampleSize = inSampleSize
+            inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+        }
+        val sampled = android.graphics.BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts)
+            ?: return rawBytes
+        val currentMax = maxOf(sampled.width, sampled.height)
+        val finalBitmap = if (currentMax > maxDimension) {
+            val scale = maxDimension.toFloat() / currentMax.toFloat()
+            val targetW = maxOf(1, (sampled.width * scale).toInt())
+            val targetH = maxOf(1, (sampled.height * scale).toInt())
+            android.graphics.Bitmap.createScaledBitmap(sampled, targetW, targetH, true).also {
+                if (it !== sampled) sampled.recycle()
+            }
+        } else {
+            sampled
+        }
+        return try {
+            val out = java.io.ByteArrayOutputStream()
+            val format = if (finalBitmap.hasAlpha()) {
+                android.graphics.Bitmap.CompressFormat.PNG
+            } else {
+                android.graphics.Bitmap.CompressFormat.JPEG
+            }
+            finalBitmap.compress(format, 88, out)
+            out.toByteArray()
+        } finally {
+            finalBitmap.recycle()
+        }
+    }
+
     override fun onDestroy() {
+        localArtworkChannel?.setMethodCallHandler(null)
+        localArtworkChannel = null
+        synchronized(artworkCacheLock) {
+            artworkInFlight.clear()
+            artworkCache.evictAll()
+        }
+        artworkExecutor.shutdownNow()
         screenPrivacyChannel?.setMethodCallHandler(null)
         screenPrivacyChannel = null
         vaultBridge?.detach()

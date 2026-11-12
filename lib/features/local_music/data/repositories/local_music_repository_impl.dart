@@ -5,7 +5,6 @@ import 'package:musify_mu/features/local_music/data/datasources/device_music_dat
 import 'package:musify_mu/features/local_music/data/datasources/local_tracks_store.dart';
 import 'package:musify_mu/features/local_music/data/services/local_music_sync_service.dart';
 import 'package:musify_mu/features/local_music/domain/models/local_file.dart';
-import 'package:musify_mu/features/local_music/domain/models/local_file_image_state.dart';
 import 'package:musify_mu/features/local_music/domain/models/local_file_metadata.dart';
 import 'package:musify_mu/features/local_music/domain/repositories/local_music_repository.dart';
 
@@ -72,7 +71,6 @@ class LocalMusicRepositoryImpl implements LocalMusicRepository {
           null => '',
         },
         duration: durationSeconds,
-        imageState: LocalFileImageState.unknown,
       ),
     );
   }

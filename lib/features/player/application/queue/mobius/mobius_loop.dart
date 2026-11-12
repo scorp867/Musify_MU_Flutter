@@ -35,10 +35,19 @@ class MobiusLoop<M, E, F> {
   M get currentModel => _currentModel;
 
   /// Observable stream of state changes with replay(1) semantics (1:1 with Spotify RxJava replay(1)).
-  Stream<M> get models async* {
-    yield _currentModel;
-    yield* _modelController.stream;
-  }
+  Stream<M> get models => Stream<M>.multi((controller) {
+        if (_modelController.isClosed) {
+          controller.close();
+          return;
+        }
+        controller.add(_currentModel);
+        final sub = _modelController.stream.listen(
+          controller.add,
+          onError: controller.addError,
+          onDone: controller.close,
+        );
+        controller.onCancel = sub.cancel;
+      }, isBroadcast: true);
 
   /// Dispatches an event into the Mobius state loop.
   void dispatchEvent(E event) {

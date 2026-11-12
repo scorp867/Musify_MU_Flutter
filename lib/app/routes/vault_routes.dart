@@ -127,21 +127,18 @@ abstract final class VaultRoutes {
           return BlocBuilder<SettingsMutationCubit, SettingsMutationState>(
             bloc: settingsCubit,
             builder: (context, _) {
-              final palette = settingsCubit.currentConfig.themePalette;
               return VaultTheme(
-                data: VaultThemeData.fromPalette(palette),
+                data: VaultThemeData.fromConfig(settingsCubit.currentConfig),
                 child: effectiveScreen,
               );
             },
           );
         }
 
-        final palette = switch (settingsCubit?.currentConfig.themePalette) {
-          final p? => p,
-          null => VaultThemePalettePolicyEnum.warmEspresso,
-        };
         return VaultTheme(
-          data: VaultThemeData.fromPalette(palette),
+          data: VaultThemeData.fromPalette(
+            VaultThemePalettePolicyEnum.warmEspresso,
+          ),
           child: effectiveScreen,
         );
       },

@@ -1,5 +1,6 @@
 library;
 
+import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -17,17 +18,14 @@ import '../../../core/ubi/domain/models/page_instance_id.dart';
 import '../../../features/player/data/esperanto/context_player_control_client.dart';
 import '../../../features/player/data/esperanto/context_player_options_client.dart';
 import '../../../features/player/data/esperanto/context_player_state_client.dart';
+import '../../player/presentation/models/more_options_entity.dart';
+import '../../player/presentation/widgets/more_options_bottom_sheet.dart';
 import '../../player/presentation/widgets/spotify_scroll_physics.dart';
 import '../../vault/application/session/vault_session_bloc.dart';
-import '../../vault/domain/entities/private_playlist.dart';
-import '../../vault/domain/entities/private_track_ref.dart';
-import '../../vault/domain/entities/vault_result.dart';
 import '../../vault/domain/interfaces/i_vault_storage_repository.dart';
-import '../../vault/domain/states/vault_session_state.dart';
 import '../application/mobius/playlist_effect_handler.dart';
 import '../application/mobius/playlist_mobius_loop.dart';
 import '../data/coordinator/playlist_play_coordinator.dart';
-import '../domain/models/playlist_entity.dart';
 import '../domain/models/playlist_item.dart';
 import '../domain/models/playlist_screen_state.dart';
 import '../domain/policies/playlist_curation_policy.dart';
@@ -81,6 +79,7 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
 
   late final PlaylistMobiusLoop _loop;
   late final PageInstanceId _pageInstanceId;
+  StreamSubscription<PlaylistScreenState>? _loopColorSub;
 
   final GlobalKey _actionRowKey = GlobalKey();
   double _initialActionRowTop = 0.0;
@@ -147,6 +146,10 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
     }
 
     _scrollController.addListener(_onScroll);
+    _syncColorForState(_loop.currentState, allowSetState: false);
+    _loopColorSub = _loop.stateStream.listen(
+      (state) => _syncColorForState(state, allowSetState: true),
+    );
   }
 
   void _onScroll() {
@@ -155,24 +158,46 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
     }
   }
 
-  void _updateDerivedColor(String coverUrl) {
+  void _syncColorForState(
+    PlaylistScreenState state, {
+    required bool allowSetState,
+  }) {
+    if (state is PlaylistLoadedState && state.playlist.pictureUrl.isNotEmpty) {
+      _updateDerivedColor(
+        state.playlist.pictureUrl,
+        allowSetState: allowSetState,
+      );
+    }
+  }
+
+  void _updateDerivedColor(String coverUrl, {required bool allowSetState}) {
     if (coverUrl.isEmpty || _lastExtractedCoverUrl == coverUrl) return;
     _lastExtractedCoverUrl = coverUrl;
 
     try {
+      if (!getIt.isRegistered<ColorExtractionService>()) return;
       final colorService = getIt<ColorExtractionService>();
+      final cached = colorService.getCached(coverUrl);
+      if (cached != null) {
+        final target = _sanitizeHeaderColor(cached.primary);
+        if (_dominantHeaderColor != target) {
+          if (allowSetState && mounted) {
+            setState(() {
+              _dominantHeaderColor = target;
+            });
+          } else {
+            _dominantHeaderColor = target;
+          }
+        }
+        return;
+      }
+
       colorService.extract(imageUrl: coverUrl).then((scheme) {
-        if (!mounted) return;
-        final extracted = scheme.primary;
-        final hsl = HSLColor.fromColor(extracted);
-        // Strict guardrail: reject any purple/violet tones to guarantee neutral Spotify dark palette
-        if (hsl.hue >= 250 && hsl.hue <= 315) {
+        if (!mounted || _lastExtractedCoverUrl != coverUrl) return;
+        final target = _sanitizeHeaderColor(scheme.primary);
+        if (_dominantHeaderColor != target) {
           setState(() {
-            _dominantHeaderColor = const Color(0xFF535353);
-          });
-        } else {
-          setState(() {
-            _dominantHeaderColor = extracted;
+            _dominantHeaderColor = target;
           });
         }
       }).catchError((e, stack) {
@@ -181,6 +206,15 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
     } catch (e, stack) {
       dev.log('Failed to get ColorExtractionService: $e', name: 'PlaylistScreen', error: e, stackTrace: stack);
     }
+  }
+
+  static Color _sanitizeHeaderColor(Color extracted) {
+    final hsl = HSLColor.fromColor(extracted);
+    // Strict guardrail: reject any purple/violet tones to guarantee neutral Spotify dark palette
+    if (hsl.hue >= 250 && hsl.hue <= 315) {
+      return const Color(0xFF535353);
+    }
+    return extracted;
   }
 
   void _handlePlayFabTapped() {
@@ -243,6 +277,8 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
 
   @override
   void dispose() {
+    _loopColorSub?.cancel();
+    _loopColorSub = null;
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
@@ -339,11 +375,6 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
   }
 
   Widget _buildLoaded(PlaylistLoadedState state) {
-    // Derive dominant background color once cover is available
-    if (state.playlist.pictureUrl.isNotEmpty) {
-      _updateDerivedColor(state.playlist.pictureUrl);
-    }
-
     final topInset = MediaQuery.of(context).padding.top;
     final isOwner = state.playlist.metadata.canEdit;
     final toolbarHeight = kToolbarHeight;
@@ -649,547 +680,21 @@ class PlaylistScreenWidgetState extends State<PlaylistScreen>
   }
 
   void _showPlaylistMoreMenu(PlaylistLoadedState state) {
-    final isOwner = state.playlist.metadata.canEdit;
-    final sessionBloc = _resolveVaultSessionBloc();
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useRootNavigator: true,
-      backgroundColor: const Color(0xFF282828),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        Widget buildContent(bool isVaultActive) {
-          return SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                  // Header preview in sheet
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Container(
-                            width: 48,
-                            height: 48,
-                            color: const Color(0xFF383838),
-                            child: state.playlist.pictureUrl.isNotEmpty
-                                ? Image.network(
-                                    state.playlist.pictureUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
-                                      size: 24,
-                                      color: const Color(0xFFB3B3B3),
-                                    ),
-                                  )
-                                : SpotifyIcon.track(
-                                    size: 24,
-                                    color: const Color(0xFFB3B3B3),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                state.playlist.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'By ${state.playlist.metadata.ownerName.isNotEmpty ? state.playlist.metadata.ownerName : 'Spotify'}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFFB3B3B3),
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Divider(color: Color(0xFF383838), height: 1),
-
-                  // Owner-only or shared options
-                  if (isOwner) ...[
-                    ListTile(
-                      leading: SpotifyIcon.edit(size: 24, color: Colors.white),
-                      title: const Text('Edit playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
-                      onTap: () => Navigator.pop(ctx),
-                    ),
-                    ListTile(
-                      leading: SpotifyIcon.plusCircle(size: 24, color: Colors.white),
-                      title: const Text('Invite collaborators', style: TextStyle(color: Colors.white, fontSize: 15)),
-                      onTap: () => Navigator.pop(ctx),
-                    ),
-                  ],
-                  ListTile(
-                    leading: SpotifyIcon.download(size: 24, color: Colors.white),
-                    title: const Text('Download', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _loop.onDownloadTapped();
-                    },
-                  ),
-                  ListTile(
-                    leading: SpotifyIcon.share(size: 24, color: Colors.white),
-                    title: const Text('Share', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () => Navigator.pop(ctx),
-                  ),
-
-                  // STRICT STEALTH GATE: Rendered ONLY when VaultSession is active (unlocked or background grace)
-                  if (isVaultActive)
-                    ListTile(
-                      key: const ValueKey('menu_clone_to_private_vault'),
-                      leading: const Icon(Icons.shield_outlined, size: 24, color: Colors.white),
-                      title: const Text(
-                        'Clone to Private Vault',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontFamily: 'Poppins',
-                        ),
-                      ),
-                      onTap: () async {
-                        Navigator.pop(ctx);
-                        await _handleClonePlaylistToVault(state.playlist);
-                      },
-                    ),
-
-                  if (isOwner)
-                    ListTile(
-                      leading: SpotifyIcon.delete(size: 24, color: const Color(0xFFE91429)),
-                      title: const Text('Delete playlist', style: TextStyle(color: Color(0xFFE91429), fontSize: 15)),
-                      onTap: () => Navigator.pop(ctx),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-        }
-
-        if (sessionBloc case final bloc?) {
-          return BlocBuilder<VaultSessionBloc, VaultSessionState>(
-            bloc: bloc,
-            buildWhen: (prev, curr) {
-              final prevActive = prev is VaultUnlockedState || prev is VaultBackgroundGraceState;
-              final currActive = curr is VaultUnlockedState || curr is VaultBackgroundGraceState;
-              return prevActive != currActive;
-            },
-            builder: (sheetContext, sessionState) {
-              final isVaultActive = sessionState is VaultUnlockedState ||
-                  sessionState is VaultBackgroundGraceState;
-              return buildContent(isVaultActive);
-            },
-          );
-        }
-
-        return buildContent(false);
-      },
+    MoreOptionsBottomSheet.show(
+      context,
+      entity: SpotifyPlaylistOptionsEntity(state.playlist),
+      sessionBlocOverride: _resolveVaultSessionBloc(),
+      storageRepositoryOverride: _resolveVaultStorageRepository(),
     );
   }
 
   void _showTrackOptionsMenu(PlaylistItem item) {
-    final sessionBloc = _resolveVaultSessionBloc();
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useRootNavigator: true,
-      backgroundColor: const Color(0xFF282828),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        Widget buildContent(bool isVaultActive) {
-          return SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                  // Track preview header
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                    child: Row(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: Container(
-                            width: 48,
-                            height: 48,
-                            color: const Color(0xFF383838),
-                            child: item.coverUrl.isNotEmpty
-                                ? Image.network(
-                                    item.coverUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => SpotifyIcon.track(
-                                      size: 24,
-                                      color: const Color(0xFFB3B3B3),
-                                    ),
-                                  )
-                                : SpotifyIcon.track(
-                                    size: 24,
-                                    color: const Color(0xFFB3B3B3),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                item.subtitle.isNotEmpty ? item.subtitle : 'Unknown Artist',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFFB3B3B3),
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(color: Color(0xFF383838), height: 1),
-
-                  // Track Actions
-                  ListTile(
-                    leading: SpotifyIcon.addToPlaylist(size: 24, color: Colors.white),
-                    title: const Text('Add to another playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () => Navigator.pop(ctx),
-                  ),
-
-                  // STRICT STEALTH GATE: Rendered ONLY when VaultSession is active (unlocked or background grace)
-                  if (isVaultActive)
-                    ListTile(
-                      key: const ValueKey('menu_add_to_private_playlists'),
-                      leading: const Icon(Icons.shield_outlined, size: 24, color: Colors.white),
-                      title: const Text(
-                        'Add to Private Playlists',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontFamily: 'Poppins',
-                        ),
-                      ),
-                      onTap: () async {
-                        Navigator.pop(ctx);
-                        await _handleAddToPrivatePlaylists(item);
-                      },
-                    ),
-
-                  ListTile(
-                    leading: SpotifyIcon.addToQueue(size: 24, color: Colors.white),
-                    title: const Text('Add to queue', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _handleSwipeToQueue(item);
-                    },
-                  ),
-                  ListTile(
-                    leading: SpotifyIcon.minusCircle(size: 24, color: Colors.white),
-                    title: const Text('Remove from this playlist', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _loop.onRemoveTrack(item.uri);
-                    },
-                  ),
-                  ListTile(
-                    leading: SpotifyIcon.album(size: 24, color: Colors.white),
-                    title: const Text('View album', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () => Navigator.pop(ctx),
-                  ),
-                  ListTile(
-                    leading: SpotifyIcon.user(size: 24, color: Colors.white),
-                    title: const Text('View artist', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () => Navigator.pop(ctx),
-                  ),
-                  ListTile(
-                    leading: SpotifyIcon.share(size: 24, color: Colors.white),
-                    title: const Text('Share', style: TextStyle(color: Colors.white, fontSize: 15)),
-                    onTap: () => Navigator.pop(ctx),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-        }
-
-        if (sessionBloc case final bloc?) {
-          return BlocBuilder<VaultSessionBloc, VaultSessionState>(
-            bloc: bloc,
-            buildWhen: (prev, curr) {
-              final prevActive = prev is VaultUnlockedState || prev is VaultBackgroundGraceState;
-              final currActive = curr is VaultUnlockedState || curr is VaultBackgroundGraceState;
-              return prevActive != currActive;
-            },
-            builder: (sheetContext, sessionState) {
-              final isVaultActive = sessionState is VaultUnlockedState ||
-                  sessionState is VaultBackgroundGraceState;
-              return buildContent(isVaultActive);
-            },
-          );
-        }
-
-        return buildContent(false);
-      },
-    );
-  }
-
-  Future<void> _handleClonePlaylistToVault(PlaylistEntity playlist) async {
-    final storageRepo = _resolveVaultStorageRepository();
-    if (storageRepo == null) return;
-
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final createResult = await storageRepo.createPlaylist(
-      name: playlist.name,
-      description: playlist.description.isNotEmpty
-          ? playlist.description
-          : 'Cloned from public playlist',
-      coverUri: playlist.pictureUrl.isNotEmpty ? playlist.pictureUrl : null,
-    );
-
-    switch (createResult) {
-      case VaultSuccess<PrivatePlaylist>(:final data):
-        final createdPlaylist = data;
-        for (var i = 0; i < playlist.items.length; i++) {
-          final item = playlist.items[i];
-          final trackRef = PrivateTrackRef(
-            id: 'cloned_${createdPlaylist.id}_$i',
-            playlistId: createdPlaylist.id,
-            trackUri: item.uri.isNotEmpty ? item.uri : 'spotify:track:cloned_$i',
-            title: item.title.isNotEmpty ? item.title : 'Track ${i + 1}',
-            artistName: item.subtitle.isNotEmpty ? item.subtitle : 'Unknown Artist',
-            albumTitle: item.albumName.isNotEmpty ? item.albumName : 'Unknown Album',
-            durationMs: item.durationMs,
-            sourceType: TrackSourceTypeEnum.spotify,
-            localRelativePath: null,
-            sortOrder: i,
-            addedAtEpochMs: nowMs,
-          );
-          await storageRepo.addTrackToPlaylist(
-            playlistId: createdPlaylist.id,
-            trackRef: trackRef,
-          );
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Cloned "${playlist.name}" to Private Vault',
-                style: const TextStyle(fontFamily: 'Poppins'),
-              ),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      case VaultFailureResult<PrivatePlaylist>():
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Failed to clone playlist to vault',
-                style: TextStyle(fontFamily: 'Poppins'),
-              ),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-    }
-  }
-
-  Future<void> _handleAddToPrivatePlaylists(PlaylistItem item) async {
-    final storageRepo = _resolveVaultStorageRepository();
-    if (storageRepo == null) return;
-
-    final playlistsResult = await storageRepo.getPlaylists();
-    if (!mounted) return;
-
-    switch (playlistsResult) {
-      case VaultSuccess<List<PrivatePlaylist>>(:final data):
-        final playlists = data;
-        if (playlists.isEmpty) {
-          final nowMs = DateTime.now().millisecondsSinceEpoch;
-          final createResult = await storageRepo.createPlaylist(
-            name: 'Private Playlist',
-            description: 'Created from public track ingestion',
-          );
-          if (createResult case VaultSuccess<PrivatePlaylist>(:final data)) {
-            final newPlaylist = data;
-            final trackRef = PrivateTrackRef(
-              id: 'track_${newPlaylist.id}_0',
-              playlistId: newPlaylist.id,
-              trackUri: item.uri.isNotEmpty ? item.uri : 'spotify:track:single',
-              title: item.title.isNotEmpty ? item.title : 'Unknown Track',
-              artistName: item.subtitle.isNotEmpty ? item.subtitle : 'Unknown Artist',
-              albumTitle: item.albumName.isNotEmpty ? item.albumName : 'Unknown Album',
-              durationMs: item.durationMs,
-              sourceType: TrackSourceTypeEnum.spotify,
-              localRelativePath: null,
-              sortOrder: 0,
-              addedAtEpochMs: nowMs,
-            );
-            await storageRepo.addTrackToPlaylist(
-              playlistId: newPlaylist.id,
-              trackRef: trackRef,
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Added "${item.title}" to "${newPlaylist.name}"',
-                    style: const TextStyle(fontFamily: 'Poppins'),
-                  ),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-          }
-          return;
-        }
-
-        _showPrivatePlaylistPicker(playlists, item, storageRepo);
-
-      case VaultFailureResult<List<PrivatePlaylist>>():
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Failed to load private playlists',
-                style: TextStyle(fontFamily: 'Poppins'),
-              ),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-    }
-  }
-
-  void _showPrivatePlaylistPicker(
-    List<PrivatePlaylist> playlists,
-    PlaylistItem item,
-    IVaultStorageRepository storageRepo,
-  ) {
-    final messenger = ScaffoldMessenger.of(context);
-
-    showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      backgroundColor: const Color(0xFF282828),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (pickerCtx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-              child: Text(
-                'Select Private Playlist',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: 'Poppins',
-                ),
-              ),
-            ),
-            const Divider(color: Color(0xFF383838), height: 1),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: playlists.length,
-                itemBuilder: (context, index) {
-                  final playlist = playlists[index];
-                  return ListTile(
-                    key: ValueKey('picker_playlist_${playlist.id}'),
-                    leading: const Icon(Icons.lock_outline, color: Colors.white, size: 20),
-                    title: Text(
-                      playlist.name,
-                      style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'Poppins'),
-                    ),
-                    subtitle: Text(
-                      '${playlist.trackCount} tracks',
-                      style: const TextStyle(color: Color(0xFFB3B3B3), fontSize: 12, fontFamily: 'Poppins'),
-                    ),
-                    onTap: () async {
-                      Navigator.pop(pickerCtx);
-                      final nowMs = DateTime.now().millisecondsSinceEpoch;
-                      final trackRef = PrivateTrackRef(
-                        id: 'track_${playlist.id}_${playlist.trackCount}_$nowMs',
-                        playlistId: playlist.id,
-                        trackUri: item.uri.isNotEmpty ? item.uri : 'spotify:track:picked',
-                        title: item.title.isNotEmpty ? item.title : 'Unknown Track',
-                        artistName: item.subtitle.isNotEmpty ? item.subtitle : 'Unknown Artist',
-                        albumTitle: item.albumName.isNotEmpty ? item.albumName : 'Unknown Album',
-                        durationMs: item.durationMs,
-                        sourceType: TrackSourceTypeEnum.spotify,
-                        localRelativePath: null,
-                        sortOrder: playlist.trackCount,
-                        addedAtEpochMs: nowMs,
-                      );
-                      await storageRepo.addTrackToPlaylist(
-                        playlistId: playlist.id,
-                        trackRef: trackRef,
-                      );
-                      if (mounted) {
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Added "${item.title}" to "${playlist.name}"',
-                              style: const TextStyle(fontFamily: 'Poppins'),
-                            ),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
-                      }
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
+    MoreOptionsBottomSheet.show(
+      context,
+      entity: SpotifyTrackOptionsEntity(item),
+      onRemoveFromPlaylist: () => _loop.onRemoveTrack(item.uri),
+      sessionBlocOverride: _resolveVaultSessionBloc(),
+      storageRepositoryOverride: _resolveVaultStorageRepository(),
     );
   }
 }

@@ -674,6 +674,30 @@ void ContextPlayerImpl::on_track_player_state_changed(const rendering::TrackPlay
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
 }
 
+void ContextPlayerImpl::apply_track_info_locked(
+    context_view::Entry& track,
+    const metadata::TrackInfo& info) {
+    auto set_if_missing = [&track](const char* key, const std::string& val) {
+        if (val.empty()) return;
+        auto it = track.metadata.find(key);
+        if (it == track.metadata.end() || it->second.empty()) {
+            track.metadata[key] = val;
+        }
+    };
+    set_if_missing("title", info.title);
+    set_if_missing("artist_name", info.artist_name);
+    set_if_missing("artist_uri", info.artist_uri);
+    set_if_missing("album_title", info.album_title);
+    set_if_missing("album_uri", info.album_uri);
+    set_if_missing("image_small_url", info.image_small_url);
+    set_if_missing("image_url", info.image_url);
+    set_if_missing("image_large_url", info.image_large_url);
+    set_if_missing("image_xlarge_url", info.image_xlarge_url);
+    if (info.is_explicit) {
+        set_if_missing("is_explicit", "true");
+    }
+}
+
 void ContextPlayerImpl::on_track_metadata_resolved(
     const std::string& uri,
     const metadata::TrackInfo& info) {
@@ -683,31 +707,28 @@ void ContextPlayerImpl::on_track_metadata_resolved(
     std::vector<uint8_t> qc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (resolved_track_info_cache_.size() >= 128 &&
+            resolved_track_info_cache_.find(uri) == resolved_track_info_cache_.end()) {
+            resolved_track_info_cache_.erase(resolved_track_info_cache_.begin());
+        }
+        resolved_track_info_cache_[uri] = info;
+
         if (!current_track_.has_value() || current_track_->uri != uri) {
             return;
         }
-        auto set_if_missing = [this](const char* key, const std::string& val) {
-            if (val.empty()) return;
-            auto it = current_track_->metadata.find(key);
-            if (it == current_track_->metadata.end() || it->second.empty()) {
-                current_track_->metadata[key] = val;
-            }
-        };
-        set_if_missing("title", info.title);
-        set_if_missing("artist_name", info.artist_name);
-        set_if_missing("artist_uri", info.artist_uri);
-        set_if_missing("album_title", info.album_title);
-        set_if_missing("album_uri", info.album_uri);
-        set_if_missing("image_small_url", info.image_small_url);
-        set_if_missing("image_url", info.image_url);
-        set_if_missing("image_large_url", info.image_large_url);
-        set_if_missing("image_xlarge_url", info.image_xlarge_url);
-        if (info.is_explicit) {
-            set_if_missing("is_explicit", "true");
+        const auto masked_it = current_track_->metadata.find("musify_vault_masked");
+        const bool is_vault_masked =
+            (masked_it != current_track_->metadata.end() && masked_it->second == "true");
+
+        if (!is_vault_masked) {
+            apply_track_info_locked(*current_track_, info);
         }
         if (info.duration_ms > 0) {
             duration_ms_ = info.duration_ms;
-            set_if_missing("duration", std::to_string(info.duration_ms));
+            auto dur_it = current_track_->metadata.find("duration");
+            if (dur_it == current_track_->metadata.end() || dur_it->second.empty()) {
+                current_track_->metadata["duration"] = std::to_string(info.duration_ms);
+            }
         }
 
         emit_state_locked();
@@ -1679,7 +1700,9 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
 bool ContextPlayerImpl::stop() {
     std::shared_ptr<rendering::TrackPlayer> tp;
     StateChangedCallback sc_cb;
+    QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes;
+    std::vector<uint8_t> qc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         tp = track_player_;
@@ -1687,14 +1710,30 @@ bool ContextPlayerImpl::stop() {
         is_paused_ = false;
         is_buffering_ = false;
         position_ms_ = 0;
+        duration_ms_ = 0;
+        current_track_.reset();
+        user_queue_.clear();
+        context_processor_.clear();
+        context_uri_.clear();
+        context_url_.clear();
+        context_metadata_.clear();
+        page_metadata_.clear();
+        session_id_.clear();
+        session_command_id_.clear();
+        signals_.clear();
+        queue_revision_++;
         emit_state_locked();
+        emit_queue_locked();
         sc_cb = state_changed_callback_;
+        qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        qc_bytes = cached_queue_bytes_;
     }
     if (tp) {
         tp->stop(rendering::StopReason::ExplicitStop);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
     return true;
 }
 
@@ -1853,13 +1892,34 @@ bool ContextPlayerImpl::update_track(const uint8_t* payload, size_t len) {
     context_view::Entry entry;
     if (decode_track_or_provided_track(payload, len, entry)) {
         StateChangedCallback sc_cb;
+        QueueChangedCallback qc_cb;
         std::vector<uint8_t> sc_bytes;
+        std::vector<uint8_t> qc_bytes;
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            const auto vault_it = entry.metadata.find("is_vault_track");
+            const bool has_vault_mask_flag =
+                entry.metadata.find("musify_vault_masked") != entry.metadata.end() ||
+                (vault_it != entry.metadata.end() && vault_it->second == "true");
+            bool updated = false;
+
             if (current_track_.has_value() &&
                 (current_track_->uri == entry.uri || current_track_->uid == entry.uid)) {
-                for (const auto& [k, v] : entry.metadata) {
-                    current_track_->metadata[k] = v;
+                if (has_vault_mask_flag) {
+                    current_track_->metadata = entry.metadata;
+                    const auto masked_it = current_track_->metadata.find("musify_vault_masked");
+                    const bool is_masked =
+                        (masked_it != current_track_->metadata.end() && masked_it->second == "true");
+                    if (!is_masked) {
+                        const auto info_it = resolved_track_info_cache_.find(current_track_->uri);
+                        if (info_it != resolved_track_info_cache_.end()) {
+                            apply_track_info_locked(*current_track_, info_it->second);
+                        }
+                    }
+                } else {
+                    for (const auto& [k, v] : entry.metadata) {
+                        current_track_->metadata[k] = v;
+                    }
                 }
                 auto it = current_track_->metadata.find("duration");
                 if (it != current_track_->metadata.end() && !it->second.empty()) {
@@ -1867,12 +1927,39 @@ bool ContextPlayerImpl::update_track(const uint8_t* payload, size_t len) {
                     int64_t d = std::strtoll(it->second.c_str(), &end, 10);
                     if (end != it->second.c_str() && d > 0) duration_ms_ = d;
                 }
+                updated = true;
+            }
+
+            if (has_vault_mask_flag) {
+                for (auto& queued : user_queue_) {
+                    if (queued.uri == entry.uri || queued.uid == entry.uid) {
+                        queued.metadata = entry.metadata;
+                        const auto masked_it = queued.metadata.find("musify_vault_masked");
+                        const bool is_masked =
+                            (masked_it != queued.metadata.end() && masked_it->second == "true");
+                        if (!is_masked) {
+                            const auto info_it = resolved_track_info_cache_.find(queued.uri);
+                            if (info_it != resolved_track_info_cache_.end()) {
+                                apply_track_info_locked(queued, info_it->second);
+                            }
+                        }
+                        updated = true;
+                    }
+                }
+            }
+
+            if (updated) {
+                queue_revision_++;
                 emit_state_locked();
+                emit_queue_locked();
                 sc_cb = state_changed_callback_;
+                qc_cb = queue_changed_callback_;
                 sc_bytes = cached_state_bytes_;
+                qc_bytes = cached_queue_bytes_;
             }
         }
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
         return true;
     }
     return false;
@@ -1987,7 +2074,9 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
 
     std::shared_ptr<rendering::TrackPlayer> tp;
     StateChangedCallback sc_cb;
+    QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes;
+    std::vector<uint8_t> qc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!target_session_id.empty()) {
@@ -2004,15 +2093,29 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
         is_paused_ = false;
         is_buffering_ = false;
         position_ms_ = 0;
+        duration_ms_ = 0;
+        current_track_.reset();
+        user_queue_.clear();
+        context_processor_.clear();
+        context_uri_.clear();
+        context_url_.clear();
+        context_metadata_.clear();
+        page_metadata_.clear();
+        resolved_track_info_cache_.clear();
+        queue_revision_++;
         emit_state_locked();
+        emit_queue_locked();
         sc_cb = state_changed_callback_;
+        qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        qc_bytes = cached_queue_bytes_;
     }
 
     if (tp) {
         tp->stop(rendering::StopReason::SessionDeleted);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
     return true;
 }
 

@@ -28,6 +28,10 @@ class ColorExtractionService {
   final ColorCache _cache;
   final BaseCacheManager _cacheManager;
   final LocalFileImageLoader? _localFileImageLoader;
+  final Map<String, Future<ArtworkColorScheme>> _inFlightUrl =
+      <String, Future<ArtworkColorScheme>>{};
+  final Map<String, Future<ArtworkColorScheme>> _inFlightMosaic =
+      <String, Future<ArtworkColorScheme>>{};
 
   ColorExtractionService({
     required ColorCache cache,
@@ -114,6 +118,21 @@ class ColorExtractionService {
     }
   }
 
+  Future<Uint8List?> _loadImageBytes(String imageUrl) async {
+    if (LocalFileUri.isResolvableLocalArtworkUri(imageUrl)) {
+      final loader = _localFileImageLoader;
+      if (loader == null) return null;
+      return loader.loadBytes(imageUrl, querySize: 256);
+    }
+    try {
+      final file = await _cacheManager.getSingleFile(imageUrl);
+      return await file.readAsBytes();
+    } on Object catch (e) {
+      dev.log('ColorExtraction: failed to load image bytes ($imageUrl): $e');
+      return null;
+    }
+  }
+
   /// Extracts from a single image URL (`https://...` or `spotify:localfileimage:...`).
   Future<ArtworkColorScheme> extractFromUrl(
     String imageUrl, {
@@ -129,33 +148,32 @@ class ColorExtractionService {
     };
     if (cached != null) return cached;
 
-    if (LocalFileUri.isAnyLocalUri(imageUrl)) {
-      final loader = _localFileImageLoader;
-      if (loader == null) return ArtworkColorScheme.neutral;
-      final bytes = await loader.loadBytes(imageUrl, querySize: 200);
-      if (bytes == null || bytes.isEmpty) return ArtworkColorScheme.neutral;
-      final scheme = await extractFromBytes(bytes);
-      await _cache.put(imageUrl, scheme);
-      if (cacheKey != null && cacheKey != imageUrl) {
-        await _cache.put(cacheKey, scheme);
+    final pending = _inFlightUrl[imageUrl];
+    final future = pending ?? () async {
+      try {
+        final bytes = await _loadImageBytes(imageUrl);
+        if (bytes == null || bytes.isEmpty) {
+          return ArtworkColorScheme.neutral;
+        }
+        final scheme = await extractFromBytes(bytes);
+        await _cache.put(imageUrl, scheme);
+        return scheme;
+      } on Object catch (e) {
+        dev.log('ColorExtraction: extractFromUrl failed: $e');
+        return ArtworkColorScheme.neutral;
+      } finally {
+        _inFlightUrl.remove(imageUrl);
       }
-      return scheme;
+    }();
+    if (pending == null) {
+      _inFlightUrl[imageUrl] = future;
     }
 
-    try {
-      final file = await _cacheManager.getSingleFile(imageUrl);
-      final bytes = await file.readAsBytes();
-      final scheme = await extractFromBytes(bytes);
-
-      await _cache.put(imageUrl, scheme);
-      if (cacheKey != null && cacheKey != imageUrl) {
-        await _cache.put(cacheKey, scheme);
-      }
-      return scheme;
-    } on Object catch (e) {
-      dev.log('ColorExtraction: extractFromUrl failed: $e');
-      return ArtworkColorScheme.neutral;
+    final scheme = await future;
+    if (cacheKey != null && cacheKey != imageUrl) {
+      await _cache.put(cacheKey, scheme);
     }
+    return scheme;
   }
 
   /// Extracts from a playlist mosaic.
@@ -164,85 +182,112 @@ class ColorExtractionService {
   /// Falls back to remaining tiles, then composite 2x2 grid.
   Future<ArtworkColorScheme> extractFromMosaic(List<String> mosaicUrls) async {
     if (mosaicUrls.isEmpty) return ArtworkColorScheme.neutral;
-    final mosaicKey = 'mosaic:${mosaicUrls.take(4).join('|')}';
+    final limitedUrls = mosaicUrls.take(4).toList();
+    final mosaicKey = 'mosaic:${limitedUrls.join('|')}';
 
     final cached = _cache.get(mosaicKey);
     if (cached != null) return cached;
 
-    final primaryScheme = await extractFromUrl(mosaicUrls.first);
-    if (!primaryScheme.isNeutral) {
-      await _cache.put(mosaicKey, primaryScheme);
-      return primaryScheme;
+    if (_inFlightMosaic[mosaicKey] case final pending?) {
+      return pending;
     }
 
-    for (int i = 1; i < math.min(mosaicUrls.length, 4); i++) {
-      final tileScheme = await extractFromUrl(mosaicUrls[i]);
-      if (!tileScheme.isNeutral) {
-        await _cache.put(mosaicKey, tileScheme);
-        return tileScheme;
-      }
-    }
-
-    if (mosaicUrls.length < 4) return ArtworkColorScheme.neutral;
-
-    try {
-      final files = await Future.wait(
-        mosaicUrls.take(4).map((url) => _cacheManager.getSingleFile(url)),
-      );
-
-      final tileImages = <ui.Image>[];
-      for (final file in files) {
-        final bytes = await file.readAsBytes();
-        final codec = await ui.instantiateImageCodec(
-          bytes,
-          targetWidth: 100,
-          targetHeight: 100,
-        );
-        final frame = await codec.getNextFrame();
-        tileImages.add(frame.image);
-      }
-
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      const half = 100.0;
-      final paint = ui.Paint()..filterQuality = ui.FilterQuality.medium;
-
-      canvas.drawImage(tileImages[0], const ui.Offset(0, 0), paint);
-      canvas.drawImage(tileImages[1], const ui.Offset(half, 0), paint);
-      canvas.drawImage(tileImages[2], const ui.Offset(0, half), paint);
-      canvas.drawImage(tileImages[3], const ui.Offset(half, half), paint);
-
-      final picture = recorder.endRecording();
-      final composite = await picture.toImage(200, 200);
-
-      for (final img in tileImages) {
-        img.dispose();
-      }
-
+    final future = () async {
       try {
-        final byteData =
-            await composite.toByteData(format: ui.ImageByteFormat.rawRgba);
-        if (byteData == null) return ArtworkColorScheme.neutral;
+        final fetchedTileBytes = List<Uint8List?>.filled(
+          limitedUrls.length,
+          null,
+        );
 
-        final rawRgba = byteData.buffer.asUint8List();
+        for (int i = 0; i < limitedUrls.length; i++) {
+          final tileUrl = limitedUrls[i];
+          final existingScheme = _cache.get(tileUrl);
+          if (existingScheme != null) {
+            if (!existingScheme.isNeutral) {
+              await _cache.put(mosaicKey, existingScheme);
+              return existingScheme;
+            }
+            continue;
+          }
 
-        final schemeArgbs = await Isolate.run(() async {
-          final pixels = _filterAndConvertPixels(rawRgba);
-          final quantizer = QuantizerCelebi();
-          final result = await quantizer.quantize(pixels, 128);
-          return SchemeDeriver.derive(result.colorToCount);
-        });
+          final bytes = await _loadImageBytes(tileUrl);
+          fetchedTileBytes[i] = bytes;
+          if (bytes != null && bytes.isNotEmpty) {
+            final tileScheme = await extractFromBytes(bytes, cacheKey: tileUrl);
+            if (!tileScheme.isNeutral) {
+              await _cache.put(mosaicKey, tileScheme);
+              return tileScheme;
+            }
+          }
+        }
 
-        final scheme = ArtworkColorScheme.fromArgbList(schemeArgbs);
-        await _cache.put(mosaicKey, scheme);
-        return scheme;
+        if (limitedUrls.length < 4) return ArtworkColorScheme.neutral;
+
+        final tileImages = <ui.Image>[];
+        try {
+          for (int i = 0; i < 4; i++) {
+            final bytes = fetchedTileBytes[i] ??
+                await _loadImageBytes(limitedUrls[i]);
+            if (bytes == null || bytes.isEmpty) {
+              return ArtworkColorScheme.neutral;
+            }
+            final codec = await ui.instantiateImageCodec(
+              bytes,
+              targetWidth: 100,
+              targetHeight: 100,
+            );
+            final frame = await codec.getNextFrame();
+            tileImages.add(frame.image);
+          }
+
+          final recorder = ui.PictureRecorder();
+          final canvas = ui.Canvas(recorder);
+          const half = 100.0;
+          final paint = ui.Paint()..filterQuality = ui.FilterQuality.medium;
+
+          canvas.drawImage(tileImages[0], const ui.Offset(0, 0), paint);
+          canvas.drawImage(tileImages[1], const ui.Offset(half, 0), paint);
+          canvas.drawImage(tileImages[2], const ui.Offset(0, half), paint);
+          canvas.drawImage(tileImages[3], const ui.Offset(half, half), paint);
+
+          final picture = recorder.endRecording();
+          final composite = await picture.toImage(200, 200);
+
+          try {
+            final byteData =
+                await composite.toByteData(format: ui.ImageByteFormat.rawRgba);
+            if (byteData == null) return ArtworkColorScheme.neutral;
+
+            final rawRgba = byteData.buffer.asUint8List();
+
+            final schemeArgbs = await Isolate.run(() async {
+              final pixels = _filterAndConvertPixels(rawRgba);
+              final quantizer = QuantizerCelebi();
+              final result = await quantizer.quantize(pixels, 128);
+              return SchemeDeriver.derive(result.colorToCount);
+            });
+
+            final scheme = ArtworkColorScheme.fromArgbList(schemeArgbs);
+            await _cache.put(mosaicKey, scheme);
+            return scheme;
+          } finally {
+            composite.dispose();
+          }
+        } finally {
+          for (final img in tileImages) {
+            img.dispose();
+          }
+        }
+      } on Object catch (e) {
+        dev.log('ColorExtraction: extractFromMosaic composite failed: $e');
+        return ArtworkColorScheme.neutral;
       } finally {
-        composite.dispose();
+        _inFlightMosaic.remove(mosaicKey);
       }
-    } on Object catch (e) {
-      dev.log('ColorExtraction: extractFromMosaic composite failed: $e');
-      return ArtworkColorScheme.neutral;
-    }
+    }();
+
+    _inFlightMosaic[mosaicKey] = future;
+    return future;
   }
 
   /// Converts RGBA bytes to ARGB32 ints, stripping pure black borders,

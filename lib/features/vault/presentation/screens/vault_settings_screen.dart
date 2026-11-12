@@ -1,5 +1,6 @@
 // ignore_for_file: prefer_conditional_assignment
 
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -265,13 +266,27 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
     try {
       nav.pushNamed(routeName);
     } catch (_) {
+      final cubit = _resolveSettingsCubit();
       final theme = VaultTheme.of(context);
       nav.push(
         MaterialPageRoute<void>(
-          builder: (_) => VaultTheme(
-            data: theme,
-            child: fallbackScreen,
-          ),
+          builder: (_) {
+            if (cubit != null) {
+              return BlocBuilder<SettingsMutationCubit, SettingsMutationState>(
+                bloc: cubit,
+                builder: (context, _) {
+                  return VaultTheme(
+                    data: VaultThemeData.fromConfig(cubit.currentConfig),
+                    child: fallbackScreen,
+                  );
+                },
+              );
+            }
+            return VaultTheme(
+              data: theme,
+              child: fallbackScreen,
+            );
+          },
         ),
       );
     }
@@ -625,13 +640,18 @@ class VaultAppearanceSettingsScreen extends StatefulWidget {
 
 class _VaultAppearanceSettingsScreenState
     extends State<VaultAppearanceSettingsScreen> {
-  double _previewBlurSigma = 12.0;
+  double _previewBlurSigma = VaultConfig.defaultFrostedBlurSigma;
+  bool _isDraggingBlur = false;
+  double? _pendingPersistedBlur;
+  StreamSubscription<VaultConfig>? _configSub;
+  SettingsMutationCubit? _boundSettingsCubit;
   ScreenPrivacyCubit? _screenPrivacyCubit;
 
   @override
   void initState() {
     super.initState();
     _engageScreenPrivacy();
+    _syncSettingsCubit(widget.settingsMutationCubit);
   }
 
   @override
@@ -639,6 +659,43 @@ class _VaultAppearanceSettingsScreenState
     super.didChangeDependencies();
     if (_screenPrivacyCubit == null) {
       _screenPrivacyCubit = _resolveScreenPrivacyCubit();
+    }
+    _syncSettingsCubit(_resolveSettingsCubit());
+  }
+
+  @override
+  void didUpdateWidget(covariant VaultAppearanceSettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settingsMutationCubit != widget.settingsMutationCubit) {
+      _syncSettingsCubit(_resolveSettingsCubit());
+    }
+  }
+
+  void _syncSettingsCubit(SettingsMutationCubit? cubit) {
+    if (identical(_boundSettingsCubit, cubit)) return;
+    _configSub?.cancel();
+    _configSub = null;
+    _boundSettingsCubit = cubit;
+    if (cubit != null) {
+      _previewBlurSigma = cubit.currentConfig.frostedBlurSigma;
+      _configSub = cubit.configStream.listen((config) {
+        if (!mounted) return;
+        final pending = _pendingPersistedBlur;
+        if (pending != null && (config.frostedBlurSigma - pending).abs() < 0.01) {
+          setState(() {
+            _pendingPersistedBlur = null;
+            _previewBlurSigma = config.frostedBlurSigma;
+          });
+          return;
+        }
+        if (!_isDraggingBlur &&
+            _pendingPersistedBlur == null &&
+            config.frostedBlurSigma != _previewBlurSigma) {
+          setState(() {
+            _previewBlurSigma = config.frostedBlurSigma;
+          });
+        }
+      });
     }
   }
 
@@ -698,8 +755,38 @@ class _VaultAppearanceSettingsScreenState
 
   @override
   void dispose() {
+    _configSub?.cancel();
+    _configSub = null;
     _releaseScreenPrivacy();
     super.dispose();
+  }
+
+  Future<void> _commitBlurSigma(
+    SettingsMutationCubit? cubit,
+    double targetSigma,
+  ) async {
+    final clamped = targetSigma
+        .clamp(
+          VaultConfig.minFrostedBlurSigma,
+          VaultConfig.maxFrostedBlurSigma,
+        )
+        .toDouble();
+    setState(() {
+      _isDraggingBlur = false;
+      _previewBlurSigma = clamped;
+      if (cubit != null) {
+        _pendingPersistedBlur = clamped;
+      }
+    });
+    if (cubit == null) return;
+    final ok = await cubit.mutatePolicy(
+      (c) => c.copyWith(frostedBlurSigma: clamped),
+    );
+    if (!mounted) return;
+    setState(() {
+      _pendingPersistedBlur = null;
+      _previewBlurSigma = ok ? clamped : cubit.currentConfig.frostedBlurSigma;
+    });
   }
 
   @override
@@ -708,6 +795,11 @@ class _VaultAppearanceSettingsScreenState
 
     Widget buildScaffold(BuildContext context, VaultConfig currentConfig) {
       final vaultTheme = VaultTheme.of(context);
+      final activeBlurSigma = (_isDraggingBlur ||
+              _pendingPersistedBlur != null ||
+              cubit == null)
+          ? _previewBlurSigma
+          : currentConfig.frostedBlurSigma;
       return VaultSessionScaffoldGuard(
         sessionBlocOverride: _resolveSessionBloc(),
         child: Scaffold(
@@ -757,9 +849,9 @@ class _VaultAppearanceSettingsScreenState
                   vaultTheme: vaultTheme,
                 ),
                 const SizedBox(height: 12.0),
-                _buildBlurSlider(vaultTheme),
+                _buildBlurSlider(cubit, vaultTheme, activeBlurSigma),
                 const SizedBox(height: 16.0),
-                _buildBlurPreviewMockup(vaultTheme),
+                _buildBlurPreviewMockup(vaultTheme, activeBlurSigma),
               ],
             ),
           ),
@@ -776,7 +868,7 @@ class _VaultAppearanceSettingsScreenState
             final c? => c,
             null => cubit.currentConfig,
           };
-          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          final themeData = VaultThemeData.fromConfig(config);
           return VaultTheme(
             data: themeData,
             child: Builder(
@@ -984,7 +1076,11 @@ class _VaultAppearanceSettingsScreenState
     );
   }
 
-  Widget _buildBlurSlider(VaultThemeData vaultTheme) {
+  Widget _buildBlurSlider(
+    SettingsMutationCubit? cubit,
+    VaultThemeData vaultTheme,
+    double activeBlurSigma,
+  ) {
     return Container(
       padding: const EdgeInsets.all(14.0),
       decoration: BoxDecoration(
@@ -1020,7 +1116,7 @@ class _VaultAppearanceSettingsScreenState
                   ),
                 ),
                 child: Text(
-                  '${_previewBlurSigma.toStringAsFixed(1)} px sigma',
+                  '${activeBlurSigma.toStringAsFixed(1)} px sigma',
                   style: TextStyle(
                     fontFamily: VaultTheme.fontFamily,
                     fontSize: 11.0,
@@ -1033,23 +1129,31 @@ class _VaultAppearanceSettingsScreenState
           ),
           Slider(
             key: const ValueKey('blur_slider'),
-            value: _previewBlurSigma,
-            min: 4.0,
-            max: 24.0,
+            value: activeBlurSigma.clamp(
+              VaultConfig.minFrostedBlurSigma,
+              VaultConfig.maxFrostedBlurSigma,
+            ),
+            min: VaultConfig.minFrostedBlurSigma,
+            max: VaultConfig.maxFrostedBlurSigma,
             activeColor: vaultTheme.accent,
             inactiveColor: vaultTheme.border,
             onChanged: (val) {
               setState(() {
+                _isDraggingBlur = true;
                 _previewBlurSigma = val;
               });
             },
+            onChangeEnd: (val) => _commitBlurSigma(cubit, val),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBlurPreviewMockup(VaultThemeData vaultTheme) {
+  Widget _buildBlurPreviewMockup(
+    VaultThemeData vaultTheme,
+    double activeBlurSigma,
+  ) {
     return Container(
       key: const ValueKey('blur_preview_container'),
       height: 130.0,
@@ -1093,8 +1197,8 @@ class _VaultAppearanceSettingsScreenState
             // Blur overlay
             BackdropFilter(
               filter: ImageFilter.blur(
-                sigmaX: _previewBlurSigma,
-                sigmaY: _previewBlurSigma,
+                sigmaX: activeBlurSigma,
+                sigmaY: activeBlurSigma,
               ),
               child: Container(
                 color: vaultTheme.overlayTint,
@@ -1591,7 +1695,7 @@ class _VaultSecuritySettingsScreenState
             final c? => c,
             null => cubit.currentConfig,
           };
-          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          final themeData = VaultThemeData.fromConfig(config);
           return VaultTheme(
             data: themeData,
             child: Builder(
@@ -2056,6 +2160,8 @@ class _VaultPrivacySettingsScreenState
   late final FocusNode _albumFocus;
   ScreenPrivacyCubit? _screenPrivacyCubit;
   SettingsMutationCubit? _settingsMutationCubit;
+  String? _decoyValidationError;
+  bool _isSavingDecoy = false;
 
   @override
   void initState() {
@@ -2069,9 +2175,9 @@ class _VaultPrivacySettingsScreenState
     _artistController = TextEditingController(text: config.decoyArtist);
     _albumController = TextEditingController(text: config.decoyAlbum);
 
-    _titleFocus = FocusNode()..addListener(_onFocusChange);
-    _artistFocus = FocusNode()..addListener(_onFocusChange);
-    _albumFocus = FocusNode()..addListener(_onFocusChange);
+    _titleFocus = FocusNode();
+    _artistFocus = FocusNode();
+    _albumFocus = FocusNode();
 
     _engageScreenPrivacy();
   }
@@ -2087,12 +2193,67 @@ class _VaultPrivacySettingsScreenState
     }
   }
 
-  void _onFocusChange() {
-    if (!_titleFocus.hasFocus &&
-        !_artistFocus.hasFocus &&
-        !_albumFocus.hasFocus) {
-      final cubit = _settingsMutationCubit ?? _resolveSettingsCubit();
-      cubit?.flushDecoyPersonaImmediately();
+  bool _hasUnsavedDecoyChanges(VaultConfig config) {
+    return _titleController.text.trim() != config.decoyTitle ||
+        _artistController.text.trim() != config.decoyArtist ||
+        _albumController.text.trim() != config.decoyAlbum;
+  }
+
+  Future<void> _saveDecoyPersona(SettingsMutationCubit? cubit) async {
+    final title = _titleController.text.trim();
+    final artist = _artistController.text.trim();
+    final album = _albumController.text.trim();
+
+    if (title.isEmpty || artist.isEmpty || album.isEmpty) {
+      setState(() {
+        _decoyValidationError =
+            'Title, artist, and album must not be empty.';
+      });
+      return;
+    }
+
+    if (cubit == null || _isSavingDecoy) {
+      return;
+    }
+
+    setState(() {
+      _decoyValidationError = null;
+      _isSavingDecoy = true;
+    });
+
+    try {
+      final saved = await cubit.saveDecoyPersona(
+        title: title,
+        artist: artist,
+        album: album,
+      );
+      if (!mounted) return;
+      if (saved) {
+        _titleController.text = title;
+        _artistController.text = artist;
+        _albumController.text = album;
+        FocusScope.of(context).unfocus();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Decoy persona saved and applied to active playback.'),
+          ),
+        );
+      } else {
+        setState(() {
+          _decoyValidationError = 'Unable to save decoy persona.';
+        });
+      }
+    } on FormatException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _decoyValidationError = error.message;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSavingDecoy = false;
+        });
+      }
     }
   }
 
@@ -2152,12 +2313,7 @@ class _VaultPrivacySettingsScreenState
 
   @override
   void dispose() {
-    final cubit = _settingsMutationCubit ?? _resolveSettingsCubit();
-    cubit?.flushDecoyPersonaImmediately();
     _releaseScreenPrivacy();
-    _titleFocus.removeListener(_onFocusChange);
-    _artistFocus.removeListener(_onFocusChange);
-    _albumFocus.removeListener(_onFocusChange);
     _titleFocus.dispose();
     _artistFocus.dispose();
     _albumFocus.dispose();
@@ -2211,7 +2367,7 @@ class _VaultPrivacySettingsScreenState
                 const SizedBox(height: 14.0),
                 _buildMetadataMaskingTile(currentConfig, cubit, vaultTheme),
                 const SizedBox(height: 20.0),
-                _buildDecoyPersonaSection(cubit, vaultTheme),
+                _buildDecoyPersonaSection(currentConfig, cubit, vaultTheme),
                 const SizedBox(height: 20.0),
                 _buildLockPlaybackSection(currentConfig, cubit, vaultTheme),
               ],
@@ -2230,7 +2386,7 @@ class _VaultPrivacySettingsScreenState
             final c? => c,
             null => cubit.currentConfig,
           };
-          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          final themeData = VaultThemeData.fromConfig(config);
           return VaultTheme(
             data: themeData,
             child: Builder(
@@ -2384,9 +2540,12 @@ class _VaultPrivacySettingsScreenState
   }
 
   Widget _buildDecoyPersonaSection(
+    VaultConfig currentConfig,
     SettingsMutationCubit? cubit,
     VaultThemeData vaultTheme,
   ) {
+    final hasChanges = _hasUnsavedDecoyChanges(currentConfig);
+
     return Container(
       padding: const EdgeInsets.all(14.0),
       decoration: BoxDecoration(
@@ -2425,8 +2584,10 @@ class _VaultPrivacySettingsScreenState
             focusNode: _titleFocus,
             labelText: 'Decoy Track Title',
             vaultTheme: vaultTheme,
-            onChanged: (val) {
-              cubit?.updateDecoyPersonaDebounced(title: val);
+            onChanged: (_) {
+              setState(() {
+                _decoyValidationError = null;
+              });
             },
           ),
           const SizedBox(height: 10.0),
@@ -2436,8 +2597,10 @@ class _VaultPrivacySettingsScreenState
             focusNode: _artistFocus,
             labelText: 'Decoy Artist Name',
             vaultTheme: vaultTheme,
-            onChanged: (val) {
-              cubit?.updateDecoyPersonaDebounced(artist: val);
+            onChanged: (_) {
+              setState(() {
+                _decoyValidationError = null;
+              });
             },
           ),
           const SizedBox(height: 10.0),
@@ -2447,9 +2610,52 @@ class _VaultPrivacySettingsScreenState
             focusNode: _albumFocus,
             labelText: 'Decoy Album Name',
             vaultTheme: vaultTheme,
-            onChanged: (val) {
-              cubit?.updateDecoyPersonaDebounced(album: val);
+            onChanged: (_) {
+              setState(() {
+                _decoyValidationError = null;
+              });
             },
+          ),
+          if (_decoyValidationError case final errorText?) ...[
+            const SizedBox(height: 10.0),
+            Text(
+              errorText,
+              key: const ValueKey('decoy_validation_error'),
+              style: TextStyle(
+                fontFamily: VaultTheme.fontFamily,
+                fontSize: 12.0,
+                color: vaultTheme.danger,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12.0),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              key: const ValueKey('decoy_save_button'),
+              onPressed: (hasChanges && !_isSavingDecoy)
+                  ? () => _saveDecoyPersona(cubit)
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: vaultTheme.accent,
+                foregroundColor: vaultTheme.scaffold,
+                disabledBackgroundColor: vaultTheme.surface,
+                disabledForegroundColor: vaultTheme.textLowSalience,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 12.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: VaultTheme.borderRadius8,
+                ),
+              ),
+              child: Text(
+                _isSavingDecoy ? 'Saving...' : 'Save Decoy Persona',
+                style: const TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  fontSize: 13.0,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -2862,7 +3068,7 @@ class _VaultGestureSettingsScreenState
             final c? => c,
             null => cubit.currentConfig,
           };
-          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          final themeData = VaultThemeData.fromConfig(config);
           return VaultTheme(
             data: themeData,
             child: Builder(
@@ -3592,7 +3798,7 @@ class _VaultDangerZoneScreenState extends State<VaultDangerZoneScreen> {
             final c? => c,
             null => cubit.currentConfig,
           };
-          final themeData = VaultThemeData.fromPalette(config.themePalette);
+          final themeData = VaultThemeData.fromConfig(config);
           return VaultTheme(
             data: themeData,
             child: Builder(

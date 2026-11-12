@@ -9,6 +9,7 @@ import 'package:musify_mu/features/vault/application/pin_pad/pin_pad_cubit.dart'
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
+import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
@@ -83,6 +84,11 @@ class FakeVaultAuthService implements IVaultAuthService {
   @override
   Future<void> resetFailedAttempts() async {
     resetAttemptsCallCount++;
+  }
+
+  @override
+  Future<LockoutCooldownInfo> getLockoutStatus() async {
+    return LockoutCooldownInfo.none();
   }
 
   @override

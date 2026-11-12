@@ -114,6 +114,9 @@ private:
     void emit_state_locked();
     void emit_queue_locked();
     void update_position_and_duration_locked();
+    static void apply_track_info_locked(
+        context_view::Entry& track,
+        const metadata::TrackInfo& info);
 
     mutable std::mutex mutex_;
 
@@ -150,6 +153,7 @@ private:
 
     std::vector<uint8_t> cached_state_bytes_;
     std::vector<uint8_t> cached_queue_bytes_;
+    std::unordered_map<std::string, metadata::TrackInfo> resolved_track_info_cache_;
 
     StateChangedCallback state_changed_callback_;
     QueueChangedCallback queue_changed_callback_;

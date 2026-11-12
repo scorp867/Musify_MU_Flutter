@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -137,6 +138,8 @@ public:
 
 private:
     void stopPlayback();
+    void joinMonitorThread();
+    void eosDispatcherFunc();
     EngineStatus loadSource(std::unique_ptr<IAudioDataSource> source);
     EngineStatus openOboeStream();
     void decoderMonitorFunc();
@@ -201,7 +204,11 @@ private:
 
     // --- EOS Notification Callback ---
     std::mutex mEosMutex;
+    std::condition_variable mEosCv;
+    std::thread mEosDispatcherThread;
     EosCallback mEosCallback;
     SecondaryFailureCallback mSecondaryFailureCallback;
     std::atomic<bool> mEosNotified{false};
+    bool mEosPending{false};
+    bool mEosWorkerStop{false};
 };

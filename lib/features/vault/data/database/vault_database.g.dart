@@ -74,6 +74,29 @@ class $VaultPlaylistsTableTable extends VaultPlaylistsTable
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _payloadVersionMeta = const VerificationMeta(
+    'payloadVersion',
+  );
+  @override
+  late final GeneratedColumn<int> payloadVersion = GeneratedColumn<int>(
+    'payload_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _encryptedPlaylistPayloadMeta =
+      const VerificationMeta('encryptedPlaylistPayload');
+  @override
+  late final GeneratedColumn<Uint8List> encryptedPlaylistPayload =
+      GeneratedColumn<Uint8List>(
+        'encrypted_playlist_payload',
+        aliasedName,
+        true,
+        type: DriftSqlType.blob,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -82,6 +105,8 @@ class $VaultPlaylistsTableTable extends VaultPlaylistsTable
     encryptedCoverPath,
     createdAt,
     updatedAt,
+    payloadVersion,
+    encryptedPlaylistPayload,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -147,6 +172,24 @@ class $VaultPlaylistsTableTable extends VaultPlaylistsTable
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('payload_version')) {
+      context.handle(
+        _payloadVersionMeta,
+        payloadVersion.isAcceptableOrUnknown(
+          data['payload_version']!,
+          _payloadVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('encrypted_playlist_payload')) {
+      context.handle(
+        _encryptedPlaylistPayloadMeta,
+        encryptedPlaylistPayload.isAcceptableOrUnknown(
+          data['encrypted_playlist_payload']!,
+          _encryptedPlaylistPayloadMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -180,6 +223,14 @@ class $VaultPlaylistsTableTable extends VaultPlaylistsTable
         DriftSqlType.int,
         data['${effectivePrefix}updated_at'],
       )!,
+      payloadVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}payload_version'],
+      )!,
+      encryptedPlaylistPayload: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}encrypted_playlist_payload'],
+      ),
     );
   }
 
@@ -208,6 +259,12 @@ class VaultPlaylistEntry extends DataClass
 
   /// Last modification epoch timestamp in milliseconds.
   final int updatedAt;
+
+  /// Schema row payload version (`1` = legacy per-field blobs, `2` = consolidated JSON payload).
+  final int payloadVersion;
+
+  /// Consolidated v2 AES-256-GCM encrypted playlist metadata JSON (`description`, `coverUri`).
+  final Uint8List? encryptedPlaylistPayload;
   const VaultPlaylistEntry({
     required this.id,
     required this.encryptedTitle,
@@ -215,6 +272,8 @@ class VaultPlaylistEntry extends DataClass
     this.encryptedCoverPath,
     required this.createdAt,
     required this.updatedAt,
+    required this.payloadVersion,
+    this.encryptedPlaylistPayload,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -227,6 +286,12 @@ class VaultPlaylistEntry extends DataClass
     }
     map['created_at'] = Variable<int>(createdAt);
     map['updated_at'] = Variable<int>(updatedAt);
+    map['payload_version'] = Variable<int>(payloadVersion);
+    if (!nullToAbsent || encryptedPlaylistPayload != null) {
+      map['encrypted_playlist_payload'] = Variable<Uint8List>(
+        encryptedPlaylistPayload,
+      );
+    }
     return map;
   }
 
@@ -240,6 +305,10 @@ class VaultPlaylistEntry extends DataClass
           : Value(encryptedCoverPath),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
+      payloadVersion: Value(payloadVersion),
+      encryptedPlaylistPayload: encryptedPlaylistPayload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(encryptedPlaylistPayload),
     );
   }
 
@@ -259,6 +328,10 @@ class VaultPlaylistEntry extends DataClass
       ),
       createdAt: serializer.fromJson<int>(json['createdAt']),
       updatedAt: serializer.fromJson<int>(json['updatedAt']),
+      payloadVersion: serializer.fromJson<int>(json['payloadVersion']),
+      encryptedPlaylistPayload: serializer.fromJson<Uint8List?>(
+        json['encryptedPlaylistPayload'],
+      ),
     );
   }
   @override
@@ -273,6 +346,10 @@ class VaultPlaylistEntry extends DataClass
       'encryptedCoverPath': serializer.toJson<Uint8List?>(encryptedCoverPath),
       'createdAt': serializer.toJson<int>(createdAt),
       'updatedAt': serializer.toJson<int>(updatedAt),
+      'payloadVersion': serializer.toJson<int>(payloadVersion),
+      'encryptedPlaylistPayload': serializer.toJson<Uint8List?>(
+        encryptedPlaylistPayload,
+      ),
     };
   }
 
@@ -283,6 +360,8 @@ class VaultPlaylistEntry extends DataClass
     Value<Uint8List?> encryptedCoverPath = const Value.absent(),
     int? createdAt,
     int? updatedAt,
+    int? payloadVersion,
+    Value<Uint8List?> encryptedPlaylistPayload = const Value.absent(),
   }) => VaultPlaylistEntry(
     id: id ?? this.id,
     encryptedTitle: encryptedTitle ?? this.encryptedTitle,
@@ -292,6 +371,10 @@ class VaultPlaylistEntry extends DataClass
         : this.encryptedCoverPath,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    payloadVersion: payloadVersion ?? this.payloadVersion,
+    encryptedPlaylistPayload: encryptedPlaylistPayload.present
+        ? encryptedPlaylistPayload.value
+        : this.encryptedPlaylistPayload,
   );
   VaultPlaylistEntry copyWithCompanion(VaultPlaylistsTableCompanion data) {
     return VaultPlaylistEntry(
@@ -307,6 +390,12 @@ class VaultPlaylistEntry extends DataClass
           : this.encryptedCoverPath,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      payloadVersion: data.payloadVersion.present
+          ? data.payloadVersion.value
+          : this.payloadVersion,
+      encryptedPlaylistPayload: data.encryptedPlaylistPayload.present
+          ? data.encryptedPlaylistPayload.value
+          : this.encryptedPlaylistPayload,
     );
   }
 
@@ -318,7 +407,9 @@ class VaultPlaylistEntry extends DataClass
           ..write('encryptedDescription: $encryptedDescription, ')
           ..write('encryptedCoverPath: $encryptedCoverPath, ')
           ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('payloadVersion: $payloadVersion, ')
+          ..write('encryptedPlaylistPayload: $encryptedPlaylistPayload')
           ..write(')'))
         .toString();
   }
@@ -331,6 +422,8 @@ class VaultPlaylistEntry extends DataClass
     $driftBlobEquality.hash(encryptedCoverPath),
     createdAt,
     updatedAt,
+    payloadVersion,
+    $driftBlobEquality.hash(encryptedPlaylistPayload),
   );
   @override
   bool operator ==(Object other) =>
@@ -350,7 +443,12 @@ class VaultPlaylistEntry extends DataClass
             this.encryptedCoverPath,
           ) &&
           other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.payloadVersion == this.payloadVersion &&
+          $driftBlobEquality.equals(
+            other.encryptedPlaylistPayload,
+            this.encryptedPlaylistPayload,
+          ));
 }
 
 class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
@@ -360,6 +458,8 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
   final Value<Uint8List?> encryptedCoverPath;
   final Value<int> createdAt;
   final Value<int> updatedAt;
+  final Value<int> payloadVersion;
+  final Value<Uint8List?> encryptedPlaylistPayload;
   final Value<int> rowid;
   const VaultPlaylistsTableCompanion({
     this.id = const Value.absent(),
@@ -368,6 +468,8 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
     this.encryptedCoverPath = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.payloadVersion = const Value.absent(),
+    this.encryptedPlaylistPayload = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   VaultPlaylistsTableCompanion.insert({
@@ -377,6 +479,8 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
     this.encryptedCoverPath = const Value.absent(),
     required int createdAt,
     required int updatedAt,
+    this.payloadVersion = const Value.absent(),
+    this.encryptedPlaylistPayload = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        encryptedTitle = Value(encryptedTitle),
@@ -390,6 +494,8 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
     Expression<Uint8List>? encryptedCoverPath,
     Expression<int>? createdAt,
     Expression<int>? updatedAt,
+    Expression<int>? payloadVersion,
+    Expression<Uint8List>? encryptedPlaylistPayload,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -401,6 +507,9 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
         'encrypted_cover_path': encryptedCoverPath,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (payloadVersion != null) 'payload_version': payloadVersion,
+      if (encryptedPlaylistPayload != null)
+        'encrypted_playlist_payload': encryptedPlaylistPayload,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -412,6 +521,8 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
     Value<Uint8List?>? encryptedCoverPath,
     Value<int>? createdAt,
     Value<int>? updatedAt,
+    Value<int>? payloadVersion,
+    Value<Uint8List?>? encryptedPlaylistPayload,
     Value<int>? rowid,
   }) {
     return VaultPlaylistsTableCompanion(
@@ -421,6 +532,9 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
       encryptedCoverPath: encryptedCoverPath ?? this.encryptedCoverPath,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      payloadVersion: payloadVersion ?? this.payloadVersion,
+      encryptedPlaylistPayload:
+          encryptedPlaylistPayload ?? this.encryptedPlaylistPayload,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -450,6 +564,14 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<int>(updatedAt.value);
     }
+    if (payloadVersion.present) {
+      map['payload_version'] = Variable<int>(payloadVersion.value);
+    }
+    if (encryptedPlaylistPayload.present) {
+      map['encrypted_playlist_payload'] = Variable<Uint8List>(
+        encryptedPlaylistPayload.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -465,6 +587,8 @@ class VaultPlaylistsTableCompanion extends UpdateCompanion<VaultPlaylistEntry> {
           ..write('encryptedCoverPath: $encryptedCoverPath, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('payloadVersion: $payloadVersion, ')
+          ..write('encryptedPlaylistPayload: $encryptedPlaylistPayload, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -580,6 +704,29 @@ class $VaultTrackRefsTableTable extends VaultTrackRefsTable
     type: DriftSqlType.int,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _payloadVersionMeta = const VerificationMeta(
+    'payloadVersion',
+  );
+  @override
+  late final GeneratedColumn<int> payloadVersion = GeneratedColumn<int>(
+    'payload_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+  static const VerificationMeta _encryptedTrackPayloadMeta =
+      const VerificationMeta('encryptedTrackPayload');
+  @override
+  late final GeneratedColumn<Uint8List> encryptedTrackPayload =
+      GeneratedColumn<Uint8List>(
+        'encrypted_track_payload',
+        aliasedName,
+        true,
+        type: DriftSqlType.blob,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -591,6 +738,8 @@ class $VaultTrackRefsTableTable extends VaultTrackRefsTable
     encryptedArtist,
     encryptedAlbum,
     durationMs,
+    payloadVersion,
+    encryptedTrackPayload,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -684,6 +833,24 @@ class $VaultTrackRefsTableTable extends VaultTrackRefsTable
     } else if (isInserting) {
       context.missing(_durationMsMeta);
     }
+    if (data.containsKey('payload_version')) {
+      context.handle(
+        _payloadVersionMeta,
+        payloadVersion.isAcceptableOrUnknown(
+          data['payload_version']!,
+          _payloadVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('encrypted_track_payload')) {
+      context.handle(
+        _encryptedTrackPayloadMeta,
+        encryptedTrackPayload.isAcceptableOrUnknown(
+          data['encrypted_track_payload']!,
+          _encryptedTrackPayloadMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -729,6 +896,14 @@ class $VaultTrackRefsTableTable extends VaultTrackRefsTable
         DriftSqlType.int,
         data['${effectivePrefix}duration_ms'],
       )!,
+      payloadVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}payload_version'],
+      )!,
+      encryptedTrackPayload: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}encrypted_track_payload'],
+      ),
     );
   }
 
@@ -752,7 +927,7 @@ class VaultTrackRefEntry extends DataClass
   /// Encrypted JSON payload holding auxiliary metadata (trackUri, sourceType, addedAtEpochMs).
   final Uint8List? encryptedTrackMetadata;
 
-  /// Sandbox relative file path for isolated local tracks (e.g. vault_media/.nomedia/<track_id>.mp3).
+  /// Sandbox relative file path for isolated local tracks (e.g. `vault_media/.nomedia/<track_id>.mp3`).
   final String? isolatedMediaFileName;
 
   /// AES-256-GCM encrypted track title.
@@ -766,6 +941,12 @@ class VaultTrackRefEntry extends DataClass
 
   /// Unencrypted track duration in milliseconds.
   final int durationMs;
+
+  /// Schema row payload version (`1` = legacy per-field blobs, `2` = single consolidated track blob).
+  final int payloadVersion;
+
+  /// Consolidated v2 AES-256-GCM encrypted track JSON containing title, artist, album, and metadata.
+  final Uint8List? encryptedTrackPayload;
   const VaultTrackRefEntry({
     required this.id,
     required this.playlistId,
@@ -776,6 +957,8 @@ class VaultTrackRefEntry extends DataClass
     required this.encryptedArtist,
     required this.encryptedAlbum,
     required this.durationMs,
+    required this.payloadVersion,
+    this.encryptedTrackPayload,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -795,6 +978,12 @@ class VaultTrackRefEntry extends DataClass
     map['encrypted_artist'] = Variable<Uint8List>(encryptedArtist);
     map['encrypted_album'] = Variable<Uint8List>(encryptedAlbum);
     map['duration_ms'] = Variable<int>(durationMs);
+    map['payload_version'] = Variable<int>(payloadVersion);
+    if (!nullToAbsent || encryptedTrackPayload != null) {
+      map['encrypted_track_payload'] = Variable<Uint8List>(
+        encryptedTrackPayload,
+      );
+    }
     return map;
   }
 
@@ -813,6 +1002,10 @@ class VaultTrackRefEntry extends DataClass
       encryptedArtist: Value(encryptedArtist),
       encryptedAlbum: Value(encryptedAlbum),
       durationMs: Value(durationMs),
+      payloadVersion: Value(payloadVersion),
+      encryptedTrackPayload: encryptedTrackPayload == null && nullToAbsent
+          ? const Value.absent()
+          : Value(encryptedTrackPayload),
     );
   }
 
@@ -835,6 +1028,10 @@ class VaultTrackRefEntry extends DataClass
       encryptedArtist: serializer.fromJson<Uint8List>(json['encryptedArtist']),
       encryptedAlbum: serializer.fromJson<Uint8List>(json['encryptedAlbum']),
       durationMs: serializer.fromJson<int>(json['durationMs']),
+      payloadVersion: serializer.fromJson<int>(json['payloadVersion']),
+      encryptedTrackPayload: serializer.fromJson<Uint8List?>(
+        json['encryptedTrackPayload'],
+      ),
     );
   }
   @override
@@ -854,6 +1051,10 @@ class VaultTrackRefEntry extends DataClass
       'encryptedArtist': serializer.toJson<Uint8List>(encryptedArtist),
       'encryptedAlbum': serializer.toJson<Uint8List>(encryptedAlbum),
       'durationMs': serializer.toJson<int>(durationMs),
+      'payloadVersion': serializer.toJson<int>(payloadVersion),
+      'encryptedTrackPayload': serializer.toJson<Uint8List?>(
+        encryptedTrackPayload,
+      ),
     };
   }
 
@@ -867,6 +1068,8 @@ class VaultTrackRefEntry extends DataClass
     Uint8List? encryptedArtist,
     Uint8List? encryptedAlbum,
     int? durationMs,
+    int? payloadVersion,
+    Value<Uint8List?> encryptedTrackPayload = const Value.absent(),
   }) => VaultTrackRefEntry(
     id: id ?? this.id,
     playlistId: playlistId ?? this.playlistId,
@@ -881,6 +1084,10 @@ class VaultTrackRefEntry extends DataClass
     encryptedArtist: encryptedArtist ?? this.encryptedArtist,
     encryptedAlbum: encryptedAlbum ?? this.encryptedAlbum,
     durationMs: durationMs ?? this.durationMs,
+    payloadVersion: payloadVersion ?? this.payloadVersion,
+    encryptedTrackPayload: encryptedTrackPayload.present
+        ? encryptedTrackPayload.value
+        : this.encryptedTrackPayload,
   );
   VaultTrackRefEntry copyWithCompanion(VaultTrackRefsTableCompanion data) {
     return VaultTrackRefEntry(
@@ -909,6 +1116,12 @@ class VaultTrackRefEntry extends DataClass
       durationMs: data.durationMs.present
           ? data.durationMs.value
           : this.durationMs,
+      payloadVersion: data.payloadVersion.present
+          ? data.payloadVersion.value
+          : this.payloadVersion,
+      encryptedTrackPayload: data.encryptedTrackPayload.present
+          ? data.encryptedTrackPayload.value
+          : this.encryptedTrackPayload,
     );
   }
 
@@ -923,7 +1136,9 @@ class VaultTrackRefEntry extends DataClass
           ..write('encryptedTitle: $encryptedTitle, ')
           ..write('encryptedArtist: $encryptedArtist, ')
           ..write('encryptedAlbum: $encryptedAlbum, ')
-          ..write('durationMs: $durationMs')
+          ..write('durationMs: $durationMs, ')
+          ..write('payloadVersion: $payloadVersion, ')
+          ..write('encryptedTrackPayload: $encryptedTrackPayload')
           ..write(')'))
         .toString();
   }
@@ -939,6 +1154,8 @@ class VaultTrackRefEntry extends DataClass
     $driftBlobEquality.hash(encryptedArtist),
     $driftBlobEquality.hash(encryptedAlbum),
     durationMs,
+    payloadVersion,
+    $driftBlobEquality.hash(encryptedTrackPayload),
   );
   @override
   bool operator ==(Object other) =>
@@ -964,7 +1181,12 @@ class VaultTrackRefEntry extends DataClass
             other.encryptedAlbum,
             this.encryptedAlbum,
           ) &&
-          other.durationMs == this.durationMs);
+          other.durationMs == this.durationMs &&
+          other.payloadVersion == this.payloadVersion &&
+          $driftBlobEquality.equals(
+            other.encryptedTrackPayload,
+            this.encryptedTrackPayload,
+          ));
 }
 
 class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
@@ -977,6 +1199,8 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
   final Value<Uint8List> encryptedArtist;
   final Value<Uint8List> encryptedAlbum;
   final Value<int> durationMs;
+  final Value<int> payloadVersion;
+  final Value<Uint8List?> encryptedTrackPayload;
   final Value<int> rowid;
   const VaultTrackRefsTableCompanion({
     this.id = const Value.absent(),
@@ -988,6 +1212,8 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
     this.encryptedArtist = const Value.absent(),
     this.encryptedAlbum = const Value.absent(),
     this.durationMs = const Value.absent(),
+    this.payloadVersion = const Value.absent(),
+    this.encryptedTrackPayload = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   VaultTrackRefsTableCompanion.insert({
@@ -1000,6 +1226,8 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
     required Uint8List encryptedArtist,
     required Uint8List encryptedAlbum,
     required int durationMs,
+    this.payloadVersion = const Value.absent(),
+    this.encryptedTrackPayload = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        playlistId = Value(playlistId),
@@ -1018,6 +1246,8 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
     Expression<Uint8List>? encryptedArtist,
     Expression<Uint8List>? encryptedAlbum,
     Expression<int>? durationMs,
+    Expression<int>? payloadVersion,
+    Expression<Uint8List>? encryptedTrackPayload,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1032,6 +1262,9 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
       if (encryptedArtist != null) 'encrypted_artist': encryptedArtist,
       if (encryptedAlbum != null) 'encrypted_album': encryptedAlbum,
       if (durationMs != null) 'duration_ms': durationMs,
+      if (payloadVersion != null) 'payload_version': payloadVersion,
+      if (encryptedTrackPayload != null)
+        'encrypted_track_payload': encryptedTrackPayload,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1046,6 +1279,8 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
     Value<Uint8List>? encryptedArtist,
     Value<Uint8List>? encryptedAlbum,
     Value<int>? durationMs,
+    Value<int>? payloadVersion,
+    Value<Uint8List?>? encryptedTrackPayload,
     Value<int>? rowid,
   }) {
     return VaultTrackRefsTableCompanion(
@@ -1060,6 +1295,9 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
       encryptedArtist: encryptedArtist ?? this.encryptedArtist,
       encryptedAlbum: encryptedAlbum ?? this.encryptedAlbum,
       durationMs: durationMs ?? this.durationMs,
+      payloadVersion: payloadVersion ?? this.payloadVersion,
+      encryptedTrackPayload:
+          encryptedTrackPayload ?? this.encryptedTrackPayload,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1098,6 +1336,14 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
     if (durationMs.present) {
       map['duration_ms'] = Variable<int>(durationMs.value);
     }
+    if (payloadVersion.present) {
+      map['payload_version'] = Variable<int>(payloadVersion.value);
+    }
+    if (encryptedTrackPayload.present) {
+      map['encrypted_track_payload'] = Variable<Uint8List>(
+        encryptedTrackPayload.value,
+      );
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1116,6 +1362,8 @@ class VaultTrackRefsTableCompanion extends UpdateCompanion<VaultTrackRefEntry> {
           ..write('encryptedArtist: $encryptedArtist, ')
           ..write('encryptedAlbum: $encryptedAlbum, ')
           ..write('durationMs: $durationMs, ')
+          ..write('payloadVersion: $payloadVersion, ')
+          ..write('encryptedTrackPayload: $encryptedTrackPayload, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2148,6 +2396,8 @@ typedef $$VaultPlaylistsTableTableCreateCompanionBuilder =
       Value<Uint8List?> encryptedCoverPath,
       required int createdAt,
       required int updatedAt,
+      Value<int> payloadVersion,
+      Value<Uint8List?> encryptedPlaylistPayload,
       Value<int> rowid,
     });
 typedef $$VaultPlaylistsTableTableUpdateCompanionBuilder =
@@ -2158,6 +2408,8 @@ typedef $$VaultPlaylistsTableTableUpdateCompanionBuilder =
       Value<Uint8List?> encryptedCoverPath,
       Value<int> createdAt,
       Value<int> updatedAt,
+      Value<int> payloadVersion,
+      Value<Uint8List?> encryptedPlaylistPayload,
       Value<int> rowid,
     });
 
@@ -2238,6 +2490,16 @@ class $$VaultPlaylistsTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get payloadVersion => $composableBuilder(
+    column: $table.payloadVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get encryptedPlaylistPayload => $composableBuilder(
+    column: $table.encryptedPlaylistPayload,
+    builder: (column) => ColumnFilters(column),
+  );
+
   Expression<bool> vaultTrackRefsTableRefs(
     Expression<bool> Function($$VaultTrackRefsTableTableFilterComposer f) f,
   ) {
@@ -2302,6 +2564,16 @@ class $$VaultPlaylistsTableTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get payloadVersion => $composableBuilder(
+    column: $table.payloadVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get encryptedPlaylistPayload => $composableBuilder(
+    column: $table.encryptedPlaylistPayload,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$VaultPlaylistsTableTableAnnotationComposer
@@ -2336,6 +2608,16 @@ class $$VaultPlaylistsTableTableAnnotationComposer
 
   GeneratedColumn<int> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get payloadVersion => $composableBuilder(
+    column: $table.payloadVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<Uint8List> get encryptedPlaylistPayload => $composableBuilder(
+    column: $table.encryptedPlaylistPayload,
+    builder: (column) => column,
+  );
 
   Expression<T> vaultTrackRefsTableRefs<T extends Object>(
     Expression<T> Function($$VaultTrackRefsTableTableAnnotationComposer a) f,
@@ -2406,6 +2688,9 @@ class $$VaultPlaylistsTableTableTableManager
                 Value<Uint8List?> encryptedCoverPath = const Value.absent(),
                 Value<int> createdAt = const Value.absent(),
                 Value<int> updatedAt = const Value.absent(),
+                Value<int> payloadVersion = const Value.absent(),
+                Value<Uint8List?> encryptedPlaylistPayload =
+                    const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VaultPlaylistsTableCompanion(
                 id: id,
@@ -2414,6 +2699,8 @@ class $$VaultPlaylistsTableTableTableManager
                 encryptedCoverPath: encryptedCoverPath,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                payloadVersion: payloadVersion,
+                encryptedPlaylistPayload: encryptedPlaylistPayload,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2424,6 +2711,9 @@ class $$VaultPlaylistsTableTableTableManager
                 Value<Uint8List?> encryptedCoverPath = const Value.absent(),
                 required int createdAt,
                 required int updatedAt,
+                Value<int> payloadVersion = const Value.absent(),
+                Value<Uint8List?> encryptedPlaylistPayload =
+                    const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VaultPlaylistsTableCompanion.insert(
                 id: id,
@@ -2432,6 +2722,8 @@ class $$VaultPlaylistsTableTableTableManager
                 encryptedCoverPath: encryptedCoverPath,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                payloadVersion: payloadVersion,
+                encryptedPlaylistPayload: encryptedPlaylistPayload,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -2505,6 +2797,8 @@ typedef $$VaultTrackRefsTableTableCreateCompanionBuilder =
       required Uint8List encryptedArtist,
       required Uint8List encryptedAlbum,
       required int durationMs,
+      Value<int> payloadVersion,
+      Value<Uint8List?> encryptedTrackPayload,
       Value<int> rowid,
     });
 typedef $$VaultTrackRefsTableTableUpdateCompanionBuilder =
@@ -2518,6 +2812,8 @@ typedef $$VaultTrackRefsTableTableUpdateCompanionBuilder =
       Value<Uint8List> encryptedArtist,
       Value<Uint8List> encryptedAlbum,
       Value<int> durationMs,
+      Value<int> payloadVersion,
+      Value<Uint8List?> encryptedTrackPayload,
       Value<int> rowid,
     });
 
@@ -2602,6 +2898,16 @@ class $$VaultTrackRefsTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get payloadVersion => $composableBuilder(
+    column: $table.payloadVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get encryptedTrackPayload => $composableBuilder(
+    column: $table.encryptedTrackPayload,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$VaultPlaylistsTableTableFilterComposer get playlistId {
     final $$VaultPlaylistsTableTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -2672,6 +2978,16 @@ class $$VaultTrackRefsTableTableOrderingComposer
 
   ColumnOrderings<int> get durationMs => $composableBuilder(
     column: $table.durationMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get payloadVersion => $composableBuilder(
+    column: $table.payloadVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get encryptedTrackPayload => $composableBuilder(
+    column: $table.encryptedTrackPayload,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -2747,6 +3063,16 @@ class $$VaultTrackRefsTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<int> get payloadVersion => $composableBuilder(
+    column: $table.payloadVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<Uint8List> get encryptedTrackPayload => $composableBuilder(
+    column: $table.encryptedTrackPayload,
+    builder: (column) => column,
+  );
+
   $$VaultPlaylistsTableTableAnnotationComposer get playlistId {
     final $$VaultPlaylistsTableTableAnnotationComposer composer =
         $composerBuilder(
@@ -2817,6 +3143,8 @@ class $$VaultTrackRefsTableTableTableManager
                 Value<Uint8List> encryptedArtist = const Value.absent(),
                 Value<Uint8List> encryptedAlbum = const Value.absent(),
                 Value<int> durationMs = const Value.absent(),
+                Value<int> payloadVersion = const Value.absent(),
+                Value<Uint8List?> encryptedTrackPayload = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VaultTrackRefsTableCompanion(
                 id: id,
@@ -2828,6 +3156,8 @@ class $$VaultTrackRefsTableTableTableManager
                 encryptedArtist: encryptedArtist,
                 encryptedAlbum: encryptedAlbum,
                 durationMs: durationMs,
+                payloadVersion: payloadVersion,
+                encryptedTrackPayload: encryptedTrackPayload,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2841,6 +3171,8 @@ class $$VaultTrackRefsTableTableTableManager
                 required Uint8List encryptedArtist,
                 required Uint8List encryptedAlbum,
                 required int durationMs,
+                Value<int> payloadVersion = const Value.absent(),
+                Value<Uint8List?> encryptedTrackPayload = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VaultTrackRefsTableCompanion.insert(
                 id: id,
@@ -2852,6 +3184,8 @@ class $$VaultTrackRefsTableTableTableManager
                 encryptedArtist: encryptedArtist,
                 encryptedAlbum: encryptedAlbum,
                 durationMs: durationMs,
+                payloadVersion: payloadVersion,
+                encryptedTrackPayload: encryptedTrackPayload,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

@@ -255,6 +255,7 @@ Future<void> setupInjection() async {
   );
   getIt.registerLazySingleton<ColorCache>(
     () => ColorCache(cacheManager: getIt<AppCacheManager>()),
+    dispose: (cache) => cache.dispose(),
   );
   getIt.registerLazySingleton<LocalFileImageLoader>(
     () => LocalFileImageLoader(
@@ -496,6 +497,9 @@ Future<void> setupInjection() async {
       pageInstanceIdHolder: getIt<PageInstanceIdHolder>(),
     ),
   );
+
+  // Warm persistent color extraction cache on startup for instant first-frame hits.
+  await getIt<ColorExtractionService>().init();
 
   // --- Secure Vault Subsystem (Phase 4 / Milestone 5) ---
   setupVaultInjection(getIt);

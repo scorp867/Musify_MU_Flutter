@@ -115,7 +115,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     };
 
     final initialImageUrl = _resolveImageUrl(widget.queueBloc?.state);
-    _extractColor(imageUrl: initialImageUrl);
+    _extractColor(imageUrl: initialImageUrl, allowSetState: false);
 
     final initialProgress = _boundProgress(
       switch (widget.queueBloc?.state.playbackProgress) {
@@ -173,8 +173,11 @@ class _MiniPlayerState extends State<MiniPlayer>
     if (oldWidget.progress != widget.progress && widget.queueBloc == null) {
       _progressNotifier.value = _boundProgress(widget.progress);
     }
-    if (oldWidget.imageUrl != widget.imageUrl) {
-      _extractColor(imageUrl: widget.imageUrl);
+    if (oldWidget.queueBloc != widget.queueBloc ||
+        oldWidget.imageUrl != widget.imageUrl ||
+        oldWidget.currentTrack != widget.currentTrack) {
+      final updatedImageUrl = _resolveImageUrl(widget.queueBloc?.state);
+      _extractColor(imageUrl: updatedImageUrl, allowSetState: false);
     }
   }
 
@@ -193,11 +196,22 @@ class _MiniPlayerState extends State<MiniPlayer>
       }
       _progressNotifier.value = _boundProgress(state.playbackProgress);
       final resolvedImageUrl = _resolveImageUrl(state);
-      _extractColor(imageUrl: resolvedImageUrl);
+      _extractColor(imageUrl: resolvedImageUrl, allowSetState: true);
     }
   }
 
+  bool _isMaskedTrack(PlayerQueueState? state) {
+    final activeTrack = switch (state?.nowPlaying) {
+      final t? => t,
+      null => widget.currentTrack,
+    };
+    return activeTrack?.metadata['musify_vault_masked'] == 'true';
+  }
+
   String? _resolveImageUrl(PlayerQueueState? state) {
+    if (_isMaskedTrack(state)) {
+      return null;
+    }
     if (state != null) {
       if (state.thumbnailImageUrl case final url? when url.isNotEmpty) {
         return url;
@@ -217,12 +231,26 @@ class _MiniPlayerState extends State<MiniPlayer>
     return widget.imageUrl;
   }
 
-  void _extractColor({String? imageUrl}) {
+  void _extractColor({String? imageUrl, required bool allowSetState}) {
     final key = switch (imageUrl) {
       final url? when url.isNotEmpty => url,
       _ => '',
     };
-    if (key.isEmpty || key == _lastExtractedKey) return;
+    if (key.isEmpty) {
+      if (_lastExtractedKey != null ||
+          _currentColor != const Color(0xFF242424)) {
+        _lastExtractedKey = null;
+        if (allowSetState && mounted) {
+          setState(() {
+            _currentColor = const Color(0xFF242424);
+          });
+        } else {
+          _currentColor = const Color(0xFF242424);
+        }
+      }
+      return;
+    }
+    if (key == _lastExtractedKey) return;
     _lastExtractedKey = key;
 
     final service = switch (widget.colorService) {
@@ -235,11 +263,16 @@ class _MiniPlayerState extends State<MiniPlayer>
 
     final cached = service.getCached(key);
     if (cached != null) {
-      final targetColor = cached.isNeutral ? const Color(0xFF242424) : cached.surface;
+      final targetColor =
+          cached.isNeutral ? const Color(0xFF242424) : cached.surface;
       if (_currentColor != targetColor) {
-        setState(() {
+        if (allowSetState && mounted) {
+          setState(() {
+            _currentColor = targetColor;
+          });
+        } else {
           _currentColor = targetColor;
-        });
+        }
       }
       return;
     }
@@ -250,7 +283,8 @@ class _MiniPlayerState extends State<MiniPlayer>
         cacheKey: key,
       ).then((scheme) {
         if (mounted && _lastExtractedKey == key) {
-          final targetColor = scheme.isNeutral ? const Color(0xFF242424) : scheme.surface;
+          final targetColor =
+              scheme.isNeutral ? const Color(0xFF242424) : scheme.surface;
           if (_currentColor != targetColor) {
             setState(() {
               _currentColor = targetColor;
@@ -285,6 +319,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     BuildContext context, {
     PlayerQueueState? state,
   }) {
+    final isMasked = _isMaskedTrack(state);
     final displayTitle = switch (state?.title) {
       final t? when t.isNotEmpty => t,
       _ => widget.title,
@@ -293,17 +328,21 @@ class _MiniPlayerState extends State<MiniPlayer>
       final a? when a.isNotEmpty => a,
       _ => widget.artist,
     };
-    final displayThumbnailUrl = switch (state?.thumbnailImageUrl) {
-      final url? when url.isNotEmpty => url,
-      _ => switch (state?.imageUrl) {
-        final url? when url.isNotEmpty => url,
-        _ => widget.imageUrl,
-      },
-    };
-    final highResImageUrl = switch (state?.imageUrl) {
-      final url? when url.isNotEmpty => url,
-      _ => widget.imageUrl,
-    };
+    final displayThumbnailUrl = isMasked
+        ? null
+        : switch (state?.thumbnailImageUrl) {
+            final url? when url.isNotEmpty => url,
+            _ => switch (state?.imageUrl) {
+              final url? when url.isNotEmpty => url,
+              _ => widget.imageUrl,
+            },
+          };
+    final highResImageUrl = isMasked
+        ? null
+        : switch (state?.imageUrl) {
+            final url? when url.isNotEmpty => url,
+            _ => widget.imageUrl,
+          };
     final isPlaying = switch (state?.isPlaying) {
       final playing? => playing,
       null => _isPlaying,

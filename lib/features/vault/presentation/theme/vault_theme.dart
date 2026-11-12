@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
+import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/policies/vault_theme_palette_policy.dart';
 
 /// Immutable reactive design tokens for the Musify Secure Vault presentation layer.
@@ -54,6 +55,12 @@ class VaultThemeData extends Equatable {
   /// Frosted glass overlay tint for [ReauthBlurOverlay] (65% opacity of scaffold).
   final Color overlayTint;
 
+  /// Default calibrated frosted glass blur sigma (px).
+  static const double defaultBlurSigma = VaultConfig.defaultFrostedBlurSigma;
+
+  /// Calibrated Gaussian blur sigma (px) for frosted artwork peeks and re-auth overlays.
+  final double blurSigma;
+
   const VaultThemeData({
     required this.palette,
     required this.scaffold,
@@ -69,6 +76,7 @@ class VaultThemeData extends Equatable {
     required this.accent,
     required this.danger,
     required this.overlayTint,
+    this.blurSigma = defaultBlurSigma,
   });
 
   /// Convenience alias for scaffold background color.
@@ -83,42 +91,55 @@ class VaultThemeData extends Equatable {
   /// Convenience alias for error color.
   Color get errorColor => danger;
 
-  /// Creates a [VaultThemeData] instance from the given domain [palette].
-  factory VaultThemeData.fromPalette(VaultThemePalettePolicyEnum palette) {
+  /// Creates a [VaultThemeData] instance from the given [VaultConfig].
+  factory VaultThemeData.fromConfig(VaultConfig config) {
+    return VaultThemeData.fromPalette(
+      config.themePalette,
+      blurSigma: config.frostedBlurSigma,
+    );
+  }
+
+  /// Creates a [VaultThemeData] instance from the given domain [palette] and [blurSigma].
+  factory VaultThemeData.fromPalette(
+    VaultThemePalettePolicyEnum palette, {
+    double blurSigma = defaultBlurSigma,
+  }) {
     switch (palette) {
       case VaultThemePalettePolicyEnum.warmEspresso:
-        return const VaultThemeData(
+        return VaultThemeData(
           palette: VaultThemePalettePolicyEnum.warmEspresso,
-          scaffold: Color(0xFF1A120E),
-          background: Color(0xFF3A2418),
-          surface: Color(0xFF6B4A2E),
-          surfaceSubtle: Color(0xFF2A1B14),
-          surfaceHighlight: Color(0xFF4A3022),
-          border: Color(0xFF4A3320),
-          borderSubtle: Color(0xFF332215),
-          textHighSalience: Color(0xFFA88462),
-          textMediumSalience: Color(0xFF8D6C4F),
-          textLowSalience: Color(0xFF4A3322),
-          accent: Color(0xFFD4B08C),
-          danger: Color(0xFFA84438),
-          overlayTint: Color(0xA61A120E),
+          scaffold: const Color(0xFF1A120E),
+          background: const Color(0xFF3A2418),
+          surface: const Color(0xFF6B4A2E),
+          surfaceSubtle: const Color(0xFF2A1B14),
+          surfaceHighlight: const Color(0xFF4A3022),
+          border: const Color(0xFF4A3320),
+          borderSubtle: const Color(0xFF332215),
+          textHighSalience: const Color(0xFFA88462),
+          textMediumSalience: const Color(0xFF8D6C4F),
+          textLowSalience: const Color(0xFF4A3322),
+          accent: const Color(0xFFD4B08C),
+          danger: const Color(0xFFA84438),
+          overlayTint: const Color(0xA61A120E),
+          blurSigma: blurSigma,
         );
       case VaultThemePalettePolicyEnum.forestNoir:
-        return const VaultThemeData(
+        return VaultThemeData(
           palette: VaultThemePalettePolicyEnum.forestNoir,
-          scaffold: Color(0xFF0F1F17),
-          background: Color(0xFF1E3A2E),
-          surface: Color(0xFF3E5A3F),
-          surfaceSubtle: Color(0xFF152A1F),
-          surfaceHighlight: Color(0xFF284A39),
-          border: Color(0xFF234233),
-          borderSubtle: Color(0xFF193024),
-          textHighSalience: Color(0xFF6B7F67),
-          textMediumSalience: Color(0xFF52664F),
-          textLowSalience: Color(0xFF284235),
-          accent: Color(0xFF9EB29A),
-          danger: Color(0xFF9C423B),
-          overlayTint: Color(0xA60F1F17),
+          scaffold: const Color(0xFF0F1F17),
+          background: const Color(0xFF1E3A2E),
+          surface: const Color(0xFF3E5A3F),
+          surfaceSubtle: const Color(0xFF152A1F),
+          surfaceHighlight: const Color(0xFF284A39),
+          border: const Color(0xFF234233),
+          borderSubtle: const Color(0xFF193024),
+          textHighSalience: const Color(0xFF6B7F67),
+          textMediumSalience: const Color(0xFF52664F),
+          textLowSalience: const Color(0xFF284235),
+          accent: const Color(0xFF9EB29A),
+          danger: const Color(0xFF9C423B),
+          overlayTint: const Color(0xA60F1F17),
+          blurSigma: blurSigma,
         );
     }
   }
@@ -175,6 +196,7 @@ class VaultThemeData extends Equatable {
         accent,
         danger,
         overlayTint,
+        blurSigma,
       ];
 }
 

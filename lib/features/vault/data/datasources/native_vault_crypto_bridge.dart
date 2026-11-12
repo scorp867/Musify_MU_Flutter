@@ -158,6 +158,126 @@ final class NativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     }
   }
 
+  static const int _maxBatchChunkSize = 512;
+
+  @override
+  Future<List<Uint8List>> encryptPayloadsBatch(List<Uint8List> plaintexts) async {
+    if (plaintexts.isEmpty) {
+      return const <Uint8List>[];
+    }
+
+    for (var i = 0; i < plaintexts.length; i++) {
+      if (plaintexts[i].isEmpty) {
+        throw VaultValidationFailure(
+          'Cannot encrypt an empty plaintext payload at batch index $i.',
+        );
+      }
+    }
+
+    final List<Uint8List> allCiphertexts = <Uint8List>[];
+    for (var offset = 0; offset < plaintexts.length; offset += _maxBatchChunkSize) {
+      final end = (offset + _maxBatchChunkSize).clamp(0, plaintexts.length);
+      final chunk = plaintexts.sublist(offset, end);
+
+      try {
+        final Object? result = await _channel.invokeMethod<Object?>(
+          'encryptPayloadsBatch',
+          <String, Object>{
+            'payloads': chunk,
+          },
+        );
+        if (result is! List<Object?>) {
+          throw VaultCryptoFailure(
+            'Native bridge encryptPayloadsBatch returned invalid type: ${result.runtimeType}',
+          );
+        }
+        if (result.length != chunk.length) {
+          throw VaultCryptoFailure(
+            'Native bridge encryptPayloadsBatch length mismatch: expected ${chunk.length}, got ${result.length}',
+          );
+        }
+        for (var j = 0; j < result.length; j++) {
+          final item = result[j];
+          final Uint8List bytes;
+          if (item is Uint8List) {
+            bytes = Uint8List.fromList(item);
+          } else if (item is List<int>) {
+            bytes = Uint8List.fromList(item);
+          } else {
+            throw VaultCryptoFailure(
+              'Native bridge encryptPayloadsBatch item[$j] returned invalid type: ${item.runtimeType}',
+            );
+          }
+          if (bytes.length < minCiphertextEnvelopeBytes) {
+            throw VaultCryptoFailure(
+              'Native bridge returned malformed ciphertext envelope (< $minCiphertextEnvelopeBytes bytes): ${bytes.length}',
+            );
+          }
+          allCiphertexts.add(bytes);
+        }
+      } on PlatformException catch (e) {
+        _handlePlatformException(e);
+      }
+    }
+    return allCiphertexts;
+  }
+
+  @override
+  Future<List<Uint8List>> decryptPayloadsBatch(List<Uint8List> ciphertexts) async {
+    if (ciphertexts.isEmpty) {
+      return const <Uint8List>[];
+    }
+
+    for (var i = 0; i < ciphertexts.length; i++) {
+      if (ciphertexts[i].length < minCiphertextEnvelopeBytes) {
+        throw VaultValidationFailure(
+          'Ciphertext payload at batch index $i length (${ciphertexts[i].length} bytes) is shorter than minimum required '
+          '($minCiphertextEnvelopeBytes bytes: 12-byte IV + 16-byte tag).',
+        );
+      }
+    }
+
+    final List<Uint8List> allPlaintexts = <Uint8List>[];
+    for (var offset = 0; offset < ciphertexts.length; offset += _maxBatchChunkSize) {
+      final end = (offset + _maxBatchChunkSize).clamp(0, ciphertexts.length);
+      final chunk = ciphertexts.sublist(offset, end);
+
+      try {
+        final Object? result = await _channel.invokeMethod<Object?>(
+          'decryptPayloadsBatch',
+          <String, Object>{
+            'payloads': chunk,
+          },
+        );
+        if (result is! List<Object?>) {
+          throw VaultCryptoFailure(
+            'Native bridge decryptPayloadsBatch returned invalid type: ${result.runtimeType}',
+          );
+        }
+        if (result.length != chunk.length) {
+          throw VaultCryptoFailure(
+            'Native bridge decryptPayloadsBatch length mismatch: expected ${chunk.length}, got ${result.length}',
+          );
+        }
+        for (var j = 0; j < result.length; j++) {
+          final item = result[j];
+          if (item is Uint8List) {
+            allPlaintexts.add(Uint8List.fromList(item));
+          } else if (item is List<int>) {
+            allPlaintexts.add(Uint8List.fromList(item));
+          } else {
+            throw VaultCryptoFailure(
+              'Native bridge decryptPayloadsBatch item[$j] returned invalid type: ${item.runtimeType}',
+            );
+          }
+        }
+      } on PlatformException catch (e) {
+        _handlePlatformException(e);
+      }
+    }
+    return allPlaintexts;
+  }
+
   @override
   Future<Uint8List> encryptConfigPayload(Uint8List plaintext) async {
     if (plaintext.isEmpty) {

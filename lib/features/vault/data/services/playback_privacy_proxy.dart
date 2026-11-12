@@ -3,8 +3,14 @@ import 'dart:developer' as dev;
 
 import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
+import 'package:musify_mu/features/player/data/esperanto/context_player_queue_client.dart';
+import 'package:musify_mu/features/player/domain/commands/options/command_options.dart';
+import 'package:musify_mu/features/player/domain/commands/set_queue_command.dart';
 import 'package:musify_mu/features/player/domain/commands/stop_command.dart';
+import 'package:musify_mu/features/player/domain/commands/update_track_command.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
+import 'package:musify_mu/features/player/domain/models/player_queue.dart';
 import 'package:musify_mu/features/vault/data/strategies/continue_masked_lock_strategy.dart';
 import 'package:musify_mu/features/vault/data/strategies/decoy_media_masking_strategy.dart';
 import 'package:musify_mu/features/vault/data/strategies/finish_current_track_lock_strategy.dart';
@@ -31,6 +37,8 @@ class PlaybackPrivacyProxy {
   final PlayerQueueMobiusController _mobiusController;
   final IVaultStorageRepository _storageRepository;
   final ContextPlayerControlClient? _controlClient;
+  final ContextPlayerPlayClient? _playClient;
+  final ContextPlayerQueueClient? _queueClient;
 
   final Map<MetadataVisibilityPolicyEnum, IMediaMaskingStrategy>
   _maskingStrategies;
@@ -52,6 +60,8 @@ class PlaybackPrivacyProxy {
     required IVaultStorageRepository storageRepository,
     IVaultAuthService? vaultAuthService,
     ContextPlayerControlClient? controlClient,
+    ContextPlayerPlayClient? playClient,
+    ContextPlayerQueueClient? queueClient,
     Map<MetadataVisibilityPolicyEnum, IMediaMaskingStrategy>? maskingStrategies,
     Map<LockPlaybackBehaviorEnum, ILockPlaybackStrategy>? lockStrategies,
     VaultConfig? initialConfig,
@@ -60,6 +70,8 @@ class PlaybackPrivacyProxy {
   })  : _mobiusController = mobiusController,
         _storageRepository = storageRepository,
         _controlClient = controlClient,
+        _playClient = playClient,
+        _queueClient = queueClient,
         _maskingStrategies = switch (maskingStrategies) {
           final m? => Map.unmodifiable(m),
           null => Map.unmodifiable({
@@ -209,36 +221,108 @@ class PlaybackPrivacyProxy {
     }
   }
 
+  /// Registers unmasked canonical vault tracks prior to queue playback so
+  /// toggling metadata masking off later can deterministically restore real metadata and artwork.
+  void registerOriginalVaultTracks(Iterable<ContextTrack> unmaskedTracks) {
+    if (_isDisposed) return;
+    for (final track in unmaskedTracks) {
+      if (_isVaultTrack(track) && track.metadata['musify_vault_masked'] != 'true') {
+        final vaultTrackId = _resolveVaultTrackId(track);
+        _originalVaultTracks[vaultTrackId] = track;
+      }
+    }
+  }
+
   /// Re-projects all vault tracks currently loaded in the active queue to propagate
-  /// updated masking or unmasked metadata to the OS MediaSession immediately.
+  /// updated masking or unmasked metadata to Dart UI and the native engine immediately.
   void _reprojectActiveQueue() {
-    final currentQueue = _mobiusController.state.playerQueue;
-    final currentTrack = currentQueue.track;
-    if (currentTrack != null && _isVaultTrack(currentTrack)) {
-      final vaultTrackId = _resolveVaultTrackId(currentTrack);
-      final original = switch (_originalVaultTracks[vaultTrackId]) {
-        final orig? => orig,
-        null => currentTrack,
-      };
-      final projectedTrack = projectTrack(original);
-      final projectedNextTracks = currentQueue.nextTracks.map((t) {
-        if (_isVaultTrack(t)) {
-          final tId = _resolveVaultTrackId(t);
-          final origT = switch (_originalVaultTracks[tId]) {
-            final o? => o,
-            null => t,
-          };
-          return projectTrack(origT);
+    final queueState = _mobiusController.state;
+    final currentQueue = queueState.playerQueue;
+    final currentTrack = switch (currentQueue.track) {
+      final t? => t,
+      null => queueState.nowPlaying,
+    };
+
+    final sourceNextTracks = currentQueue.nextTracks.isNotEmpty
+        ? currentQueue.nextTracks
+        : queueState.visibleTracks;
+
+    final hasVaultInNext = sourceNextTracks.any(_isVaultTrack);
+    final hasVaultCurrent = currentTrack != null && _isVaultTrack(currentTrack);
+    if (!hasVaultCurrent && !hasVaultInNext) {
+      return;
+    }
+
+    ContextTrack? projectedCurrent;
+    if (currentTrack != null) {
+      if (_isVaultTrack(currentTrack)) {
+        final vaultTrackId = _resolveVaultTrackId(currentTrack);
+        final original = switch (_originalVaultTracks[vaultTrackId]) {
+          final orig? => orig,
+          null => currentTrack,
+        };
+        projectedCurrent = projectTrack(original);
+      } else {
+        projectedCurrent = currentTrack;
+      }
+    }
+
+    final projectedNextTracks = sourceNextTracks.map((t) {
+      if (_isVaultTrack(t)) {
+        final tId = _resolveVaultTrackId(t);
+        final origT = switch (_originalVaultTracks[tId]) {
+          final o? => o,
+          null => t,
+        };
+        return projectTrack(origT);
+      }
+      return t;
+    }).toList(growable: false);
+
+    final builder = currentQueue.toBuilder()
+      ..nextTracks(projectedNextTracks);
+    if (projectedCurrent != null) {
+      builder.track(projectedCurrent);
+    }
+    final updatedQueue = builder.build();
+
+    _mobiusController.dispatch(QueueUpdatedEvent(updatedQueue));
+
+    if (projectedCurrent != null || projectedNextTracks.isNotEmpty) {
+      unawaited(
+        _syncNativeProjection(
+          projectedTrack: hasVaultCurrent ? projectedCurrent : null,
+          updatedQueue: hasVaultInNext ? updatedQueue : null,
+        ),
+      );
+    }
+  }
+
+  Future<void> _syncNativeProjection({
+    ContextTrack? projectedTrack,
+    PlayerQueue? updatedQueue,
+  }) async {
+    try {
+      if (_playClient case final playClient?) {
+        if (projectedTrack case final track?) {
+          await playClient.updateTrack(UpdateTrackCommand.create(track));
         }
-        return t;
-      }).toList(growable: false);
-
-      final updatedQueue = currentQueue.toBuilder()
-          .track(projectedTrack)
-          .nextTracks(projectedNextTracks)
-          .build();
-
-      _mobiusController.dispatch(QueueUpdatedEvent(updatedQueue));
+      }
+      if (_queueClient case final queueClient?) {
+        if (updatedQueue case final queue?) {
+          final command = SetQueueCommand.builder(playerQueue: queue)
+              .options(CommandOptions.builder().overrideRestrictions(true).build())
+              .build();
+          await queueClient.setQueue(command);
+        }
+      }
+    } catch (error, stack) {
+      dev.log(
+        'Native queue metadata reprojection failed: $error',
+        name: 'PlaybackPrivacyProxy',
+        error: error,
+        stackTrace: stack,
+      );
     }
   }
 

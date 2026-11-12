@@ -278,19 +278,14 @@ class _MainScreenState extends State<MainScreen> {
                       valueListenable: getIt<PlayerQueueMobiusController>(),
                       builder: (context, queueState, _) {
                         final track = queueState.nowPlaying;
+                        if (track == null) {
+                          return const SizedBox.shrink();
+                        }
                         final controller = getIt<PlayerQueueMobiusController>();
-                        final title = switch (track?.title) {
-                          final t? when t.isNotEmpty => t,
-                          _ => 'Starboy',
-                        };
-                        final artist = switch (track?.artist) {
-                          final a? when a.isNotEmpty => a,
-                          _ => 'The Weeknd, Daft Punk',
-                        };
                         return MiniPlayer(
-                          title: title,
-                          artist: artist,
-                          imageUrl: track?.imageUrl,
+                          title: track.title,
+                          artist: track.artist,
+                          imageUrl: track.imageUrl,
                           isPlaying: queueState.isPlaying,
                           queueBloc: controller,
                           currentTrack: track,

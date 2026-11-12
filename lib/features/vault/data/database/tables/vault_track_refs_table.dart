@@ -38,6 +38,12 @@ class VaultTrackRefsTable extends Table {
   /// Unencrypted track duration in milliseconds.
   IntColumn get durationMs => integer()();
 
+  /// Schema row payload version (`1` = legacy per-field blobs, `2` = single consolidated track blob).
+  IntColumn get payloadVersion => integer().withDefault(const Constant(1))();
+
+  /// Consolidated v2 AES-256-GCM encrypted track JSON containing title, artist, album, and metadata.
+  BlobColumn get encryptedTrackPayload => blob().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

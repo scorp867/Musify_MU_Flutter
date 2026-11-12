@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 
 /// Item data model for Now Playing merch rows (`merch_row_now_playing.xml`).
 class MerchItem {
@@ -114,22 +115,32 @@ class _MerchRow extends StatelessWidget {
                 width: 48,
                 height: 48,
                 color: const Color(0xFF333333),
-                child: item.imageUrl != null && item.imageUrl!.isNotEmpty
-                    ? Image.network(
-                        item.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const Icon(
-                          Icons.shopping_bag_outlined,
-                          color: Colors.white38,
-                          size: 22,
-                        ),
-                      )
-                    : const Icon(
+                child: switch (item.imageUrl) {
+                  final url? when url.isNotEmpty => AppNetworkImage(
+                      imageUrl: url,
+                      width: 48,
+                      height: 48,
+                      memCacheWidth: 96,
+                      memCacheHeight: 96,
+                      fit: BoxFit.cover,
+                      fadeInDuration: Duration.zero,
+                      placeholder: (_, _) => const Icon(
                         Icons.shopping_bag_outlined,
                         color: Colors.white38,
                         size: 22,
                       ),
+                      errorWidget: (_, _, _) => const Icon(
+                        Icons.shopping_bag_outlined,
+                        color: Colors.white38,
+                        size: 22,
+                      ),
+                    ),
+                  _ => const Icon(
+                      Icons.shopping_bag_outlined,
+                      color: Colors.white38,
+                      size: 22,
+                    ),
+                },
               ),
             ),
             const SizedBox(width: 12),

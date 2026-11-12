@@ -455,28 +455,45 @@ void main() {
       );
       expect(addTrackResult, isA<VaultSuccess<void>>());
 
-      // DIRECT SQLITE INSPECTION: Ensure raw rows contain ciphertext and ZERO plaintext
+      // DIRECT SQLITE INSPECTION: Ensure raw rows use v2 single-envelope ciphertext and ZERO plaintext
       final rawPlaylistRows = await database.customSelect('SELECT * FROM vault_playlists;').get();
       expect(rawPlaylistRows.length, 1);
       final rawRow = rawPlaylistRows.first;
 
+      expect(rawRow.read<int>('payload_version'), equals(2));
       final rawTitleBytes = rawRow.read<Uint8List>('encrypted_title');
+      final rawPlaylistPayloadBytes = rawRow.readNullable<Uint8List>('encrypted_playlist_payload');
       final rawDescBytes = rawRow.read<Uint8List>('encrypted_description');
       expect(rawTitleBytes.length, greaterThanOrEqualTo(FakeNativeVaultCryptoBridge.minCiphertextEnvelopeBytes));
-      expect(rawDescBytes.length, greaterThanOrEqualTo(FakeNativeVaultCryptoBridge.minCiphertextEnvelopeBytes));
+      expect(rawPlaylistPayloadBytes, isNotNull);
+      if (rawPlaylistPayloadBytes case final payloadBytes?) {
+        expect(payloadBytes.length, greaterThanOrEqualTo(FakeNativeVaultCryptoBridge.minCiphertextEnvelopeBytes));
+        final rawPayloadString = String.fromCharCodes(payloadBytes);
+        expect(rawPayloadString.contains(playlistTitle), isFalse);
+        expect(rawPayloadString.contains(playlistDescription), isFalse);
+      }
+      expect(rawDescBytes.isEmpty, isTrue);
 
       final rawTitleString = String.fromCharCodes(rawTitleBytes);
-      final rawDescString = String.fromCharCodes(rawDescBytes);
       expect(rawTitleString.contains(playlistTitle), isFalse);
-      expect(rawDescString.contains(playlistDescription), isFalse);
+      expect(rawTitleString.contains(playlistDescription), isFalse);
 
       final rawTrackRows = await database.customSelect('SELECT * FROM vault_track_refs;').get();
       expect(rawTrackRows.length, 1);
       final rawTrack = rawTrackRows.first;
-      final rawTrackTitleBytes = rawTrack.read<Uint8List>('encrypted_title');
-      final rawTrackTitleString = String.fromCharCodes(rawTrackTitleBytes);
-      expect(rawTrackTitleString.contains(trackTitle), isFalse);
-      expect(rawTrackTitleString.contains(trackArtist), isFalse);
+      expect(rawTrack.read<int>('payload_version'), equals(2));
+      final rawTrackPayloadBytes = rawTrack.readNullable<Uint8List>('encrypted_track_payload');
+      expect(rawTrackPayloadBytes, isNotNull);
+      if (rawTrackPayloadBytes case final payloadBytes?) {
+        expect(payloadBytes.length, greaterThanOrEqualTo(FakeNativeVaultCryptoBridge.minCiphertextEnvelopeBytes));
+        final rawTrackPayloadString = String.fromCharCodes(payloadBytes);
+        expect(rawTrackPayloadString.contains(trackTitle), isFalse);
+        expect(rawTrackPayloadString.contains(trackArtist), isFalse);
+        expect(rawTrackPayloadString.contains(trackAlbum), isFalse);
+      }
+      expect(rawTrack.read<Uint8List>('encrypted_title').isEmpty, isTrue);
+      expect(rawTrack.read<Uint8List>('encrypted_artist').isEmpty, isTrue);
+      expect(rawTrack.read<Uint8List>('encrypted_album').isEmpty, isTrue);
 
       // Decrypted read-back via repository
       final fetchResult = await storageRepository.getPlaylistById(playlistId);

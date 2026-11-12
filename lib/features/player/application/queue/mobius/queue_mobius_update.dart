@@ -50,7 +50,9 @@ Next<QueueModel, QueueEffect> queueMobiusUpdate(
 
         return _next(model.copyWith(
           currentTrack: queue.track,
+          clearCurrentTrack: queue.track == null,
           nextTrack: nextTrack,
+          clearNextTrack: nextTrack == null,
           userQueue: List.unmodifiable(userQueue),
           contextTracks: List.unmodifiable(contextTracks),
           pendingRemovalKeys: updatedPending,
@@ -63,6 +65,10 @@ Next<QueueModel, QueueEffect> queueMobiusUpdate(
     PlayerStateChangedEvent(:final playerState) => _next(model.copyWith(
         playerState: playerState,
         restrictions: playerState.restrictions,
+        clearCurrentTrack: playerState.track == null &&
+            !playerState.isPlaying &&
+            !playerState.isPaused &&
+            !playerState.isBuffering,
         isLoading: false,
       )),
 
@@ -109,7 +115,10 @@ Next<QueueModel, QueueEffect> queueMobiusUpdate(
         const ClearQueueEffect(),
       }),
 
-    ResetQueueEvent() => _next(model.copyWith(isLoading: true)),
+    ResetQueueEvent() => _next(
+        const QueueModel(isLoading: false),
+        {const ResetQueueEffect()},
+      ),
 
     ToggleShuffleEvent(:final loggingParams) => () {
         final nextShuffle = !model.isShuffling;

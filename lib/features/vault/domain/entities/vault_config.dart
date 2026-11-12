@@ -57,9 +57,17 @@ class VaultConfig extends Equatable {
   /// Keypad digit layout randomization policy for the PIN pad.
   final KeypadLayoutPolicyEnum keypadLayout;
 
+  /// Calibrated Gaussian blur sigma (px) for frosted artwork peeks and re-auth overlays.
+  final double frostedBlurSigma;
+
+  static const double minFrostedBlurSigma = 4.0;
+  static const double maxFrostedBlurSigma = 24.0;
+  static const double defaultFrostedBlurSigma = 12.0;
+
   /// Constructs a validated [VaultConfig] instance.
   ///
-  /// Throws [FormatException] if any decoy persona field is empty or whitespace.
+  /// Throws [FormatException] if any decoy persona field is empty or whitespace,
+  /// or if [frostedBlurSigma] is non-finite or outside [4.0, 24.0].
   VaultConfig({
     this.themePalette = VaultThemePalettePolicyEnum.warmEspresso,
     this.biometricAuth = BiometricAuthPolicyEnum.pinOnly,
@@ -74,6 +82,7 @@ class VaultConfig extends Equatable {
     this.gestureSensitivity = GestureSensitivityTierEnum.balanced84Percent,
     this.gestureVisibility = GestureVisibilityPolicyEnum.invisibleStealth,
     this.keypadLayout = KeypadLayoutPolicyEnum.standardOrdered,
+    this.frostedBlurSigma = defaultFrostedBlurSigma,
   }) {
     if (decoyTitle.trim().isEmpty) {
       throw const FormatException('VaultConfig decoyTitle must not be empty.');
@@ -83,6 +92,13 @@ class VaultConfig extends Equatable {
     }
     if (decoyAlbum.trim().isEmpty) {
       throw const FormatException('VaultConfig decoyAlbum must not be empty.');
+    }
+    if (!frostedBlurSigma.isFinite ||
+        frostedBlurSigma < minFrostedBlurSigma ||
+        frostedBlurSigma > maxFrostedBlurSigma) {
+      throw FormatException(
+        'VaultConfig frostedBlurSigma must be within [4.0, 24.0]: $frostedBlurSigma',
+      );
     }
   }
 
@@ -101,9 +117,15 @@ class VaultConfig extends Equatable {
     this.gestureSensitivity = GestureSensitivityTierEnum.balanced84Percent,
     this.gestureVisibility = GestureVisibilityPolicyEnum.invisibleStealth,
     this.keypadLayout = KeypadLayoutPolicyEnum.standardOrdered,
+    this.frostedBlurSigma = defaultFrostedBlurSigma,
   })  : assert(decoyTitle.length > 0, 'decoyTitle must not be empty'),
         assert(decoyArtist.length > 0, 'decoyArtist must not be empty'),
-        assert(decoyAlbum.length > 0, 'decoyAlbum must not be empty');
+        assert(decoyAlbum.length > 0, 'decoyAlbum must not be empty'),
+        assert(
+          frostedBlurSigma >= minFrostedBlurSigma &&
+              frostedBlurSigma <= maxFrostedBlurSigma,
+          'frostedBlurSigma must be within [4.0, 24.0]',
+        );
 
   /// Creates a copy of this configuration with updated fields.
   VaultConfig copyWith({
@@ -120,6 +142,7 @@ class VaultConfig extends Equatable {
     GestureSensitivityTierEnum? gestureSensitivity,
     GestureVisibilityPolicyEnum? gestureVisibility,
     KeypadLayoutPolicyEnum? keypadLayout,
+    double? frostedBlurSigma,
   }) {
     return VaultConfig(
       themePalette: themePalette ?? this.themePalette,
@@ -136,6 +159,7 @@ class VaultConfig extends Equatable {
       gestureSensitivity: gestureSensitivity ?? this.gestureSensitivity,
       gestureVisibility: gestureVisibility ?? this.gestureVisibility,
       keypadLayout: keypadLayout ?? this.keypadLayout,
+      frostedBlurSigma: frostedBlurSigma ?? this.frostedBlurSigma,
     );
   }
 
@@ -154,5 +178,6 @@ class VaultConfig extends Equatable {
         gestureSensitivity,
         gestureVisibility,
         keypadLayout,
+        frostedBlurSigma,
       ];
 }

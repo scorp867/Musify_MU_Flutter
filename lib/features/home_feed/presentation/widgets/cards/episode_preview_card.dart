@@ -20,6 +20,7 @@ class EpisodePreviewCard extends StatefulWidget {
 
 class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
   Color? _extractedColor;
+  String? _activeColorUrl;
 
   @override
   void initState() {
@@ -31,17 +32,29 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
   void didUpdateWidget(EpisodePreviewCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.item.cardImageUrl != widget.item.cardImageUrl ||
+        oldWidget.item.previewImageUrl != widget.item.previewImageUrl ||
         oldWidget.item.backgroundColorHex != widget.item.backgroundColorHex) {
+      _extractedColor = null;
+      _activeColorUrl = null;
       _resolveColor();
     }
   }
 
   void _resolveColor() {
     final colorHex = widget.item.backgroundColorHex;
-    if (colorHex != null && colorHex.isNotEmpty) return;
+    if (colorHex != null && colorHex.isNotEmpty) {
+      _activeColorUrl = null;
+      _extractedColor = null;
+      return;
+    }
 
     final url = _resolvePrimaryImageUrl(widget.item);
-    if (url == null || url.isEmpty) return;
+    if (url == null || url.isEmpty) {
+      _activeColorUrl = null;
+      _extractedColor = null;
+      return;
+    }
+    _activeColorUrl = url;
 
     ColorExtractionService? service;
     try {
@@ -65,7 +78,7 @@ class _EpisodePreviewCardState extends State<EpisodePreviewCard> {
       service
           .extractFromUrl(url)
           .then((color) {
-            if (mounted) {
+            if (mounted && _activeColorUrl == url) {
               setState(() {
                 _extractedColor = _sanitizeColor(color.primary);
               });

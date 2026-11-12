@@ -1,47 +1,13 @@
 import 'dart:async';
-import 'dart:ui';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/media/local_file_image_loader.dart';
+import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:musify_mu/features/local_music/domain/models/local_file_uri.dart';
 
 import 'player_theme.dart';
-
-class PlayerBackdrop extends StatelessWidget {
-  const PlayerBackdrop({
-    super.key,
-    this.imageUrl,
-  });
-
-  final String? imageUrl;
-
-  @override
-  Widget build(BuildContext context) {
-    final resolvedUrl = imageUrl;
-    if (resolvedUrl == null || resolvedUrl.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: RepaintBoundary(
-          child: Opacity(
-            opacity: 0.30,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-              child: PlayerArtworkImage(
-                imageUrl: resolvedUrl,
-                artworkWidth: double.infinity,
-                artworkHeight: double.infinity,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class PlayerAlbumArtwork extends StatelessWidget {
   const PlayerAlbumArtwork({
@@ -88,6 +54,7 @@ class PlayerArtworkImage extends StatefulWidget {
   const PlayerArtworkImage({
     super.key,
     this.imageUrl,
+    this.fallbackImageUrl,
     this.artworkWidth,
     this.artworkHeight,
     this.placeholderIconSize,
@@ -96,6 +63,7 @@ class PlayerArtworkImage extends StatefulWidget {
   });
 
   final String? imageUrl;
+  final String? fallbackImageUrl;
   final double? artworkWidth;
   final double? artworkHeight;
   final double? placeholderIconSize;
@@ -112,40 +80,85 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
 
   bool get _isLarge {
     final w = widget.artworkWidth;
-    return w == null || w > 100;
+    final h = widget.artworkHeight;
+    if (w == null && h == null) return true;
+    final maxDim = math.max(
+      w != null && w.isFinite ? w : 0.0,
+      h != null && h.isFinite ? h : 0.0,
+    );
+    return maxDim == 0.0 || maxDim > 220;
   }
 
-  int get _decodeWidthPx => _isLarge ? 720 : 144;
+  int _boundedDecodePx(double? dim, int fallbackPx) {
+    if (dim == null || !dim.isFinite || dim <= 0) {
+      return fallbackPx;
+    }
+    return (dim * 2.0).round().clamp(96, 720);
+  }
+
+  int get _decodeWidthPx {
+    if (_isLarge) return 720;
+    return _boundedDecodePx(widget.artworkWidth, 256);
+  }
+
+  int get _decodeHeightPx {
+    if (_isLarge) return 720;
+    return _boundedDecodePx(widget.artworkHeight, _decodeWidthPx);
+  }
 
   int get _querySize => switch (widget.size) {
     final s? => s,
-    null => _isLarge ? 800 : 200,
+    null => _isLarge ? 720 : 256,
   };
 
   @override
   void initState() {
     super.initState();
-    _resolveLocalArtwork();
+    _resolveLocalArtwork(notifyIfSyncHit: false);
   }
 
   @override
   void didUpdateWidget(covariant PlayerArtworkImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.imageUrl != widget.imageUrl ||
+        oldWidget.fallbackImageUrl != widget.fallbackImageUrl ||
         oldWidget.artworkWidth != widget.artworkWidth ||
+        oldWidget.artworkHeight != widget.artworkHeight ||
         oldWidget.size != widget.size) {
-      _resolveLocalArtwork();
+      _resolveLocalArtwork(notifyIfSyncHit: false);
     }
   }
 
-  void _resolveLocalArtwork() {
+  void _resolveLocalArtwork({required bool notifyIfSyncHit}) {
     final url = widget.imageUrl;
-    if (url == null || !LocalFileUri.isAnyLocalUri(url)) {
+    if (url == null || !LocalFileUri.isResolvableLocalArtworkUri(url)) {
+      final fallback = widget.fallbackImageUrl;
+      if (fallback != null &&
+          LocalFileUri.isResolvableLocalArtworkUri(fallback)) {
+        _resolveCandidateLocalUri(
+          fallback,
+          allowFallback: false,
+          notifyIfSyncHit: notifyIfSyncHit,
+        );
+        return;
+      }
       _activeLocalUri = null;
       _localImageProvider = null;
       return;
     }
 
+    _resolveCandidateLocalUri(
+      url,
+      allowFallback: true,
+      notifyIfSyncHit: notifyIfSyncHit,
+    );
+  }
+
+  void _resolveCandidateLocalUri(
+    String url, {
+    required bool allowFallback,
+    required bool notifyIfSyncHit,
+  }) {
     _activeLocalUri = url;
     final loader = getIt.isRegistered<LocalFileImageLoader>()
         ? getIt<LocalFileImageLoader>()
@@ -157,13 +170,37 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
 
     final querySize = _querySize;
     final decodeWidthPx = _decodeWidthPx;
+    final decodeHeightPx = _decodeHeightPx;
     final syncHit = loader.getProviderSync(
       url,
       querySize: querySize,
       decodeWidthPx: decodeWidthPx,
+      decodeHeightPx: decodeHeightPx,
     );
-    _localImageProvider = syncHit;
-    if (syncHit != null || loader.isKnownMissing(url, querySize: querySize)) {
+    if (syncHit != null) {
+      if (notifyIfSyncHit && syncHit != _localImageProvider && mounted) {
+        setState(() {
+          _localImageProvider = syncHit;
+        });
+      } else {
+        _localImageProvider = syncHit;
+      }
+      return;
+    }
+    _localImageProvider = null;
+    if (loader.isKnownMissing(url, querySize: querySize)) {
+      if (allowFallback) {
+        final fallback = widget.fallbackImageUrl;
+        if (fallback != null &&
+            fallback != url &&
+            LocalFileUri.isResolvableLocalArtworkUri(fallback)) {
+          _resolveCandidateLocalUri(
+            fallback,
+            allowFallback: false,
+            notifyIfSyncHit: notifyIfSyncHit,
+          );
+        }
+      }
       return;
     }
 
@@ -173,14 +210,29 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
             url,
             querySize: querySize,
             decodeWidthPx: decodeWidthPx,
+            decodeHeightPx: decodeHeightPx,
           )
           .then((provider) {
-            if (mounted &&
-                _activeLocalUri == url &&
-                provider != _localImageProvider) {
-              setState(() {
-                _localImageProvider = provider;
-              });
+            if (!mounted || _activeLocalUri != url) return;
+            if (provider != null) {
+              if (provider != _localImageProvider) {
+                setState(() {
+                  _localImageProvider = provider;
+                });
+              }
+              return;
+            }
+            if (allowFallback) {
+              final fallback = widget.fallbackImageUrl;
+              if (fallback != null &&
+                  fallback != url &&
+                  LocalFileUri.isResolvableLocalArtworkUri(fallback)) {
+                _resolveCandidateLocalUri(
+                  fallback,
+                  allowFallback: false,
+                  notifyIfSyncHit: true,
+                );
+              }
             }
           }),
     );
@@ -211,16 +263,19 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
     }
 
     final url = widget.imageUrl;
-    if (url != null && url.isNotEmpty && !LocalFileUri.isAnyLocalUri(url)) {
-      return Image.network(
-        url,
+    if (url != null &&
+        url.isNotEmpty &&
+        !LocalFileUri.isResolvableLocalArtworkUri(url)) {
+      return AppNetworkImage(
+        imageUrl: url,
         width: resolvedWidth,
         height: resolvedHeight,
-        cacheWidth: _decodeWidthPx,
         fit: BoxFit.cover,
-        gaplessPlayback: true,
-        filterQuality: isLarge ? FilterQuality.medium : FilterQuality.low,
-        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+        memCacheWidth: _decodeWidthPx,
+        memCacheHeight: _decodeHeightPx,
+        fadeInDuration: Duration.zero,
+        placeholder: (_, _) => _buildPlaceholder(),
+        errorWidget: (_, _, _) => _buildPlaceholder(),
       );
     }
 

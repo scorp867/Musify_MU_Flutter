@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -8,6 +7,7 @@ import 'package:musify_mu/features/vault/application/playlists/vault_playlists_c
 import 'package:musify_mu/features/vault/application/screen_privacy/screen_privacy_cubit.dart';
 import 'package:musify_mu/features/vault/application/session/vault_session_bloc.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
+import 'package:musify_mu/features/vault/domain/entities/private_track_ref.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart';
@@ -15,6 +15,8 @@ import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart'
 import 'package:musify_mu/features/vault/presentation/screens/vault_auth_screen.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/reauth_blur_overlay.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_artwork_image.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_portability_sheet.dart';
 
 /// Primary operational screen displaying encrypted private playlists.
 ///
@@ -70,7 +72,7 @@ class PrivateVaultDashboardScreen extends StatelessWidget {
     }
 
     return BlocProvider<VaultPlaylistsCubit>(
-      create: (_) => VaultPlaylistsCubit(storageRepository: repository)..loadPlaylists(),
+      create: (ctx) => VaultPlaylistsCubit(storageRepository: repository)..loadPlaylists(),
       child: _PrivateVaultDashboardScreenView(
         storageRepositoryOverride: storageRepository,
         sessionBlocOverride: sessionBloc,
@@ -94,9 +96,9 @@ class _PrivateVaultDashboardScreenView extends StatefulWidget {
   final ScreenPrivacyCubit? screenPrivacyCubitOverride;
 
   const _PrivateVaultDashboardScreenView({
-    required this.storageRepositoryOverride,
-    required this.sessionBlocOverride,
-    required this.screenPrivacyCubitOverride,
+    this.storageRepositoryOverride,
+    this.sessionBlocOverride,
+    this.screenPrivacyCubitOverride,
   });
 
   @override
@@ -169,6 +171,11 @@ class _PrivateVaultDashboardScreenViewState
     HapticFeedback.mediumImpact();
     final bloc = _resolveSessionBloc();
     bloc?.add(const VaultQuickLockRequested(reason: 'Dashboard manual quick-lock'));
+  }
+
+  void _handlePortabilityPressed() {
+    HapticFeedback.lightImpact();
+    VaultPortabilitySheet.show(context);
   }
 
   void _handleSettingsPressed() {
@@ -349,6 +356,16 @@ class _PrivateVaultDashboardScreenViewState
             ),
           ),
           actions: [
+            IconButton(
+              key: const ValueKey('vault_dashboard_portability_button'),
+              icon: Icon(
+                Icons.import_export_rounded,
+                size: 22.0,
+                color: vaultTheme.textHighSalience,
+              ),
+              tooltip: 'Import / Export',
+              onPressed: _handlePortabilityPressed,
+            ),
             IconButton(
               key: const ValueKey('vault_dashboard_quick_lock_button'),
               icon: Icon(
@@ -775,6 +792,7 @@ class _PrivatePlaylistTile extends StatelessWidget {
               // 48px square thumbnail with frosted artwork peek
               _FrostedArtworkPeekThumbnail(
                 coverUri: playlist.coverUri,
+                fallbackTracks: playlist.trackRefs,
                 vaultTheme: vaultTheme,
               ),
               const SizedBox(width: 12.0),
@@ -836,31 +854,31 @@ class _PrivatePlaylistTile extends StatelessWidget {
 /// 48px square thumbnail with frosted privacy peek mode.
 class _FrostedArtworkPeekThumbnail extends StatelessWidget {
   final String? coverUri;
+  final List<PrivateTrackRef> fallbackTracks;
   final VaultThemeData vaultTheme;
 
   const _FrostedArtworkPeekThumbnail({
     required this.coverUri,
+    this.fallbackTracks = const <PrivateTrackRef>[],
     required this.vaultTheme,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (coverUri case final uri? when uri.trim().isNotEmpty) {
-      final ImageProvider imageProvider;
-      if (uri.startsWith('http://') || uri.startsWith('https://')) {
-        imageProvider = ResizeImage(
-          NetworkImage(uri),
-          width: 96,
-          height: 96,
-        );
-      } else {
-        imageProvider = ResizeImage(
-          FileImage(File(uri)),
-          width: 96,
-          height: 96,
-        );
-      }
+    final hasExplicitCover = switch (coverUri) {
+      final uri? when uri.trim().isNotEmpty => true,
+      _ => false,
+    };
+    final hasArtworkCandidate = hasExplicitCover ||
+        fallbackTracks.take(4).any((track) {
+          final hasArtUri = switch (track.artworkUri) {
+            final art? when art.trim().isNotEmpty => true,
+            _ => false,
+          };
+          return hasArtUri || track.sourceType != TrackSourceTypeEnum.spotify;
+        });
 
+    if (hasArtworkCandidate) {
       return SizedBox(
         width: 48.0,
         height: 48.0,
@@ -869,14 +887,21 @@ class _FrostedArtworkPeekThumbnail extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image(
-                image: imageProvider,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => _buildFallbackThumbnail(),
+              VaultArtworkImage(
+                imageUrl: coverUri,
+                fallbackTracks: fallbackTracks,
+                width: 48.0,
+                height: 48.0,
+                placeholderIconSize: 20.0,
+                placeholderIcon: Icons.library_music_outlined,
+                vaultTheme: vaultTheme,
               ),
               ClipRect(
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 4.0, sigmaY: 4.0),
+                  filter: ImageFilter.blur(
+                    sigmaX: vaultTheme.blurSigma,
+                    sigmaY: vaultTheme.blurSigma,
+                  ),
                   child: Container(
                     color: vaultTheme.overlayTint.withValues(alpha: 0.35),
                     alignment: Alignment.center,

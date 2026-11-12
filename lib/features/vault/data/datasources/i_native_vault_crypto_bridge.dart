@@ -54,6 +54,21 @@ abstract interface class INativeVaultCryptoBridge {
   /// the session is locked, or the native KeyStore has been invalidated.
   Future<Uint8List> decryptPayload(Uint8List ciphertext);
 
+  /// Encrypts multiple plaintext buffers in a single native KeyStore batch transaction.
+  ///
+  /// Returns ciphertexts in the exact positional order of [plaintexts], each formatted as
+  /// `[12-byte IV + AES-GCM Ciphertext + 16-byte Tag]`.
+  /// Preserves all [encryptPayload] security guarantees, throwing [VaultValidationFailure]
+  /// if any entry is empty or [VaultCryptoFailure] if session is locked / key missing.
+  Future<List<Uint8List>> encryptPayloadsBatch(List<Uint8List> plaintexts);
+
+  /// Decrypts multiple ciphertext envelopes in a single native KeyStore batch transaction.
+  ///
+  /// Returns plaintexts in the exact positional order of [ciphertexts].
+  /// Throws [VaultValidationFailure] if any entry is smaller than 28 bytes or
+  /// [VaultCryptoFailure] if authentication fails or session is locked.
+  Future<List<Uint8List>> decryptPayloadsBatch(List<Uint8List> ciphertexts);
+
   /// Encrypts configuration [plaintext] bytes using native AES-256-GCM backed by the Android KeyStore hardware key.
   ///
   /// Does NOT require user session unlock authorization, permitting configuration persistence at any time

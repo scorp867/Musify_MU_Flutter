@@ -67,6 +67,11 @@ final class ClearQueueEffect extends QueueEffect {
   const ClearQueueEffect();
 }
 
+/// Resets the entire playback queue and active track cleanly (empty context & user queue).
+final class ResetQueueEffect extends QueueEffect {
+  const ResetQueueEffect();
+}
+
 /// Sets entire queue on native engine (1:1 with Spotify `nax0.java`).
 final class SetQueueEffect extends QueueEffect {
   final PlayerQueue queue;

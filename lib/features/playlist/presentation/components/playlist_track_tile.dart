@@ -61,6 +61,7 @@ class PlaylistTrackTile extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
+      onLongPress: onMoreTapped,
       splashColor: const Color(0x33FFFFFF),
       highlightColor: const Color(0x1FFFFFFF),
       child: Container(
@@ -206,12 +207,21 @@ class PlaylistTrackTile extends StatelessWidget {
   Widget _buildEpisodeTile(BuildContext context) {
     final titleColor = isActiveTrack ? const Color(0xFF1DB954) : Colors.white;
     final hasListenedProgress = item.playbackPositionMs > 0 && item.durationMs > 0;
-    final progressFraction = hasListenedProgress
-        ? (item.playbackPositionMs / item.durationMs).clamp(0.0, 1.0)
-        : 0.0;
+    double progressFraction = 0.0;
+    if (hasListenedProgress) {
+      final rawFraction = item.playbackPositionMs / item.durationMs;
+      if (rawFraction < 0.0) {
+        progressFraction = 0.0;
+      } else if (rawFraction > 1.0) {
+        progressFraction = 1.0;
+      } else {
+        progressFraction = rawFraction;
+      }
+    }
 
     return InkWell(
       onTap: onTap,
+      onLongPress: onMoreTapped,
       splashColor: const Color(0x33FFFFFF),
       highlightColor: const Color(0x1FFFFFFF),
       child: Container(
@@ -466,6 +476,7 @@ class PlaylistTrackTile extends StatelessWidget {
   Widget _buildShowTile(BuildContext context) {
     return InkWell(
       onTap: onTap,
+      onLongPress: onMoreTapped,
       splashColor: const Color(0x33FFFFFF),
       highlightColor: const Color(0x1FFFFFFF),
       child: Container(

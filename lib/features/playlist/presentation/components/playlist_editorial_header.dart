@@ -2,6 +2,7 @@ library;
 
 import 'package:flutter/material.dart';
 import '../../../../core/ui/icons/spotify_encore_icons.dart';
+import '../../../../core/widgets/app_network_image.dart';
 import '../../domain/models/playlist_metadata.dart';
 
 /// 1:1 replica of Spotify's Editorial / Curated Playlist Header
@@ -138,11 +139,16 @@ class PlaylistEditorialHeader extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: metadata.picture.isNotEmpty
-                  ? Image.network(
-                      metadata.picture,
+                  ? AppNetworkImage(
+                      imageUrl: metadata.picture,
+                      width: double.infinity,
+                      height: 220,
+                      memCacheWidth: 720,
+                      memCacheHeight: 440,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          _buildPlaceholderCover(),
+                      fadeInDuration: Duration.zero,
+                      placeholder: (_, _) => _buildPlaceholderCover(),
+                      errorWidget: (_, _, _) => _buildPlaceholderCover(),
                     )
                   : _buildPlaceholderCover(),
             ),

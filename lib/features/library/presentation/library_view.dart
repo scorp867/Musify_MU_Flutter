@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,8 @@ import 'package:musify_mu/features/auth/domain/entities/auth_state.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/library/domain/models/library_view_data.dart';
 import 'package:musify_mu/core/navigation/spotify_uri_navigator.dart';
+import 'package:musify_mu/features/player/presentation/models/more_options_entity.dart';
+import 'package:musify_mu/features/player/presentation/widgets/more_options_bottom_sheet.dart';
 
 /// The Library tab view.
 class LibraryView extends StatefulWidget {
@@ -231,18 +234,22 @@ class _LibraryHeader extends StatelessWidget {
             authState is Authenticated ? authState.user : null;
 
         Widget avatar;
-        if (user?.avatarUrl != null) {
+        if (user?.avatarUrl case final avatarUrl? when avatarUrl.isNotEmpty) {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(user!.avatarUrl!),
+            backgroundImage: CachedNetworkImageProvider(
+              avatarUrl,
+              maxWidth: 80,
+              maxHeight: 80,
+            ),
           );
-        } else if (user?.displayName != null) {
+        } else if (user?.displayName case final displayName? when displayName.isNotEmpty) {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1DB954),
             child: Text(
-              user!.displayName[0].toUpperCase(),
+              displayName[0].toUpperCase(),
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -447,6 +454,10 @@ class _LibraryItemTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       onTap: () => SpotifyUriNavigator.openUri(context, item.uri),
+      onLongPress: () => MoreOptionsBottomSheet.show(
+        context,
+        entity: LibraryItemOptionsEntity(item),
+      ),
     );
   }
 
@@ -475,12 +486,12 @@ class _LibraryItemTile extends StatelessWidget {
       );
     }
 
-    if (item.imageUrl != null && item.imageUrl!.isNotEmpty) {
+    if (item.imageUrl case final imageUrl? when imageUrl.isNotEmpty) {
       return ClipRRect(
         borderRadius:
             BorderRadius.circular(isArtist ? 28 : 4),
         child: AppNetworkImage(
-          imageUrl: item.imageUrl!,
+          imageUrl: imageUrl,
           fit: BoxFit.cover,
           memCacheWidth: 140,
           memCacheHeight: 140,
@@ -514,12 +525,17 @@ class _LibraryItemTile extends StatelessWidget {
 
   String _buildSubtitle() {
     if (item.uri == 'spotify:collection:tracks') {
-      final count = item.trackCount ?? 0;
+      final count = switch (item.trackCount) {
+        final c? => c,
+        null => 0,
+      };
       return 'Playlist \u2022 $count songs';
     }
     if (item.type == 'artist') return 'Artist';
     if (item.type == 'show') return 'Podcast';
-    if (item.ownerName != null) return 'Playlist \u2022 ${item.ownerName}';
+    if (item.ownerName case final owner? when owner.isNotEmpty) {
+      return 'Playlist \u2022 $owner';
+    }
     return 'Playlist';
   }
 }

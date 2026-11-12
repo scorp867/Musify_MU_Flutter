@@ -78,6 +78,24 @@ final class FakeAdversarialCryptoBridge implements INativeVaultCryptoBridge {
   }
 
   @override
+  Future<List<Uint8List>> encryptPayloadsBatch(List<Uint8List> plaintexts) async {
+    final result = <Uint8List>[];
+    for (final plaintext in plaintexts) {
+      result.add(await encryptPayload(plaintext));
+    }
+    return result;
+  }
+
+  @override
+  Future<List<Uint8List>> decryptPayloadsBatch(List<Uint8List> ciphertexts) async {
+    final result = <Uint8List>[];
+    for (final ciphertext in ciphertexts) {
+      result.add(await decryptPayload(ciphertext));
+    }
+    return result;
+  }
+
+  @override
   Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey) async {
     if (!_hasKey) {
       throw const VaultCryptoFailure('Master key has been destroyed.');

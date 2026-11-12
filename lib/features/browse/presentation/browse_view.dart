@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
 import 'package:flutter/material.dart';
@@ -322,11 +323,15 @@ class _BrowseHeader extends StatelessWidget {
 
         // Trailing: user avatar (taps to open drawer, same as home)
         Widget avatar;
-        if (user?.avatarUrl case final avatarUrl?) {
+        if (user?.avatarUrl case final avatarUrl? when avatarUrl.isNotEmpty) {
           avatar = CircleAvatar(
             radius: 20,
             backgroundColor: const Color(0xFF1E293B),
-            backgroundImage: NetworkImage(avatarUrl),
+            backgroundImage: CachedNetworkImageProvider(
+              avatarUrl,
+              maxWidth: 80,
+              maxHeight: 80,
+            ),
           );
         } else if (user?.displayName case final displayName?) {
           avatar = CircleAvatar(

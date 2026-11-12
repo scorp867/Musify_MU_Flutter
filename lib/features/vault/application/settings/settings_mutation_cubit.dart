@@ -243,6 +243,39 @@ class SettingsMutationCubit extends Cubit<SettingsMutationState> {
     });
   }
 
+  /// Explicitly validates, cancels pending debouncers, and persists the full decoy persona.
+  Future<bool> saveDecoyPersona({
+    required String title,
+    required String artist,
+    required String album,
+  }) async {
+    _decoyDebounceTimer?.cancel();
+    _decoyDebounceTimer = null;
+    _pendingDecoyTitle = null;
+    _pendingDecoyArtist = null;
+    _pendingDecoyAlbum = null;
+
+    final trimmedTitle = title.trim();
+    final trimmedArtist = artist.trim();
+    final trimmedAlbum = album.trim();
+
+    if (trimmedTitle.isEmpty ||
+        trimmedArtist.isEmpty ||
+        trimmedAlbum.isEmpty) {
+      throw const FormatException(
+        'Decoy persona fields must not be empty or whitespace.',
+      );
+    }
+
+    return mutatePolicy(
+      (current) => current.copyWith(
+        decoyTitle: trimmedTitle,
+        decoyArtist: trimmedArtist,
+        decoyAlbum: trimmedAlbum,
+      ),
+    );
+  }
+
   /// Requests authorization to execute a sensitive configuration mutation.
   ///
   /// Transitions state to [SettingsMutationAwaitingStepUpAuthState].

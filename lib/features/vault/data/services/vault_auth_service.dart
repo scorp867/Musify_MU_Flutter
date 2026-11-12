@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:musify_mu/features/vault/data/cache/vault_session_cache.dart';
 import 'package:musify_mu/features/vault/data/datasources/i_native_vault_crypto_bridge.dart';
 import 'package:musify_mu/features/vault/data/services/vault_pbkdf2_derivation.dart';
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
@@ -38,6 +39,7 @@ class VaultAuthService implements IVaultAuthService {
   final IMonotonicClock _monotonicClock;
   final FlutterSecureStorage _secureStorage;
   final VaultPbkdf2Derivation _pbkdf2Derivation;
+  final VaultSessionCache? _sessionCache;
 
   final StreamController<CryptoEngineState> _cryptoStateController;
 
@@ -52,6 +54,7 @@ class VaultAuthService implements IVaultAuthService {
     required IMonotonicClock monotonicClock,
     FlutterSecureStorage? secureStorage,
     VaultPbkdf2Derivation? pbkdf2Derivation,
+    VaultSessionCache? sessionCache,
     CryptoEngineState initialCryptoState = const CryptoEngineUnprovisionedState(),
   })  : _cryptoBridge = cryptoBridge,
         _storageRepository = storageRepository,
@@ -64,6 +67,7 @@ class VaultAuthService implements IVaultAuthService {
           final p? => p,
           null => const VaultPbkdf2Derivation(),
         },
+        _sessionCache = sessionCache,
         _cryptoStateController = StreamController<CryptoEngineState>.broadcast(),
         _currentCryptoState = initialCryptoState,
         _consecutiveFailedAttempts = 0,
@@ -525,6 +529,7 @@ class VaultAuthService implements IVaultAuthService {
 
   @override
   void clearSessionKeysFromRam() {
+    _sessionCache?.clear();
     _wipeTransientBuffers();
     unawaited(_cryptoBridge.lockSession());
     _emitCryptoState(const CryptoEngineKeyWrappedAtRestState());
@@ -532,6 +537,7 @@ class VaultAuthService implements IVaultAuthService {
 
   /// Closes internal broadcast streams.
   Future<void> close() async {
+    _sessionCache?.clear();
     _wipeTransientBuffers();
     await _cryptoStateController.close();
   }

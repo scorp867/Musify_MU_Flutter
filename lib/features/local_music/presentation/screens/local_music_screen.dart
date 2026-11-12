@@ -15,6 +15,8 @@ import 'package:musify_mu/features/player/domain/models/context.dart';
 import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
+import 'package:musify_mu/features/player/presentation/models/more_options_entity.dart';
+import 'package:musify_mu/features/player/presentation/widgets/more_options_bottom_sheet.dart';
 import 'package:musify_mu/features/player/presentation/widgets/player_artwork.dart';
 
 class LocalMusicScreen extends StatelessWidget {
@@ -182,6 +184,10 @@ class _LocalFileRow extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 16),
       child: GestureDetector(
         onTap: onTap,
+        onLongPress: () => MoreOptionsBottomSheet.show(
+          context,
+          entity: LocalTrackOptionsEntity(file),
+        ),
         behavior: HitTestBehavior.opaque,
         child: Row(
           children: [
@@ -227,6 +233,19 @@ class _LocalFileRow extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                color: Colors.white70,
+                size: 20,
+              ),
+              onPressed: () => MoreOptionsBottomSheet.show(
+                context,
+                entity: LocalTrackOptionsEntity(file),
+              ),
+              tooltip: 'More options',
+            ),
           ],
         ),
       ),

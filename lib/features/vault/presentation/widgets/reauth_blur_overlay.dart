@@ -134,8 +134,16 @@ class ReauthBlurOverlay extends StatelessWidget {
   }
 
   VaultThemeData _resolveVaultTheme(BuildContext context) {
+    final inherited = VaultTheme.maybeOf(context);
     if (paletteOverride case final palette?) {
-      return VaultThemeData.fromPalette(palette);
+      final blurSigma = switch (inherited?.blurSigma) {
+        final s? => s,
+        null => VaultThemeData.defaultBlurSigma,
+      };
+      return VaultThemeData.fromPalette(palette, blurSigma: blurSigma);
+    }
+    if (inherited case final resolved?) {
+      return resolved;
     }
     return VaultTheme.of(context);
   }
@@ -203,7 +211,10 @@ class _ReauthFrostedShieldState extends State<_ReauthFrostedShield> {
       onTap: () {}, // Absorbs taps on the background so they do not penetrate to child
       child: ClipRect(
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12.0, sigmaY: 12.0),
+          filter: ImageFilter.blur(
+            sigmaX: vaultTheme.blurSigma,
+            sigmaY: vaultTheme.blurSigma,
+          ),
           child: Container(
             color: vaultTheme.overlayTint,
             alignment: Alignment.center,

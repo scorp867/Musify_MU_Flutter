@@ -59,6 +59,15 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bridgeScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val isSessionUnlocked = AtomicBoolean(false)
+    private val keyLock = Any()
+    @Volatile
+    private var cachedMasterKey: SecretKey? = null
+
+    private fun clearCachedMasterKey() {
+        synchronized(keyLock) {
+            cachedMasterKey = null
+        }
+    }
 
     fun register(messenger: BinaryMessenger) {
         channel = MethodChannel(messenger, CHANNEL_NAME).apply {
@@ -72,6 +81,7 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         channel = null
         bridgeScope.cancel()
         isSessionUnlocked.set(false)
+        clearCachedMasterKey()
         Log.i(TAG, "VaultHardwareKeyStoreBridge detached and scope canceled")
     }
 
@@ -90,6 +100,9 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
                 val forceOverwrite = call.argument<Boolean>("forceOverwrite") ?: false
                 bridgeScope.launch {
                     try {
+                        if (forceOverwrite) {
+                            clearCachedMasterKey()
+                        }
                         withContext(Dispatchers.IO) {
                             val keyStore = getKeyStore()
                             if (keyStore.containsAlias(MASTER_KEY_ALIAS) && !forceOverwrite) {
@@ -173,6 +186,54 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
                 }
             }
 
+            "encryptPayloadsBatch" -> {
+                val payloads = extractByteArrayList(call, "payloads")
+                if (payloads == null) {
+                    result.error("INVALID_ARGUMENT", "Payloads list of byte arrays is required for batch encryption", null)
+                    return
+                }
+
+                if (!isSessionUnlocked.get()) {
+                    result.error("CRYPTO_FAULT_SESSION_LOCKED", "Vault session is locked. Authenticate first.", null)
+                    return
+                }
+
+                bridgeScope.launch {
+                    try {
+                        val ciphertexts = withContext(Dispatchers.IO) {
+                            encryptPayloadsBatchInternal(payloads)
+                        }
+                        result.success(ciphertexts)
+                    } catch (e: Exception) {
+                        handleException(e, result)
+                    }
+                }
+            }
+
+            "decryptPayloadsBatch" -> {
+                val payloads = extractByteArrayList(call, "payloads")
+                if (payloads == null) {
+                    result.error("INVALID_ARGUMENT", "Payloads list of byte arrays is required for batch decryption", null)
+                    return
+                }
+
+                if (!isSessionUnlocked.get()) {
+                    result.error("CRYPTO_FAULT_SESSION_LOCKED", "Vault session is locked. Authenticate first.", null)
+                    return
+                }
+
+                bridgeScope.launch {
+                    try {
+                        val plaintexts = withContext(Dispatchers.IO) {
+                            decryptPayloadsBatchInternal(payloads)
+                        }
+                        result.success(plaintexts)
+                    } catch (e: Exception) {
+                        handleException(e, result)
+                    }
+                }
+            }
+
             "encryptConfigPayload" -> {
                 val payload = extractByteArray(call, "payload")
                 if (payload == null) {
@@ -226,18 +287,20 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
 
             "lockSession" -> {
                 isSessionUnlocked.set(false)
+                clearCachedMasterKey()
                 result.success(true)
             }
 
             "destroyMasterKey" -> {
                 bridgeScope.launch {
                     try {
+                        isSessionUnlocked.set(false)
+                        clearCachedMasterKey()
                         withContext(Dispatchers.IO) {
                             deleteKeyFromKeyStore(MASTER_KEY_ALIAS)
                             deleteKeyFromKeyStore(BIOMETRIC_KEY_ALIAS)
                             deleteKeyFromKeyStore(PEPPER_KEY_ALIAS)
                         }
-                        isSessionUnlocked.set(false)
                         result.success(true)
                     } catch (e: Exception) {
                         handleException(e, result)
@@ -254,6 +317,18 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         if (arg != null) return arg
         val raw = call.arguments
         return if (raw is ByteArray) raw else null
+    }
+
+    private fun extractByteArrayList(call: MethodCall, key: String): List<ByteArray>? {
+        val rawList = call.argument<List<*>>(key) ?: return null
+        val result = ArrayList<ByteArray>(rawList.size)
+        for (item in rawList) {
+            if (item !is ByteArray) {
+                return null
+            }
+            result.add(item)
+        }
+        return result
     }
 
     private fun getKeyStore(): KeyStore {
@@ -428,12 +503,31 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         }
     }
 
-    private fun encryptPayloadInternal(plaintext: ByteArray): ByteArray {
+    private fun loadMasterKeyFromKeyStore(): SecretKey {
         val keyStore = getKeyStore()
-        val key = keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
+        return keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
             ?: throw IllegalStateException("Master key not found in KeyStore. Key generation required.")
+    }
 
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+    private fun resolveMasterKey(): SecretKey {
+        if (isSessionUnlocked.get()) {
+            cachedMasterKey?.let { return it }
+            synchronized(keyLock) {
+                cachedMasterKey?.let { return it }
+                val loaded = loadMasterKeyFromKeyStore()
+                if (isSessionUnlocked.get()) {
+                    cachedMasterKey = loaded
+                }
+                return loaded
+            }
+        }
+        return loadMasterKeyFromKeyStore()
+    }
+
+    private fun encryptWithCipher(cipher: Cipher, key: SecretKey, plaintext: ByteArray): ByteArray {
+        if (plaintext.isEmpty()) {
+            throw IllegalArgumentException("Plaintext payload must not be empty.")
+        }
         cipher.init(Cipher.ENCRYPT_MODE, key)
 
         val iv = cipher.iv ?: throw IllegalStateException("Cipher failed to generate IV")
@@ -447,7 +541,7 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         return buffer.array()
     }
 
-    private fun decryptPayloadInternal(payload: ByteArray): ByteArray {
+    private fun decryptWithCipher(cipher: Cipher, key: SecretKey, payload: ByteArray): ByteArray {
         val minRequiredLength = GCM_IV_LENGTH_BYTES + (GCM_TAG_LENGTH_BITS / 8) // 12 + 16 = 28 bytes
         if (payload.size < minRequiredLength) {
             throw IllegalArgumentException(
@@ -455,18 +549,51 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
             )
         }
 
-        val keyStore = getKeyStore()
-        val key = keyStore.getKey(MASTER_KEY_ALIAS, null) as? SecretKey
-            ?: throw IllegalStateException("Master key not found in KeyStore. Key generation required.")
-
         val iv = payload.copyOfRange(0, GCM_IV_LENGTH_BYTES)
         val encryptedData = payload.copyOfRange(GCM_IV_LENGTH_BYTES, payload.size)
 
         val spec = GCMParameterSpec(GCM_TAG_LENGTH_BITS, iv)
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key, spec)
 
         return cipher.doFinal(encryptedData)
+    }
+
+    private fun encryptPayloadInternal(plaintext: ByteArray): ByteArray {
+        val key = resolveMasterKey()
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        return encryptWithCipher(cipher, key, plaintext)
+    }
+
+    private fun decryptPayloadInternal(payload: ByteArray): ByteArray {
+        val key = resolveMasterKey()
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        return decryptWithCipher(cipher, key, payload)
+    }
+
+    private fun encryptPayloadsBatchInternal(plaintexts: List<ByteArray>): ArrayList<ByteArray> {
+        if (plaintexts.isEmpty()) {
+            return ArrayList(0)
+        }
+        val key = resolveMasterKey()
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val results = ArrayList<ByteArray>(plaintexts.size)
+        for (plaintext in plaintexts) {
+            results.add(encryptWithCipher(cipher, key, plaintext))
+        }
+        return results
+    }
+
+    private fun decryptPayloadsBatchInternal(payloads: List<ByteArray>): ArrayList<ByteArray> {
+        if (payloads.isEmpty()) {
+            return ArrayList(0)
+        }
+        val key = resolveMasterKey()
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val results = ArrayList<ByteArray>(payloads.size)
+        for (payload in payloads) {
+            results.add(decryptWithCipher(cipher, key, payload))
+        }
+        return results
     }
 
     private fun dispatchBiometricPrompt(

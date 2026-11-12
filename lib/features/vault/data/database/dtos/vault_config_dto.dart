@@ -31,6 +31,7 @@ abstract final class VaultConfigDto {
       'gestureSensitivity': config.gestureSensitivity.id,
       'gestureVisibility': config.gestureVisibility.id,
       'keypadLayout': config.keypadLayout.id,
+      'frostedBlurSigma': config.frostedBlurSigma,
     };
   }
 
@@ -107,6 +108,22 @@ abstract final class VaultConfigDto {
       throw const FormatException('Missing or invalid "keypadLayout" in VaultConfigDto.');
     }
 
+    double frostedBlurSigma = VaultConfig.defaultFrostedBlurSigma;
+    if (json.containsKey('frostedBlurSigma')) {
+      final blurRaw = json['frostedBlurSigma'];
+      if (blurRaw is! num || !blurRaw.isFinite) {
+        throw const FormatException('Invalid "frostedBlurSigma" in VaultConfigDto.');
+      }
+      final parsedBlur = blurRaw.toDouble();
+      if (parsedBlur < VaultConfig.minFrostedBlurSigma ||
+          parsedBlur > VaultConfig.maxFrostedBlurSigma) {
+        throw FormatException(
+          'Out-of-range "frostedBlurSigma" in VaultConfigDto: $parsedBlur',
+        );
+      }
+      frostedBlurSigma = parsedBlur;
+    }
+
     return VaultConfig(
       themePalette: VaultThemePalettePolicyEnum.fromId(themePaletteRaw),
       biometricAuth: BiometricAuthPolicyEnum.fromId(biometricAuthRaw),
@@ -121,6 +138,7 @@ abstract final class VaultConfigDto {
       gestureSensitivity: GestureSensitivityTierEnum.fromId(gestureSensitivityRaw),
       gestureVisibility: GestureVisibilityPolicyEnum.fromId(gestureVisibilityRaw),
       keypadLayout: KeypadLayoutPolicyEnum.fromId(keypadLayoutRaw),
+      frostedBlurSigma: frostedBlurSigma,
     );
   }
 }

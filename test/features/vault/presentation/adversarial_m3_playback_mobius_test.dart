@@ -18,6 +18,7 @@ import 'package:musify_mu/features/vault/data/services/vault_audio_playback_serv
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_track_ref.dart';
+import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_monotonic_clock.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_screen_privacy_controller.dart';
@@ -105,6 +106,13 @@ class FakeIsolationManager implements IVaultMediaIsolationManager {
 class FakePlaybackPrivacyProxy implements PlaybackPrivacyProxy {
   String? lastActivatedTrackId;
   ContextTrack? lastActivatedTrack;
+  final VaultConfig _fakeConfig = const VaultConfig.constant();
+
+  @override
+  VaultConfig get cachedConfig => _fakeConfig;
+
+  @override
+  void registerOriginalVaultTracks(Iterable<ContextTrack> unmaskedTracks) {}
 
   @override
   void notifyVaultTrackActivated({
@@ -280,7 +288,10 @@ void main() {
       final context = mobiusController.lastPlayedContext;
       expect(context, isNotNull);
       expect(context!.uri, equals('spotify:internal:vault-playlist:${testPlaylist.id}'));
-      expect(context.metadata[ContextTrackMetadata.keyTitle], equals('Private Studio Masters'));
+      expect(
+        context.metadata[ContextTrackMetadata.keyTitle],
+        equals(privacyProxy.cachedConfig.decoyAlbum),
+      );
       expect(context.metadata['is_vault_context'], equals('true'));
 
       // Verify tracks in context

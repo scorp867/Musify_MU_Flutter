@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:musify_mu/features/vault/data/cache/vault_session_cache.dart';
+import 'package:musify_mu/features/vault/data/database/dtos/vault_track_metadata_dto.dart';
 import 'package:musify_mu/features/vault/data/database/vault_database.dart';
 import 'package:musify_mu/features/vault/data/repositories/vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_point.dart';
@@ -561,5 +565,265 @@ void main() {
       final hasKey = await cryptoBridge.hasMasterKey();
       expect(hasKey, isFalse);
     });
+  });
+
+  group('VaultStorageRepository - v2 Batching, VaultSessionCache & Lazy Repackaging', () {
+    test(
+      'batches 400-track writes and cold reads into single batch crypto operations and serves warm reads from RAM cache',
+      () async {
+        final sessionCache = VaultSessionCache();
+        final cachedRepo = VaultStorageRepository(
+          database: database,
+          cryptoBridge: cryptoBridge,
+          sessionCache: sessionCache,
+        );
+
+        final createResult = await cachedRepo.createPlaylist(
+          name: '400 Song Vault Mix',
+          description: 'Benchmark playlist',
+          coverUri: 'https://cdn.example.com/mix.jpg',
+        );
+        final String playlistId;
+        if (createResult case VaultSuccess(:final data)) {
+          playlistId = data.id;
+        } else {
+          fail('Expected playlist creation to succeed');
+        }
+
+        cryptoBridge.encryptBatchCallCount = 0;
+        final fourHundredTracks = List<PrivateTrackRef>.generate(
+          400,
+          (i) => PrivateTrackRef(
+            id: 'batch_track_$i',
+            playlistId: playlistId,
+            trackUri: 'spotify:track:batch_$i',
+            title: 'Track Title $i',
+            artistName: 'Artist ${i % 25}',
+            albumTitle: 'Album ${i % 10}',
+            durationMs: 180000 + i * 100,
+            sourceType: TrackSourceTypeEnum.spotify,
+            sortOrder: 0,
+            addedAtEpochMs: 1700000000000 + i,
+          ),
+          growable: false,
+        );
+
+        final addBatchResult = await cachedRepo.addTracksToPlaylist(
+          playlistId: playlistId,
+          trackRefs: fourHundredTracks,
+        );
+        expect(addBatchResult, isA<VaultSuccess<void>>());
+        expect(cryptoBridge.encryptBatchCallCount, equals(1));
+
+        // Clear RAM cache to simulate cold app start against existing DB rows.
+        sessionCache.clear();
+        expect(cachedRepo.getCachedPlaylistSync(playlistId), isNull);
+        cryptoBridge.decryptBatchCallCount = 0;
+
+        final coldReadResult = await cachedRepo.getPlaylistById(playlistId);
+        expect(coldReadResult, isA<VaultSuccess<PrivatePlaylist>>());
+        expect(cryptoBridge.decryptBatchCallCount, equals(1));
+        if (coldReadResult case VaultSuccess(:final data)) {
+          expect(data.trackRefs.length, equals(400));
+          expect(data.trackRefs.first.title, equals('Track Title 0'));
+          expect(data.trackRefs.first.sortOrder, equals(0));
+          expect(data.trackRefs.last.title, equals('Track Title 399'));
+          expect(data.trackRefs.last.sortOrder, equals(399));
+        }
+
+        // Subsequent reads (sync and async) hit RAM cache with zero crypto calls.
+        final syncHit = cachedRepo.getCachedPlaylistSync(playlistId);
+        expect(syncHit, isNotNull);
+        expect(syncHit?.trackRefs.length, equals(400));
+
+        final warmReadResult = await cachedRepo.getPlaylistById(playlistId);
+        expect(warmReadResult, isA<VaultSuccess<PrivatePlaylist>>());
+        expect(cryptoBridge.decryptBatchCallCount, equals(1));
+
+        // Populate full snapshot cache via getPlaylists() and verify sync hit.
+        final listResult = await cachedRepo.getPlaylists();
+        expect(listResult, isA<VaultSuccess<List<PrivatePlaylist>>>());
+        final syncList = cachedRepo.getCachedPlaylistsSync();
+        expect(syncList, isNotNull);
+        expect(syncList?.length, equals(1));
+        final snapshotGenCalls = cryptoBridge.decryptBatchCallCount;
+        await cachedRepo.getPlaylists();
+        expect(cryptoBridge.decryptBatchCallCount, equals(snapshotGenCalls));
+      },
+    );
+
+    test(
+      'clears VaultSessionCache on lock or purge and rejects stale-generation cache writes',
+      () async {
+        final sessionCache = VaultSessionCache();
+        final cachedRepo = VaultStorageRepository(
+          database: database,
+          cryptoBridge: cryptoBridge,
+          sessionCache: sessionCache,
+        );
+
+        final createResult = await cachedRepo.createPlaylist(
+          name: 'Secret Cache Playlist',
+          description: 'Sensitive metadata',
+        );
+        final PrivatePlaylist created;
+        if (createResult case VaultSuccess(:final data)) {
+          created = data;
+        } else {
+          fail('Playlist creation failed');
+        }
+
+        expect(cachedRepo.getCachedPlaylistSync(created.id), isNotNull);
+
+        // Capture generation before lock/clear.
+        final staleGen = sessionCache.generation;
+        sessionCache.clear();
+        expect(sessionCache.generation, greaterThan(staleGen));
+        expect(cachedRepo.getCachedPlaylistSync(created.id), isNull);
+
+        // Attempt stale-generation writes from simulated superseded async reads.
+        sessionCache.putPlaylistIfGeneration(staleGen, created);
+        sessionCache.putAllPlaylistsIfGeneration(
+          staleGen,
+          <PrivatePlaylist>[created],
+        );
+        sessionCache.putSandboxFilePathsIfGeneration(
+          staleGen,
+          <String, String>{'t1': '/vault/.nomedia/t1.mp3'},
+        );
+        expect(sessionCache.getPlaylist(created.id), isNull);
+        expect(sessionCache.getAllPlaylistsSnapshot(), isNull);
+        expect(sessionCache.getSandboxFilePath('t1'), isNull);
+
+        // Repopulate and verify atomic purge clears RAM cache too.
+        await cachedRepo.getPlaylistById(created.id);
+        expect(cachedRepo.getCachedPlaylistSync(created.id), isNotNull);
+        final purgeResult = await cachedRepo.purgeAllVaultData();
+        expect(purgeResult, isA<VaultSuccess<void>>());
+        expect(cachedRepo.getCachedPlaylistSync(created.id), isNull);
+        expect(cachedRepo.getCachedPlaylistsSync(), isNull);
+      },
+    );
+
+    test(
+      'lazily repackages legacy v1 playlist and track rows into v2 single-envelope format on read',
+      () async {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final encTitle = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(utf8.encode('Legacy V1 Playlist')),
+        );
+        final encDesc = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(utf8.encode('Legacy V1 Description')),
+        );
+        final encCover = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(utf8.encode('https://cdn.example.com/v1_cover.jpg')),
+        );
+
+        await database.into(database.vaultPlaylistsTable).insert(
+              VaultPlaylistsTableCompanion(
+                id: const Value('legacy_pl_1'),
+                encryptedTitle: Value(encTitle),
+                encryptedDescription: Value(encDesc),
+                encryptedCoverPath: Value(encCover),
+                payloadVersion: const Value(1),
+                encryptedPlaylistPayload: const Value(null),
+                createdAt: Value(now),
+                updatedAt: Value(now),
+              ),
+            );
+
+        final encTrackTitle = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(utf8.encode('Legacy V1 Song')),
+        );
+        final encTrackArtist = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(utf8.encode('Legacy V1 Artist')),
+        );
+        final encTrackAlbum = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(utf8.encode('Legacy V1 Album')),
+        );
+        final encTrackMeta = await cryptoBridge.encryptPayload(
+          Uint8List.fromList(
+            utf8.encode(
+              jsonEncode(
+                const VaultTrackMetadataDto(
+                  trackUri: 'spotify:track:legacy_v1_song',
+                  sourceType: TrackSourceTypeEnum.spotify,
+                  addedAtEpochMs: 1700000000123,
+                  artworkUri: 'https://cdn.example.com/v1_track.jpg',
+                ).toJson(),
+              ),
+            ),
+          ),
+        );
+
+        await database.into(database.vaultTrackRefsTable).insert(
+              VaultTrackRefsTableCompanion(
+                id: const Value('legacy_tr_1'),
+                playlistId: const Value('legacy_pl_1'),
+                trackIndex: const Value(0),
+                encryptedTrackMetadata: Value(encTrackMeta),
+                isolatedMediaFileName: const Value(null),
+                encryptedTitle: Value(encTrackTitle),
+                encryptedArtist: Value(encTrackArtist),
+                encryptedAlbum: Value(encTrackAlbum),
+                durationMs: const Value(240000),
+                payloadVersion: const Value(1),
+                encryptedTrackPayload: const Value(null),
+              ),
+            );
+
+        // First read decrypts v1 rows and repackages them to v2 in SQLite.
+        final firstRead = await repository.getPlaylists();
+        expect(firstRead, isA<VaultSuccess<List<PrivatePlaylist>>>());
+        if (firstRead case VaultSuccess(:final data)) {
+          expect(data.length, equals(1));
+          expect(data.first.name, equals('Legacy V1 Playlist'));
+          expect(data.first.description, equals('Legacy V1 Description'));
+          expect(
+            data.first.coverUri,
+            equals('https://cdn.example.com/v1_cover.jpg'),
+          );
+          expect(data.first.trackRefs.length, equals(1));
+          expect(data.first.trackRefs.first.title, equals('Legacy V1 Song'));
+          expect(
+            data.first.trackRefs.first.artworkUri,
+            equals('https://cdn.example.com/v1_track.jpg'),
+          );
+        }
+
+        // Verify SQLite rows were upgraded cleanly to payload_version = 2.
+        final plRows =
+            await database.select(database.vaultPlaylistsTable).get();
+        expect(plRows.length, equals(1));
+        expect(plRows.first.payloadVersion, equals(2));
+        expect(plRows.first.encryptedPlaylistPayload, isNotNull);
+        expect(plRows.first.encryptedDescription.isEmpty, isTrue);
+        expect(plRows.first.encryptedCoverPath, isNull);
+
+        final trRows =
+            await database.select(database.vaultTrackRefsTable).get();
+        expect(trRows.length, equals(1));
+        expect(trRows.first.payloadVersion, equals(2));
+        expect(trRows.first.encryptedTrackPayload, isNotNull);
+        expect(trRows.first.encryptedTitle.isEmpty, isTrue);
+        expect(trRows.first.encryptedArtist.isEmpty, isTrue);
+        expect(trRows.first.encryptedAlbum.isEmpty, isTrue);
+        expect(trRows.first.encryptedTrackMetadata, isNull);
+
+        // Re-read using upgraded v2 columns and confirm full parity.
+        final v2Read = await repository.getPlaylistById('legacy_pl_1');
+        expect(v2Read, isA<VaultSuccess<PrivatePlaylist>>());
+        if (v2Read case VaultSuccess(:final data)) {
+          expect(data.name, equals('Legacy V1 Playlist'));
+          expect(data.description, equals('Legacy V1 Description'));
+          expect(
+            data.coverUri,
+            equals('https://cdn.example.com/v1_cover.jpg'),
+          );
+          expect(data.trackRefs.first.title, equals('Legacy V1 Song'));
+          expect(data.trackRefs.first.artistName, equals('Legacy V1 Artist'));
+        }
+      },
+    );
   });
 }

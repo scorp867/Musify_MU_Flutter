@@ -389,6 +389,22 @@ int32_t ContextProcessor::get_current_index() const noexcept {
     return index_;
 }
 
+void ContextProcessor::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    context_uri_.clear();
+    current_page_url_.clear();
+    next_page_url_.clear();
+    shuffle_seed_.clear();
+    index_ = 0;
+    iteration_ = 0;
+    shuffling_ = false;
+    loaded_tracks_.clear();
+    shuffled_order_.clear();
+    context_view_.cyclic_list.items.clear();
+    context_view_.cyclic_list.delimiter = {};
+    context_view_.iteration_size = 0;
+}
+
 std::string ContextProcessor::get_context_uri() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return context_uri_;
