@@ -61,6 +61,8 @@ class FullBleedBannerSection extends StatelessWidget {
                       imageUrl: imageUrl,
                       fit: BoxFit.fill,
                       width: double.infinity,
+                      memCacheWidth: 2226,
+                      memCacheHeight: 294,
                       color: bannerColor,
                       colorBlendMode: BlendMode.srcIn,
                       alignment: Alignment.center,
