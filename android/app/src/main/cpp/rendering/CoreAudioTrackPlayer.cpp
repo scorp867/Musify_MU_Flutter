@@ -82,28 +82,66 @@ bool CoreAudioTrackPlayer::startLocalFile(const std::string& file_path,
     if (!engine_ || file_path.empty()) return false;
 
     cancelWorker();
+    const uint64_t gen = session_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         current_info_.reset();
     }
     desired_paused_.store(start_paused, std::memory_order_release);
     duration_hint_ms_.store(duration_hint_ms > 0 ? duration_hint_ms : 0, std::memory_order_release);
+    phase_.store(TrackPlayerPhase::Buffering, std::memory_order_release);
 
-    engine_->setAutoPlay(!start_paused);
-    const EngineStatus st = engine_->loadLocal(file_path.c_str());
-    if (st != EngineStatus::Ok) {
-        CATP_LOGE("loadLocal failed (%d) for %s", static_cast<int>(st), file_path.c_str());
-        phase_.store(TrackPlayerPhase::Faulted, std::memory_order_release);
-        return false;
-    }
+    std::lock_guard<std::mutex> wlock(worker_mutex_);
+    stream_worker_ = std::thread([this, gen, file_path, start_position_ms, start_paused]() {
+        JniThreadAttacher jniAttacher(getMusifyJavaVm(), "MusifyLocalWorker");
 
-    if (start_position_ms > 0) {
-        engine_->seekMs(start_position_ms);
-    }
+        if (session_gen_.load(std::memory_order_acquire) != gen) {
+            return;
+        }
 
-    const TrackPlayerPhase next_phase =
-        start_paused ? TrackPlayerPhase::Paused : TrackPlayerPhase::Playing;
-    phase_.store(next_phase, std::memory_order_release);
+        engine_->setAutoPlay(!start_paused);
+        const EngineStatus st = engine_->loadLocal(file_path.c_str());
+
+        if (session_gen_.load(std::memory_order_acquire) != gen) {
+            return;
+        }
+
+        if (st != EngineStatus::Ok) {
+            CATP_LOGE("loadLocal failed (%d) for %s", static_cast<int>(st), file_path.c_str());
+            phase_.store(TrackPlayerPhase::Faulted, std::memory_order_release);
+            ErrorHandler err_cb;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                err_cb = on_error_;
+            }
+            if (err_cb) {
+                err_cb(static_cast<int32_t>(st), "Failed to load local audio file: " + file_path);
+            }
+            return;
+        }
+
+        if (start_position_ms > 0) {
+            engine_->seekMs(start_position_ms);
+        }
+
+        const TrackPlayerPhase next_phase =
+            start_paused ? TrackPlayerPhase::Paused : TrackPlayerPhase::Playing;
+        phase_.store(next_phase, std::memory_order_release);
+
+        StateNotifyHandler phase_cb;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            phase_cb = on_phase_changed_;
+        }
+        if (phase_cb) {
+            phase_cb(next_phase);
+        }
+
+        if (session_gen_.load(std::memory_order_acquire) == gen) {
+            prefetchUpcomingTrack();
+        }
+    });
+
     return true;
 }
 
