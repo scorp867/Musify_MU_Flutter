@@ -178,7 +178,7 @@ void main() {
     });
 
     testWidgets(
-        'AppLifecycleState.detached or hidden immediately triggers VaultQuickLockRequested',
+        'AppLifecycleState.detached immediately triggers VaultQuickLockRequested',
         (tester) async {
       await pumpApp(tester);
 
@@ -203,6 +203,76 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(harness.sessionBloc.state, isA<VaultLockedState>());
+    });
+
+    testWidgets(
+        'AppLifecycleState.hidden preserves session and engages FLAG_SECURE if configured',
+        (tester) async {
+      await pumpApp(tester);
+
+      // Seed session as unlocked
+      final session = AuthSession(
+        sessionToken: 'hidden_token',
+        sessionStartedEpochMs: 10000,
+        lastActiveEpochMs: 10000,
+        authMethod: AuthMethodEnum.pin,
+      );
+      harness.sessionBloc.emit(
+        VaultUnlockedState(
+          session: session,
+          unlockedAtMonotonicMs: 10000,
+          reauthDeadlineMonotonicMs: 0,
+        ),
+      );
+      await tester.pump();
+
+      // App transitions to hidden
+      triggerLifecycle(tester, AppLifecycleState.hidden);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(harness.sessionBloc.state, isA<VaultUnlockedState>());
+    });
+
+    testWidgets(
+        'Full Flutter OS lifecycle preserves unlocked session within background grace window',
+        (tester) async {
+      await pumpApp(tester);
+
+      // Seed session as unlocked
+      final session = AuthSession(
+        sessionToken: 'lifecycle_full_token',
+        sessionStartedEpochMs: 10000,
+        lastActiveEpochMs: 10000,
+        authMethod: AuthMethodEnum.pin,
+      );
+      harness.sessionBloc.emit(
+        VaultUnlockedState(
+          session: session,
+          unlockedAtMonotonicMs: 10000,
+          reauthDeadlineMonotonicMs: 0,
+        ),
+      );
+      await tester.pump();
+
+      // Background sequence: inactive -> hidden -> paused
+      harness.clock.timeMs = 15000;
+      triggerLifecycle(tester, AppLifecycleState.inactive);
+      triggerLifecycle(tester, AppLifecycleState.hidden);
+      triggerLifecycle(tester, AppLifecycleState.paused);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(harness.sessionBloc.state, isA<VaultBackgroundGraceState>());
+
+      // User returns after 10s (within 30s grace window)
+      harness.clock.advance(const Duration(seconds: 10));
+
+      // Resume sequence: hidden -> inactive -> resumed
+      triggerLifecycle(tester, AppLifecycleState.hidden);
+      triggerLifecycle(tester, AppLifecycleState.inactive);
+      triggerLifecycle(tester, AppLifecycleState.resumed);
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(harness.sessionBloc.state, isA<VaultUnlockedState>());
     });
   });
 }

@@ -500,7 +500,17 @@ void main() {
       expect(harness.sessionBloc.state, isA<VaultLockedState>());
     });
 
-    test('AppLifecycleState.hidden immediately executes quick-lock', () async {
+    test('AppLifecycleState.hidden preserves active session and engages FLAG_SECURE if configured', () async {
+      const secureConfig = VaultConfig.constant(
+        screenSecurity: ScreenSecurityPolicyEnum.blockScreenshotsAndRecents,
+        backgroundGraceTimeout: BackgroundGraceTimeoutEnum.thirtySeconds,
+      );
+      harness.storageRepository.config = secureConfig;
+      harness.settingsMutationCubit.emit(
+        const SettingsMutationSyncedIdleState(),
+      );
+      harness.screenPrivacyCubit.emit(const ScreenPrivacyPublicUnrestrictedState());
+
       final session = AuthSession(
         sessionToken: 'hidden_token',
         sessionStartedEpochMs: 10000,
@@ -518,7 +528,95 @@ void main() {
       harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.hidden);
       await pumpEventQueue();
 
-      expect(harness.sessionBloc.state, isA<VaultLockedState>());
+      expect(harness.sessionBloc.state, isA<VaultUnlockedState>());
+      expect(
+        harness.screenPrivacyCubit.state,
+        isA<ScreenPrivacySecureFlagEngagedState>().having(
+          (s) => s.reason,
+          'reason',
+          equals(ScreenPrivacyEngageReasonEnum.appBackgroundWithVaultLoaded),
+        ),
+      );
+    });
+
+    test('Full Flutter OS lifecycle: resumed -> inactive -> hidden -> paused -> hidden -> inactive -> resumed respects background grace window', () async {
+      final session = AuthSession(
+        sessionToken: 'lifecycle_test_token',
+        sessionStartedEpochMs: 10000,
+        lastActiveEpochMs: 10000,
+        authMethod: AuthMethodEnum.pin,
+      );
+      harness.sessionBloc.emit(
+        VaultUnlockedState(
+          session: session,
+          unlockedAtMonotonicMs: 10000,
+          reauthDeadlineMonotonicMs: 0,
+        ),
+      );
+
+      // App backgrounding sequence: inactive -> hidden -> paused
+      harness.clock.timeMs = 15000;
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.inactive);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.hidden);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.paused);
+      await pumpEventQueue();
+
+      expect(harness.sessionBloc.state, isA<VaultBackgroundGraceState>());
+
+      // User returns after 10 seconds (well within 30s grace window)
+      harness.clock.advance(const Duration(seconds: 10));
+
+      // App resuming sequence: hidden -> inactive -> resumed
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.hidden);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.inactive);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await pumpEventQueue();
+
+      expect(
+        harness.sessionBloc.state,
+        isA<VaultUnlockedState>(),
+        reason: 'Session must remain unlocked across full Flutter OS background/foreground cycle within grace window',
+      );
+    });
+
+    test('Full Flutter OS lifecycle: resumed -> inactive -> hidden -> paused -> hidden -> inactive -> resumed locks after grace deadline expires', () async {
+      final session = AuthSession(
+        sessionToken: 'lifecycle_expired_token',
+        sessionStartedEpochMs: 10000,
+        lastActiveEpochMs: 10000,
+        authMethod: AuthMethodEnum.pin,
+      );
+      harness.sessionBloc.emit(
+        VaultUnlockedState(
+          session: session,
+          unlockedAtMonotonicMs: 10000,
+          reauthDeadlineMonotonicMs: 0,
+        ),
+      );
+
+      // Backgrounding
+      harness.clock.timeMs = 15000;
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.inactive);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.hidden);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.paused);
+      await pumpEventQueue();
+
+      expect(harness.sessionBloc.state, isA<VaultBackgroundGraceState>());
+
+      // User returns after 35 seconds (exceeding 30s grace window)
+      harness.clock.advance(const Duration(seconds: 35));
+
+      // Resuming
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.hidden);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.inactive);
+      harness.coordinator.onAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await pumpEventQueue();
+
+      expect(
+        harness.sessionBloc.state,
+        isA<VaultLockedState>(),
+        reason: 'Session must lock when returning after background grace period elapsed',
+      );
     });
 
     test('FLAG_SECURE is engaged on pause when blockScreenshotsAndRecents policy is active', () async {

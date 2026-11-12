@@ -143,7 +143,9 @@ class VaultCoordinator {
 
     switch (state) {
       case AppLifecycleState.inactive:
-        // System dialogs, notification shade, or native BiometricPrompt cause temporary focus loss.
+      case AppLifecycleState.hidden:
+        // System dialogs, notification shade, native BiometricPrompt, or temporary view hiding
+        // cause focus/visibility loss during transitions.
         // Shield window recents if configured, but DO NOT background or lock the vault session!
         final config = _settingsMutationCubit.currentConfig;
         if (config.screenSecurity ==
@@ -173,10 +175,9 @@ class VaultCoordinator {
           reason: ScreenPrivacyEngageReasonEnum.appBackgroundWithVaultLoaded,
         );
 
-      case AppLifecycleState.hidden:
       case AppLifecycleState.detached:
         _sessionBloc.add(
-          const VaultQuickLockRequested(reason: 'App hidden or detached'),
+          const VaultQuickLockRequested(reason: 'App detached'),
         );
     }
   }
