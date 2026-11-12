@@ -26,6 +26,9 @@ enum VaultAuthScreenMode {
   /// Step 1 of PIN rotation flow verifying active credentials before new PIN entry.
   verifyOldPin,
 
+  /// PIN rotation flow for entering and confirming replacement credentials.
+  rotatePin,
+
   /// Critical authorization for irreversible vault deletion and media wipe.
   purgeConfirmation;
 
@@ -35,18 +38,21 @@ enum VaultAuthScreenMode {
   /// Returns whether this mode operates within an existing active session.
   bool get isSubSessionMode =>
       this == VaultAuthScreenMode.stepUp ||
-          this == VaultAuthScreenMode.verifyOldPin ||
-          this == VaultAuthScreenMode.purgeConfirmation;
+      this == VaultAuthScreenMode.verifyOldPin ||
+      this == VaultAuthScreenMode.rotatePin ||
+      this == VaultAuthScreenMode.purgeConfirmation;
 }
 
 /// Dedicated full-screen route for Secure Vault authentication.
 ///
 /// Invariants:
 /// - Strictly full-screen [Scaffold]; NO bottom sheets, NO popup alert dialogs.
-/// - Reused across all 4 [VaultAuthScreenMode] contexts without code duplication.
+/// - Reused across all 5 [VaultAuthScreenMode] contexts without code duplication.
 /// - Integrates with [PinPadCubit] (Sub-Service 6) and [VaultSessionBloc] (Region A).
 /// - 6 geometric PIN digit indicator boxes with 1px tone-on-tone borders.
 /// - 3x4 keypad supporting standard and randomized per-attempt layouts.
+/// - High refresh-rate spring physics with haptic feedback on each digit tap.
+/// - RepaintBoundary isolation guaranteeing 60/120 FPS raster efficiency.
 /// - 400ms horizontal shake animation on failure with haptic feedback.
 /// - Monotonic lockout cooldown countdown (MM:SS) when locked out.
 /// - Strict design system: 8px geometric radius, Poppins typography, zero purple gradients,
@@ -171,14 +177,23 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     );
 
     _engageScreenPrivacy();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (mounted) {
         final pinPad = _resolvePinPadCubit();
         try {
           final settingsCubit = context.read<SettingsMutationCubit>();
           pinPad?.updateKeypadLayout(settingsCubit.currentConfig.keypadLayout);
         } catch (_) {}
-        pinPad?.resetToIdle();
+        await pinPad?.checkLockoutStatus();
+        if (pinPad?.state is! PinPadLockedOutState) {
+          pinPad?.resetToIdle();
+        }
+
+        // Auto-launch biometric challenge on screen entry exclusively for primary vault unlock
+        final policy = _resolveBiometricPolicy();
+        if (policy.allowsBiometrics && widget.mode == VaultAuthScreenMode.unlock) {
+          _handleBiometricTap();
+        }
       }
     });
   }
@@ -397,11 +412,15 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
                             const SizedBox(height: 16),
                             _buildHeader(vaultTheme),
                             const SizedBox(height: 32),
-                            _buildPinIndicators(vaultTheme),
+                            RepaintBoundary(
+                              child: _buildPinIndicators(vaultTheme),
+                            ),
                             const SizedBox(height: 16),
                             _buildStatusMessage(vaultTheme),
                             const Spacer(),
-                            _buildKeypad(vaultTheme),
+                            RepaintBoundary(
+                              child: _buildKeypad(vaultTheme),
+                            ),
                             const SizedBox(height: 24),
                           ],
                         ),
@@ -422,6 +441,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
       VaultAuthScreenMode.unlock => Icons.lock_outline,
       VaultAuthScreenMode.stepUp => Icons.security_outlined,
       VaultAuthScreenMode.verifyOldPin => Icons.pin_outlined,
+      VaultAuthScreenMode.rotatePin => Icons.lock_reset_outlined,
       VaultAuthScreenMode.purgeConfirmation => Icons.warning_amber_rounded,
     };
 
@@ -431,6 +451,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
           VaultAuthScreenMode.unlock => 'Enter Master PIN',
           VaultAuthScreenMode.stepUp => 'Step-Up Verification',
           VaultAuthScreenMode.verifyOldPin => 'Verify Current PIN',
+          VaultAuthScreenMode.rotatePin => 'Enter New PIN',
           VaultAuthScreenMode.purgeConfirmation => 'Confirm Vault Purge',
         },
     };
@@ -439,6 +460,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
       VaultAuthScreenMode.unlock => 'Enter 6-digit master PIN to unlock',
       VaultAuthScreenMode.stepUp => 'Enter master PIN to authorize changes',
       VaultAuthScreenMode.verifyOldPin => 'Enter current 6-digit PIN to continue',
+      VaultAuthScreenMode.rotatePin => 'Enter 6-digit replacement PIN',
       VaultAuthScreenMode.purgeConfirmation =>
         'Enter master PIN to permanently purge vault',
     };
@@ -663,12 +685,11 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
                     for (var col = 0; col < 3; col++)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                        child: _buildDigitButton(
+                        child: _SpringKeypadButton(
                           digit: digits[row * 3 + col],
                           vaultTheme: vaultTheme,
                           isDisabled: isDisabled,
                           onTap: () {
-                            HapticFeedback.lightImpact();
                             cubit.onDigitEntered(digits[row * 3 + col]);
                           },
                         ),
@@ -685,24 +706,22 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                  child: _buildDigitButton(
+                  child: _SpringKeypadButton(
                     digit: digits[9],
                     vaultTheme: vaultTheme,
                     isDisabled: isDisabled,
                     onTap: () {
-                      HapticFeedback.lightImpact();
                       cubit.onDigitEntered(digits[9]);
                     },
                   ),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                  child: _buildActionButton(
+                  child: _SpringActionButton(
                     icon: Icons.backspace_outlined,
                     vaultTheme: vaultTheme,
                     isDisabled: isDisabled,
                     onTap: () {
-                      HapticFeedback.lightImpact();
                       cubit.onBackspace();
                     },
                   ),
@@ -715,87 +734,10 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     );
   }
 
-  Widget _buildDigitButton({
-    required int digit,
-    required VaultThemeData vaultTheme,
-    required bool isDisabled,
-    required VoidCallback onTap,
-  }) {
-    return SizedBox(
-      width: 72,
-      height: 72,
-      child: Material(
-        color: vaultTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: vaultTheme.border,
-            width: 1.0,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: isDisabled ? null : onTap,
-          splashColor: vaultTheme.accent.withValues(alpha: 0.15),
-          highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
-          child: Center(
-            child: Text(
-              '$digit',
-              style: TextStyle(
-                fontSize: 26,
-                fontWeight: FontWeight.w500,
-                color: isDisabled
-                    ? vaultTheme.textLowSalience
-                    : vaultTheme.textHighSalience,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionButton({
-    required IconData icon,
-    required VaultThemeData vaultTheme,
-    required bool isDisabled,
-    required VoidCallback onTap,
-  }) {
-    return SizedBox(
-      width: 72,
-      height: 72,
-      child: Material(
-        color: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: vaultTheme.border,
-            width: 1.0,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: isDisabled ? null : onTap,
-          splashColor: vaultTheme.accent.withValues(alpha: 0.15),
-          highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
-          child: Center(
-            child: Icon(
-              icon,
-              size: 24,
-              color: isDisabled
-                  ? vaultTheme.textLowSalience
-                  : vaultTheme.textHighSalience,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildBiometricOrEmptyButton(
-      VaultThemeData vaultTheme,
-      bool isDisabled,
-      ) {
+    VaultThemeData vaultTheme,
+    bool isDisabled,
+  ) {
     final policy = _resolveBiometricPolicy();
     final isBiometricEnabled = policy.allowsBiometrics &&
         widget.mode == VaultAuthScreenMode.unlock;
@@ -804,30 +746,338 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
       return const SizedBox(width: 72, height: 72);
     }
 
-    return SizedBox(
-      width: 72,
-      height: 72,
-      child: Material(
-        color: vaultTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: BorderSide(
-            color: vaultTheme.border,
-            width: 1.0,
+    return _SpringBiometricButton(
+      vaultTheme: vaultTheme,
+      isDisabled: isDisabled,
+      onTap: _handleBiometricTap,
+    );
+  }
+}
+
+/// Tactile keypad digit button featuring high refresh-rate spring simulation
+/// and localized RepaintBoundary isolation for 60/120 FPS performance.
+class _SpringKeypadButton extends StatefulWidget {
+  final int digit;
+  final VaultThemeData vaultTheme;
+  final bool isDisabled;
+  final VoidCallback onTap;
+
+  const _SpringKeypadButton({
+    required this.digit,
+    required this.vaultTheme,
+    required this.isDisabled,
+    required this.onTap,
+  });
+
+  @override
+  State<_SpringKeypadButton> createState() => _SpringKeypadButtonState();
+}
+
+class _SpringKeypadButtonState extends State<_SpringKeypadButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _springController;
+  late final Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _springController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.92).animate(
+      CurvedAnimation(
+        parent: _springController,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeOutQuad,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _springController.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    if (widget.isDisabled) return;
+    HapticFeedback.lightImpact();
+    _springController.forward();
+  }
+
+  void _onTapCancel() {
+    if (widget.isDisabled) return;
+    _springController.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vaultTheme = widget.vaultTheme;
+
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
+          );
+        },
+        child: SizedBox(
+          width: 72,
+          height: 72,
+          child: Material(
+            color: vaultTheme.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: vaultTheme.border,
+                width: 1.0,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTapDown: _onTapDown,
+              onTap: widget.isDisabled
+                  ? null
+                  : () {
+                      _springController.reverse();
+                      widget.onTap();
+                    },
+              onTapCancel: _onTapCancel,
+              splashColor: vaultTheme.accent.withValues(alpha: 0.15),
+              highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
+              child: Center(
+                child: Text(
+                  '${widget.digit}',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w500,
+                    color: widget.isDisabled
+                        ? vaultTheme.textLowSalience
+                        : vaultTheme.textHighSalience,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: isDisabled ? null : _handleBiometricTap,
-          splashColor: vaultTheme.accent.withValues(alpha: 0.15),
-          highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
-          child: Center(
-            child: Icon(
-              Icons.fingerprint,
-              size: 30,
-              color: isDisabled
-                  ? vaultTheme.textLowSalience
-                  : vaultTheme.accent,
+      ),
+    );
+  }
+}
+
+/// Spring-animated action button for keypad secondary functions (e.g. backspace).
+class _SpringActionButton extends StatefulWidget {
+  final IconData icon;
+  final VaultThemeData vaultTheme;
+  final bool isDisabled;
+  final VoidCallback onTap;
+
+  const _SpringActionButton({
+    required this.icon,
+    required this.vaultTheme,
+    required this.isDisabled,
+    required this.onTap,
+  });
+
+  @override
+  State<_SpringActionButton> createState() => _SpringActionButtonState();
+}
+
+class _SpringActionButtonState extends State<_SpringActionButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _springController;
+  late final Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _springController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.92).animate(
+      CurvedAnimation(
+        parent: _springController,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeOutQuad,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _springController.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    if (widget.isDisabled) return;
+    HapticFeedback.lightImpact();
+    _springController.forward();
+  }
+
+  void _onTapCancel() {
+    if (widget.isDisabled) return;
+    _springController.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vaultTheme = widget.vaultTheme;
+
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
+          );
+        },
+        child: SizedBox(
+          width: 72,
+          height: 72,
+          child: Material(
+            color: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: vaultTheme.border,
+                width: 1.0,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTapDown: _onTapDown,
+              onTap: widget.isDisabled
+                  ? null
+                  : () {
+                      _springController.reverse();
+                      widget.onTap();
+                    },
+              onTapCancel: _onTapCancel,
+              splashColor: vaultTheme.accent.withValues(alpha: 0.15),
+              highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
+              child: Center(
+                child: Icon(
+                  widget.icon,
+                  size: 24,
+                  color: widget.isDisabled
+                      ? vaultTheme.textLowSalience
+                      : vaultTheme.textHighSalience,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Spring-animated button for biometric hardware authentication challenge.
+class _SpringBiometricButton extends StatefulWidget {
+  final VaultThemeData vaultTheme;
+  final bool isDisabled;
+  final VoidCallback onTap;
+
+  const _SpringBiometricButton({
+    required this.vaultTheme,
+    required this.isDisabled,
+    required this.onTap,
+  });
+
+  @override
+  State<_SpringBiometricButton> createState() => _SpringBiometricButtonState();
+}
+
+class _SpringBiometricButtonState extends State<_SpringBiometricButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _springController;
+  late final Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _springController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 120),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.92).animate(
+      CurvedAnimation(
+        parent: _springController,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeOutQuad,
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _springController.dispose();
+    super.dispose();
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    if (widget.isDisabled) return;
+    HapticFeedback.lightImpact();
+    _springController.forward();
+  }
+
+  void _onTapCancel() {
+    if (widget.isDisabled) return;
+    _springController.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vaultTheme = widget.vaultTheme;
+
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
+          );
+        },
+        child: SizedBox(
+          width: 72,
+          height: 72,
+          child: Material(
+            color: vaultTheme.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(
+                color: vaultTheme.border,
+                width: 1.0,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTapDown: _onTapDown,
+              onTap: widget.isDisabled
+                  ? null
+                  : () {
+                      _springController.reverse();
+                      widget.onTap();
+                    },
+              onTapCancel: _onTapCancel,
+              splashColor: vaultTheme.accent.withValues(alpha: 0.15),
+              highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
+              child: Center(
+                child: Icon(
+                  Icons.fingerprint,
+                  size: 30,
+                  color: widget.isDisabled
+                      ? vaultTheme.textLowSalience
+                      : vaultTheme.accent,
+                ),
+              ),
             ),
           ),
         ),

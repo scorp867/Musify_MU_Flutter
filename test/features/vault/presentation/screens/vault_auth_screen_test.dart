@@ -225,6 +225,12 @@ void main() {
       expect(find.text('Verify Current PIN'), findsOneWidget);
     });
 
+    testWidgets('rotatePin mode renders "Enter New PIN" and lock reset icon', (tester) async {
+      await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.rotatePin));
+      expect(find.text('Enter New PIN'), findsOneWidget);
+      expect(find.byIcon(Icons.lock_reset_outlined), findsOneWidget);
+    });
+
     testWidgets('purgeConfirmation mode renders "Confirm Vault Purge" and warning icon', (tester) async {
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.purgeConfirmation));
       expect(find.text('Confirm Vault Purge'), findsOneWidget);

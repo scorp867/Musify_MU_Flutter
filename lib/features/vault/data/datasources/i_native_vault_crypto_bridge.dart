@@ -17,10 +17,20 @@ abstract interface class INativeVaultCryptoBridge {
   /// Throws [VaultCryptoFailure] if the native KeyStore encounters an unrecoverable platform error.
   Future<bool> hasMasterKey();
 
-  /// Generates a non-exportable 256-bit AES-GCM master key inside Android KeyStore hardware (TEE/StrongBox).
+  /// Generates a non-exportable 256-bit AES-GCM master key and non-exportable HMAC-SHA256
+  /// pepper key inside Android KeyStore hardware (TEE/StrongBox).
   ///
   /// Throws [VaultCryptoFailure] if hardware key generation fails.
   Future<void> generateMasterKey();
+
+  /// Derives a hardware-bound cryptographic key by passing an [intermediateKey] through
+  /// Android KeyStore's non-exportable HMAC-SHA256 hardware pepper.
+  ///
+  /// Prevents offline GPU brute-force attacks against low-entropy PIN credentials by ensuring
+  /// candidate derivations require interaction with the physical hardware security module.
+  /// Throws [VaultValidationFailure] if [intermediateKey] is empty.
+  /// Throws [VaultCryptoFailure] if hardware derivation fails.
+  Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey);
 
   /// Encrypts [plaintext] bytes using native AES-256-GCM backed by the Android KeyStore hardware key.
   ///

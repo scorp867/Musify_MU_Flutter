@@ -1368,6 +1368,7 @@ class _VaultSecuritySettingsScreenState
             pinPadCubit: verifyOldPinCubit,
             sessionBloc: _resolveSessionBloc(),
             screenPrivacyCubit: _resolveScreenPrivacyCubit(),
+            biometricPolicy: BiometricAuthPolicyEnum.pinOnly,
           ),
         ),
       );
@@ -1406,11 +1407,12 @@ class _VaultSecuritySettingsScreenState
       step2Success = await Navigator.of(context).push<bool>(
         MaterialPageRoute<bool>(
           builder: (_) => VaultAuthScreen(
-            mode: VaultAuthScreenMode.stepUp,
+            mode: VaultAuthScreenMode.rotatePin,
             titleOverride: 'Enter New PIN',
             pinPadCubit: enterNewPinCubit,
             sessionBloc: _resolveSessionBloc(),
             screenPrivacyCubit: _resolveScreenPrivacyCubit(),
+            biometricPolicy: BiometricAuthPolicyEnum.pinOnly,
           ),
         ),
       );
@@ -1449,11 +1451,12 @@ class _VaultSecuritySettingsScreenState
       step3Success = await Navigator.of(context).push<bool>(
         MaterialPageRoute<bool>(
           builder: (_) => VaultAuthScreen(
-            mode: VaultAuthScreenMode.stepUp,
+            mode: VaultAuthScreenMode.rotatePin,
             titleOverride: 'Confirm New PIN',
             pinPadCubit: confirmNewPinCubit,
             sessionBloc: _resolveSessionBloc(),
             screenPrivacyCubit: _resolveScreenPrivacyCubit(),
+            biometricPolicy: BiometricAuthPolicyEnum.pinOnly,
           ),
         ),
       );

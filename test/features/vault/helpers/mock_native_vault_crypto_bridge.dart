@@ -11,7 +11,7 @@ import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 /// 2. Session locking behavior: throws [VaultCryptoFailure] on encryption/decryption when locked for media payloads.
 /// 3. Device configuration encryption/decryption at rest without requiring user session unlock.
 /// 4. AEAD authentication tag verification: throws [VaultCryptoFailure] when ciphertext or tag is modified.
-/// 5. KeyStore lifecycle: simulates key generation, unlocking, locking, and destruction.
+/// 5. KeyStore lifecycle: simulates key generation, hardware pepper derivation, unlocking, locking, and destruction.
 class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   bool _hasMasterKey;
   bool _isSessionUnlocked;
@@ -48,6 +48,18 @@ class MockNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   @override
   Future<void> generateMasterKey() async {
     _hasMasterKey = true;
+  }
+
+  @override
+  Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey) async {
+    if (intermediateKey.isEmpty) {
+      throw const VaultValidationFailure('Intermediate key cannot be empty.');
+    }
+    final simulatedPepper = Uint8List.fromList(
+      List<int>.generate(32, (i) => (i * 19 + 7) & 0xFF),
+    );
+    final hmac = Hmac(sha256, simulatedPepper);
+    return Uint8List.fromList(hmac.convert(intermediateKey).bytes);
   }
 
   Uint8List _encryptInternal(Uint8List plaintext) {

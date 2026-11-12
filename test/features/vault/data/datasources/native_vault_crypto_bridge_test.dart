@@ -328,5 +328,26 @@ void main() {
       await bridge.destroyMasterKey();
       expect(invoked, isTrue);
     });
+
+    test('deriveHardwarePepper rejects empty input', () async {
+      expect(
+        () => bridge.deriveHardwarePepper(Uint8List(0)),
+        throwsA(isA<VaultValidationFailure>()),
+      );
+    });
+
+    test('deriveHardwarePepper returns peppered token from channel', () async {
+      final input = Uint8List.fromList(<int>[1, 2, 3, 4]);
+      final expected = Uint8List.fromList(<int>[10, 20, 30, 40]);
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall call) async {
+        expect(call.method, 'deriveHardwarePepper');
+        expect(call.arguments, {'data': input});
+        return expected;
+      });
+
+      final result = await bridge.deriveHardwarePepper(input);
+      expect(result, equals(expected));
+    });
   });
 }

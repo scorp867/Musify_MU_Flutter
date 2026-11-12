@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter/services.dart';
@@ -74,6 +75,18 @@ final class FakeAdversarialCryptoBridge implements INativeVaultCryptoBridge {
     final extracted = Uint8List(plainLength);
     extracted.setRange(0, plainLength, ciphertext.sublist(12, 12 + plainLength));
     return extracted;
+  }
+
+  @override
+  Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey) async {
+    if (!_hasKey) {
+      throw const VaultCryptoFailure('Master key has been destroyed.');
+    }
+    if (intermediateKey.isEmpty) {
+      throw const VaultValidationFailure('Intermediate key cannot be empty.');
+    }
+    final pepper = Uint8List.fromList(List<int>.generate(32, (i) => (i * 23 + 11) & 0xFF));
+    return Uint8List.fromList(Hmac(sha256, pepper).convert(intermediateKey).bytes);
   }
 
   @override

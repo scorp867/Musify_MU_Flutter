@@ -654,6 +654,9 @@ void main() {
         switch (call.method) {
           case 'hasMasterKey':
             return true;
+          case 'deriveHardwarePepper':
+            final data = (call.arguments as Map<dynamic, dynamic>)['data'];
+            return data is Uint8List ? data : Uint8List.fromList(List<int>.from(data as List));
           case 'authenticateBiometrics':
             // Simulate KeyPermanentlyInvalidatedException from Android KeyStore
             throw PlatformException(

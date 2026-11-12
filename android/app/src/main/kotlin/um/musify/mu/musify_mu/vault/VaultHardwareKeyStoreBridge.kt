@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
@@ -35,8 +36,8 @@ import javax.crypto.spec.GCMParameterSpec
  * Native Android KeyStore Platform Channel Bridge.
  *
  * Implements hardware-backed, non-exportable AES-256-GCM key management (TEE/StrongBox),
- * BiometricPrompt.CryptoObject authentication, off-thread cipher operations via Dispatchers.IO,
- * and deterministic typed error code mapping to prevent app crashes.
+ * hardware-backed HMAC-SHA256 pepper derivation, BiometricPrompt.CryptoObject authentication,
+ * off-thread cipher operations via Dispatchers.IO, and deterministic typed error code mapping.
  */
 class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : MethodChannel.MethodCallHandler {
 
@@ -46,7 +47,9 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val MASTER_KEY_ALIAS = "MusifyVaultMasterKey_v1"
         private const val BIOMETRIC_KEY_ALIAS = "MusifyVaultBiometricKey_v1"
+        private const val PEPPER_KEY_ALIAS = "MusifyVaultHardwarePepper_v1"
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val HMAC_ALGORITHM = "HmacSHA256"
         private const val GCM_IV_LENGTH_BYTES = 12
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val AES_KEY_SIZE_BITS = 256
@@ -97,6 +100,25 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
                         }
                         isSessionUnlocked.set(true)
                         result.success(true)
+                    } catch (e: Exception) {
+                        handleException(e, result)
+                    }
+                }
+            }
+
+            "deriveHardwarePepper" -> {
+                val data = extractByteArray(call, "data")
+                if (data == null || data.isEmpty()) {
+                    result.error("INVALID_ARGUMENT", "Data byte array is required for hardware pepper derivation", null)
+                    return
+                }
+
+                bridgeScope.launch {
+                    try {
+                        val peppered = withContext(Dispatchers.IO) {
+                            deriveHardwarePepperInternal(data)
+                        }
+                        result.success(peppered)
                     } catch (e: Exception) {
                         handleException(e, result)
                     }
@@ -213,6 +235,7 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
                         withContext(Dispatchers.IO) {
                             deleteKeyFromKeyStore(MASTER_KEY_ALIAS)
                             deleteKeyFromKeyStore(BIOMETRIC_KEY_ALIAS)
+                            deleteKeyFromKeyStore(PEPPER_KEY_ALIAS)
                         }
                         isSessionUnlocked.set(false)
                         result.success(true)
@@ -270,9 +293,65 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         if (keyStore.containsAlias(BIOMETRIC_KEY_ALIAS)) {
             keyStore.deleteEntry(BIOMETRIC_KEY_ALIAS)
         }
+        if (keyStore.containsAlias(PEPPER_KEY_ALIAS)) {
+            keyStore.deleteEntry(PEPPER_KEY_ALIAS)
+        }
 
         generateKeyWithFallback(MASTER_KEY_ALIAS, isBiometricBound = false)
         generateKeyWithFallback(BIOMETRIC_KEY_ALIAS, isBiometricBound = true)
+        generateHardwarePepperKeyWithFallback()
+    }
+
+    private fun generateHardwarePepperKeyWithFallback() {
+        val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_HMAC_SHA256, KEYSTORE_PROVIDER)
+
+        // Attempt StrongBox-backed generation on Android 9+ (API 28+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                val strongBoxSpec = KeyGenParameterSpec.Builder(
+                    PEPPER_KEY_ALIAS,
+                    KeyProperties.PURPOSE_SIGN
+                )
+                    .setIsStrongBoxBacked(true)
+                    .build()
+                keyGenerator.init(strongBoxSpec)
+                keyGenerator.generateKey()
+                verifyKeyNonExportable(PEPPER_KEY_ALIAS)
+                Log.i(TAG, "Successfully generated hardware pepper key in StrongBox")
+                return
+            } catch (e: Exception) {
+                when (e) {
+                    is StrongBoxUnavailableException,
+                    is ProviderException -> {
+                        Log.w(TAG, "StrongBox unavailable for hardware pepper key, falling back to standard TEE: ${e.message}")
+                    }
+                    else -> throw e
+                }
+            }
+        }
+
+        // Standard TEE generation fallback
+        val teeSpec = KeyGenParameterSpec.Builder(
+            PEPPER_KEY_ALIAS,
+            KeyProperties.PURPOSE_SIGN
+        ).build()
+        keyGenerator.init(teeSpec)
+        keyGenerator.generateKey()
+        verifyKeyNonExportable(PEPPER_KEY_ALIAS)
+        Log.i(TAG, "Successfully generated hardware pepper key in standard TEE KeyStore")
+    }
+
+    private fun deriveHardwarePepperInternal(data: ByteArray): ByteArray {
+        val keyStore = getKeyStore()
+        if (!keyStore.containsAlias(PEPPER_KEY_ALIAS)) {
+            generateHardwarePepperKeyWithFallback()
+        }
+        val key = keyStore.getKey(PEPPER_KEY_ALIAS, null) as? SecretKey
+            ?: throw IllegalStateException("Hardware pepper key not found in KeyStore. Key generation required.")
+
+        val mac = Mac.getInstance(HMAC_ALGORITHM)
+        mac.init(key)
+        return mac.doFinal(data)
     }
 
     private fun generateKeyWithFallback(alias: String, isBiometricBound: Boolean) {
@@ -400,35 +479,37 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
         val canAuth = biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
             when (canAuth) {
+                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
+                    result.error("BIOMETRIC_NOT_ENROLLED", "No biometrics enrolled on device", null)
+                    return
+                }
                 BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE,
                 BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE -> {
-                    result.error("BIOMETRIC_UNAVAILABLE", "Biometric hardware is unavailable on this device", null)
-                }
-                BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
-                    result.error("BIOMETRIC_NOT_ENROLLED", "No biometric credentials enrolled on this device", null)
+                    result.error("BIOMETRIC_UNAVAILABLE", "Biometric hardware is unavailable", null)
+                    return
                 }
                 else -> {
-                    result.error("BIOMETRIC_ERROR", "Biometric authentication not supported: code $canAuth", null)
+                    result.error("BIOMETRIC_ERROR", "Biometric authentication not possible ($canAuth)", null)
+                    return
                 }
             }
-            return
         }
 
         val keyStore = getKeyStore()
-        val biometricKey = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
-        if (biometricKey == null) {
-            result.error("CRYPTO_FAULT_KEY_NOT_FOUND", "Biometric KeyStore key not found. Master key required.", null)
+        val key = keyStore.getKey(BIOMETRIC_KEY_ALIAS, null) as? SecretKey
+        if (key == null) {
+            result.error("CRYPTO_FAULT_KEY_NOT_FOUND", "Biometric key not found in KeyStore", null)
             return
         }
 
-        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        val cipher: Cipher
         try {
-            cipher.init(Cipher.ENCRYPT_MODE, biometricKey)
+            cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key)
         } catch (e: KeyPermanentlyInvalidatedException) {
-            Log.e(TAG, "Biometric key invalidated by new OS enrollment", e)
             result.error(
                 "CRYPTO_FAULT_KEY_INVALIDATED",
-                "Biometric key permanently invalidated by new OS biometric enrollment. PIN recovery required.",
+                "Biometric key permanently invalidated by new OS biometric enrollment",
                 null
             )
             return
@@ -445,6 +526,7 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
             .setSubtitle(subtitle)
             .setNegativeButtonText(cancelButton)
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .setConfirmationRequired(false)
             .build()
 
         val prompt = BiometricPrompt(
@@ -461,7 +543,8 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
                     super.onAuthenticationError(errorCode, errString)
                     when (errorCode) {
                         BiometricPrompt.ERROR_USER_CANCELED,
-                        BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
+                        BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+                        BiometricPrompt.ERROR_CANCELED -> {
                             result.error("BIOMETRIC_CANCELLED", errString.toString(), null)
                         }
                         BiometricPrompt.ERROR_LOCKOUT,
@@ -476,7 +559,6 @@ class VaultHardwareKeyStoreBridge(private val activity: FragmentActivity) : Meth
 
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
-                    // Biometric sensor did not recognize the fingerprint/face; dialog handles retry
                 }
             }
         )

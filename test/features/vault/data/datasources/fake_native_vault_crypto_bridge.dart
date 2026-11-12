@@ -36,6 +36,7 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   int lockCallCount = 0;
   int unlockCallCount = 0;
   int destroyCallCount = 0;
+  int deriveHardwarePepperCallCount = 0;
 
   /// Deterministic simulated 256-bit key used for test cipher operations.
   final Uint8List _simulatedKey = Uint8List.fromList(
@@ -65,6 +66,22 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     }
     _hasMasterKey = true;
     _isSessionUnlocked = true;
+  }
+
+  @override
+  Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey) async {
+    if (simulateHardwareFailure) {
+      throw const VaultCryptoFailure('Simulated hardware KeyStore failure.');
+    }
+    if (intermediateKey.isEmpty) {
+      throw const VaultValidationFailure(
+        'Intermediate key cannot be empty for hardware pepper derivation.',
+      );
+    }
+    deriveHardwarePepperCallCount++;
+    final hmac = Hmac(sha256, _simulatedKey);
+    final digest = hmac.convert(intermediateKey);
+    return Uint8List.fromList(digest.bytes);
   }
 
   Uint8List _encryptInternal(Uint8List plaintext) {
@@ -153,7 +170,7 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
       );
     }
 
-    // Decrypt
+    // Decrypt via XOR keystream
     final plaintext = Uint8List(encryptedData.length);
     for (var i = 0; i < encryptedData.length; i++) {
       final keystreamByte = (iv[i % gcmIvLengthBytes] ^ _simulatedKey[i % 32] ^ (i * 37)) & 0xFF;
@@ -269,5 +286,6 @@ final class FakeNativeVaultCryptoBridge implements INativeVaultCryptoBridge {
     lockCallCount = 0;
     unlockCallCount = 0;
     destroyCallCount = 0;
+    deriveHardwarePepperCallCount = 0;
   }
 }

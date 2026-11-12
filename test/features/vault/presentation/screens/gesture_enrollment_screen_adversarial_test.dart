@@ -10,6 +10,7 @@ import 'package:musify_mu/features/vault/data/services/gesture_recognizer_servic
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_sample.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
+import 'package:musify_mu/features/vault/domain/entities/lockout_cooldown_info.dart';
 import 'package:musify_mu/features/vault/domain/entities/recognition_score.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
@@ -136,6 +137,9 @@ class ControllableGestureRecognizer implements IGestureRecognizer {
 }
 
 class MockVaultAuthService implements IVaultAuthService {
+  @override
+  Future<LockoutCooldownInfo> getLockoutStatus() async => LockoutCooldownInfo.none();
+
   @override
   Future<VaultResult<AuthSession>> authenticateWithPin({
     required String pin,

@@ -119,13 +119,16 @@ class VaultAuthService implements IVaultAuthService {
       ),
     );
 
-    final derivedToken = await _pbkdf2Derivation.derive(
+    final intermediateToken = await _pbkdf2Derivation.derive(
       pin: pin,
       salt: saltBytes,
     );
-    _registerTransientBuffer(derivedToken);
+    _registerTransientBuffer(intermediateToken);
 
-    final computedVerifier = Uint8List.fromList(sha256.convert(derivedToken).bytes);
+    final hardwareBoundToken = await _cryptoBridge.deriveHardwarePepper(intermediateToken);
+    _registerTransientBuffer(hardwareBoundToken);
+
+    final computedVerifier = Uint8List.fromList(sha256.convert(hardwareBoundToken).bytes);
     _registerTransientBuffer(computedVerifier);
 
     final isCorrectPin = VaultPbkdf2Derivation.constantTimeEquals(
@@ -324,10 +327,13 @@ class VaultAuthService implements IVaultAuthService {
     final saltBytes = base64Decode(saltBase64);
     final storedVerifierBytes = base64Decode(verifierBase64);
 
-    final oldDerivedToken = await _pbkdf2Derivation.derive(
+    final oldIntermediateToken = await _pbkdf2Derivation.derive(
       pin: oldPin,
       salt: saltBytes,
     );
+    _registerTransientBuffer(oldIntermediateToken);
+
+    final oldDerivedToken = await _cryptoBridge.deriveHardwarePepper(oldIntermediateToken);
     _registerTransientBuffer(oldDerivedToken);
 
     final oldComputedVerifier = Uint8List.fromList(sha256.convert(oldDerivedToken).bytes);
@@ -358,10 +364,13 @@ class VaultAuthService implements IVaultAuthService {
     );
 
     final newSaltBytes = VaultPbkdf2Derivation.generateSalt();
-    final newDerivedToken = await _pbkdf2Derivation.derive(
+    final newIntermediateToken = await _pbkdf2Derivation.derive(
       pin: newPin,
       salt: newSaltBytes,
     );
+    _registerTransientBuffer(newIntermediateToken);
+
+    final newDerivedToken = await _cryptoBridge.deriveHardwarePepper(newIntermediateToken);
     _registerTransientBuffer(newDerivedToken);
 
     final newComputedVerifier = Uint8List.fromList(sha256.convert(newDerivedToken).bytes);
@@ -407,17 +416,20 @@ class VaultAuthService implements IVaultAuthService {
     );
 
     final saltBytes = VaultPbkdf2Derivation.generateSalt();
-    final derivedToken = await _pbkdf2Derivation.derive(
+    final intermediateToken = await _pbkdf2Derivation.derive(
       pin: pin,
       salt: saltBytes,
     );
-    _registerTransientBuffer(derivedToken);
-
-    final computedVerifier = Uint8List.fromList(sha256.convert(derivedToken).bytes);
-    _registerTransientBuffer(computedVerifier);
+    _registerTransientBuffer(intermediateToken);
 
     try {
       await _cryptoBridge.generateMasterKey();
+
+      final derivedToken = await _cryptoBridge.deriveHardwarePepper(intermediateToken);
+      _registerTransientBuffer(derivedToken);
+
+      final computedVerifier = Uint8List.fromList(sha256.convert(derivedToken).bytes);
+      _registerTransientBuffer(computedVerifier);
 
       await _secureStorage.write(
         key: _kPinSaltStorageKey,

@@ -57,8 +57,19 @@ final class FakeVaultAuthService implements IVaultAuthService {
         ),
       );
     }
-    return const VaultResult.failure(
-      VaultAuthFailure('Invalid PIN', remainingAttempts: 0),
+    await recordFailedAttempt();
+    if (lockoutStatus.tier != LockoutCooldownTierEnum.none) {
+      return VaultResult.failure(
+        VaultLockoutFailure(
+          'Too many failed attempts. Cooldown engaged.',
+          remainingCooldownSeconds: lockoutStatus.remainingCooldownSeconds,
+          deadlineMonotonicMs: lockoutStatus.deadlineMonotonicMs,
+        ),
+      );
+    }
+    final remaining = failedAttemptsRecorded < 5 ? 5 - failedAttemptsRecorded : 0;
+    return VaultResult.failure(
+      VaultAuthFailure('Invalid PIN', remainingAttempts: remaining),
     );
   }
 

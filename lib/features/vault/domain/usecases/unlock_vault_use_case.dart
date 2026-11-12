@@ -81,29 +81,32 @@ class UnlockVaultUseCase {
         await authService.resetFailedAttempts();
         return VaultResult.success(success.data);
       case final VaultFailureResult<AuthSession> failureResult:
-        await authService.recordFailedAttempt();
-        final updatedLockout = await authService.getLockoutStatus();
-        if (updatedLockout.tier != LockoutCooldownTierEnum.none) {
+        if (params is BiometricUnlockParams) {
+          await authService.recordFailedAttempt();
+          final updatedLockout = await authService.getLockoutStatus();
+          if (updatedLockout.tier != LockoutCooldownTierEnum.none) {
+            return VaultResult.failure(
+              VaultLockoutFailure(
+                'Too many failed attempts. Cooldown engaged.',
+                remainingCooldownSeconds: updatedLockout.remainingCooldownSeconds,
+                deadlineMonotonicMs: updatedLockout.deadlineMonotonicMs,
+                cause: failureResult.failure.cause,
+              ),
+            );
+          }
+
+          final remainingAttempts = _calculateRemainingAttempts(
+            consecutiveFailedAttempts: updatedLockout.consecutiveFailedAttempts,
+          );
           return VaultResult.failure(
-            VaultLockoutFailure(
-              'Too many failed attempts. Cooldown engaged.',
-              remainingCooldownSeconds: updatedLockout.remainingCooldownSeconds,
-              deadlineMonotonicMs: updatedLockout.deadlineMonotonicMs,
+            VaultAuthFailure(
+              failureResult.failure.message,
+              remainingAttempts: remainingAttempts,
               cause: failureResult.failure.cause,
             ),
           );
         }
-
-        final remainingAttempts = _calculateRemainingAttempts(
-          consecutiveFailedAttempts: updatedLockout.consecutiveFailedAttempts,
-        );
-        return VaultResult.failure(
-          VaultAuthFailure(
-            failureResult.failure.message,
-            remainingAttempts: remainingAttempts,
-            cause: failureResult.failure.cause,
-          ),
-        );
+        return failureResult;
     }
   }
 

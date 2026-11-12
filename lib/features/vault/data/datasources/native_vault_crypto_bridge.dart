@@ -58,6 +58,36 @@ final class NativeVaultCryptoBridge implements INativeVaultCryptoBridge {
   }
 
   @override
+  Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey) async {
+    if (intermediateKey.isEmpty) {
+      throw const VaultValidationFailure(
+        'Intermediate key cannot be empty for hardware pepper derivation.',
+      );
+    }
+
+    try {
+      final Object? result = await _channel.invokeMethod<Object?>(
+        'deriveHardwarePepper',
+        <String, Object>{
+          'data': intermediateKey,
+        },
+      );
+
+      if (result is Uint8List) {
+        return Uint8List.fromList(result);
+      } else if (result is List<int>) {
+        return Uint8List.fromList(result);
+      }
+
+      throw VaultCryptoFailure(
+        'Native bridge deriveHardwarePepper returned invalid type: ${result.runtimeType}',
+      );
+    } on PlatformException catch (e) {
+      _handlePlatformException(e);
+    }
+  }
+
+  @override
   Future<Uint8List> encryptPayload(Uint8List plaintext) async {
     if (plaintext.isEmpty) {
       throw const VaultValidationFailure(

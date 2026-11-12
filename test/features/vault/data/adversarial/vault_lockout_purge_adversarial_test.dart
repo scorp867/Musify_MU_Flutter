@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,6 +46,18 @@ class AdversarialMockCryptoBridge implements INativeVaultCryptoBridge {
   @override
   Future<void> generateMasterKey() async {
     _hasMasterKey = true;
+  }
+
+  @override
+  Future<Uint8List> deriveHardwarePepper(Uint8List intermediateKey) async {
+    if (!_hasMasterKey) {
+      throw const VaultCryptoFailure('Master key not provisioned in Android KeyStore.');
+    }
+    if (intermediateKey.isEmpty) {
+      throw const VaultValidationFailure('Intermediate key cannot be empty.');
+    }
+    final pepper = Uint8List.fromList(List<int>.generate(32, (i) => (i * 29 + 13) & 0xFF));
+    return Uint8List.fromList(Hmac(sha256, pepper).convert(intermediateKey).bytes);
   }
 
   @override

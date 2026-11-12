@@ -1,12 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:drift/native.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
-import 'package:musify_mu/features/player/application/queue/mobius/queue_event.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_control_client.dart';
 import 'package:musify_mu/features/player/domain/commands/pause_command.dart';
 import 'package:musify_mu/features/player/domain/commands/resume_command.dart';
@@ -27,7 +25,6 @@ import 'package:musify_mu/features/vault/data/services/playback_privacy_proxy.da
 import 'package:musify_mu/features/vault/domain/entities/auth_session.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_point.dart';
 import 'package:musify_mu/features/vault/domain/entities/gesture_template.dart';
-import 'package:musify_mu/features/vault/domain/entities/recognition_score.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_config.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_gesture_recognizer.dart';
@@ -44,7 +41,6 @@ import 'package:musify_mu/features/vault/domain/policies/lock_playback_behavior.
 import 'package:musify_mu/features/vault/domain/policies/metadata_visibility_policy.dart';
 import 'package:musify_mu/features/vault/domain/policies/screen_security_policy.dart';
 import 'package:musify_mu/features/vault/domain/policies/vault_theme_palette_policy.dart';
-import 'package:musify_mu/features/vault/domain/states/gesture_engine_state.dart';
 import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart';
 import 'package:musify_mu/features/vault/domain/states/settings_mutation_state.dart';
 import 'package:musify_mu/features/vault/domain/states/vault_session_state.dart';
@@ -84,9 +80,6 @@ class FakeVaultAuthService implements IVaultAuthService {
   bool keysClearedFromRam = false;
   int recordFailedAttemptCallCount = 0;
   int resetFailedAttemptsCallCount = 0;
-
-  @override
-  Future<bool> verifyPin(String pin) async => pin == '123456';
 
   @override
   Future<void> recordFailedAttempt() async {

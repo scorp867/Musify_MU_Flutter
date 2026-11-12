@@ -66,8 +66,19 @@ final class AdversarialAuthService implements IVaultAuthService {
         ),
       );
     }
-    return const VaultResult.failure(
-      VaultAuthFailure('Incorrect PIN credentials', remainingAttempts: 0),
+    await recordFailedAttempt();
+    if (currentLockout.tier != LockoutCooldownTierEnum.none) {
+      return VaultResult.failure(
+        VaultLockoutFailure(
+          'Too many failed attempts. Cooldown engaged.',
+          remainingCooldownSeconds: currentLockout.remainingCooldownSeconds,
+          deadlineMonotonicMs: currentLockout.deadlineMonotonicMs,
+        ),
+      );
+    }
+    final remaining = failedAttempts < 5 ? 5 - failedAttempts : (failedAttempts < 10 ? 10 - failedAttempts : 0);
+    return VaultResult.failure(
+      VaultAuthFailure('Incorrect PIN credentials', remainingAttempts: remaining),
     );
   }
 
