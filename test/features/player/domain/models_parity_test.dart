@@ -7,6 +7,7 @@ import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/player_options.dart';
 import 'package:musify_mu/features/player/domain/models/player_queue.dart';
+import 'package:musify_mu/features/player/domain/models/player_state.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:musify_mu/features/player/domain/models/restrictions.dart';
 
@@ -111,6 +112,67 @@ void main() {
 
       final validProto = QueueProtoMappers.toQueueProto(const PlayerQueue(revision: '12345'));
       expect(validProto.queueRevision.toInt(), 12345);
+    });
+
+    test('PlayerState.position stops advancing during mid-track buffering and when paused', () {
+      const int baseTimestamp = 10000;
+      const int anchorPositionMs = 45000;
+      const int sampleTimeMs = 15000;
+
+      const bufferingState = PlayerState(
+        timestamp: baseTimestamp,
+        positionAsOfTimestamp: anchorPositionMs,
+        duration: 180000,
+        isPlaying: true,
+        isPaused: false,
+        isBuffering: true,
+        playbackSpeed: null,
+      );
+      expect(bufferingState.position(sampleTimeMs), anchorPositionMs);
+
+      const explicitZeroSpeed = PlayerState(
+        timestamp: baseTimestamp,
+        positionAsOfTimestamp: anchorPositionMs,
+        duration: 180000,
+        isPlaying: true,
+        isPaused: false,
+        isBuffering: true,
+        playbackSpeed: 0.0,
+      );
+      expect(explicitZeroSpeed.position(sampleTimeMs), anchorPositionMs);
+
+      const pausedState = PlayerState(
+        timestamp: baseTimestamp,
+        positionAsOfTimestamp: anchorPositionMs,
+        duration: 180000,
+        isPlaying: true,
+        isPaused: true,
+        isBuffering: false,
+        playbackSpeed: null,
+      );
+      expect(pausedState.position(sampleTimeMs), anchorPositionMs);
+
+      const playingState = PlayerState(
+        timestamp: baseTimestamp,
+        positionAsOfTimestamp: anchorPositionMs,
+        duration: 180000,
+        isPlaying: true,
+        isPaused: false,
+        isBuffering: false,
+        playbackSpeed: null,
+      );
+      expect(playingState.position(sampleTimeMs), anchorPositionMs + (sampleTimeMs - baseTimestamp));
+
+      const nearingEndState = PlayerState(
+        timestamp: baseTimestamp,
+        positionAsOfTimestamp: 179000,
+        duration: 180000,
+        isPlaying: true,
+        isPaused: false,
+        isBuffering: false,
+        playbackSpeed: 1.0,
+      );
+      expect(nearingEndState.position(baseTimestamp + 5000), 180000);
     });
   });
 }

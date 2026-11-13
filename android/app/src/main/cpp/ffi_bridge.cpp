@@ -44,7 +44,7 @@ struct NativePlaybackServices {
           http_client(auth_store),
           disk_cache(),
           track_info_provider(auth_store, http_client),
-          head_file_manager(disk_cache, auth_store),
+          head_file_manager(disk_cache, auth_store, http_client),
           storage_resolve_client(http_client),
           widevine_license_client(auth_store, http_client),
           file_streamer(auth_store, head_file_manager, storage_resolve_client, widevine_license_client) {}

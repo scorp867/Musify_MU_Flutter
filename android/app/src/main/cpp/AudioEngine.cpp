@@ -1,5 +1,7 @@
 #include "AudioEngine.h"
 #include "JniHelper.h"
+#include "content_delivery/HeadFileManager.h"
+#include "network/NativeHttpClient.h"
 
 #include <cstring>
 #include <algorithm>
@@ -20,19 +22,13 @@ static const uint8_t kWidevineUuid[16] = {
 };
 
 static JavaVM* sJavaVm = nullptr;
-static jclass sHeadDownloaderClass = nullptr;
-static jmethodID sDownloadHeadMethod = nullptr;
 static jclass sDrmBridgeClass = nullptr;
 static jmethodID sAcquireSessionMethod = nullptr;
 static jmethodID sCloseSessionMethod = nullptr;
-static jclass sHttpBridgeClass = nullptr;
-static jmethodID sExecuteHttpMethod = nullptr;
 static jobject sClassLoader = nullptr;
 static jmethodID sLoadClassMethod = nullptr;
 
 JavaVM* getMusifyJavaVm() noexcept { return sJavaVm; }
-jclass getMusifyHttpBridgeClass() noexcept { return sHttpBridgeClass; }
-jmethodID getMusifyExecuteHttpMethod() noexcept { return sExecuteHttpMethod; }
 jobject getMusifyClassLoader() noexcept { return sClassLoader; }
 jmethodID getMusifyLoadClassMethod() noexcept { return sLoadClassMethod; }
 
@@ -46,22 +42,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
         return JNI_VERSION_1_6;
     }
 
-    // 1. Cache NativeHeadDownloader class and method
-    jclass localHead = env->FindClass("um/musify/mu/musify_mu/NativeHeadDownloader");
-    if (localHead) {
-        sHeadDownloaderClass = reinterpret_cast<jclass>(env->NewGlobalRef(localHead));
-        sDownloadHeadMethod = env->GetStaticMethodID(
-            sHeadDownloaderClass,
-            "downloadHeadFile",
-            "(Ljava/lang/String;Ljava/lang/String;)Z");
-        env->DeleteLocalRef(localHead);
-        LOGI("NativeHeadDownloader cached (cls=%p, method=%p)", sHeadDownloaderClass, sDownloadHeadMethod);
-    } else {
-        LOGE("Failed to find NativeHeadDownloader in JNI_OnLoad");
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
-
-    // 2. Cache NativeDrmBridge class and methods
+    // 1. Cache NativeDrmBridge class and methods (Widevine MediaDrm platform API)
     jclass localDrm = env->FindClass("um/musify/mu/musify_mu/NativeDrmBridge");
     if (localDrm) {
         sDrmBridgeClass = reinterpret_cast<jclass>(env->NewGlobalRef(localDrm));
@@ -80,22 +61,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
         if (env->ExceptionCheck()) env->ExceptionClear();
     }
 
-    // 3. Cache NativeHttpBridge class and method
-    jclass localHttp = env->FindClass("um/musify/mu/musify_mu/NativeHttpBridge");
-    if (localHttp) {
-        sHttpBridgeClass = reinterpret_cast<jclass>(env->NewGlobalRef(localHttp));
-        sExecuteHttpMethod = env->GetStaticMethodID(
-            sHttpBridgeClass,
-            "executeRequest",
-            "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[BII)[B");
-        env->DeleteLocalRef(localHttp);
-        LOGI("NativeHttpBridge cached (cls=%p, method=%p)", sHttpBridgeClass, sExecuteHttpMethod);
-    } else {
-        LOGE("Failed to find NativeHttpBridge in JNI_OnLoad");
-        if (env->ExceptionCheck()) env->ExceptionClear();
-    }
-
-    // 4. Cache Application ClassLoader as universal fallback for background threads
+    // 2. Cache Application ClassLoader as fallback for DRM calls on detached workers
     jclass mainActivityClass = env->FindClass("um/musify/mu/musify_mu/MainActivity");
     if (mainActivityClass) {
         jclass classClass = env->GetObjectClass(mainActivityClass);
@@ -121,9 +87,7 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* /*reserved*/) {
 extern "C" JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* /*reserved*/) {
     JNIEnv* env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK && env) {
-        if (sHeadDownloaderClass) env->DeleteGlobalRef(sHeadDownloaderClass);
         if (sDrmBridgeClass) env->DeleteGlobalRef(sDrmBridgeClass);
-        if (sHttpBridgeClass) env->DeleteGlobalRef(sHttpBridgeClass);
         if (sClassLoader) env->DeleteGlobalRef(sClassLoader);
     }
 }
@@ -142,6 +106,8 @@ AudioEngine::~AudioEngine() {
     {
         std::lock_guard<std::mutex> lock(mEosMutex);
         mEosCallback = nullptr;
+        mSecondaryFailureCallback = nullptr;
+        mStateCallback = nullptr;
         mEosPending = false;
         mEosWorkerStop = true;
     }
@@ -195,6 +161,22 @@ void AudioEngine::setSecondaryFailureCallback(SecondaryFailureCallback cb) {
     mSecondaryFailureCallback = std::move(cb);
 }
 
+void AudioEngine::setStateCallback(StateCallback cb) {
+    std::lock_guard<std::mutex> lock(mEosMutex);
+    mStateCallback = std::move(cb);
+}
+
+void AudioEngine::notifyStateChanged(EngineState state) {
+    StateCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(mEosMutex);
+        cb = mStateCallback;
+    }
+    if (cb) {
+        cb(state);
+    }
+}
+
 void AudioEngine::failSecondary(const std::string& reason) {
     LOGE("Secondary stream failed: %s", reason.c_str());
     mSecondaryFailed.store(true, std::memory_order_release);
@@ -220,8 +202,17 @@ void AudioEngine::stop() {
     stopPlayback();
     mFramesConsumedByHardware.store(0, std::memory_order_relaxed);
     mSeekPositionMs.store(0, std::memory_order_relaxed);
-    mDurationMs = 0;
+    mDurationMs.store(0, std::memory_order_release);
+    mDurationAuthoritative.store(false, std::memory_order_release);
     mState.store(EngineState::Idle, std::memory_order_release);
+}
+
+void AudioEngine::cancelAllActiveSources() {
+    std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+    if (mDataSource) mDataSource->cancel();
+    if (mPrimarySource) mPrimarySource->cancel();
+    if (mSecondarySource) mSecondarySource->cancel();
+    if (mOpeningSecondarySource) mOpeningSecondarySource->cancel();
 }
 
 // ===========================================================================
@@ -232,14 +223,22 @@ void AudioEngine::stopPlayback() {
     mMonitorShouldStop.store(true, std::memory_order_release);
     mSecondaryWorkerShouldStop.store(true, std::memory_order_release);
 
+    // 1. Cancel all I/O data sources FIRST so any blocking open()/readAt()/libcurl transfers
+    // return immediately instead of stalling worker/decoder thread joins for network timeouts.
+    cancelAllActiveSources();
+
     if (mSecondaryWorkerThread.joinable()) {
         mSecondaryWorkerThread.join();
     }
 
-    if (mStream) {
-        mStream->requestStop();
-        mStream->close();
-        mStream.reset();
+    std::shared_ptr<oboe::AudioStream> streamToClose;
+    {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        streamToClose = std::move(mStream);
+    }
+    if (streamToClose) {
+        streamToClose->requestStop();
+        streamToClose->close();
     }
 
     if (mDecoder) {
@@ -257,32 +256,32 @@ void AudioEngine::stopPlayback() {
         mSecondaryDecoder.reset();
     }
 
-    if (mSecondaryCrypto) {
-        AMediaCrypto_delete(mSecondaryCrypto);
-        mSecondaryCrypto = nullptr;
-    }
-    mActiveDrmSessionId.clear();
-
     joinMonitorThread();
     {
         std::lock_guard<std::mutex> lock(mEosMutex);
         mEosPending = false;
     }
 
-    if (mDataSource) {
-        mDataSource->close();
-        mDataSource.reset();
+    std::unique_ptr<IAudioDataSource> dataSrc;
+    std::unique_ptr<IAudioDataSource> primarySrc;
+    std::unique_ptr<HttpMediaDataSource> secondarySrc;
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        dataSrc = std::move(mDataSource);
+        primarySrc = std::move(mPrimarySource);
+        secondarySrc = std::move(mSecondarySource);
+        mOpeningSecondarySource = nullptr;
     }
 
-    if (mPrimarySource) {
-        mPrimarySource->close();
-        mPrimarySource.reset();
-    }
+    if (dataSrc) dataSrc->close();
+    if (primarySrc) primarySrc->close();
+    if (secondarySrc) secondarySrc->close();
 
-    if (mSecondarySource) {
-        mSecondarySource->close();
-        mSecondarySource.reset();
+    if (mSecondaryCrypto) {
+        AMediaCrypto_delete(mSecondaryCrypto);
+        mSecondaryCrypto = nullptr;
     }
+    closeActiveDrmSession();
 
     mRingBuffer.reset();
 
@@ -293,6 +292,10 @@ void AudioEngine::stopPlayback() {
     mHandoffCompleted.store(false, std::memory_order_release);
     mHandoffTargetMs.store(-1, std::memory_order_release);
     mHandoffActualMs.store(0, std::memory_order_release);
+    mPrimaryDurationMs.store(0, std::memory_order_release);
+    mPendingSeekOverrideMs.store(-1, std::memory_order_release);
+    mPrimarySeekInvalidated.store(false, std::memory_order_release);
+    mDurationAuthoritative.store(false, std::memory_order_release);
     mEosNotified.store(false, std::memory_order_relaxed);
 }
 
@@ -300,7 +303,9 @@ void AudioEngine::stopPlayback() {
 // Control: loadLocal
 // ===========================================================================
 
-EngineStatus AudioEngine::loadLocal(const char* filePath) {
+EngineStatus AudioEngine::loadLocal(const char* filePath,
+                                    std::vector<std::string> fallbackUrls,
+                                    spotify::network::UrlRefreshCallback urlRefreshCb) {
     if (!filePath || filePath[0] == '\0') {
         return EngineStatus::ErrorInvalidArg;
     }
@@ -311,7 +316,16 @@ EngineStatus AudioEngine::loadLocal(const char* filePath) {
 
     std::unique_ptr<IAudioDataSource> source;
     if (std::strncmp(filePath, "http://", 7) == 0 || std::strncmp(filePath, "https://", 8) == 0) {
-        source = std::make_unique<HttpMediaDataSource>(filePath);
+        std::vector<std::string> urls;
+        urls.reserve(1 + fallbackUrls.size());
+        urls.emplace_back(filePath);
+        for (auto& u : fallbackUrls) {
+            if (!u.empty() && u != urls.front()) {
+                urls.push_back(std::move(u));
+            }
+        }
+        source = std::make_unique<HttpMediaDataSource>(
+            std::move(urls), nullptr, std::move(urlRefreshCb));
     } else {
         source = std::make_unique<LocalFileDataSource>(filePath);
     }
@@ -388,17 +402,18 @@ EngineStatus AudioEngine::loadTrackWithHead(const char* fileIdHex,
     // If fullTrackUrl is not yet resolved, primary plays immediately (< 30ms TTFA)
     // while attachSecondaryStream can be invoked concurrently.
     LOGI("Head chunk ready. Loading primary decoder (full stream: %s)", (fullTrackUrl && fullTrackUrl[0] != '\0') ? fullTrackUrl : "none");
-    EngineStatus status = loadDualSource(std::move(primarySource), fullTrackUrl, licenseServerUrl, authHeader, -1);
+    EngineStatus status = loadDualSource(
+        std::move(primarySource),
+        fullTrackUrl,
+        licenseServerUrl,
+        authHeader,
+        -1,
+        trackDurationMs);
     if (status == EngineStatus::Ok) {
         if (!fullTrackUrl || fullTrackUrl[0] == '\0') {
             mSecondaryPending.store(true, std::memory_order_release);
         }
         mDecoderEndOfStream.store(false, std::memory_order_release);
-        if (trackDurationMs > 0) {
-            mDurationMs = trackDurationMs;
-        } else if (!fullTrackUrl || fullTrackUrl[0] == '\0') {
-            mDurationMs = 0; // Show Duration.zero until metadata resolves
-        }
     }
     return status;
 }
@@ -415,98 +430,14 @@ void AudioEngine::prefetchHead(const char* fileIdHex, const char* cacheDir) {
 }
 
 bool AudioEngine::downloadHeadFileNative(const char* fileIdHex, const char* targetFilePath) {
-    if (!fileIdHex || !targetFilePath) return false;
-
-    // Ensure parent directory exists
-    std::string dirPath = targetFilePath;
-    size_t lastSlash = dirPath.find_last_of('/');
-    if (lastSlash != std::string::npos) {
-        std::string dir = dirPath.substr(0, lastSlash);
-        mkdir(dir.c_str(), 0755);
-    }
-
-    // Check if target file already exists and has valid header size (>= 512 bytes)
-    struct stat st;
-    if (stat(targetFilePath, &st) == 0) {
-        if (st.st_size >= 512) {
-            LOGI("Head file cache HIT for %s (%s, size=%lld)", fileIdHex, targetFilePath, (long long)st.st_size);
-            return true;
-        } else {
-            LOGW("Head file corrupt (size=%lld < 512), purging: %s", (long long)st.st_size, targetFilePath);
-            unlink(targetFilePath);
-        }
-    }
-
-    if (!sJavaVm) {
-        LOGE("Cannot download head file: sJavaVm is null");
+    if (!fileIdHex || fileIdHex[0] == '\0' || !targetFilePath || targetFilePath[0] == '\0') {
         return false;
     }
 
-    JNIEnv* env = nullptr;
-    bool didAttach = false;
-    jint getEnvRes = sJavaVm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    if (getEnvRes == JNI_EDETACHED) {
-        if (sJavaVm->AttachCurrentThread(&env, nullptr) == JNI_OK) {
-            didAttach = true;
-        }
-    }
-
-    if (!env) {
-        LOGE("Failed to obtain JNIEnv for head download");
-        return false;
-    }
-
-    jclass bridgeClass = sHeadDownloaderClass;
-    jmethodID downloadMethod = sDownloadHeadMethod;
-    bool needsDeleteLocal = false;
-
-    // Fallback: if not cached in JNI_OnLoad, resolve via Application ClassLoader
-    if (!bridgeClass && sClassLoader && sLoadClassMethod) {
-        jstring jclassName = env->NewStringUTF("um.musify.mu.musify_mu.NativeHeadDownloader");
-        jclass loadedClass = static_cast<jclass>(env->CallObjectMethod(sClassLoader, sLoadClassMethod, jclassName));
-        env->DeleteLocalRef(jclassName);
-        if (env->ExceptionCheck()) {
-            env->ExceptionClear();
-        } else if (loadedClass) {
-            bridgeClass = loadedClass;
-            downloadMethod = env->GetStaticMethodID(
-                bridgeClass,
-                "downloadHeadFile",
-                "(Ljava/lang/String;Ljava/lang/String;)Z");
-            if (env->ExceptionCheck()) {
-                env->ExceptionClear();
-            }
-            needsDeleteLocal = true;
-        }
-    }
-
-    if (!bridgeClass || !downloadMethod) {
-        LOGE("NativeHeadDownloader class or method not found (cls=%p, method=%p)", bridgeClass, downloadMethod);
-        if (didAttach) sJavaVm->DetachCurrentThread();
-        return false;
-    }
-
-    jstring jFileId = env->NewStringUTF(fileIdHex);
-    jstring jPath = env->NewStringUTF(targetFilePath);
-
-    jboolean success = env->CallStaticBooleanMethod(bridgeClass, downloadMethod, jFileId, jPath);
-    if (env->ExceptionCheck()) {
-        LOGE("Java exception occurred during downloadHeadFile for %s", fileIdHex);
-        env->ExceptionClear();
-        success = JNI_FALSE;
-    }
-
-    env->DeleteLocalRef(jFileId);
-    env->DeleteLocalRef(jPath);
-    if (needsDeleteLocal) {
-        env->DeleteLocalRef(bridgeClass);
-    }
-
-    if (didAttach) {
-        sJavaVm->DetachCurrentThread();
-    }
-
-    return static_cast<bool>(success);
+    return spotify::content_delivery::HeadFileManager::streamHeadFile(
+        spotify::network::NativeHttpClient::defaultInstance(),
+        fileIdHex,
+        targetFilePath);
 }
 
 // ===========================================================================
@@ -517,7 +448,8 @@ EngineStatus AudioEngine::loadDualSource(const char* primaryPath,
                                         const char* secondaryUrl,
                                         const char* licenseServerUrl,
                                         const char* authHeader,
-                                        int64_t handoffPositionMs) {
+                                        int64_t handoffPositionMs,
+                                        int64_t trackDurationMs) {
     if (!primaryPath || primaryPath[0] == '\0') {
         return EngineStatus::ErrorInvalidArg;
     }
@@ -529,14 +461,21 @@ EngineStatus AudioEngine::loadDualSource(const char* primaryPath,
         primarySource = std::make_unique<LocalFileDataSource>(primaryPath);
     }
 
-    return loadDualSource(std::move(primarySource), secondaryUrl, licenseServerUrl, authHeader, handoffPositionMs);
+    return loadDualSource(
+        std::move(primarySource),
+        secondaryUrl,
+        licenseServerUrl,
+        authHeader,
+        handoffPositionMs,
+        trackDurationMs);
 }
 
 EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> primarySource,
                                         const char* secondaryUrl,
                                         const char* licenseServerUrl,
                                         const char* authHeader,
-                                        int64_t handoffPositionMs) {
+                                        int64_t handoffPositionMs,
+                                        int64_t trackDurationMs) {
     if (!primarySource) {
         return EngineStatus::ErrorInvalidArg;
     }
@@ -563,15 +502,21 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
 
     mSampleRate = primarySource->getSampleRate();
     mSourceChannelCount = primarySource->getChannelCount();
-    mDurationMs = primarySource->getDurationUs() / 1000;
+    // Chunk 0 Ogg head only spans ~6.5s; keep track duration un-authoritative until MP4 opens.
+    const int64_t primaryHeadDurMs = std::max<int64_t>(0, primarySource->getDurationUs() / 1000);
+    mPrimaryDurationMs.store(primaryHeadDurMs, std::memory_order_release);
+    mPendingSeekOverrideMs.store(-1, std::memory_order_release);
+    mPrimarySeekInvalidated.store(false, std::memory_order_release);
+    mDurationMs.store(trackDurationMs > 0 ? trackDurationMs : 0, std::memory_order_release);
+    mDurationAuthoritative.store(false, std::memory_order_release);
 
     int64_t maxFramesToDecode = -1;
     if (handoffPositionMs > 0 && mSampleRate > 0) {
         maxFramesToDecode = (handoffPositionMs * mSampleRate) / 1000;
     }
 
-    LOGI("Primary source opened: sr=%d cc=%d dur=%lldms handoffTargetMs=%lld maxFrames=%lld",
-         mSampleRate, mSourceChannelCount, static_cast<long long>(mDurationMs),
+    LOGI("Primary source opened: sr=%d cc=%d headDurMs=%lld handoffTargetMs=%lld maxFrames=%lld",
+         mSampleRate, mSourceChannelCount, static_cast<long long>(primarySource->getDurationUs() / 1000),
          static_cast<long long>(handoffPositionMs), static_cast<long long>(maxFramesToDecode));
 
     // 2. Configure Primary Decoder
@@ -582,8 +527,7 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
         primarySource->getTrackFormat(),
         mSourceChannelCount,
         nullptr,
-        maxFramesToDecode,
-        sJavaVm);
+        maxFramesToDecode);
 
     status = primaryDecoder->configure();
     if (status != EngineStatus::Ok) {
@@ -593,7 +537,10 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
         return status;
     }
 
-    mPrimarySource = std::move(primarySource);
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        mPrimarySource = std::move(primarySource);
+    }
     mPrimaryDecoder = std::move(primaryDecoder);
 
     // 3. Open Oboe Stream
@@ -602,8 +549,12 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
         LOGE("Oboe stream open failed: %d", static_cast<int>(status));
         mPrimaryDecoder->stop();
         mPrimaryDecoder.reset();
-        mPrimarySource->close();
-        mPrimarySource.reset();
+        std::unique_ptr<IAudioDataSource> primaryToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            primaryToClose = std::move(mPrimarySource);
+        }
+        if (primaryToClose) primaryToClose->close();
         mState.store(EngineState::Faulted, std::memory_order_release);
         return status;
     }
@@ -621,11 +572,19 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
     status = mPrimaryDecoder->start();
     if (status != EngineStatus::Ok) {
         LOGE("Primary decoder start failed: %d", static_cast<int>(status));
-        mStream->close();
-        mStream.reset();
+        std::shared_ptr<oboe::AudioStream> streamToClose;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamToClose = std::move(mStream);
+        }
+        if (streamToClose) streamToClose->close();
         mPrimaryDecoder.reset();
-        mPrimarySource->close();
-        mPrimarySource.reset();
+        std::unique_ptr<IAudioDataSource> primaryToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            primaryToClose = std::move(mPrimarySource);
+        }
+        if (primaryToClose) primaryToClose->close();
         mState.store(EngineState::Faulted, std::memory_order_release);
         return status;
     }
@@ -640,10 +599,11 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
         mSecondaryWorkerThread = std::thread(
             &AudioEngine::secondaryWorkerFunc,
             this,
-            std::string(secondaryUrl),
+            std::vector<std::string>{std::string(secondaryUrl)},
             licenseServerUrl ? std::string(licenseServerUrl) : std::string(),
             authHeader ? std::string(authHeader) : std::string(),
-            handoffPositionMs
+            handoffPositionMs,
+            nullptr
         );
     }
 
@@ -661,7 +621,9 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
 
 EngineStatus AudioEngine::loadEncryptedStream(const char* url,
                                              const char* licenseServerUrl,
-                                             const char* authHeader) {
+                                             const char* authHeader,
+                                             std::vector<std::string> fallbackUrls,
+                                             spotify::network::UrlRefreshCallback urlRefreshCb) {
     if (!url || url[0] == '\0') {
         return EngineStatus::ErrorInvalidArg;
     }
@@ -680,7 +642,16 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
 
     std::unique_ptr<IAudioDataSource> source;
     if (std::strncmp(url, "http://", 7) == 0 || std::strncmp(url, "https://", 8) == 0) {
-        source = std::make_unique<HttpMediaDataSource>(url, authHeader);
+        std::vector<std::string> urls;
+        urls.reserve(1 + fallbackUrls.size());
+        urls.emplace_back(url);
+        for (auto& u : fallbackUrls) {
+            if (!u.empty() && u != urls.front()) {
+                urls.push_back(std::move(u));
+            }
+        }
+        source = std::make_unique<HttpMediaDataSource>(
+            std::move(urls), authHeader, std::move(urlRefreshCb));
     } else {
         source = std::make_unique<LocalFileDataSource>(url);
     }
@@ -694,7 +665,9 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
 
     mSampleRate = source->getSampleRate();
     mSourceChannelCount = source->getChannelCount();
-    mDurationMs = source->getDurationUs() / 1000;
+    const int64_t durMs = source->getDurationUs() / 1000;
+    mDurationMs.store(durMs, std::memory_order_release);
+    mDurationAuthoritative.store(durMs > 0, std::memory_order_release);
 
     if (mSampleRate <= 0 || mSourceChannelCount <= 0) {
         LOGE("Invalid format for encrypted stream: sr=%d cc=%d", mSampleRate, mSourceChannelCount);
@@ -704,7 +677,7 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
     }
 
     LOGI("Encrypted source opened: sr=%d cc=%d dur=%lldms mime=%s",
-         mSampleRate, mSourceChannelCount, static_cast<long long>(mDurationMs), source->getMimeType());
+         mSampleRate, mSourceChannelCount, static_cast<long long>(durMs), source->getMimeType());
 
     AMediaCrypto* crypto = nullptr;
     if (source->hasWidevinePssh() || (licenseServerUrl && licenseServerUrl[0] != '\0')) {
@@ -800,8 +773,7 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
         source->getTrackFormat(),
         mSourceChannelCount,
         crypto,
-        -1,
-        sJavaVm);
+        -1);
 
     status = decoder->configure();
     if (status != EngineStatus::Ok) {
@@ -811,7 +783,10 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
         return status;
     }
 
-    mDataSource = std::move(source);
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        mDataSource = std::move(source);
+    }
     mDecoder = std::move(decoder);
 
     status = openOboeStream();
@@ -819,8 +794,12 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
         LOGE("Encrypted stream Oboe stream open failed: %d", static_cast<int>(status));
         mDecoder->stop();
         mDecoder.reset();
-        mDataSource->close();
-        mDataSource.reset();
+        std::unique_ptr<IAudioDataSource> dataToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            dataToClose = std::move(mDataSource);
+        }
+        if (dataToClose) dataToClose->close();
         mState.store(EngineState::Faulted, std::memory_order_release);
         return status;
     }
@@ -836,11 +815,19 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
     status = mDecoder->start();
     if (status != EngineStatus::Ok) {
         LOGE("Encrypted stream decoder start failed: %d", static_cast<int>(status));
-        mStream->close();
-        mStream.reset();
+        std::shared_ptr<oboe::AudioStream> streamToClose;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamToClose = std::move(mStream);
+        }
+        if (streamToClose) streamToClose->close();
         mDecoder.reset();
-        mDataSource->close();
-        mDataSource.reset();
+        std::unique_ptr<IAudioDataSource> dataToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            dataToClose = std::move(mDataSource);
+        }
+        if (dataToClose) dataToClose->close();
         mState.store(EngineState::Faulted, std::memory_order_release);
         return status;
     }
@@ -850,14 +837,16 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
     LOGI("Encrypted stream started successfully: mime=%s dur=%lldms",
-         mDataSource->getMimeType(), static_cast<long long>(mDurationMs));
+         mDataSource->getMimeType(), static_cast<long long>(mDurationMs.load(std::memory_order_acquire)));
     return EngineStatus::Ok;
 }
 
 EngineStatus AudioEngine::attachSecondaryStream(const char* secondaryUrl,
                                                 const char* licenseServerUrl,
                                                 const char* authHeader,
-                                                int64_t handoffPositionMs) {
+                                                int64_t handoffPositionMs,
+                                                std::vector<std::string> fallbackUrls,
+                                                spotify::network::UrlRefreshCallback urlRefreshCb) {
     if (!secondaryUrl || secondaryUrl[0] == '\0') {
         return EngineStatus::ErrorInvalidArg;
     }
@@ -872,9 +861,19 @@ EngineStatus AudioEngine::attachSecondaryStream(const char* secondaryUrl,
         return EngineStatus::ErrorInvalidState;
     }
 
-    LOGI("Attaching secondary stream: %s", secondaryUrl);
+    std::vector<std::string> urls;
+    urls.reserve(1 + fallbackUrls.size());
+    urls.emplace_back(secondaryUrl);
+    for (auto& u : fallbackUrls) {
+        if (!u.empty() && u != urls.front()) {
+            urls.push_back(std::move(u));
+        }
+    }
+
+    LOGI("Attaching secondary stream (%zu CDN URLs): %s", urls.size(), secondaryUrl);
     if (mSecondaryWorkerThread.joinable()) {
         mSecondaryWorkerShouldStop.store(true, std::memory_order_release);
+        cancelAllActiveSources();
         mSecondaryWorkerThread.join();
     }
 
@@ -887,10 +886,11 @@ EngineStatus AudioEngine::attachSecondaryStream(const char* secondaryUrl,
     mSecondaryWorkerThread = std::thread(
         &AudioEngine::secondaryWorkerFunc,
         this,
-        std::string(secondaryUrl),
+        std::move(urls),
         licenseServerUrl ? std::string(licenseServerUrl) : std::string(),
         authHeader ? std::string(authHeader) : std::string(),
-        handoffPositionMs
+        handoffPositionMs,
+        std::move(urlRefreshCb)
     );
 
     // If monitor thread exited or is not running, ensure it is active
@@ -906,20 +906,29 @@ EngineStatus AudioEngine::attachSecondaryStream(const char* secondaryUrl,
 // Background Secondary Loader & DRM Negotiator
 // ===========================================================================
 
-void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
+void AudioEngine::secondaryWorkerFunc(std::vector<std::string> secondaryUrls,
                                       std::string licenseServerUrl,
                                       std::string authHeader,
-                                      int64_t handoffMs) {
+                                      int64_t handoffMs,
+                                      spotify::network::UrlRefreshCallback urlRefreshCb) {
+    if (secondaryUrls.empty()) {
+        failSecondary("Secondary URL list is empty");
+        return;
+    }
+    const std::string& secondaryUrl = secondaryUrls.front();
     LOGI("Secondary worker started for URL: %s", secondaryUrl.c_str());
 
-    // CRITICAL: Attach this native worker thread to JavaVM so Android's NDK MediaHTTPService can initialize!
-    JniThreadAttacher jniAttacher(sJavaVm, "MusifySecondaryWorker");
+    auto secSource = std::make_unique<HttpMediaDataSource>(
+        std::move(secondaryUrls), authHeader.c_str(), std::move(urlRefreshCb));
 
-    auto secSource = std::make_unique<HttpMediaDataSource>(secondaryUrl.c_str(), authHeader.c_str());
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        mOpeningSecondarySource = secSource.get();
+    }
     EngineStatus status = secSource->open();
-    if (status != EngineStatus::Ok) {
-        failSecondary("Secondary remote source open failed: " + std::to_string(static_cast<int>(status)));
-        return;
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        mOpeningSecondarySource = nullptr;
     }
 
     if (mSecondaryWorkerShouldStop.load(std::memory_order_acquire)) {
@@ -927,11 +936,21 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
         mSecondaryPending.store(false, std::memory_order_release);
         return;
     }
+    if (status != EngineStatus::Ok) {
+        failSecondary("Secondary remote source open failed: " + std::to_string(static_cast<int>(status)));
+        secSource->close();
+        return;
+    }
 
-    // Update total track duration if secondary provides the full track duration
-    int64_t secDurMs = secSource->getDurationUs() / 1000;
-    if (secDurMs > mDurationMs) {
-        mDurationMs = secDurMs;
+    // Update authoritative container duration (both up and down vs metadata hint).
+    const int64_t secDurUs = secSource->getDurationUs();
+    if (secDurUs > 0) {
+        const int64_t secDurMs = secDurUs / 1000;
+        mDurationMs.store(secDurMs, std::memory_order_release);
+        mDurationAuthoritative.store(true, std::memory_order_release);
+        LOGI("Authoritative container duration from secondary MP4: %lld ms",
+             static_cast<long long>(secDurMs));
+        notifyStateChanged(mState.load(std::memory_order_acquire));
     }
 
     AMediaCrypto* crypto = nullptr;
@@ -1046,11 +1065,11 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
         return;
     }
 
+    const int64_t seekOverride = mPendingSeekOverrideMs.load(std::memory_order_acquire);
     int64_t handoffUs = handoffMs * 1000LL;
-    if (handoffMs <= 0 && mPrimaryDecoder) {
-        // RingBuffer is single-producer: the secondary decoder must not start until the
-        // primary has committed its final frame.
-        while (!mPrimaryDecoder->isEndOfStream()) {
+    if (seekOverride >= 0 || mPrimarySeekInvalidated.load(std::memory_order_acquire)) {
+        // Wait until decoderMonitorFunc stops mPrimaryDecoder and resets mRingBuffer.
+        while (mPrimarySeekInvalidated.load(std::memory_order_acquire)) {
             if (mSecondaryWorkerShouldStop.load(std::memory_order_acquire)) {
                 secSource->close();
                 mSecondaryPending.store(false, std::memory_order_release);
@@ -1058,18 +1077,60 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
-        handoffUs = (mPrimaryDecoder->getDecodedFrames() * 1000000LL) / mSampleRate;
+        const int64_t latestOverride = mPendingSeekOverrideMs.load(std::memory_order_acquire);
+        handoffUs = (latestOverride >= 0 ? latestOverride : 0) * 1000LL;
+    } else if (handoffMs <= 0 && mPrimaryDecoder) {
+        // RingBuffer is single-producer: the secondary decoder must not start until the
+        // primary has committed its final frame or a user seek supersedes Chunk 0.
+        while (!mPrimaryDecoder->isEndOfStream() &&
+               !mPrimarySeekInvalidated.load(std::memory_order_acquire) &&
+               mPendingSeekOverrideMs.load(std::memory_order_acquire) < 0) {
+            if (mSecondaryWorkerShouldStop.load(std::memory_order_acquire)) {
+                secSource->close();
+                mSecondaryPending.store(false, std::memory_order_release);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        while (mPrimarySeekInvalidated.load(std::memory_order_acquire)) {
+            if (mSecondaryWorkerShouldStop.load(std::memory_order_acquire)) {
+                secSource->close();
+                mSecondaryPending.store(false, std::memory_order_release);
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        const int64_t overrideAfterWait =
+            mPendingSeekOverrideMs.load(std::memory_order_acquire);
+        if (overrideAfterWait >= 0) {
+            handoffUs = overrideAfterWait * 1000LL;
+        } else if (mPrimaryDecoder) {
+            handoffUs = (mPrimaryDecoder->getDecodedFrames() * 1000000LL) / mSampleRate;
+        }
+    }
+    const int64_t consumedOverride = mPendingSeekOverrideMs.exchange(-1, std::memory_order_acq_rel);
+    if (consumedOverride >= 0) {
+        handoffUs = consumedOverride * 1000LL;
     }
     const int64_t targetSeekMs = handoffUs / 1000LL;
 
-    if (handoffUs > 0) {
-        // Use AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC to ensure seek lands at or before handoffUs.
-        // This eliminates skipped audio gaps. NativeDecoder will accurately trim pre-roll up to handoffUs.
+    const int64_t secOriginUs = AMediaExtractor_getSampleTime(secSource->getExtractor());
+    const int64_t adjustedHandoffUs =
+        (handoffUs > 0 && secOriginUs > 0 && secOriginUs < 1000000LL)
+            ? (handoffUs + secOriginUs)
+            : handoffUs;
+
+    if (adjustedHandoffUs > 0) {
+        // Use AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC to ensure seek lands at or before target.
+        // NativeDecoder trims exact pre-roll frames up to adjustedHandoffUs.
         media_status_t seekStatus = AMediaExtractor_seekTo(
-            secSource->getExtractor(), handoffUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
+            secSource->getExtractor(), adjustedHandoffUs, AMEDIAEXTRACTOR_SEEK_PREVIOUS_SYNC);
         int64_t actualPtsUs = AMediaExtractor_getSampleTime(secSource->getExtractor());
-        LOGI("Secondary extractor pre-seeked: target=%lld us, actualPts=%lld us (status=%d)",
-             static_cast<long long>(handoffUs), static_cast<long long>(actualPtsUs), static_cast<int>(seekStatus));
+        LOGI("Secondary extractor pre-seeked: target=%lld us (origin=%lld us), actualPts=%lld us (status=%d)",
+             static_cast<long long>(adjustedHandoffUs),
+             static_cast<long long>(secOriginUs),
+             static_cast<long long>(actualPtsUs),
+             static_cast<int>(seekStatus));
     }
 
     // Prepare Secondary Decoder (standing by in memory) with exact handoff boundary pre-roll discard
@@ -1081,8 +1142,7 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
         secSource->getChannelCount(),
         mSecondaryCrypto,
         -1, // Secondary plays until EOF
-        sJavaVm,
-        handoffUs // Discard pre-roll prior to handoff boundary
+        adjustedHandoffUs // Discard pre-roll prior to handoff boundary
     );
 
     status = secDecoder->configure();
@@ -1102,7 +1162,10 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
     }
 
     mHandoffActualMs.store(targetSeekMs, std::memory_order_release);
-    mSecondarySource = std::move(secSource);
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        mSecondarySource = std::move(secSource);
+    }
     mSecondaryDecoder = std::move(secDecoder);
     mSecondaryReady.store(true, std::memory_order_release);
     mSecondaryPending.store(false, std::memory_order_release);
@@ -1110,19 +1173,6 @@ void AudioEngine::secondaryWorkerFunc(std::string secondaryUrl,
     mDecoderEndOfStream.store(false, std::memory_order_release);
     LOGI("Seamless dual-source handoff initiated: secondary decoder actively buffering ahead at %lld ms",
          static_cast<long long>(targetSeekMs));
-
-    // Resume after a buffer gap only if the user has not paused in the meantime
-    const EngineState currentEngineState = mState.load(std::memory_order_acquire);
-    const bool resumable = currentEngineState == EngineState::Paused ||
-                           currentEngineState == EngineState::Prebuffering ||
-                           currentEngineState == EngineState::Stopped;
-    if (resumable && mAutoPlay.load(std::memory_order_acquire)) {
-        mState.store(EngineState::Playing, std::memory_order_release);
-        if (mStream) {
-            mStream->requestStart();
-            LOGI("Playback automatically resumed/started on secondary handoff readiness");
-        }
-    }
 }
 
 AMediaCrypto* AudioEngine::acquireWidevineCrypto(const std::vector<uint8_t>& psshData,
@@ -1335,7 +1385,9 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
 
     mSampleRate = source->getSampleRate();
     mSourceChannelCount = source->getChannelCount();
-    mDurationMs = source->getDurationUs() / 1000;
+    const int64_t durMs = source->getDurationUs() / 1000;
+    mDurationMs.store(durMs, std::memory_order_release);
+    mDurationAuthoritative.store(durMs > 0, std::memory_order_release);
 
     if (mSampleRate <= 0 || mSourceChannelCount <= 0) {
         LOGE("Invalid format: sr=%d cc=%d", mSampleRate, mSourceChannelCount);
@@ -1346,7 +1398,7 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
 
     LOGI("Source opened: sr=%d cc=%d dur=%lldms mime=%s",
          mSampleRate, mSourceChannelCount,
-         static_cast<long long>(mDurationMs), source->getMimeType());
+         static_cast<long long>(durMs), source->getMimeType());
 
     auto decoder = std::make_unique<NativeDecoder>(
         mRingBuffer,
@@ -1355,8 +1407,7 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
         source->getTrackFormat(),
         mSourceChannelCount,
         nullptr,
-        -1,
-        sJavaVm);
+        -1);
 
     status = decoder->configure();
     if (status != EngineStatus::Ok) {
@@ -1366,7 +1417,10 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
         return status;
     }
 
-    mDataSource = std::move(source);
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        mDataSource = std::move(source);
+    }
     mDecoder = std::move(decoder);
 
     status = openOboeStream();
@@ -1374,8 +1428,12 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
         LOGE("Oboe stream open failed: %d", static_cast<int>(status));
         mDecoder->stop();
         mDecoder.reset();
-        mDataSource->close();
-        mDataSource.reset();
+        std::unique_ptr<IAudioDataSource> dataToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            dataToClose = std::move(mDataSource);
+        }
+        if (dataToClose) dataToClose->close();
         mState.store(EngineState::Faulted, std::memory_order_release);
         return status;
     }
@@ -1391,11 +1449,19 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
     status = mDecoder->start();
     if (status != EngineStatus::Ok) {
         LOGE("Decoder start failed: %d", static_cast<int>(status));
-        mStream->close();
-        mStream.reset();
+        std::shared_ptr<oboe::AudioStream> streamToClose;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamToClose = std::move(mStream);
+        }
+        if (streamToClose) streamToClose->close();
         mDecoder.reset();
-        mDataSource->close();
-        mDataSource.reset();
+        std::unique_ptr<IAudioDataSource> dataToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            dataToClose = std::move(mDataSource);
+        }
+        if (dataToClose) dataToClose->close();
         mState.store(EngineState::Faulted, std::memory_order_release);
         return status;
     }
@@ -1408,86 +1474,137 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
 }
 
 // ===========================================================================
-// Monitor thread: watermark detection, dual-decoder handoff, and faulting
+// Monitor thread: watermark detection, stall/resume sync, handoff & EOS
 // ===========================================================================
 
 void AudioEngine::decoderMonitorFunc() {
-    bool watermarkReached = false;
+    size_t emptyRingTicks = 0;
 
     while (!mMonitorShouldStop.load(std::memory_order_acquire)) {
         const EngineState currentState = mState.load(std::memory_order_acquire);
 
-        // Prebuffering watermark detection
-        if (!watermarkReached && currentState == EngineState::Prebuffering) {
+        // 1. Prebuffering watermark detection (initial load, seek, or stall recovery)
+        if (currentState == EngineState::Prebuffering) {
+            emptyRingTicks = 0;
+            const bool waitingForPendingSeekSecondary =
+                mIsDualSource.load(std::memory_order_acquire) &&
+                !mHandoffCompleted.load(std::memory_order_acquire) &&
+                (mPrimarySeekInvalidated.load(std::memory_order_acquire) ||
+                 mPendingSeekOverrideMs.load(std::memory_order_acquire) >= 0);
             const size_t available = mRingBuffer.availableToRead();
             bool eos = false;
             if (mIsDualSource.load(std::memory_order_relaxed)) {
-                eos = mPrimaryDecoder && mPrimaryDecoder->isEndOfStream();
+                if (mHandoffCompleted.load(std::memory_order_relaxed)) {
+                    eos = mSecondaryDecoder && mSecondaryDecoder->isEndOfStream();
+                } else {
+                    eos = mPrimaryDecoder && mPrimaryDecoder->isEndOfStream() &&
+                          !mSecondaryPending.load(std::memory_order_acquire) &&
+                          !mSecondaryWorkerThread.joinable();
+                }
             } else {
                 eos = mDecoder && mDecoder->isEndOfStream();
             }
 
-            const size_t watermark = static_cast<size_t>(mSampleRate) * 250 / 1000;
+            const size_t watermark = static_cast<size_t>(mSampleRate) * 25 / 1000;
 
-            if (available >= watermark || (eos && available > 0)) {
-                watermarkReached = true;
-                if (mAutoPlay.load(std::memory_order_acquire)) {
-                    mState.store(EngineState::Playing, std::memory_order_release);
-
-                    if (mStream) {
-                        oboe::Result result = mStream->requestStart();
-                        if (result != oboe::Result::OK) {
-                            LOGE("Oboe requestStart failed: %d", static_cast<int>(result));
-                            mState.store(EngineState::Faulted, std::memory_order_release);
-                        } else {
-                            LOGI("Playback started (watermark reached: %zu frames)", available);
+            if (!waitingForPendingSeekSecondary &&
+                (available >= watermark || (eos && available > 0))) {
+                NativeDecoder* activeDec = mIsDualSource.load(std::memory_order_relaxed)
+                    ? (mHandoffCompleted.load(std::memory_order_relaxed)
+                           ? mSecondaryDecoder.get()
+                           : mPrimaryDecoder.get())
+                    : mDecoder.get();
+                if (activeDec) {
+                    const int64_t landedSeekMs = activeDec->consumeActualSeekMs();
+                    if (landedSeekMs >= 0) {
+                        const int64_t requestedMs = mSeekPositionMs.load(std::memory_order_acquire);
+                        if (std::abs(landedSeekMs - requestedMs) > 120) {
+                            mSeekPositionMs.store(landedSeekMs, std::memory_order_release);
                         }
                     }
-                } else {
-                    mState.store(EngineState::Paused, std::memory_order_release);
-                    LOGI("Prebuffer watermark reached in paused state (%zu frames)", available);
+                }
+                const bool shouldAutoPlay = mAutoPlay.load(std::memory_order_acquire);
+                const EngineState targetState =
+                    shouldAutoPlay ? EngineState::Playing : EngineState::Paused;
+                EngineState expected = EngineState::Prebuffering;
+                if (mState.compare_exchange_strong(expected, targetState, std::memory_order_acq_rel)) {
+                    if (targetState == EngineState::Playing) {
+                        const oboe::Result result = startOrReopenOboeStream();
+                        if (result != oboe::Result::OK) {
+                            LOGE("Oboe startOrReopenOboeStream failed: %d", static_cast<int>(result));
+                            mState.store(EngineState::Faulted, std::memory_order_release);
+                            notifyStateChanged(EngineState::Faulted);
+                        } else {
+                            LOGI("Playback started/resumed (buffered=%zu frames)", available);
+                            notifyStateChanged(EngineState::Playing);
+                        }
+                    } else {
+                        LOGI("Prebuffer watermark reached in paused state (%zu frames)", available);
+                        notifyStateChanged(EngineState::Paused);
+                    }
                 }
             }
         }
 
-        // Dual-source handoff monitoring
+        // 2. Dual-source handoff cleanup / boundary handling
         if (mIsDualSource.load(std::memory_order_acquire)) {
-            if (mSecondaryReady.load(std::memory_order_acquire)) {
-                // Secondary decoder is actively decoding and filling mRingBuffer.
-                // Safely stop and release primary decoder resources.
+            const bool dropPrimaryForSeek = mPrimarySeekInvalidated.load(std::memory_order_acquire);
+            if (mSecondaryReady.load(std::memory_order_acquire) || dropPrimaryForSeek) {
+                bool releasedPrimary = false;
                 if (mPrimaryDecoder) {
                     mPrimaryDecoder->stop();
                     mPrimaryDecoder.reset();
-                    if (mPrimarySource) {
-                        mPrimarySource->close();
-                        mPrimarySource.reset();
+                    std::unique_ptr<IAudioDataSource> primaryToClose;
+                    {
+                        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+                        primaryToClose = std::move(mPrimarySource);
                     }
+                    if (primaryToClose) primaryToClose->close();
+                    releasedPrimary = true;
+                }
+                if (dropPrimaryForSeek) {
+                    mRingBuffer.reset();
+                    mPrimarySeekInvalidated.store(false, std::memory_order_release);
+                    LOGI("Invalidated Chunk 0 primary decoder for pre-handoff seek");
+                } else if (releasedPrimary) {
                     LOGI("Primary decoder resources safely released after handoff to secondary");
                 }
             } else if (mSecondaryFailed.load(std::memory_order_acquire)) {
-                // Secondary source / DRM failed.
-                // Let RingBuffer drain existing frames, then pause cleanly at boundary.
                 if (mRingBuffer.availableToRead() == 0) {
                     LOGI("Pausing at handoff boundary due to secondary source/DRM failure");
-                    if (mStream) mStream->requestPause();
-                    mState.store(EngineState::Paused, std::memory_order_release);
+                    std::shared_ptr<oboe::AudioStream> streamSnapshot;
+                    {
+                        std::lock_guard<std::mutex> lock(mStreamMutex);
+                        streamSnapshot = mStream;
+                    }
+                    if (streamSnapshot) streamSnapshot->requestPause();
+                    if (mState.exchange(EngineState::Paused, std::memory_order_acq_rel) != EngineState::Paused) {
+                        notifyStateChanged(EngineState::Paused);
+                    }
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     continue;
                 }
-            } else if (mPrimaryDecoder && mPrimaryDecoder->isEndOfStream() && !mSecondaryWorkerThread.joinable() && !mSecondaryPending.load(std::memory_order_acquire)) {
-                // Secondary source was never attached or worker thread stopped, and no secondary stream is pending.
-                // When primary buffer drains, pause cleanly at chunk 0 boundary without exiting monitor thread.
+            } else if (mPrimaryDecoder && mPrimaryDecoder->isEndOfStream() &&
+                       !mSecondaryWorkerThread.joinable() &&
+                       !mSecondaryPending.load(std::memory_order_acquire)) {
                 if (mRingBuffer.availableToRead() == 0) {
                     LOGI("Pausing cleanly at chunk 0 EOF (no secondary stream attached or pending)");
-                    if (mStream) mStream->requestPause();
-                    mState.store(EngineState::Paused, std::memory_order_release);
+                    std::shared_ptr<oboe::AudioStream> streamSnapshot;
+                    {
+                        std::lock_guard<std::mutex> lock(mStreamMutex);
+                        streamSnapshot = mStream;
+                    }
+                    if (streamSnapshot) streamSnapshot->requestPause();
+                    if (mState.exchange(EngineState::Paused, std::memory_order_acq_rel) != EngineState::Paused) {
+                        notifyStateChanged(EngineState::Paused);
+                    }
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     continue;
                 }
             }
         }
 
-        // Propagate EOS for terminal audio callback
+        // 3. Propagate EOS flag to Oboe callback
         if (mIsDualSource.load(std::memory_order_relaxed)) {
             if (mHandoffCompleted.load(std::memory_order_relaxed)) {
                 const bool secEos = mSecondaryDecoder && mSecondaryDecoder->isEndOfStream();
@@ -1500,33 +1617,66 @@ void AudioEngine::decoderMonitorFunc() {
                 mDecoderEndOfStream.store(false, std::memory_order_release);
             }
         } else {
-            if (mDecoder && mDecoder->isEndOfStream()) {
-                mDecoderEndOfStream.store(true, std::memory_order_release);
+            const bool singleEos = mDecoder && mDecoder->isEndOfStream();
+            mDecoderEndOfStream.store(singleEos, std::memory_order_release);
+        }
+
+        // 4. Mid-stream stall detection: freeze hardware clock cleanly instead of spinning underruns
+        //    so UI playback_speed drops to 0.0 during network stalls or Chunk-0->MP4 gaps.
+        if (mState.load(std::memory_order_acquire) == EngineState::Playing) {
+            if (mRingBuffer.availableToRead() == 0 &&
+                !mDecoderEndOfStream.load(std::memory_order_acquire)) {
+                if (++emptyRingTicks >= 15) {
+                    EngineState expected = EngineState::Playing;
+                    if (mState.compare_exchange_strong(
+                            expected, EngineState::Prebuffering, std::memory_order_acq_rel)) {
+                        std::shared_ptr<oboe::AudioStream> streamSnapshot;
+                        {
+                            std::lock_guard<std::mutex> lock(mStreamMutex);
+                            streamSnapshot = mStream;
+                        }
+                        if (streamSnapshot) {
+                            streamSnapshot->requestPause();
+                        }
+                        LOGW("Playback stalled waiting on buffered frames -> Prebuffering");
+                        notifyStateChanged(EngineState::Prebuffering);
+                    }
+                    emptyRingTicks = 0;
+                }
+            } else {
+                emptyRingTicks = 0;
             }
         }
 
-        // Handle EOS hardware drain completion
-        if (currentState == EngineState::Stopped) {
-            if (!mEosNotified.load(std::memory_order_relaxed)) {
-                mEosNotified.store(true, std::memory_order_relaxed);
+        // 5. Handle EOS hardware drain completion
+        const EngineState afterState = mState.load(std::memory_order_acquire);
+        if (afterState == EngineState::Stopped) {
+            if (!mEosNotified.exchange(true, std::memory_order_acq_rel)) {
                 LOGI("AudioEngine: EOS reached, scheduling EOS dispatcher");
+                bool hasEosCallback = false;
                 {
                     std::lock_guard<std::mutex> lock(mEosMutex);
+                    hasEosCallback = static_cast<bool>(mEosCallback);
                     mEosPending = true;
+                }
+                // Only broadcast Stopped to observers immediately when no EOS owner is
+                // attached; otherwise the EOS handler decides between advancing vs stopping
+                // without flashing an intermediate Stopped state to UI.
+                if (!hasEosCallback) {
+                    notifyStateChanged(EngineState::Stopped);
                 }
                 mEosCv.notify_one();
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             continue;
-        } else {
-            mEosNotified.store(false, std::memory_order_relaxed);
         }
 
-        if (currentState == EngineState::Faulted || currentState == EngineState::Idle) {
+        if (afterState == EngineState::Faulted || afterState == EngineState::Idle) {
             break;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            afterState == EngineState::Prebuffering ? 1 : 2));
     }
 }
 
@@ -1549,20 +1699,70 @@ EngineStatus AudioEngine::openOboeStream() {
            ->setDataCallback(this)
            ->setErrorCallback(this);
 
-    oboe::Result result = builder.openStream(mStream);
+    std::shared_ptr<oboe::AudioStream> newStream;
+    oboe::Result result = builder.openStream(newStream);
     if (result != oboe::Result::OK) {
         LOGE("openStream failed: %d", static_cast<int>(result));
         return EngineStatus::ErrorStream;
     }
 
-    mStream->setBufferSizeInFrames(mStream->getFramesPerBurst() * 2);
+    newStream->setBufferSizeInFrames(newStream->getFramesPerBurst() * 2);
 
     LOGI("Oboe stream opened: sr=%d burst=%d bufSize=%d",
-         mStream->getSampleRate(),
-         mStream->getFramesPerBurst(),
-         mStream->getBufferSizeInFrames());
+         newStream->getSampleRate(),
+         newStream->getFramesPerBurst(),
+         newStream->getBufferSizeInFrames());
 
+    {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        mStream = std::move(newStream);
+    }
     return EngineStatus::Ok;
+}
+
+oboe::Result AudioEngine::startOrReopenOboeStream(std::shared_ptr<oboe::AudioStream>* outStream) {
+    std::shared_ptr<oboe::AudioStream> streamSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        streamSnapshot = mStream;
+    }
+
+    if (!streamSnapshot ||
+        streamSnapshot->getState() == oboe::StreamState::Closed ||
+        streamSnapshot->getState() == oboe::StreamState::Disconnected) {
+        if (openOboeStream() != EngineStatus::Ok) {
+            return oboe::Result::ErrorClosed;
+        }
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        streamSnapshot = mStream;
+    }
+
+    if (!streamSnapshot) {
+        return oboe::Result::ErrorClosed;
+    }
+
+    if (streamSnapshot->getState() == oboe::StreamState::Started) {
+        if (outStream) {
+            *outStream = std::move(streamSnapshot);
+        }
+        return oboe::Result::OK;
+    }
+
+    oboe::Result result = streamSnapshot->requestStart();
+    if (result == oboe::Result::ErrorClosed || result == oboe::Result::ErrorDisconnected) {
+        if (openOboeStream() == EngineStatus::Ok) {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamSnapshot = mStream;
+            if (streamSnapshot) {
+                result = streamSnapshot->requestStart();
+            }
+        }
+    }
+
+    if (outStream) {
+        *outStream = std::move(streamSnapshot);
+    }
+    return result;
 }
 
 // ===========================================================================
@@ -1574,9 +1774,8 @@ EngineStatus AudioEngine::play() {
     const EngineState current = mState.load(std::memory_order_acquire);
     if (current == EngineState::Paused || current == EngineState::Stopped) {
         mState.store(EngineState::Playing, std::memory_order_release);
-        if (mStream) {
-            mStream->requestStart();
-        }
+        startOrReopenOboeStream();
+        notifyStateChanged(EngineState::Playing);
         return EngineStatus::Ok;
     }
     if (current == EngineState::Playing ||
@@ -1592,9 +1791,15 @@ EngineStatus AudioEngine::pause() {
     const EngineState current = mState.load(std::memory_order_acquire);
     if (current == EngineState::Playing) {
         mState.store(EngineState::Paused, std::memory_order_release);
-        if (mStream) {
-            mStream->requestPause();
+        std::shared_ptr<oboe::AudioStream> streamSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamSnapshot = mStream;
         }
+        if (streamSnapshot) {
+            streamSnapshot->requestPause();
+        }
+        notifyStateChanged(EngineState::Paused);
         return EngineStatus::Ok;
     }
     if (current == EngineState::Paused ||
@@ -1619,34 +1824,84 @@ EngineStatus AudioEngine::seekMs(int64_t positionMs) {
         return EngineStatus::ErrorInvalidArg;
     }
 
-    // In dual-source mode, primary duration may only reflect the 128 KiB head file (~6.5s).
-    // Allow seeking across full duration if secondary stream is active or duration is unknown.
-    if (!mIsDualSource.load(std::memory_order_relaxed) && mDurationMs > 0 && positionMs > mDurationMs) {
+    const int64_t knownDurMs = mDurationMs.load(std::memory_order_acquire);
+    if (!mIsDualSource.load(std::memory_order_relaxed) && knownDurMs > 0 && positionMs > knownDurMs) {
         return EngineStatus::ErrorInvalidArg;
     }
 
-    mSeekPositionMs.store(positionMs, std::memory_order_relaxed);
-    mFramesConsumedByHardware.store(0, std::memory_order_relaxed);
-    mDecoderEndOfStream.store(false, std::memory_order_relaxed);
+    // Abort stale background read-ahead transfers immediately so seek range requests
+    // own the pooled HTTP/2 connection and bandwidth without head-of-line stalling.
+    {
+        std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+        if (mDataSource) mDataSource->preemptPrefetch();
+        if (mPrimarySource) mPrimarySource->preemptPrefetch();
+        if (mSecondarySource) mSecondarySource->preemptPrefetch();
+    }
+
+    // Move Playing -> Prebuffering before resetting mRingBuffer so Oboe outputs clean
+    // digital silence without hitting emptyRingTicks + requestPause()/requestStart() HAL latency.
+    if (current == EngineState::Playing) {
+        mState.store(EngineState::Prebuffering, std::memory_order_release);
+    }
+
+    mSeekPositionMs.store(positionMs, std::memory_order_release);
+    mFramesConsumedByHardware.store(0, std::memory_order_release);
+    mDecoderEndOfStream.store(false, std::memory_order_release);
+    mEosNotified.store(false, std::memory_order_release);
     mRingBuffer.reset();
 
+    bool waitingForPendingSecondary = false;
     if (mIsDualSource.load(std::memory_order_acquire)) {
-        int64_t actualHandoff = mHandoffActualMs.load(std::memory_order_relaxed);
-        if (mHandoffCompleted.load(std::memory_order_relaxed) || positionMs >= actualHandoff) {
+        const int64_t primaryDurMs = mPrimaryDurationMs.load(std::memory_order_acquire);
+        if (mHandoffCompleted.load(std::memory_order_acquire)) {
             if (mSecondaryDecoder) {
                 mSecondaryDecoder->requestSeek(positionMs * 1000);
             }
+        } else if (primaryDurMs > 0 && positionMs < primaryDurMs && mPrimaryDecoder) {
+            mPendingSeekOverrideMs.store(-1, std::memory_order_release);
+            mPrimaryDecoder->requestSeek(positionMs * 1000);
+        } else if (mSecondaryDecoder) {
+            mSecondaryDecoder->requestSeek(positionMs * 1000);
         } else {
-            if (mPrimaryDecoder) {
-                mPrimaryDecoder->requestSeek(positionMs * 1000);
-            } else if (mSecondaryDecoder) {
-                mSecondaryDecoder->requestSeek(positionMs * 1000);
+            // Seek landed past Chunk 0 while secondary MP4 is still opening:
+            // steer secondaryWorkerFunc to open directly at positionMs and pause audio until buffered.
+            mPendingSeekOverrideMs.store(positionMs, std::memory_order_release);
+            mPrimarySeekInvalidated.store(true, std::memory_order_release);
+            {
+                std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+                if (mPrimarySource) {
+                    mPrimarySource->cancel();
+                }
             }
+            waitingForPendingSecondary = mSecondaryPending.load(std::memory_order_acquire) ||
+                                         mSecondaryWorkerThread.joinable();
         }
     } else {
         if (mDecoder) {
             mDecoder->requestSeek(positionMs * 1000);
         }
+    }
+
+    if (waitingForPendingSecondary) {
+        std::shared_ptr<oboe::AudioStream> streamSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamSnapshot = mStream;
+        }
+        if (streamSnapshot) {
+            streamSnapshot->requestPause();
+        }
+        mState.store(EngineState::Prebuffering, std::memory_order_release);
+        notifyStateChanged(EngineState::Prebuffering);
+    } else if (current == EngineState::Stopped) {
+        const EngineState next =
+            mAutoPlay.load(std::memory_order_acquire) ? EngineState::Prebuffering : EngineState::Paused;
+        mState.store(next, std::memory_order_release);
+        notifyStateChanged(next);
+    } else if (current == EngineState::Playing) {
+        notifyStateChanged(EngineState::Prebuffering);
+    } else {
+        notifyStateChanged(current);
     }
 
     return EngineStatus::Ok;
@@ -1686,14 +1941,37 @@ EngineStatus AudioEngine::pushStreamChunk(int64_t offset,
 // ===========================================================================
 
 int64_t AudioEngine::getPositionMs() const {
-    const int64_t consumed = mFramesConsumedByHardware.load(std::memory_order_relaxed);
-    const int64_t seekBase = mSeekPositionMs.load(std::memory_order_relaxed);
+    const int64_t consumed = mFramesConsumedByHardware.load(std::memory_order_acquire);
+    const int64_t seekBase = mSeekPositionMs.load(std::memory_order_acquire);
     if (mSampleRate <= 0) return seekBase;
-    return seekBase + (consumed * 1000 / mSampleRate);
+
+    const int64_t playedSinceSeekMs = (consumed * 1000) / mSampleRate;
+    int64_t posMs = seekBase + playedSinceSeekMs;
+
+    if (mState.load(std::memory_order_acquire) == EngineState::Playing) {
+        std::shared_ptr<oboe::AudioStream> streamSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamSnapshot = mStream;
+        }
+        if (streamSnapshot) {
+            const auto latency = streamSnapshot->calculateLatencyMillis();
+            if (latency && latency.value() > 0.0 && latency.value() < 2000.0) {
+                const int64_t latencyMs = static_cast<int64_t>(latency.value());
+                posMs = seekBase + std::max<int64_t>(0, playedSinceSeekMs - latencyMs);
+            }
+        }
+    }
+
+    const int64_t durMs = mDurationMs.load(std::memory_order_acquire);
+    if (mDurationAuthoritative.load(std::memory_order_acquire) && durMs > 0 && posMs > durMs) {
+        posMs = durMs;
+    }
+    return posMs;
 }
 
 int64_t AudioEngine::getDurationMs() const {
-    return mDurationMs;
+    return mDurationMs.load(std::memory_order_acquire);
 }
 
 int32_t AudioEngine::getState() const {
@@ -1747,7 +2025,7 @@ oboe::DataCallbackResult AudioEngine::onAudioReady(
             mFramesConsumedByHardware.fetch_add(
                 static_cast<int64_t>(framesRead), std::memory_order_relaxed);
             mState.store(EngineState::Stopped, std::memory_order_release);
-            return oboe::DataCallbackResult::Continue;
+            return oboe::DataCallbackResult::Stop;
         }
 
         // Apply linear ramp-down on underrun trailing edge to prevent click/pop
@@ -1807,7 +2085,14 @@ void AudioEngine::onErrorAfterClose(
         }
 
         if (current == EngineState::Playing) {
-            mStream->requestStart();
+            std::shared_ptr<oboe::AudioStream> streamSnapshot;
+            {
+                std::lock_guard<std::mutex> lock(mStreamMutex);
+                streamSnapshot = mStream;
+            }
+            if (streamSnapshot) {
+                streamSnapshot->requestStart();
+            }
         }
     }
 }

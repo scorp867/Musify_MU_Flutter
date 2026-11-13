@@ -1,12 +1,19 @@
 #pragma once
 
-#include <cstdint>
+#include "network/HttpRangeStreamCache.h"
+
+#include <atomic>
+#include <condition_variable>
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
+#include <media/NdkMediaDataSource.h>
 #include <media/NdkMediaExtractor.h>
 #include <media/NdkMediaFormat.h>
-#include <media/NdkMediaDataSource.h>
 
 // ---------------------------------------------------------------------------
 // Engine-wide status and state enums, shared across all native components.
@@ -14,12 +21,12 @@
 // ---------------------------------------------------------------------------
 
 enum class EngineStatus : int32_t {
-    Ok              =  0,
+    Ok                =  0,
     ErrorInvalidState = -1,
-    ErrorCodec      = -2,
-    ErrorStream     = -3,
-    ErrorIO         = -4,
-    ErrorInvalidArg = -5,
+    ErrorCodec        = -2,
+    ErrorStream       = -3,
+    ErrorIO           = -4,
+    ErrorInvalidArg   = -5,
 };
 
 enum class EngineState : int32_t {
@@ -44,6 +51,13 @@ public:
 
     /// Open the data source and configure the internal AMediaExtractor.
     virtual EngineStatus open() = 0;
+
+    /// Interrupt any active blocking I/O immediately without waiting for timeout.
+    virtual void cancel() {}
+
+    /// Abort stale background read-ahead transfers (e.g. on user seek) without
+    /// canceling active foreground reads.
+    virtual void preemptPrefetch() {}
 
     /// Returns the configured AMediaExtractor (borrowed pointer, owned by this source).
     virtual AMediaExtractor* getExtractor() const = 0;
@@ -101,8 +115,6 @@ public:
     void close() override;
 
 private:
-    EngineStatus selectAudioTrack();
-
     char mFilePath[4096]{};
     AMediaExtractor* mExtractor{nullptr};
     AMediaFormat* mFormat{nullptr};
@@ -115,7 +127,7 @@ private:
 
 // ---------------------------------------------------------------------------
 // Progressive File Data Source - Reads from an actively streaming disk cache
-// file using AMediaDataSource to start playback (< 30ms TTFA) as bytes arrive.
+// file using AMediaDataSource (API >= 28) to start playback immediately as bytes arrive.
 // ---------------------------------------------------------------------------
 
 class ProgressiveFileDataSource final : public IAudioDataSource {
@@ -127,6 +139,7 @@ public:
     ProgressiveFileDataSource& operator=(const ProgressiveFileDataSource&) = delete;
 
     EngineStatus open() override;
+    void cancel() override;
     AMediaExtractor* getExtractor() const override;
     size_t getSelectedTrack() const override;
     int32_t getSampleRate() const override;
@@ -140,12 +153,14 @@ public:
     off64_t getSize();
 
 private:
-    EngineStatus selectAudioTrack();
-
     char mFilePath[4096]{};
     int mFd{-1};
     int64_t mExpectedTotalSize{131072};
     off64_t mStreamOffset{0};
+
+    std::atomic<bool> mCanceled{false};
+    std::mutex mCancelMutex;
+    std::condition_variable mCancelCv;
 
     AMediaExtractor* mExtractor{nullptr};
     AMediaDataSource* mNdkDataSource{nullptr};
@@ -158,18 +173,25 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// HTTP/HTTPS CDN Data Source - Reads remote AAC/MP4 streams and parses PSSH.
+// HTTP/HTTPS CDN Data Source - Backed by pure C++ libcurl/mbedTLS HttpRangeStreamCache
+// over AMediaDataSource (zero Java Binder / MediaHTTP involvement).
 // ---------------------------------------------------------------------------
 
 class HttpMediaDataSource final : public IAudioDataSource {
 public:
     explicit HttpMediaDataSource(const char* url, const char* authHeader = nullptr);
+    HttpMediaDataSource(
+        std::vector<std::string> urls,
+        const char* authHeader = nullptr,
+        spotify::network::UrlRefreshCallback urlRefreshCb = nullptr);
     ~HttpMediaDataSource() override;
 
     HttpMediaDataSource(const HttpMediaDataSource&) = delete;
     HttpMediaDataSource& operator=(const HttpMediaDataSource&) = delete;
 
     EngineStatus open() override;
+    void cancel() override;
+    void preemptPrefetch() override;
     AMediaExtractor* getExtractor() const override;
     size_t getSelectedTrack() const override;
     int32_t getSampleRate() const override;
@@ -178,6 +200,10 @@ public:
     const char* getMimeType() const override;
     AMediaFormat* getTrackFormat() const override;
     void close() override;
+
+    ssize_t readAt(off64_t offset, void* buffer, size_t size);
+    off64_t getSize();
+    void onDataSourceClose();
 
     /// Extract Widevine PSSH byte array if present in container.
     bool hasWidevinePssh() const override { return mHasPssh; }
@@ -189,12 +215,19 @@ public:
                               uint32_t protectionScheme = 0x63626373);
 
 private:
-    EngineStatus selectAudioTrack();
     void extractWidevinePssh();
 
     char mUrl[4096]{};
     char mAuthHeader[1024]{};
+    std::vector<std::string> mUrls;
+    spotify::network::UrlRefreshCallback mUrlRefreshCb;
+
+    std::atomic<bool> mCanceled{false};
+    std::mutex mCacheMutex;
+    std::shared_ptr<spotify::network::HttpRangeStreamCache> mCache;
+
     AMediaExtractor* mExtractor{nullptr};
+    AMediaDataSource* mNdkDataSource{nullptr};
     AMediaFormat* mFormat{nullptr};
     size_t mTrackIndex{0};
     int32_t mSampleRate{0};

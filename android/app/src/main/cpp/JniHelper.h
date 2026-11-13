@@ -8,8 +8,6 @@
 #define JNI_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, JNI_TAG, __VA_ARGS__)
 
 JavaVM* getMusifyJavaVm() noexcept;
-jclass getMusifyHttpBridgeClass() noexcept;
-jmethodID getMusifyExecuteHttpMethod() noexcept;
 jobject getMusifyClassLoader() noexcept;
 jmethodID getMusifyLoadClassMethod() noexcept;
 

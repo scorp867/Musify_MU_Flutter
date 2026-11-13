@@ -125,6 +125,7 @@ std::optional<ResolvedFullStream> FileStreamerImpl::resolveFullTrackStream(
     if (!info.pass_through_url.empty()) {
         ResolvedFullStream out;
         out.cdn_url = info.pass_through_url;
+        out.cdn_urls.push_back(info.pass_through_url);
         out.format_code = -1;
         out.is_encrypted = false;
         return out;
@@ -144,6 +145,7 @@ std::optional<ResolvedFullStream> FileStreamerImpl::resolveFullTrackStream(
 
         ResolvedFullStream out;
         out.cdn_url = sr.cdn_urls.front();
+        out.cdn_urls = sr.cdn_urls;
         out.format_code = candidate.format;
         out.is_encrypted = isEncryptedMp4Format(candidate.format);
 

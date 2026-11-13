@@ -58,15 +58,18 @@ public:
 private:
     void cancelWorker();
     void prefetchUpcomingTrack();
+    void notifyPhaseChanged(TrackPlayerPhase phase);
 
     AudioEngine* engine_;
     streamer::FileStreamerImpl& file_streamer_;
     metadata::TrackInfoProvider& track_info_provider_;
+    std::shared_ptr<std::atomic<bool>> alive_flag_{std::make_shared<std::atomic<bool>>(true)};
 
     mutable std::mutex mutex_;
     std::mutex worker_mutex_;
     std::thread stream_worker_;
     std::atomic<uint64_t> session_gen_{0};
+    std::atomic<bool> eos_armed_{false};
     std::atomic<TrackPlayerPhase> phase_{TrackPlayerPhase::Idle};
     std::atomic<int64_t> duration_hint_ms_{0};
     std::atomic<bool> desired_paused_{false};

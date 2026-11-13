@@ -299,6 +299,7 @@ TrackPlayerState AudioTrackPlayer::getState() const {
             st.is_playing = !pending_start_->paused;
             st.is_paused = pending_start_->paused;
             st.is_buffering = !pending_start_->paused;
+            st.playback_speed = 0.0;
             return st;
         }
     }
@@ -310,6 +311,9 @@ TrackPlayerState AudioTrackPlayer::getState() const {
         st.is_playing = (st.phase == TrackPlayerPhase::Playing || st.phase == TrackPlayerPhase::Buffering);
         st.is_paused = (st.phase == TrackPlayerPhase::Paused);
         st.is_buffering = (st.phase == TrackPlayerPhase::Buffering);
+        if (st.phase != TrackPlayerPhase::Playing) {
+            st.playback_speed = 0.0;
+        }
     }
     return st;
 }

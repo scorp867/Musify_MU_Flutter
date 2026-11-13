@@ -1,5 +1,4 @@
 #include "NativeDecoder.h"
-#include "JniHelper.h"
 
 #include <cstring>
 #include <algorithm>
@@ -14,7 +13,7 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static constexpr int64_t kCodecTimeoutUs = 5000;   // 5 ms dequeue timeout
+static constexpr int64_t kCodecTimeoutUs = 2000;   // 2 ms dequeue timeout
 static constexpr int     kAudioThreadPriority = -4; // THREAD_PRIORITY_AUDIO
 
 NativeDecoder::NativeDecoder(RingBuffer& ringBuffer,
@@ -24,7 +23,6 @@ NativeDecoder::NativeDecoder(RingBuffer& ringBuffer,
                              int32_t sourceChannelCount,
                              AMediaCrypto* crypto,
                              int64_t maxFramesToDecode,
-                             JavaVM* javaVm,
                              int64_t discardPriorToUs)
     : mRingBuffer(ringBuffer)
     , mExtractor(extractor)
@@ -32,7 +30,6 @@ NativeDecoder::NativeDecoder(RingBuffer& ringBuffer,
     , mCrypto(crypto)
     , mSourceChannelCount(sourceChannelCount > 0 ? sourceChannelCount : 2)
     , mMaxFramesToDecode(maxFramesToDecode)
-    , mJavaVm(javaVm)
     , mDiscardPriorToUs(discardPriorToUs)
     , mNeedsMicroFadeIn(discardPriorToUs > 0) {
     if (mimeType) {
@@ -178,9 +175,6 @@ bool NativeDecoder::isEndOfStream() const {
 void NativeDecoder::threadFunc() {
     setpriority(PRIO_PROCESS, 0, kAudioThreadPriority);
 
-    // CRITICAL: Attach this decoding thread to JavaVM so AMediaExtractor remote HTTP streaming functions correctly
-    JniThreadAttacher jniAttacher(mJavaVm, "MusifyDecoderWorker");
-
     while (!mShouldStop.load(std::memory_order_acquire)) {
         if (mSeekRequested.load(std::memory_order_acquire)) {
             executeSeek();
@@ -196,6 +190,10 @@ void NativeDecoder::threadFunc() {
 
         if (!mInputEos.load(std::memory_order_relaxed)) {
             didWork |= feedInputBuffer();
+        }
+
+        if (mSeekRequested.load(std::memory_order_acquire)) {
+            continue;
         }
 
         didWork |= drainOutputBuffer();
@@ -549,16 +547,25 @@ bool NativeDecoder::drainOutputBuffer() {
 }
 
 void NativeDecoder::executeSeek() {
-    int64_t targetUs = mSeekTargetUs.load(std::memory_order_relaxed);
+    const int64_t targetUs = mSeekTargetUs.load(std::memory_order_relaxed);
     mSeekRequested.store(false, std::memory_order_release);
+
+    // Jump directly to the closest sync frame without fetching and decoding
+    // seconds of pre-roll frames; dual-source handoff pre-roll trim uses
+    // the constructor discardPriorToUs path instead.
+    mDiscardPriorToUs.store(-1, std::memory_order_release);
+    mNeedsMicroFadeIn.store(targetUs > 0, std::memory_order_release);
 
     AMediaExtractor_seekTo(mExtractor, targetUs, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
     AMediaCodec_flush(mCodec);
-
-    // Note: Do NOT reset mRingBuffer here! Ring buffer resetting during seeking
-    // is reserved for user-initiated seeks in AudioEngine::seekMs().
-    // During seamless dual-source handoff, mRingBuffer holds the head chunk audio
-    // currently being heard by the user, and secondary frames append seamlessly.
     mInputEos.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
+
+    const int64_t extractorPtsUs = AMediaExtractor_getSampleTime(mExtractor);
+    const int64_t landedUs = (extractorPtsUs >= 0) ? extractorPtsUs : targetUs;
+    mActualSeekMs.store(landedUs / 1000LL, std::memory_order_release);
+
+    const int64_t seekBaseFrames =
+        (landedUs > 0 && mSampleRate > 0) ? (landedUs * mSampleRate) / 1000000LL : 0;
+    mTotalFramesDecoded.store(seekBaseFrames, std::memory_order_relaxed);
 }

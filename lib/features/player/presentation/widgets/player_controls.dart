@@ -25,10 +25,13 @@ class PlayerSeekBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentPos = switch (dragPosition) {
+    final rawPos = switch (dragPosition) {
       final p? => p,
       null => position,
     };
+    final currentPos = rawPos.isNegative
+        ? Duration.zero
+        : (duration > Duration.zero && rawPos > duration ? duration : rawPos);
     final currentPosMs = currentPos.inMilliseconds.toDouble();
     final durationMs = duration.inMilliseconds.toDouble();
     final bufferedMs = bufferedPosition.inMilliseconds.toDouble();

@@ -724,7 +724,9 @@ void ContextPlayerImpl::on_track_metadata_resolved(
             apply_track_info_locked(*current_track_, info);
         }
         if (info.duration_ms > 0) {
-            duration_ms_ = info.duration_ms;
+            if (duration_ms_ <= 0) {
+                duration_ms_ = info.duration_ms;
+            }
             auto dur_it = current_track_->metadata.find("duration");
             if (dur_it == current_track_->metadata.end() || dur_it->second.empty()) {
                 current_track_->metadata["duration"] = std::to_string(info.duration_ms);
@@ -2147,7 +2149,17 @@ std::string ContextPlayerImpl::get_error() const {
 }
 
 void ContextPlayerImpl::update_position_and_duration_locked() {
-    if (track_player_) {
+    bool player_matches_current = false;
+    if (track_player_ && current_track_.has_value()) {
+        const auto tp_track = track_player_->getCurrentTrack();
+        if (tp_track.has_value() && tp_track->uri == current_track_->uri) {
+            player_matches_current =
+                tp_track->uid.empty() || current_track_->uid.empty() ||
+                tp_track->uid == current_track_->uid;
+        }
+    }
+
+    if (player_matches_current) {
         const int64_t player_pos = track_player_->getPosition();
         if (player_pos >= 0) position_ms_ = player_pos;
         const int64_t player_dur = track_player_->getDuration();
@@ -2159,6 +2171,12 @@ void ContextPlayerImpl::update_position_and_duration_locked() {
             char* end = nullptr;
             int64_t d = std::strtoll(it->second.c_str(), &end, 10);
             if (end != it->second.c_str() && d > 0) duration_ms_ = d;
+        }
+        if (duration_ms_ <= 0) {
+            const auto cached_it = resolved_track_info_cache_.find(current_track_->uri);
+            if (cached_it != resolved_track_info_cache_.end() && cached_it->second.duration_ms > 0) {
+                duration_ms_ = cached_it->second.duration_ms;
+            }
         }
     }
 }
@@ -2194,7 +2212,7 @@ void ContextPlayerImpl::emit_state_locked() {
     data.duration_ms = duration_ms_;
     data.is_playing = is_playing_;
     data.is_paused = is_paused_;
-    data.playback_speed = (is_playing_ && !is_paused_) ? playback_speed_ : 0.0;
+    data.playback_speed = (is_playing_ && !is_paused_ && !is_buffering_) ? playback_speed_ : 0.0;
     data.position_as_of_timestamp = position_ms_;
     data.shuffling_context = shuffling_;
     data.repeating_context = repeating_context_;

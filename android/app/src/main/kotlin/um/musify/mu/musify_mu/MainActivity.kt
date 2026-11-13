@@ -11,9 +11,7 @@ import um.musify.mu.musify_mu.vault.VaultHardwareKeyStoreBridge
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
-import java.util.concurrent.Callable
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 object NativeDrmBridge {
@@ -32,138 +30,6 @@ object NativeDrmBridge {
     @JvmStatic
     fun closeActiveSession() {
         drmManager.closeActiveSession()
-    }
-}
-
-object NativeHeadDownloader {
-    private const val TAG = "NativeHeadDownloader"
-    private const val HEAD_CDN_BASE = "https://heads-fa-tls13.spotifycdn.com/head/"
-    private const val MIN_HEAD_FILE_SIZE = 512L
-    private const val INITIAL_CHUNK_WAIT_BYTES = 8192L
-    private const val CONNECT_TIMEOUT_MS = 5000
-    private const val READ_TIMEOUT_MS = 10000
-
-    private val executor = Executors.newFixedThreadPool(4)
-    private val activeLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
-
-    @JvmStatic
-    fun downloadHeadFile(fileIdHex: String, targetFilePath: String): Boolean {
-        return startStreamingHeadFile(fileIdHex, targetFilePath)
-    }
-
-    @JvmStatic
-    fun startStreamingHeadFile(fileIdHex: String, targetFilePath: String): Boolean {
-        try {
-            val targetFile = java.io.File(targetFilePath)
-            if (targetFile.exists() && targetFile.length() >= MIN_HEAD_FILE_SIZE) {
-                android.util.Log.i(TAG, "Head file cache hit: $targetFilePath (size=${targetFile.length()})")
-                return true
-            }
-
-            targetFile.parentFile?.mkdirs()
-            val partFile = java.io.File("${targetFilePath}.part")
-
-            val readyLatch = java.util.concurrent.CountDownLatch(1)
-            val streamFailed = java.util.concurrent.atomic.AtomicBoolean(false)
-            val lock = activeLocks.computeIfAbsent(fileIdHex) { Any() }
-
-            executor.submit {
-                synchronized(lock) {
-                    if (targetFile.exists() && targetFile.length() >= MIN_HEAD_FILE_SIZE) {
-                        readyLatch.countDown()
-                        return@submit
-                    }
-
-                    var conn: java.net.HttpURLConnection? = null
-                    try {
-                        val url = java.net.URL("$HEAD_CDN_BASE$fileIdHex")
-                        android.util.Log.i(TAG, "Streaming head file from $url to $targetFilePath")
-                        conn = url.openConnection() as java.net.HttpURLConnection
-                        conn.requestMethod = "GET"
-                        conn.connectTimeout = CONNECT_TIMEOUT_MS
-                        conn.readTimeout = READ_TIMEOUT_MS
-                        conn.setRequestProperty("User-Agent", "Spotify/8.9.18 Android/34")
-                        conn.setRequestProperty("Accept-Encoding", "identity")
-
-                        val responseCode = conn.responseCode
-                        if (responseCode !in 200..299) {
-                            android.util.Log.e(TAG, "CDN returned HTTP code: $responseCode for $fileIdHex")
-                            streamFailed.set(true)
-                            readyLatch.countDown()
-                            return@submit
-                        }
-
-                        val expectedLength = conn.contentLengthLong
-
-                        partFile.outputStream().use { output ->
-                            conn.inputStream.use { input ->
-                                val buffer = ByteArray(8192)
-                                var bytesRead: Int
-                                var totalWritten = 0L
-
-                                while (input.read(buffer).also { bytesRead = it } != -1) {
-                                    output.write(buffer, 0, bytesRead)
-                                    output.flush()
-                                    totalWritten += bytesRead
-
-                                    // Signal readiness as soon as initial chunk is written to disk for < 30ms TTFA
-                                    if (totalWritten >= INITIAL_CHUNK_WAIT_BYTES || totalWritten >= MIN_HEAD_FILE_SIZE) {
-                                        readyLatch.countDown()
-                                    }
-                                }
-                                output.flush()
-                            }
-                        }
-
-                        val finalLength = partFile.length()
-                        val isValid = if (expectedLength > 0L) {
-                            finalLength == expectedLength
-                        } else {
-                            finalLength >= MIN_HEAD_FILE_SIZE
-                        }
-
-                        if (isValid) {
-                            if (targetFile.exists()) {
-                                targetFile.delete()
-                            }
-                            try {
-                                java.nio.file.Files.move(
-                                    partFile.toPath(),
-                                    targetFile.toPath(),
-                                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                                    java.nio.file.StandardCopyOption.ATOMIC_MOVE
-                                )
-                            } catch (_: Exception) {
-                                partFile.renameTo(targetFile)
-                            }
-                            android.util.Log.i(TAG, "Head file stream complete and cached: $targetFilePath (size=$finalLength)")
-                        } else {
-                            android.util.Log.e(TAG, "Downloaded stream length invalid: $finalLength (expected $expectedLength)")
-                            partFile.delete()
-                            streamFailed.set(true)
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e(TAG, "Exception streaming head file for $fileIdHex: ${e.message}", e)
-                        streamFailed.set(true)
-                        if (partFile.exists()) {
-                            partFile.delete()
-                        }
-                    } finally {
-                        readyLatch.countDown()
-                        try {
-                            conn?.disconnect()
-                        } catch (_: Exception) {}
-                    }
-                }
-            }
-
-            // Await readiness: unblocks caller as soon as the first 8 KB hits disk
-            val ready = readyLatch.await(4, TimeUnit.SECONDS)
-            return ready && !streamFailed.get()
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "startStreamingHeadFile execution failed for $fileIdHex", e)
-            return false
-        }
     }
 }
 

@@ -29,6 +29,7 @@ class AudioEngine : public oboe::AudioStreamDataCallback,
 public:
     using EosCallback = std::function<void()>;
     using SecondaryFailureCallback = std::function<void(const std::string& reason)>;
+    using StateCallback = std::function<void(EngineState state)>;
 
     AudioEngine();
     ~AudioEngine();
@@ -43,14 +44,19 @@ public:
     /// (storage open, Widevine license exchange, sample-rate mismatch, decoder start).
     void setSecondaryFailureCallback(SecondaryFailureCallback cb);
 
+    /// Register callback invoked on phase/duration transitions so upper player layers sync without polling lag.
+    void setStateCallback(StateCallback cb);
+
     /// Configure whether reaching the prebuffer watermark automatically starts Oboe output.
     void setAutoPlay(bool autoPlay);
 
     /// Stop active decoders, Oboe stream, and worker threads and reset state to Idle.
     void stop();
 
-    /// Load a local audio file or direct HTTP URL. Transitions: * -> Loading -> Prebuffering.
-    EngineStatus loadLocal(const char* filePath);
+    /// Load a local audio file or direct HTTP URL (with optional CDN fallbacks & URL refresh callback).
+    EngineStatus loadLocal(const char* filePath,
+                           std::vector<std::string> fallbackUrls = {},
+                           spotify::network::UrlRefreshCallback urlRefreshCb = nullptr);
 
     /// Load Spotify track with native chunk 0 head file resolution and download in C++.
     EngineStatus loadTrackWithHead(const char* fileIdHex,
@@ -71,24 +77,30 @@ public:
                                 const char* secondaryUrl,
                                 const char* licenseServerUrl,
                                 const char* authHeader,
-                                int64_t handoffPositionMs);
+                                int64_t handoffPositionMs,
+                                int64_t trackDurationMs = -1);
 
     EngineStatus loadDualSource(std::unique_ptr<IAudioDataSource> primarySource,
                                 const char* secondaryUrl,
                                 const char* licenseServerUrl,
                                 const char* authHeader,
-                                int64_t handoffPositionMs);
+                                int64_t handoffPositionMs,
+                                int64_t trackDurationMs = -1);
 
     /// Load a single encrypted audio stream directly (Widevine AAC/FLAC without Vorbis head chunk).
     EngineStatus loadEncryptedStream(const char* url,
-                                    const char* licenseServerUrl,
-                                    const char* authHeader);
+                                     const char* licenseServerUrl,
+                                     const char* authHeader,
+                                     std::vector<std::string> fallbackUrls = {},
+                                     spotify::network::UrlRefreshCallback urlRefreshCb = nullptr);
 
     /// Asynchronously attaches or starts the secondary full-track stream while primary is already playing.
     EngineStatus attachSecondaryStream(const char* secondaryUrl,
                                        const char* licenseServerUrl,
                                        const char* authHeader,
-                                       int64_t handoffPositionMs = -1);
+                                       int64_t handoffPositionMs = -1,
+                                       std::vector<std::string> fallbackUrls = {},
+                                       spotify::network::UrlRefreshCallback urlRefreshCb = nullptr);
 
     /// Set DRM session ID directly if negotiated externally.
     EngineStatus setDrmSessionId(const uint8_t* sessionId, int32_t sessionLen);
@@ -118,6 +130,9 @@ public:
 
     int64_t getPositionMs() const;
     int64_t getDurationMs() const;
+    bool hasAuthoritativeDuration() const {
+        return mDurationAuthoritative.load(std::memory_order_acquire);
+    }
     int32_t getState() const;
     int32_t getUnderrunCount() const;
     bool isDualSource() const { return mIsDualSource.load(std::memory_order_relaxed); }
@@ -138,15 +153,19 @@ public:
 
 private:
     void stopPlayback();
+    void cancelAllActiveSources();
     void joinMonitorThread();
     void eosDispatcherFunc();
+    void notifyStateChanged(EngineState state);
     EngineStatus loadSource(std::unique_ptr<IAudioDataSource> source);
     EngineStatus openOboeStream();
+    oboe::Result startOrReopenOboeStream(std::shared_ptr<oboe::AudioStream>* outStream = nullptr);
     void decoderMonitorFunc();
-    void secondaryWorkerFunc(std::string secondaryUrl,
+    void secondaryWorkerFunc(std::vector<std::string> secondaryUrls,
                              std::string licenseServerUrl,
                              std::string authHeader,
-                             int64_t handoffMs);
+                             int64_t handoffMs,
+                             spotify::network::UrlRefreshCallback urlRefreshCb);
     AMediaCrypto* acquireWidevineCrypto(const std::vector<uint8_t>& psshData,
                                         const std::string& licenseServerUrl,
                                         const std::string& authHeader);
@@ -159,13 +178,16 @@ private:
 
     // --- Audio pipeline components ---
     RingBuffer mRingBuffer;
+    std::mutex mSourceCancelMutex;
     std::unique_ptr<IAudioDataSource> mDataSource;
-    std::unique_ptr<NativeDecoder> mDecoder;
+    mutable std::mutex mStreamMutex;
     std::shared_ptr<oboe::AudioStream> mStream;
+    std::unique_ptr<NativeDecoder> mDecoder;
 
     // --- Dual-decoder components ---
     std::unique_ptr<IAudioDataSource> mPrimarySource;
     std::unique_ptr<NativeDecoder> mPrimaryDecoder;
+    IAudioDataSource* mOpeningSecondarySource{nullptr};
     std::unique_ptr<HttpMediaDataSource> mSecondarySource;
     std::unique_ptr<NativeDecoder> mSecondaryDecoder;
     AMediaCrypto* mSecondaryCrypto{nullptr};
@@ -178,6 +200,9 @@ private:
     std::atomic<bool> mHandoffCompleted{false};
     std::atomic<int64_t> mHandoffTargetMs{-1};
     std::atomic<int64_t> mHandoffActualMs{0};
+    std::atomic<int64_t> mPrimaryDurationMs{0};
+    std::atomic<int64_t> mPendingSeekOverrideMs{-1};
+    std::atomic<bool> mPrimarySeekInvalidated{false};
 
     std::thread mSecondaryWorkerThread;
     std::atomic<bool> mSecondaryWorkerShouldStop{false};
@@ -185,7 +210,8 @@ private:
     // --- Format info ---
     int32_t mSampleRate{48000};
     int32_t mSourceChannelCount{2};
-    int64_t mDurationMs{0};
+    std::atomic<int64_t> mDurationMs{0};
+    std::atomic<bool> mDurationAuthoritative{false};
 
     // --- Position tracking ---
     std::atomic<int64_t> mFramesConsumedByHardware{0};
@@ -202,12 +228,13 @@ private:
     bool mIsEncryptedSource{false};
     bool mWasUnderrun{false};  // Tracks underrun state for symmetric ramp-up on recovery
 
-    // --- EOS Notification Callback ---
+    // --- EOS & State Notification Callbacks ---
     std::mutex mEosMutex;
     std::condition_variable mEosCv;
     std::thread mEosDispatcherThread;
     EosCallback mEosCallback;
     SecondaryFailureCallback mSecondaryFailureCallback;
+    StateCallback mStateCallback;
     std::atomic<bool> mEosNotified{false};
     bool mEosPending{false};
     bool mEosWorkerStop{false};

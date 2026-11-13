@@ -4,8 +4,6 @@
 #include <cstdint>
 #include <thread>
 
-#include <jni.h>
-
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaCrypto.h>
 #include <media/NdkMediaExtractor.h>
@@ -32,7 +30,6 @@ public:
                   int32_t sourceChannelCount,
                   AMediaCrypto* crypto = nullptr,
                   int64_t maxFramesToDecode = -1,
-                  JavaVM* javaVm = nullptr,
                   int64_t discardPriorToUs = -1);
 
     ~NativeDecoder();
@@ -70,6 +67,11 @@ public:
         if (us > 0) mNeedsMicroFadeIn.store(true, std::memory_order_release);
     }
 
+    /// Consumes and clears the landed post-seek timestamp (ms), or returns -1 if none pending.
+    int64_t consumeActualSeekMs() {
+        return mActualSeekMs.exchange(-1, std::memory_order_acq_rel);
+    }
+
 private:
     void threadFunc();
     bool feedInputBuffer();
@@ -86,7 +88,6 @@ private:
     int32_t mSourceChannelCount;
     int32_t mSampleRate{44100};
     int64_t mMaxFramesToDecode{-1};
-    JavaVM* mJavaVm{nullptr};
 
     bool mOutputIsFloat{false};
 
@@ -100,6 +101,7 @@ private:
 
     std::atomic<bool> mSeekRequested{false};
     std::atomic<int64_t> mSeekTargetUs{0};
+    std::atomic<int64_t> mActualSeekMs{-1};
 
     // Intermediate conversion buffer (worst case: 1 MB decoded chunk)
     static constexpr size_t kConversionBufferFrames = 8192;

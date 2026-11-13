@@ -15,6 +15,7 @@ namespace spotify::streamer {
 
 struct ResolvedFullStream {
     std::string cdn_url;
+    std::vector<std::string> cdn_urls;
     std::string license_url;
     std::string auth_header;
     int32_t format_code{0};

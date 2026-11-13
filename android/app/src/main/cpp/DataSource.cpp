@@ -1,31 +1,153 @@
 #include "DataSource.h"
 
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <cstring>
-#include <thread>
-#include <chrono>
-#include <dlfcn.h>
-
 #include <android/log.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
 
 #define LOG_TAG "MusifyDataSource"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-static const uint8_t kWidevineUuid[16] = {
+namespace {
+
+const uint8_t kWidevineUuid[16] = {
     0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce,
     0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed
 };
+
+/// Shared audio track selector across Local, Progressive, and HTTP extractors.
+EngineStatus selectFirstAudioTrack(
+    AMediaExtractor* extractor,
+    size_t& outTrackIndex,
+    AMediaFormat*& outFormat,
+    char (&outMimeType)[128],
+    int32_t& outSampleRate,
+    int32_t& outChannelCount,
+    int64_t& outDurationUs,
+    const char* contextLabel) {
+    const size_t trackCount = AMediaExtractor_getTrackCount(extractor);
+    for (size_t i = 0; i < trackCount; ++i) {
+        AMediaFormat* format = AMediaExtractor_getTrackFormat(extractor, i);
+        const char* mime = nullptr;
+        if (AMediaFormat_getString(format, AMEDIAFORMAT_KEY_MIME, &mime) && mime) {
+            if (std::strncmp(mime, "audio/", 6) == 0) {
+                outTrackIndex = i;
+                outFormat = format;
+                std::strncpy(outMimeType, mime, sizeof(outMimeType) - 1);
+                outMimeType[sizeof(outMimeType) - 1] = '\0';
+
+                int32_t sr = 0;
+                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr);
+                outSampleRate = sr;
+
+                int32_t cc = 0;
+                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &cc);
+                outChannelCount = cc;
+
+                int64_t dur = 0;
+                AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &dur);
+                outDurationUs = dur;
+
+                media_status_t selStatus = AMediaExtractor_selectTrack(extractor, i);
+                if (selStatus != AMEDIA_OK) {
+                    LOGE("AMediaExtractor_selectTrack failed (%s): %d",
+                         contextLabel, static_cast<int>(selStatus));
+                    AMediaFormat_delete(format);
+                    outFormat = nullptr;
+                    return EngineStatus::ErrorCodec;
+                }
+                return EngineStatus::Ok;
+            }
+        }
+        AMediaFormat_delete(format);
+    }
+
+    LOGE("No audio track found (%s)", contextLabel);
+    return EngineStatus::ErrorIO;
+}
+
+/// Scans the leading header bytes for Spotify's proprietary ~167-byte wrapper page so
+/// AMediaExtractor starts cleanly on the canonical Vorbis BOS OggS page.
+off64_t detectVorbisStreamOffset(int fd, const char* label) {
+    uint8_t headerBuf[512];
+    ssize_t bytesRead = ::pread(fd, headerBuf, sizeof(headerBuf), 0);
+    if (bytesRead >= 35 &&
+        headerBuf[0] == 'O' && headerBuf[1] == 'g' &&
+        headerBuf[2] == 'g' && headerBuf[3] == 'S') {
+        const bool isDirectVorbis = (headerBuf[5] == 0x02 &&
+                                     std::memcmp(&headerBuf[28], "\x01vorbis", 7) == 0);
+        if (!isDirectVorbis) {
+            for (ssize_t i = 4; i + 35 <= bytesRead; ++i) {
+                if (headerBuf[i] == 'O' && headerBuf[i + 1] == 'g' &&
+                    headerBuf[i + 2] == 'g' && headerBuf[i + 3] == 'S' &&
+                    headerBuf[i + 5] == 0x02 &&
+                    std::memcmp(&headerBuf[i + 28], "\x01vorbis", 7) == 0) {
+                    LOGI("Detected Spotify Vorbis head stream offset at %zd bytes (%s)",
+                         i, label);
+                    return static_cast<off64_t>(i);
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+ssize_t toNdkDataSourceSize(off64_t size) {
+    if (size < 0 || size > static_cast<off64_t>(std::numeric_limits<ssize_t>::max())) {
+        return -1;
+    }
+    return static_cast<ssize_t>(size);
+}
+
+ssize_t progressiveReadAtCallback(void* userdata, off64_t offset, void* buffer, size_t size) {
+    if (!userdata) return -1;
+    return static_cast<ProgressiveFileDataSource*>(userdata)->readAt(offset, buffer, size);
+}
+
+ssize_t progressiveGetSizeCallback(void* userdata) {
+    if (!userdata) return -1;
+    return toNdkDataSourceSize(static_cast<ProgressiveFileDataSource*>(userdata)->getSize());
+}
+
+void progressiveCloseCallback(void* userdata) {
+    if (userdata) {
+        static_cast<ProgressiveFileDataSource*>(userdata)->cancel();
+    }
+}
+
+ssize_t httpReadAtCallback(void* userdata, off64_t offset, void* buffer, size_t size) {
+    if (!userdata) return -1;
+    return static_cast<HttpMediaDataSource*>(userdata)->readAt(offset, buffer, size);
+}
+
+ssize_t httpGetSizeCallback(void* userdata) {
+    if (!userdata) return -1;
+    return toNdkDataSourceSize(static_cast<HttpMediaDataSource*>(userdata)->getSize());
+}
+
+void httpCloseCallback(void* userdata) {
+    if (userdata) {
+        static_cast<HttpMediaDataSource*>(userdata)->onDataSourceClose();
+    }
+}
+
+} // namespace
 
 // ===========================================================================
 // LocalFileDataSource
 // ===========================================================================
 
 LocalFileDataSource::LocalFileDataSource(const char* filePath) {
-    std::strncpy(mFilePath, filePath, sizeof(mFilePath) - 1);
-    mFilePath[sizeof(mFilePath) - 1] = '\0';
+    if (filePath) {
+        std::strncpy(mFilePath, filePath, sizeof(mFilePath) - 1);
+        mFilePath[sizeof(mFilePath) - 1] = '\0';
+    }
 }
 
 LocalFileDataSource::~LocalFileDataSource() {
@@ -58,37 +180,10 @@ EngineStatus LocalFileDataSource::open() {
         return EngineStatus::ErrorIO;
     }
 
-    off64_t streamOffset = 0;
-    off64_t streamLength = static_cast<off64_t>(st.st_size);
-
-    uint8_t headerBuf[512];
-    ssize_t bytesRead = ::pread(fd, headerBuf, sizeof(headerBuf), 0);
-    if (bytesRead >= 35) {
-        if (headerBuf[0] == 'O' && headerBuf[1] == 'g' && headerBuf[2] == 'g' && headerBuf[3] == 'S') {
-            // Check if offset 0 is already a standard Vorbis BOS page (starts with OggS, flag 0x02, and packet \x01vorbis)
-            bool isDirectVorbis = (headerBuf[5] == 0x02 &&
-                                   std::memcmp(&headerBuf[28], "\x01vorbis", 7) == 0);
-
-            if (!isDirectVorbis) {
-                // Spotify head files begin with a proprietary ~167-byte wrapper page (header_type_flag == 0x06).
-                // The actual Vorbis bitstream begins at the second OggS header (~offset 167) where flag == 0x02
-                // and packet payload is "\x01vorbis".
-                for (ssize_t i = 4; i + 35 <= bytesRead; ++i) {
-                    if (headerBuf[i] == 'O' && headerBuf[i + 1] == 'g' &&
-                        headerBuf[i + 2] == 'g' && headerBuf[i + 3] == 'S') {
-                        if (headerBuf[i + 5] == 0x02 &&
-                            std::memcmp(&headerBuf[i + 28], "\x01vorbis", 7) == 0) {
-                            LOGI("Detected Spotify Vorbis head stream offset at %zd bytes (file: %s, total size: %lld)",
-                                 i, mFilePath, static_cast<long long>(st.st_size));
-                            streamOffset = i;
-                            streamLength = static_cast<off64_t>(st.st_size) - streamOffset;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    const off64_t streamOffset = detectVorbisStreamOffset(fd, mFilePath);
+    const off64_t streamLength = (st.st_size > streamOffset)
+                                     ? (static_cast<off64_t>(st.st_size) - streamOffset)
+                                     : 0;
 
     media_status_t status = AMediaExtractor_setDataSourceFd(
         mExtractor, fd, streamOffset, streamLength);
@@ -101,48 +196,9 @@ EngineStatus LocalFileDataSource::open() {
         return EngineStatus::ErrorIO;
     }
 
-    return selectAudioTrack();
-}
-
-EngineStatus LocalFileDataSource::selectAudioTrack() {
-    const size_t trackCount = AMediaExtractor_getTrackCount(mExtractor);
-    for (size_t i = 0; i < trackCount; ++i) {
-        AMediaFormat* format = AMediaExtractor_getTrackFormat(mExtractor, i);
-        const char* mime = nullptr;
-        if (AMediaFormat_getString(format, AMEDIAFORMAT_KEY_MIME, &mime) && mime) {
-            if (std::strncmp(mime, "audio/", 6) == 0) {
-                mTrackIndex = i;
-                mFormat = format;
-                std::strncpy(mMimeType, mime, sizeof(mMimeType) - 1);
-                mMimeType[sizeof(mMimeType) - 1] = '\0';
-
-                int32_t sr = 0;
-                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr);
-                mSampleRate = sr;
-
-                int32_t cc = 0;
-                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &cc);
-                mChannelCount = cc;
-
-                int64_t dur = 0;
-                AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &dur);
-                mDurationUs = dur;
-
-                media_status_t selStatus = AMediaExtractor_selectTrack(mExtractor, i);
-                if (selStatus != AMEDIA_OK) {
-                    LOGE("AMediaExtractor_selectTrack failed: %d", static_cast<int>(selStatus));
-                    AMediaFormat_delete(format);
-                    mFormat = nullptr;
-                    return EngineStatus::ErrorCodec;
-                }
-                return EngineStatus::Ok;
-            }
-        }
-        AMediaFormat_delete(format);
-    }
-
-    LOGE("No audio track found in file: %s", mFilePath);
-    return EngineStatus::ErrorIO;
+    return selectFirstAudioTrack(
+        mExtractor, mTrackIndex, mFormat, mMimeType,
+        mSampleRate, mChannelCount, mDurationUs, mFilePath);
 }
 
 AMediaExtractor* LocalFileDataSource::getExtractor() const { return mExtractor; }
@@ -172,56 +228,6 @@ void LocalFileDataSource::close() {
 // ProgressiveFileDataSource
 // ===========================================================================
 
-typedef ssize_t (*FnAMediaDataSourceReadAt)(void* userdata, off64_t offset, void* buffer, size_t size);
-typedef off64_t (*FnAMediaDataSourceGetSize)(void* userdata);
-
-typedef AMediaDataSource* (*FnAMediaDataSource_new)();
-typedef void (*FnAMediaDataSource_delete)(AMediaDataSource*);
-typedef void (*FnAMediaDataSource_setUserdata)(AMediaDataSource*, void*);
-typedef void (*FnAMediaDataSource_setReadAt)(AMediaDataSource*, FnAMediaDataSourceReadAt);
-typedef void (*FnAMediaDataSource_setGetSize)(AMediaDataSource*, FnAMediaDataSourceGetSize);
-typedef media_status_t (*FnAMediaExtractor_setDataSourceCustom)(AMediaExtractor*, AMediaDataSource*);
-
-struct NdkMediaDataSourceApi {
-    FnAMediaDataSource_new dsNew{nullptr};
-    FnAMediaDataSource_delete dsDelete{nullptr};
-    FnAMediaDataSource_setUserdata dsSetUserdata{nullptr};
-    FnAMediaDataSource_setReadAt dsSetReadAt{nullptr};
-    FnAMediaDataSource_setGetSize dsSetGetSize{nullptr};
-    FnAMediaExtractor_setDataSourceCustom exSetCustom{nullptr};
-    bool isAvailable{false};
-
-    NdkMediaDataSourceApi() {
-        void* handle = dlopen("libmediandk.so", RTLD_NOW);
-        if (handle) {
-            dsNew = reinterpret_cast<FnAMediaDataSource_new>(dlsym(handle, "AMediaDataSource_new"));
-            dsDelete = reinterpret_cast<FnAMediaDataSource_delete>(dlsym(handle, "AMediaDataSource_delete"));
-            dsSetUserdata = reinterpret_cast<FnAMediaDataSource_setUserdata>(dlsym(handle, "AMediaDataSource_setUserdata"));
-            dsSetReadAt = reinterpret_cast<FnAMediaDataSource_setReadAt>(dlsym(handle, "AMediaDataSource_setReadAt"));
-            dsSetGetSize = reinterpret_cast<FnAMediaDataSource_setGetSize>(dlsym(handle, "AMediaDataSource_setGetSize"));
-            exSetCustom = reinterpret_cast<FnAMediaExtractor_setDataSourceCustom>(dlsym(handle, "AMediaExtractor_setDataSourceCustom"));
-            isAvailable = (dsNew && dsDelete && dsSetUserdata && dsSetReadAt && dsSetGetSize && exSetCustom);
-        }
-    }
-
-    static const NdkMediaDataSourceApi& get() {
-        static NdkMediaDataSourceApi instance;
-        return instance;
-    }
-};
-
-static ssize_t progressiveReadAtCallback(void* userdata, off64_t offset, void* buffer, size_t size) {
-    if (!userdata) return 0;
-    auto* source = static_cast<ProgressiveFileDataSource*>(userdata);
-    return source->readAt(offset, buffer, size);
-}
-
-static off64_t progressiveGetSizeCallback(void* userdata) {
-    if (!userdata) return 0;
-    auto* source = static_cast<ProgressiveFileDataSource*>(userdata);
-    return source->getSize();
-}
-
 ProgressiveFileDataSource::ProgressiveFileDataSource(const char* filePath, int64_t expectedTotalSize)
     : mExpectedTotalSize(expectedTotalSize > 0 ? expectedTotalSize : 131072) {
     if (filePath) {
@@ -234,12 +240,21 @@ ProgressiveFileDataSource::~ProgressiveFileDataSource() {
     close();
 }
 
+void ProgressiveFileDataSource::cancel() {
+    mCanceled.store(true, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(mCancelMutex);
+    mCancelCv.notify_all();
+}
+
 EngineStatus ProgressiveFileDataSource::open() {
     close();
+    mCanceled.store(false, std::memory_order_release);
 
-    // Check if streaming file exists. If it is currently being created, wait briefly for initial bytes (up to 500ms)
-    int attempts = 0;
-    while (attempts < 50) {
+    // Wait up to 500ms (abortable immediately via cancel()) for initial 512 bytes.
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        if (mCanceled.load(std::memory_order_acquire)) {
+            return EngineStatus::ErrorIO;
+        }
         mFd = ::open(mFilePath, O_RDONLY);
         if (mFd >= 0) {
             struct stat st{};
@@ -249,8 +264,10 @@ EngineStatus ProgressiveFileDataSource::open() {
             ::close(mFd);
             mFd = -1;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        attempts++;
+        std::unique_lock<std::mutex> lock(mCancelMutex);
+        mCancelCv.wait_for(lock, std::chrono::milliseconds(2), [this]() {
+            return mCanceled.load(std::memory_order_acquire);
+        });
     }
 
     if (mFd < 0) {
@@ -258,136 +275,69 @@ EngineStatus ProgressiveFileDataSource::open() {
         return EngineStatus::ErrorIO;
     }
 
-    // Detect Spotify ~167-byte wrapper page
-    uint8_t headerBuf[512];
-    ssize_t bytesRead = ::pread(mFd, headerBuf, sizeof(headerBuf), 0);
-    if (bytesRead >= 35) {
-        if (headerBuf[0] == 'O' && headerBuf[1] == 'g' && headerBuf[2] == 'g' && headerBuf[3] == 'S') {
-            bool isDirectVorbis = (headerBuf[5] == 0x02 &&
-                                   std::memcmp(&headerBuf[28], "\x01vorbis", 7) == 0);
-            if (!isDirectVorbis) {
-                for (ssize_t i = 4; i + 35 <= bytesRead; ++i) {
-                    if (headerBuf[i] == 'O' && headerBuf[i + 1] == 'g' &&
-                        headerBuf[i + 2] == 'g' && headerBuf[i + 3] == 'S') {
-                        if (headerBuf[i + 5] == 0x02 &&
-                            std::memcmp(&headerBuf[i + 28], "\x01vorbis", 7) == 0) {
-                            LOGI("Detected Spotify Vorbis head stream offset at %zd bytes in streaming file %s",
-                                 i, mFilePath);
-                            mStreamOffset = i;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    mStreamOffset = detectVorbisStreamOffset(mFd, mFilePath);
 
     mExtractor = AMediaExtractor_new();
     if (!mExtractor) {
         LOGE("AMediaExtractor_new failed for progressive data source");
-        ::close(mFd);
-        mFd = -1;
+        close();
         return EngineStatus::ErrorCodec;
     }
 
-    const auto& api = NdkMediaDataSourceApi::get();
-    if (api.isAvailable) {
-        mNdkDataSource = api.dsNew();
-        if (mNdkDataSource) {
-            api.dsSetUserdata(mNdkDataSource, this);
-            api.dsSetReadAt(mNdkDataSource, progressiveReadAtCallback);
-            api.dsSetGetSize(mNdkDataSource, progressiveGetSizeCallback);
-            media_status_t status = api.exSetCustom(mExtractor, mNdkDataSource);
-            if (status == AMEDIA_OK) {
-                return selectAudioTrack();
-            }
-            api.dsDelete(mNdkDataSource);
-            mNdkDataSource = nullptr;
-        }
+    mNdkDataSource = AMediaDataSource_new();
+    if (!mNdkDataSource) {
+        LOGE("AMediaDataSource_new failed for progressive data source");
+        close();
+        return EngineStatus::ErrorCodec;
     }
 
-    // Fallback if AMediaDataSource is unavailable on older API levels
-    struct stat st{};
-    off64_t streamLength = 131072;
-    if (::fstat(mFd, &st) == 0 && st.st_size > mStreamOffset) {
-        streamLength = st.st_size - mStreamOffset;
-    }
-    media_status_t status = AMediaExtractor_setDataSourceFd(mExtractor, mFd, mStreamOffset, streamLength);
+    AMediaDataSource_setUserdata(mNdkDataSource, this);
+    AMediaDataSource_setReadAt(mNdkDataSource, progressiveReadAtCallback);
+    AMediaDataSource_setGetSize(mNdkDataSource, progressiveGetSizeCallback);
+    AMediaDataSource_setClose(mNdkDataSource, progressiveCloseCallback);
+
+    media_status_t status = AMediaExtractor_setDataSourceCustom(mExtractor, mNdkDataSource);
     if (status != AMEDIA_OK) {
-        LOGE("AMediaExtractor_setDataSourceFd fallback failed: %d", static_cast<int>(status));
-        AMediaExtractor_delete(mExtractor);
-        mExtractor = nullptr;
-        ::close(mFd);
-        mFd = -1;
+        LOGE("AMediaExtractor_setDataSourceCustom failed for progressive file: %d",
+             static_cast<int>(status));
+        close();
         return EngineStatus::ErrorIO;
     }
 
-    return selectAudioTrack();
-}
-
-EngineStatus ProgressiveFileDataSource::selectAudioTrack() {
-    const size_t trackCount = AMediaExtractor_getTrackCount(mExtractor);
-    for (size_t i = 0; i < trackCount; ++i) {
-        AMediaFormat* format = AMediaExtractor_getTrackFormat(mExtractor, i);
-        const char* mime = nullptr;
-        if (AMediaFormat_getString(format, AMEDIAFORMAT_KEY_MIME, &mime) && mime) {
-            if (std::strncmp(mime, "audio/", 6) == 0) {
-                mTrackIndex = i;
-                mFormat = format;
-                std::strncpy(mMimeType, mime, sizeof(mMimeType) - 1);
-                mMimeType[sizeof(mMimeType) - 1] = '\0';
-
-                int32_t sr = 0;
-                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr);
-                mSampleRate = sr;
-
-                int32_t cc = 0;
-                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &cc);
-                mChannelCount = cc;
-
-                int64_t dur = 0;
-                AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &dur);
-                mDurationUs = dur;
-
-                media_status_t selStatus = AMediaExtractor_selectTrack(mExtractor, i);
-                if (selStatus != AMEDIA_OK) {
-                    LOGE("AMediaExtractor_selectTrack failed for progressive stream: %d", static_cast<int>(selStatus));
-                    AMediaFormat_delete(format);
-                    mFormat = nullptr;
-                    return EngineStatus::ErrorCodec;
-                }
-                return EngineStatus::Ok;
-            }
-        }
-        AMediaFormat_delete(format);
-    }
-
-    LOGE("No audio track found in progressive file: %s", mFilePath);
-    return EngineStatus::ErrorIO;
+    return selectFirstAudioTrack(
+        mExtractor, mTrackIndex, mFormat, mMimeType,
+        mSampleRate, mChannelCount, mDurationUs, mFilePath);
 }
 
 ssize_t ProgressiveFileDataSource::readAt(off64_t offset, void* buffer, size_t size) {
-    if (mFd < 0 || !buffer || size == 0) return 0;
+    if (mCanceled.load(std::memory_order_acquire) || mFd < 0 || !buffer) {
+        return -1;
+    }
+    if (size == 0) {
+        return 0;
+    }
 
     const off64_t actualOffset = offset + mStreamOffset;
 
-    // Up to 3.0 seconds wait in 10ms intervals for bytes streaming to disk
-    int attempts = 0;
-    while (attempts < 300) {
+    for (int attempt = 0; attempt < 300; ++attempt) {
+        if (mCanceled.load(std::memory_order_acquire)) {
+            return -1;
+        }
+
         struct stat st{};
         if (::fstat(mFd, &st) == 0) {
             if (actualOffset < st.st_size) {
-                size_t available = static_cast<size_t>(st.st_size - actualOffset);
-                size_t toRead = (size < available) ? size : available;
-                ssize_t bytesRead = ::pread(mFd, buffer, toRead, actualOffset);
-                return bytesRead >= 0 ? bytesRead : 0;
+                const size_t available = static_cast<size_t>(st.st_size - actualOffset);
+                const size_t toRead = (size < available) ? size : available;
+                const ssize_t bytesRead = ::pread(mFd, buffer, toRead, actualOffset);
+                return bytesRead >= 0 ? bytesRead : -1;
             }
         }
 
-        // Check if stream finished and file was renamed from .part to final .ogg
+        // Check if download finished and atomic rename moved .part -> final .ogg
         char finalPath[4096]{};
         std::strncpy(finalPath, mFilePath, sizeof(finalPath) - 1);
-        size_t len = std::strlen(finalPath);
+        const size_t len = std::strlen(finalPath);
         if (len > 5 && std::strcmp(finalPath + len - 5, ".part") == 0) {
             finalPath[len - 5] = '\0';
             struct stat finalSt{};
@@ -398,14 +348,28 @@ ssize_t ProgressiveFileDataSource::readAt(off64_t offset, void* buffer, size_t s
             }
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        attempts++;
+        std::unique_lock<std::mutex> lock(mCancelMutex);
+        mCancelCv.wait_for(lock, std::chrono::milliseconds(2), [this]() {
+            return mCanceled.load(std::memory_order_acquire);
+        });
     }
 
-    return 0;
+    return -1;
 }
 
 off64_t ProgressiveFileDataSource::getSize() {
+    // Unknown/streaming length lets AMediaExtractor read cleanly until readAt returns 0 at EOF.
+    // Check if final renamed .ogg exists first so natural EOF matches exact size.
+    char finalPath[4096]{};
+    std::strncpy(finalPath, mFilePath, sizeof(finalPath) - 1);
+    const size_t len = std::strlen(finalPath);
+    if (len > 5 && std::strcmp(finalPath + len - 5, ".part") == 0) {
+        finalPath[len - 5] = '\0';
+        struct stat finalSt{};
+        if (::stat(finalPath, &finalSt) == 0 && finalSt.st_size > mStreamOffset) {
+            return static_cast<off64_t>(finalSt.st_size) - mStreamOffset;
+        }
+    }
     return (mExpectedTotalSize > mStreamOffset) ? (mExpectedTotalSize - mStreamOffset) : 0;
 }
 
@@ -418,6 +382,7 @@ const char* ProgressiveFileDataSource::getMimeType() const { return mMimeType; }
 AMediaFormat* ProgressiveFileDataSource::getTrackFormat() const { return mFormat; }
 
 void ProgressiveFileDataSource::close() {
+    cancel();
     if (mFormat) {
         AMediaFormat_delete(mFormat);
         mFormat = nullptr;
@@ -427,10 +392,7 @@ void ProgressiveFileDataSource::close() {
         mExtractor = nullptr;
     }
     if (mNdkDataSource) {
-        const auto& api = NdkMediaDataSourceApi::get();
-        if (api.dsDelete) {
-            api.dsDelete(mNdkDataSource);
-        }
+        AMediaDataSource_delete(mNdkDataSource);
         mNdkDataSource = nullptr;
     }
     if (mFd >= 0) {
@@ -445,12 +407,29 @@ void ProgressiveFileDataSource::close() {
 }
 
 // ===========================================================================
-// HttpMediaDataSource
+// HttpMediaDataSource (Pure C++ libcurl + mbedTLS AMediaDataSource)
 // ===========================================================================
 
 HttpMediaDataSource::HttpMediaDataSource(const char* url, const char* authHeader) {
-    if (url) {
+    if (url && url[0] != '\0') {
         std::strncpy(mUrl, url, sizeof(mUrl) - 1);
+        mUrl[sizeof(mUrl) - 1] = '\0';
+        mUrls.emplace_back(mUrl);
+    }
+    if (authHeader) {
+        std::strncpy(mAuthHeader, authHeader, sizeof(mAuthHeader) - 1);
+        mAuthHeader[sizeof(mAuthHeader) - 1] = '\0';
+    }
+}
+
+HttpMediaDataSource::HttpMediaDataSource(
+    std::vector<std::string> urls,
+    const char* authHeader,
+    spotify::network::UrlRefreshCallback urlRefreshCb)
+    : mUrls(std::move(urls)),
+      mUrlRefreshCb(std::move(urlRefreshCb)) {
+    if (!mUrls.empty()) {
+        std::strncpy(mUrl, mUrls.front().c_str(), sizeof(mUrl) - 1);
         mUrl[sizeof(mUrl) - 1] = '\0';
     }
     if (authHeader) {
@@ -463,87 +442,131 @@ HttpMediaDataSource::~HttpMediaDataSource() {
     close();
 }
 
+void HttpMediaDataSource::cancel() {
+    mCanceled.store(true, std::memory_order_release);
+    std::shared_ptr<spotify::network::HttpRangeStreamCache> cacheSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(mCacheMutex);
+        cacheSnapshot = mCache;
+    }
+    if (cacheSnapshot) {
+        cacheSnapshot->cancel();
+    }
+}
+
+void HttpMediaDataSource::preemptPrefetch() {
+    std::shared_ptr<spotify::network::HttpRangeStreamCache> cacheSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(mCacheMutex);
+        cacheSnapshot = mCache;
+    }
+    if (cacheSnapshot) {
+        cacheSnapshot->preemptPrefetch();
+    }
+}
+
 EngineStatus HttpMediaDataSource::open() {
     close();
+    mCanceled.store(false, std::memory_order_release);
 
-    mExtractor = AMediaExtractor_new();
-    if (!mExtractor) {
-        LOGE("AMediaExtractor_new failed for remote URL");
-        return EngineStatus::ErrorCodec;
+    if (mUrls.empty()) {
+        LOGE("HttpMediaDataSource::open called with empty CDN URL list");
+        return EngineStatus::ErrorInvalidArg;
     }
 
-    media_status_t status = AMediaExtractor_setDataSource(mExtractor, mUrl);
-    if (status != AMEDIA_OK) {
-        LOGE("AMediaExtractor_setDataSource failed for URL %s: %d", mUrl, static_cast<int>(status));
-        AMediaExtractor_delete(mExtractor);
-        mExtractor = nullptr;
+    auto cache = std::make_shared<spotify::network::HttpRangeStreamCache>(
+        mUrls,
+        std::vector<std::pair<std::string, std::string>>{},
+        mUrlRefreshCb);
+
+    {
+        std::lock_guard<std::mutex> lock(mCacheMutex);
+        mCache = cache;
+    }
+
+    if (mCanceled.load(std::memory_order_acquire) || !cache->open()) {
+        LOGE("HttpRangeStreamCache::open failed for %s", mUrl);
+        close();
         return EngineStatus::ErrorIO;
     }
 
-    EngineStatus trackStatus = selectAudioTrack();
+    mExtractor = AMediaExtractor_new();
+    if (!mExtractor) {
+        LOGE("AMediaExtractor_new failed for HTTP data source");
+        close();
+        return EngineStatus::ErrorCodec;
+    }
+
+    mNdkDataSource = AMediaDataSource_new();
+    if (!mNdkDataSource) {
+        LOGE("AMediaDataSource_new failed for HTTP data source");
+        close();
+        return EngineStatus::ErrorCodec;
+    }
+
+    AMediaDataSource_setUserdata(mNdkDataSource, this);
+    AMediaDataSource_setReadAt(mNdkDataSource, httpReadAtCallback);
+    AMediaDataSource_setGetSize(mNdkDataSource, httpGetSizeCallback);
+    AMediaDataSource_setClose(mNdkDataSource, httpCloseCallback);
+
+    media_status_t status = AMediaExtractor_setDataSourceCustom(mExtractor, mNdkDataSource);
+    if (status != AMEDIA_OK) {
+        LOGE("AMediaExtractor_setDataSourceCustom failed for URL %s: %d",
+             mUrl, static_cast<int>(status));
+        close();
+        return EngineStatus::ErrorIO;
+    }
+
+    EngineStatus trackStatus = selectFirstAudioTrack(
+        mExtractor, mTrackIndex, mFormat, mMimeType,
+        mSampleRate, mChannelCount, mDurationUs, mUrl);
     if (trackStatus != EngineStatus::Ok) {
         return trackStatus;
     }
 
+    LOGI("Selected remote audio track %zu: mime=%s sr=%d cc=%d dur=%lldus",
+         mTrackIndex, mMimeType, mSampleRate, mChannelCount, static_cast<long long>(mDurationUs));
     extractWidevinePssh();
     return EngineStatus::Ok;
 }
 
-EngineStatus HttpMediaDataSource::selectAudioTrack() {
-    const size_t trackCount = AMediaExtractor_getTrackCount(mExtractor);
-    for (size_t i = 0; i < trackCount; ++i) {
-        AMediaFormat* format = AMediaExtractor_getTrackFormat(mExtractor, i);
-        const char* mime = nullptr;
-        if (AMediaFormat_getString(format, AMEDIAFORMAT_KEY_MIME, &mime) && mime) {
-            if (std::strncmp(mime, "audio/", 6) == 0) {
-                mTrackIndex = i;
-                mFormat = format;
-                std::strncpy(mMimeType, mime, sizeof(mMimeType) - 1);
-                mMimeType[sizeof(mMimeType) - 1] = '\0';
-
-                int32_t sr = 0;
-                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_SAMPLE_RATE, &sr);
-                mSampleRate = sr;
-
-                int32_t cc = 0;
-                AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_CHANNEL_COUNT, &cc);
-                mChannelCount = cc;
-
-                int64_t dur = 0;
-                AMediaFormat_getInt64(format, AMEDIAFORMAT_KEY_DURATION, &dur);
-                mDurationUs = dur;
-
-                media_status_t selStatus = AMediaExtractor_selectTrack(mExtractor, i);
-                if (selStatus != AMEDIA_OK) {
-                    LOGE("AMediaExtractor_selectTrack failed for remote: %d", static_cast<int>(selStatus));
-                    AMediaFormat_delete(format);
-                    mFormat = nullptr;
-                    return EngineStatus::ErrorCodec;
-                }
-                LOGI("Selected remote audio track %zu: mime=%s sr=%d cc=%d dur=%lldus",
-                     i, mMimeType, mSampleRate, mChannelCount, static_cast<long long>(mDurationUs));
-                return EngineStatus::Ok;
-            }
-        }
-        AMediaFormat_delete(format);
+ssize_t HttpMediaDataSource::readAt(off64_t offset, void* buffer, size_t size) {
+    if (mCanceled.load(std::memory_order_acquire)) {
+        return -1;
     }
+    std::shared_ptr<spotify::network::HttpRangeStreamCache> cacheSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(mCacheMutex);
+        cacheSnapshot = mCache;
+    }
+    if (!cacheSnapshot) {
+        return -1;
+    }
+    return cacheSnapshot->readAt(static_cast<int64_t>(offset), buffer, size);
+}
 
-    LOGE("No audio track found in remote URL: %s", mUrl);
-    return EngineStatus::ErrorIO;
+off64_t HttpMediaDataSource::getSize() {
+    std::shared_ptr<spotify::network::HttpRangeStreamCache> cacheSnapshot;
+    {
+        std::lock_guard<std::mutex> lock(mCacheMutex);
+        cacheSnapshot = mCache;
+    }
+    if (!cacheSnapshot) {
+        return -1;
+    }
+    return static_cast<off64_t>(cacheSnapshot->getSize());
+}
+
+void HttpMediaDataSource::onDataSourceClose() {
+    cancel();
 }
 
 void HttpMediaDataSource::buildWidevinePsshBox(const uint8_t* kidBytes, size_t kidLen,
-                                              const uint8_t* contentIdBytes, size_t contentIdLen,
-                                              uint32_t protectionScheme) {
+                                                const uint8_t* contentIdBytes, size_t contentIdLen,
+                                                uint32_t protectionScheme) {
     mPsshData.clear();
     if (!kidBytes || kidLen == 0) return;
 
-    // Build WidevineCencHeader protobuf matching Spotify's 1:1 schema:
-    // field 1 (algorithm = AES_CTR = 1): tag = (1 << 3) | 0 = 0x08, val = 1
-    // field 2 (key_id): tag = (2 << 3) | 2 = 0x12, len = kidLen, kidBytes
-    // field 3 (provider = "spotify"): tag = (3 << 3) | 2 = 0x1a, len = 7, "spotify"
-    // field 4 (content_id): tag = (4 << 3) | 2 = 0x22, len = contentIdLen, contentIdBytes
-    // field 9 (protection_scheme = 4CC varint, 0x63626373 for 'cbcs', 0x63656e63 for 'cenc'): tag = (9 << 3) | 0 = 0x48, varint
     std::vector<uint8_t> payload;
 
     // Field 1: algorithm = 1 (AES_CTR)
@@ -568,9 +591,9 @@ void HttpMediaDataSource::buildWidevinePsshBox(const uint8_t* kidBytes, size_t k
         payload.insert(payload.end(), contentIdBytes, contentIdBytes + contentIdLen);
     }
 
-    // Field 9: protection_scheme (0x63656e63 for 'cenc')
+    // Field 9: protection_scheme ('cbcs' = 0x63626373 or 'cenc' = 0x63656e63)
     if (protectionScheme != 0) {
-        payload.push_back(0x48); // (9 << 3) | 0
+        payload.push_back(0x48);
         uint32_t val = protectionScheme;
         while (val > 0x7F) {
             payload.push_back(static_cast<uint8_t>((val & 0x7F) | 0x80));
@@ -579,9 +602,7 @@ void HttpMediaDataSource::buildWidevinePsshBox(const uint8_t* kidBytes, size_t k
         payload.push_back(static_cast<uint8_t>(val & 0x7F));
     }
 
-    // Full PSSH box (Version 0):
-    // [4B size][4B 'pssh'][4B version/flags][16B UUID][4B dataSize][payload]
-    uint32_t totalSize = 32 + static_cast<uint32_t>(payload.size());
+    const uint32_t totalSize = 32 + static_cast<uint32_t>(payload.size());
     mPsshData.reserve(totalSize);
 
     mPsshData.push_back((totalSize >> 24) & 0xFF);
@@ -600,17 +621,15 @@ void HttpMediaDataSource::buildWidevinePsshBox(const uint8_t* kidBytes, size_t k
     mPsshData.push_back(0x00);
     mPsshData.push_back(0x00);
 
-    // Widevine UUID: edef8ba9-79d6-4ace-a3c8-27dcd51d21ed
+    // Widevine UUID
     mPsshData.insert(mPsshData.end(), kWidevineUuid, kWidevineUuid + 16);
 
-    // Data length (big-endian)
-    uint32_t dataLen = static_cast<uint32_t>(payload.size());
+    const uint32_t dataLen = static_cast<uint32_t>(payload.size());
     mPsshData.push_back((dataLen >> 24) & 0xFF);
     mPsshData.push_back((dataLen >> 16) & 0xFF);
     mPsshData.push_back((dataLen >> 8) & 0xFF);
     mPsshData.push_back(dataLen & 0xFF);
 
-    // Data payload
     mPsshData.insert(mPsshData.end(), payload.begin(), payload.end());
     mHasPssh = true;
 }
@@ -619,8 +638,6 @@ void HttpMediaDataSource::extractWidevinePssh() {
     mHasPssh = false;
     mPsshData.clear();
 
-    // 1. Try AMediaExtractor_getPsshInfo - ONLY match Widevine UUID.
-    // Never extract or treat non-Widevine entries (such as PlayReady XML headers) as KIDs.
     PsshInfo* psshInfo = AMediaExtractor_getPsshInfo(mExtractor);
     if (psshInfo) {
         for (size_t i = 0; i < psshInfo->numentries; ++i) {
@@ -637,10 +654,6 @@ void HttpMediaDataSource::extractWidevinePssh() {
         }
     }
 
-    // 2. If no Widevine PSSH in container (standard for remote HTTP streaming on Android),
-    // derive the 16-byte Key ID and 20-byte Content ID directly from the Spotify stream URL.
-    // Spotify stream URLs are in the format:
-    // .../audio/{40-hex-file-id}?__token__=... or .../head/{40-hex-file-id}
     const char* audioPattern = "/audio/";
     const char* match = std::strstr(mUrl, audioPattern);
     if (!match) {
@@ -652,8 +665,10 @@ void HttpMediaDataSource::extractWidevinePssh() {
         const char* hexStart = match + std::strlen(audioPattern);
         bool isHex = true;
         for (int i = 0; i < 40; ++i) {
-            char c = hexStart[i];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            const char c = hexStart[i];
+            if (c == '\0' || !((c >= '0' && c <= '9') ||
+                               (c >= 'a' && c <= 'f') ||
+                               (c >= 'A' && c <= 'F'))) {
                 isHex = false;
                 break;
             }
@@ -661,12 +676,10 @@ void HttpMediaDataSource::extractWidevinePssh() {
         if (isHex) {
             uint8_t fileId[20];
             for (int i = 0; i < 20; ++i) {
-                char byteHex[3] = { hexStart[i * 2], hexStart[i * 2 + 1], '\0' };
+                const char byteHex[3] = {hexStart[i * 2], hexStart[i * 2 + 1], '\0'};
                 fileId[i] = static_cast<uint8_t>(std::strtoul(byteHex, nullptr, 16));
             }
-            // Dynamically detect protection scheme from track format crypto-mode:
-            // In Android Stagefright, kCryptoModeAesCtr = 1 ('cenc'), kCryptoModeAesCbc = 2 ('cbcs').
-            // Spotify remote AAC audio streams in MP4 containers use 'cbcs' (0x63626373).
+
             uint32_t protectionScheme = 0x63626373; // Default 'cbcs'
             int32_t cryptoMode = 0;
             if (mFormat && AMediaFormat_getInt32(mFormat, "crypto-mode", &cryptoMode)) {
@@ -678,7 +691,7 @@ void HttpMediaDataSource::extractWidevinePssh() {
             }
 
             buildWidevinePsshBox(fileId, 16, fileId, 20, protectionScheme);
-            LOGI("Derived Spotify Widevine PSSH box from URL file ID (%zu bytes, kid=16, content_id=20, scheme=%s)",
+            LOGI("Derived Spotify Widevine PSSH box from URL file ID (%zu bytes, scheme=%s)",
                  mPsshData.size(), protectionScheme == 0x63626373 ? "cbcs" : "cenc");
             return;
         }
@@ -696,6 +709,10 @@ const char* HttpMediaDataSource::getMimeType() const { return mMimeType; }
 AMediaFormat* HttpMediaDataSource::getTrackFormat() const { return mFormat; }
 
 void HttpMediaDataSource::close() {
+    cancel();
+
+    // Destroy extractor and NDK DataSource BEFORE releasing mCache so NuMediaExtractor's
+    // destructor callbacks observe a valid object and zero Java Binder dependencies.
     if (mFormat) {
         AMediaFormat_delete(mFormat);
         mFormat = nullptr;
@@ -704,6 +721,20 @@ void HttpMediaDataSource::close() {
         AMediaExtractor_delete(mExtractor);
         mExtractor = nullptr;
     }
+    if (mNdkDataSource) {
+        AMediaDataSource_delete(mNdkDataSource);
+        mNdkDataSource = nullptr;
+    }
+
+    std::shared_ptr<spotify::network::HttpRangeStreamCache> cacheToClose;
+    {
+        std::lock_guard<std::mutex> lock(mCacheMutex);
+        cacheToClose = std::move(mCache);
+    }
+    if (cacheToClose) {
+        cacheToClose->close();
+    }
+
     mSampleRate = 0;
     mChannelCount = 0;
     mDurationUs = 0;
@@ -756,6 +787,7 @@ void EncryptedStreamDataSource::close() {
         mExtractor = nullptr;
     }
     if (mNdkDataSource) {
+        AMediaDataSource_delete(mNdkDataSource);
         mNdkDataSource = nullptr;
     }
     mSampleRate = 0;
