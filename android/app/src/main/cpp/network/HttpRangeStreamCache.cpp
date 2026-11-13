@@ -21,11 +21,17 @@ HttpRangeStreamCache::HttpRangeStreamCache(
     std::vector<std::string> urls,
     std::vector<std::pair<std::string, std::string>> extra_headers,
     UrlRefreshCallback url_refresh_cb,
-    NativeHttpClient& http_client)
+    NativeHttpClient& http_client,
+    cache::DiskCache& disk_cache)
     : http_client_(http_client),
+      disk_cache_(disk_cache),
       extra_headers_(std::move(extra_headers)),
       url_refresh_cb_(std::move(url_refresh_cb)),
-      urls_(std::move(urls)) {}
+      urls_(std::move(urls)) {
+    if (!urls_.empty()) {
+        stream_key_ = cache::DiskCache::extractStreamCacheKey(urls_.front());
+    }
+}
 
 HttpRangeStreamCache::~HttpRangeStreamCache() {
     close();
@@ -43,36 +49,59 @@ int64_t HttpRangeStreamCache::getSize() const noexcept {
 
 void HttpRangeStreamCache::cancel() noexcept {
     canceled_.store(true, std::memory_order_release);
-    prefetch_abort_.store(true, std::memory_order_release);
+    seek_epoch_.fetch_add(1, std::memory_order_acq_rel);
     std::lock_guard<std::mutex> lock(mu_);
+    fg_queue_.clear();
     block_cv_.notify_all();
-    prefetch_cv_.notify_all();
+    fg_cv_.notify_all();
+}
+
+void HttpRangeStreamCache::onSeek() noexcept {
+    seek_epoch_.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<std::mutex> lock(mu_);
+    fg_queue_.clear();
+    block_cv_.notify_all();
+    fg_cv_.notify_all();
 }
 
 void HttpRangeStreamCache::preemptPrefetch() noexcept {
-    std::lock_guard<std::mutex> lock(mu_);
-    prefetch_abort_.store(true, std::memory_order_release);
-    has_prefetch_target_ = false;
-    prefetch_cv_.notify_one();
+    onSeek();
 }
 
 void HttpRangeStreamCache::close() noexcept {
     const bool already_closed = closed_.exchange(true, std::memory_order_acq_rel);
     canceled_.store(true, std::memory_order_release);
-    prefetch_abort_.store(true, std::memory_order_release);
+    seek_epoch_.fetch_add(1, std::memory_order_acq_rel);
     {
         std::lock_guard<std::mutex> lock(mu_);
+        fg_queue_.clear();
         block_cv_.notify_all();
-        prefetch_cv_.notify_all();
+        fg_cv_.notify_all();
     }
-    if (!already_closed && prefetch_thread_.joinable()) {
-        prefetch_thread_.join();
+    if (!already_closed) {
+        for (auto& t : fg_threads_) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
     }
     std::lock_guard<std::mutex> lock(mu_);
     blocks_.clear();
     lru_order_.clear();
     lru_map_.clear();
     in_flight_.clear();
+    fg_queue_.clear();
+}
+
+void HttpRangeStreamCache::startWorkersIfNeeded() {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (closed_.load(std::memory_order_acquire) || workers_started_) {
+        return;
+    }
+    workers_started_ = true;
+    for (size_t i = 0; i < kForegroundWorkers; ++i) {
+        fg_threads_[i] = std::thread(&HttpRangeStreamCache::foregroundWorker, this);
+    }
 }
 
 bool HttpRangeStreamCache::open() {
@@ -80,112 +109,98 @@ bool HttpRangeStreamCache::open() {
         return false;
     }
 
-    std::vector<std::string> urls_snapshot;
-    size_t start_index = 0;
-    uint64_t gen_snapshot = 0;
     {
         std::lock_guard<std::mutex> lock(url_mu_);
-        urls_snapshot = urls_;
-        start_index = active_url_index_;
-        gen_snapshot = url_generation_;
+        if (urls_.empty()) {
+            RSC_LOGE("open() failed: no CDN URLs provided");
+            return false;
+        }
     }
 
-    if (urls_snapshot.empty()) {
-        RSC_LOGE("open() failed: no CDN URLs provided");
-        return false;
-    }
-
-    size_t seeded_blocks = 1;
-    auto openFirstWindow = [&](const std::vector<std::string>& urls, size_t start, bool& saw_expired) -> bool {
-        saw_expired = false;
-        const size_t count = urls.size();
-        const size_t initial_fetch_bytes = kMissFetchBlocks * kBlockSize;
-        for (size_t i = 0; i < count; ++i) {
-            if (canceled_.load(std::memory_order_acquire)) return false;
-            const size_t idx = (start + i) % count;
-            const std::string& url = urls[idx];
-            if (url.empty()) continue;
-
-            const HttpRangeResult res = http_client_.fetchByteRange(
-                url, 0, initial_fetch_bytes, extra_headers_, &canceled_, kConnectTimeoutMs, kReadTimeoutMs);
-            if (res.status == RangeFetchStatus::Canceled || canceled_.load(std::memory_order_acquire)) {
-                return false;
-            }
-            const int64_t discovered_total =
-                (res.total_size > 0) ? res.total_size : static_cast<int64_t>(res.data.size());
-            if (res.isSuccess() && !res.data.empty() && discovered_total > 0) {
-                total_size_.store(discovered_total, std::memory_order_release);
-                {
-                    std::lock_guard<std::mutex> lock(url_mu_);
-                    if (url_generation_ == gen_snapshot && idx < urls_.size()) {
-                        active_url_index_ = idx;
-                    }
-                }
-                const size_t fetched_len = res.data.size();
-                size_t blocks_stored = 0;
+    // 1. Fast path: check persistent DiskCache for stream metadata + Block 0
+    if (!stream_key_.empty()) {
+        const int64_t disk_total = disk_cache_.readStreamTotalSize(stream_key_);
+        if (disk_total > 0) {
+            const size_t expected_blk0 =
+                static_cast<size_t>(std::min<int64_t>(kBlockSize, disk_total));
+            auto blk0 = disk_cache_.readStreamBlock(stream_key_, 0, expected_blk0);
+            if (blk0) {
+                total_size_.store(disk_total, std::memory_order_release);
+                const size_t total_blocks = static_cast<size_t>(
+                    (static_cast<uint64_t>(disk_total) + kBlockSize - 1) / kBlockSize);
+                const size_t header_limit = std::min(total_blocks, kPinnedHeaderBlocks);
+                size_t loaded_header_blocks = 1;
                 {
                     std::lock_guard<std::mutex> lock(mu_);
-                    for (size_t b = 0; b < kMissFetchBlocks; ++b) {
-                        const size_t slice_start = b * kBlockSize;
-                        if (slice_start >= fetched_len) break;
-                        const size_t slice_end = std::min(fetched_len, slice_start + kBlockSize);
-                        auto vec = std::make_shared<const std::vector<uint8_t>>(
-                            res.data.begin() + static_cast<ptrdiff_t>(slice_start),
-                            res.data.begin() + static_cast<ptrdiff_t>(slice_end));
-                        insertBlockLocked(b, std::move(vec));
-                        ++blocks_stored;
-                    }
+                    insertBlockLocked(0, std::move(blk0));
                 }
-                seeded_blocks = std::max<size_t>(1, blocks_stored);
-                RSC_LOGI("Opened range stream total_size=%lld bytes + cached %zu blocks (%zuB) (cdn_idx=%zu)",
-                         static_cast<long long>(discovered_total),
-                         blocks_stored,
-                         fetched_len,
-                         idx);
+                for (size_t b = 1; b < header_limit; ++b) {
+                    const int64_t b_off = static_cast<int64_t>(b * kBlockSize);
+                    const size_t exp_b =
+                        static_cast<size_t>(std::min<int64_t>(kBlockSize, disk_total - b_off));
+                    auto blk_b = disk_cache_.readStreamBlock(stream_key_, b, exp_b);
+                    if (!blk_b) break;
+                    std::lock_guard<std::mutex> lock(mu_);
+                    insertBlockLocked(b, std::move(blk_b));
+                    ++loaded_header_blocks;
+                }
+                startWorkersIfNeeded();
+                RSC_LOGI("Opened range stream from DiskCache HIT total_size=%lld bytes (%zu header blocks warm, key=%s)",
+                         static_cast<long long>(disk_total),
+                         loaded_header_blocks,
+                         stream_key_.c_str());
                 return true;
             }
-
-            if (res.status == RangeFetchStatus::ExpiredOrForbidden) {
-                saw_expired = true;
-            }
-            RSC_LOGW("open initial window failed status=%d http=%d length=%lld (cdn_idx=%zu)",
-                     static_cast<int>(res.status),
-                     static_cast<int>(res.http_status),
-                     static_cast<long long>(res.total_size),
-                     idx);
         }
+    }
+
+    // 2. Network path: verify device has an active network route before dispatching
+    if (!NativeHttpClient::hasActiveNetworkRoute()) {
+        RSC_LOGW("open() aborted: device is offline and stream is not in DiskCache (key=%s)",
+                 stream_key_.c_str());
         return false;
-    };
+    }
 
-    auto startPrefetching = [&]() {
-        if (!closed_.load(std::memory_order_acquire) && !prefetch_thread_.joinable()) {
-            prefetch_thread_ = std::thread(&HttpRangeStreamCache::prefetchWorker, this);
-        }
+    startWorkersIfNeeded();
+
+    const uint64_t epoch = seek_epoch_.load(std::memory_order_acquire);
+    auto flight0 = std::make_shared<InFlightBlock>();
+    flight0->expected_size = kBlockSize;
+    flight0->buffer.resize(kBlockSize);
+    flight0->foreground_waiters = 1;
+
+    {
         std::lock_guard<std::mutex> lock(mu_);
-        schedulePrefetchLocked(seeded_blocks);
-    };
-
-    bool saw_expired = false;
-    if (openFirstWindow(urls_snapshot, start_index, saw_expired)) {
-        startPrefetching();
-        return true;
+        in_flight_[0] = flight0;
+        fg_queue_.push_back(ForegroundRequest{0, epoch, flight0});
+        fg_cv_.notify_one();
     }
 
-    if (!canceled_.load(std::memory_order_acquire) && saw_expired && tryRefreshUrls(gen_snapshot, canceled_)) {
-        {
-            std::lock_guard<std::mutex> lock(url_mu_);
-            urls_snapshot = urls_;
-            start_index = active_url_index_;
-            gen_snapshot = url_generation_;
+    bool open_ok = false;
+    {
+        std::unique_lock<std::mutex> lock(mu_);
+        block_cv_.wait(lock, [&]() {
+            return (total_size_.load(std::memory_order_acquire) > 0 && flight0->filled_bytes > 0) ||
+                   flight0->done ||
+                   canceled_.load(std::memory_order_acquire) ||
+                   closed_.load(std::memory_order_acquire);
+        });
+        if (flight0->foreground_waiters > 0) {
+            --flight0->foreground_waiters;
         }
-        bool refreshed_expired = false;
-        if (openFirstWindow(urls_snapshot, start_index, refreshed_expired)) {
-            startPrefetching();
-            return true;
-        }
+        const int64_t discovered_total = total_size_.load(std::memory_order_acquire);
+        open_ok = !canceled_.load(std::memory_order_acquire) &&
+                  !closed_.load(std::memory_order_acquire) &&
+                  discovered_total > 0 &&
+                  (flight0->filled_bytes > 0 || flight0->ok);
     }
 
-    return false;
+    if (open_ok) {
+        RSC_LOGI("Opened range stream progressively total_size=%lld bytes (key=%s)",
+                 static_cast<long long>(total_size_.load(std::memory_order_acquire)),
+                 stream_key_.c_str());
+    }
+    return open_ok;
 }
 
 ssize_t HttpRangeStreamCache::readAt(int64_t offset, void* buffer, size_t size) {
@@ -204,258 +219,289 @@ ssize_t HttpRangeStreamCache::readAt(int64_t offset, void* buffer, size_t size) 
         return 0;
     }
 
+    const uint64_t caller_epoch = seek_epoch_.load(std::memory_order_acquire);
     const uint64_t remaining_u64 = static_cast<uint64_t>(total - offset);
     const size_t target_bytes = static_cast<size_t>(std::min<uint64_t>(size, remaining_u64));
 
-    uint8_t* dst = static_cast<uint8_t*>(buffer);
+    auto* dst = static_cast<uint8_t*>(buffer);
     size_t copied = 0;
     int64_t cursor = offset;
-    size_t last_block_index = 0;
 
     while (copied < target_bytes) {
-        if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
+        if (canceled_.load(std::memory_order_acquire) ||
+            closed_.load(std::memory_order_acquire) ||
+            seek_epoch_.load(std::memory_order_acquire) != caller_epoch) {
             return -1;
         }
 
         const size_t block_index = static_cast<size_t>(static_cast<uint64_t>(cursor) / kBlockSize);
         const size_t in_block_offset = static_cast<size_t>(static_cast<uint64_t>(cursor) % kBlockSize);
-        last_block_index = block_index;
+        const int64_t block_start_byte = static_cast<int64_t>(static_cast<uint64_t>(block_index) * kBlockSize);
+        if (block_start_byte >= total) {
+            break;
+        }
+        const size_t expected_block_len =
+            static_cast<size_t>(std::min<int64_t>(kBlockSize, total - block_start_byte));
+        if (in_block_offset >= expected_block_len) {
+            break;
+        }
 
-        auto block_data = acquireBlock(block_index);
-        if (!block_data) {
-            if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
+        const size_t avail_in_block = expected_block_len - in_block_offset;
+        const size_t wanted_from_block = std::min(target_bytes - copied, avail_in_block);
+
+        const ssize_t n = readFromBlock(
+            block_index,
+            in_block_offset,
+            dst + copied,
+            wanted_from_block,
+            caller_epoch);
+
+        if (n <= 0) {
+            if (canceled_.load(std::memory_order_acquire) ||
+                closed_.load(std::memory_order_acquire) ||
+                seek_epoch_.load(std::memory_order_acquire) != caller_epoch) {
                 return -1;
             }
             return copied > 0 ? static_cast<ssize_t>(copied) : -1;
         }
 
-        if (in_block_offset >= block_data->size()) {
-            break;
-        }
-
-        const size_t available_in_block = block_data->size() - in_block_offset;
-        const size_t to_copy = std::min(target_bytes - copied, available_in_block);
-        std::memcpy(dst + copied, block_data->data() + in_block_offset, to_copy);
-
-        copied += to_copy;
-        cursor += static_cast<int64_t>(to_copy);
-    }
-
-    if (copied > 0 && !canceled_.load(std::memory_order_acquire)) {
-        std::lock_guard<std::mutex> lock(mu_);
-        schedulePrefetchLocked(last_block_index + 1);
+        copied += static_cast<size_t>(n);
+        cursor += static_cast<int64_t>(n);
     }
 
     return static_cast<ssize_t>(copied);
 }
 
-std::shared_ptr<const std::vector<uint8_t>> HttpRangeStreamCache::acquireBlock(size_t block_index) {
+ssize_t HttpRangeStreamCache::readFromBlock(
+    size_t block_index,
+    size_t in_block_offset,
+    uint8_t* dst,
+    size_t wanted_len,
+    uint64_t caller_seek_epoch) {
     const int64_t total = total_size_.load(std::memory_order_acquire);
-    if (total <= 0) return nullptr;
+    if (total <= 0) return -1;
 
     const int64_t block_offset = static_cast<int64_t>(static_cast<uint64_t>(block_index) * kBlockSize);
-    if (block_offset >= total) return nullptr;
+    if (block_offset >= total) return 0;
 
-    const size_t total_blocks =
-        static_cast<size_t>((static_cast<uint64_t>(total) + kBlockSize - 1) / kBlockSize);
+    const size_t expected_block_len =
+        static_cast<size_t>(std::min<int64_t>(kBlockSize, total - block_offset));
+    if (in_block_offset >= expected_block_len) return 0;
+    const size_t safe_wanted = std::min(wanted_len, expected_block_len - in_block_offset);
 
-    std::vector<std::pair<size_t, std::shared_ptr<InFlightBlock>>> span_flights;
     for (;;) {
-        span_flights.clear();
+        std::shared_ptr<InFlightBlock> flight;
+        bool check_disk = false;
         {
             std::unique_lock<std::mutex> lock(mu_);
-            if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
-                return nullptr;
+            if (canceled_.load(std::memory_order_acquire) ||
+                closed_.load(std::memory_order_acquire) ||
+                seek_epoch_.load(std::memory_order_acquire) != caller_seek_epoch) {
+                return -1;
             }
 
+            // Tier 1: Hot RAM LRU cache hit
             auto cached_it = blocks_.find(block_index);
             if (cached_it != blocks_.end()) {
                 touchLruLocked(block_index);
-                return cached_it->second;
+                const auto& vec = cached_it->second;
+                if (in_block_offset >= vec->size()) return 0;
+                const size_t to_copy = std::min(safe_wanted, vec->size() - in_block_offset);
+                std::memcpy(dst, vec->data() + in_block_offset, to_copy);
+                return static_cast<ssize_t>(to_copy);
+            }
+
+            // Active in-flight block hit
+            auto flight_it = in_flight_.find(block_index);
+            if (flight_it != in_flight_.end()) {
+                flight = flight_it->second;
+                flight->foreground_waiters += 1;
+            } else {
+                check_disk = !stream_key_.empty();
+                if (!check_disk) {
+                    if (!NativeHttpClient::hasActiveNetworkRoute()) {
+                        return -1;
+                    }
+                    flight = std::make_shared<InFlightBlock>();
+                    flight->expected_size = expected_block_len;
+                    flight->buffer.resize(expected_block_len);
+                    flight->foreground_waiters = 1;
+                    in_flight_[block_index] = flight;
+                    fg_queue_.push_back(ForegroundRequest{block_index, caller_seek_epoch, flight});
+                    fg_cv_.notify_one();
+                }
+            }
+        }
+
+        // Tier 2: Persistent DiskCache lookup (performed outside mu_ lock)
+        if (check_disk) {
+            auto disk_vec = disk_cache_.readStreamBlock(stream_key_, block_index, expected_block_len);
+            std::unique_lock<std::mutex> lock(mu_);
+            if (canceled_.load(std::memory_order_acquire) ||
+                closed_.load(std::memory_order_acquire) ||
+                seek_epoch_.load(std::memory_order_acquire) != caller_seek_epoch) {
+                return -1;
+            }
+
+            if (disk_vec) {
+                insertBlockLocked(block_index, disk_vec);
+                if (in_block_offset >= disk_vec->size()) return 0;
+                const size_t to_copy = std::min(safe_wanted, disk_vec->size() - in_block_offset);
+                std::memcpy(dst, disk_vec->data() + in_block_offset, to_copy);
+                return static_cast<ssize_t>(to_copy);
+            }
+
+            // Re-check RAM and in_flight_ after disk miss
+            auto cached_it = blocks_.find(block_index);
+            if (cached_it != blocks_.end()) {
+                touchLruLocked(block_index);
+                const auto& vec = cached_it->second;
+                if (in_block_offset >= vec->size()) return 0;
+                const size_t to_copy = std::min(safe_wanted, vec->size() - in_block_offset);
+                std::memcpy(dst, vec->data() + in_block_offset, to_copy);
+                return static_cast<ssize_t>(to_copy);
             }
 
             auto flight_it = in_flight_.find(block_index);
             if (flight_it != in_flight_.end()) {
-                auto shared_flight = flight_it->second;
-                block_cv_.wait(lock, [&]() {
-                    return shared_flight->done ||
-                           canceled_.load(std::memory_order_acquire) ||
-                           closed_.load(std::memory_order_acquire);
-                });
-                if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
-                    return nullptr;
+                flight = flight_it->second;
+                flight->foreground_waiters += 1;
+            } else {
+                // Fast kernel route check before enqueuing network work on a cache miss
+                if (!NativeHttpClient::hasActiveNetworkRoute()) {
+                    return -1;
                 }
-                if (shared_flight->ok) {
-                    return shared_flight->data;
+                flight = std::make_shared<InFlightBlock>();
+                flight->expected_size = expected_block_len;
+                flight->buffer.resize(expected_block_len);
+                flight->foreground_waiters = 1;
+                in_flight_[block_index] = flight;
+                fg_queue_.push_back(ForegroundRequest{block_index, caller_seek_epoch, flight});
+                fg_cv_.notify_one();
+            }
+        }
+
+        // Progressive wait: unblock as soon as `[in_block_offset, in_block_offset + safe_wanted)`
+        // bytes have arrived in `flight->buffer`, without waiting for the entire 64 KiB block.
+        const size_t required_fill = in_block_offset + safe_wanted;
+        {
+            std::unique_lock<std::mutex> lock(mu_);
+            block_cv_.wait(lock, [&]() {
+                return flight->filled_bytes >= required_fill ||
+                       flight->done ||
+                       canceled_.load(std::memory_order_acquire) ||
+                       closed_.load(std::memory_order_acquire) ||
+                       seek_epoch_.load(std::memory_order_acquire) != caller_seek_epoch;
+            });
+
+            if (flight->foreground_waiters > 0) {
+                --flight->foreground_waiters;
+            }
+
+            if (canceled_.load(std::memory_order_acquire) ||
+                closed_.load(std::memory_order_acquire) ||
+                seek_epoch_.load(std::memory_order_acquire) != caller_seek_epoch) {
+                return -1;
+            }
+
+            if (flight->filled_bytes >= required_fill) {
+                std::memcpy(dst, flight->buffer.data() + in_block_offset, safe_wanted);
+                return static_cast<ssize_t>(safe_wanted);
+            }
+
+            if (flight->done) {
+                if (flight->ok && flight->filled_bytes > in_block_offset) {
+                    const size_t avail = std::min(safe_wanted, flight->filled_bytes - in_block_offset);
+                    std::memcpy(dst, flight->buffer.data() + in_block_offset, avail);
+                    return static_cast<ssize_t>(avail);
                 }
-                if (shared_flight->preempted) {
+                if (flight->preempted) {
                     continue;
                 }
-                return nullptr;
-            }
-
-            // Coalesce up to kMissFetchBlocks consecutive uncached blocks in a single HTTP RTT
-            // so a foreground seek immediately caches the moof + surrounding ~256 KiB of frames.
-            const size_t max_blk = std::min(total_blocks, block_index + kMissFetchBlocks);
-            for (size_t b = block_index; b < max_blk; ++b) {
-                if (blocks_.find(b) != blocks_.end() || in_flight_.find(b) != in_flight_.end()) {
-                    break;
-                }
-                auto flight = std::make_shared<InFlightBlock>();
-                in_flight_[b] = flight;
-                span_flights.emplace_back(b, std::move(flight));
-            }
-            break;
-        }
-    }
-
-    const int64_t span_end_byte = std::min<int64_t>(
-        total,
-        block_offset + static_cast<int64_t>(span_flights.size() * kBlockSize));
-    const size_t span_len = static_cast<size_t>(span_end_byte - block_offset);
-    HttpRangeResult fetched = fetchBlockWithFailover(block_offset, span_len, canceled_);
-
-    std::shared_ptr<const std::vector<uint8_t>> primary_result;
-    {
-        std::lock_guard<std::mutex> lock(mu_);
-        const bool aborted_or_closed =
-            canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire);
-
-        if (fetched.isSuccess() && !fetched.data.empty() && !aborted_or_closed) {
-            if (fetched.total_size > 0) {
-                total_size_.store(fetched.total_size, std::memory_order_release);
-            }
-            for (size_t i = 0; i < span_flights.size(); ++i) {
-                const size_t b = span_flights[i].first;
-                auto& flight = span_flights[i].second;
-                in_flight_.erase(b);
-
-                const size_t slice_start = i * kBlockSize;
-                if (slice_start < fetched.data.size()) {
-                    const size_t slice_end = std::min(fetched.data.size(), slice_start + kBlockSize);
-                    auto shared_vec = std::make_shared<const std::vector<uint8_t>>(
-                        fetched.data.begin() + static_cast<ptrdiff_t>(slice_start),
-                        fetched.data.begin() + static_cast<ptrdiff_t>(slice_end));
-                    insertBlockLocked(b, shared_vec);
-                    flight->data = shared_vec;
-                    flight->ok = true;
-                    if (i == 0) {
-                        primary_result = std::move(shared_vec);
-                    }
-                } else {
-                    flight->ok = false;
-                    flight->preempted = (i > 0);
-                }
-                flight->done = true;
-            }
-        } else {
-            for (auto& [b, flight] : span_flights) {
-                in_flight_.erase(b);
-                flight->ok = false;
-                flight->done = true;
+                return -1;
             }
         }
-        block_cv_.notify_all();
     }
-
-    return primary_result;
 }
 
-bool HttpRangeStreamCache::acquirePrefetchBatch(size_t start_block, size_t max_blocks) {
-    const int64_t total = total_size_.load(std::memory_order_acquire);
-    if (total <= 0) return false;
-
-    const size_t total_blocks =
-        static_cast<size_t>((static_cast<uint64_t>(total) + kBlockSize - 1) / kBlockSize);
-    if (start_block >= total_blocks || max_blocks == 0) return true;
-
-    std::vector<std::pair<size_t, std::shared_ptr<InFlightBlock>>> span_flights;
-    {
-        std::lock_guard<std::mutex> lock(mu_);
-        if (canceled_.load(std::memory_order_acquire) ||
-            closed_.load(std::memory_order_acquire) ||
-            prefetch_abort_.load(std::memory_order_acquire)) {
-            return false;
-        }
-        const size_t limit = std::min(total_blocks, start_block + max_blocks);
-        for (size_t b = start_block; b < limit; ++b) {
-            if (blocks_.find(b) != blocks_.end() || in_flight_.find(b) != in_flight_.end()) {
-                break;
+void HttpRangeStreamCache::foregroundWorker() {
+    for (;;) {
+        ForegroundRequest req;
+        {
+            std::unique_lock<std::mutex> lock(mu_);
+            fg_cv_.wait(lock, [&]() {
+                return !fg_queue_.empty() ||
+                       canceled_.load(std::memory_order_acquire) ||
+                       closed_.load(std::memory_order_acquire);
+            });
+            if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
+                return;
             }
-            auto flight = std::make_shared<InFlightBlock>();
-            in_flight_[b] = flight;
-            span_flights.emplace_back(b, std::move(flight));
+            req = std::move(fg_queue_.front());
+            fg_queue_.pop_front();
         }
-    }
 
-    if (span_flights.empty()) {
-        return true;
+        executeForegroundRequest(req);
     }
+}
+
+void HttpRangeStreamCache::executeForegroundRequest(const ForegroundRequest& req) {
+    if (!req.flight) return;
 
     const int64_t start_offset =
-        static_cast<int64_t>(static_cast<uint64_t>(start_block) * kBlockSize);
-    const int64_t end_byte = std::min<int64_t>(
-        total,
-        start_offset + static_cast<int64_t>(span_flights.size() * kBlockSize));
-    const size_t span_len = static_cast<size_t>(end_byte - start_offset);
+        static_cast<int64_t>(static_cast<uint64_t>(req.block_index) * kBlockSize);
+    const size_t span_len = req.flight->expected_size > 0 ? req.flight->expected_size : kBlockSize;
 
-    HttpRangeResult fetched = fetchBlockWithFailover(start_offset, span_len, prefetch_abort_);
+    std::vector<std::pair<size_t, std::shared_ptr<InFlightBlock>>> span_flights;
+    span_flights.emplace_back(req.block_index, req.flight);
 
-    bool batch_ok = false;
+    const CancelPredicate cancel_pred = [this, req_epoch = req.seek_epoch]() -> bool {
+        if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
+            return true;
+        }
+        return seek_epoch_.load(std::memory_order_acquire) != req_epoch;
+    };
+
+    const bool ok = streamSpanWithFailover(start_offset, span_len, span_flights, cancel_pred);
+
+    std::shared_ptr<const std::vector<uint8_t>> to_persist;
     {
         std::lock_guard<std::mutex> lock(mu_);
-        const bool aborted =
-            canceled_.load(std::memory_order_acquire) ||
-            closed_.load(std::memory_order_acquire) ||
-            prefetch_abort_.load(std::memory_order_acquire);
-
-        if (fetched.isSuccess() && !fetched.data.empty() && !aborted) {
-            if (fetched.total_size > 0) {
-                total_size_.store(fetched.total_size, std::memory_order_release);
+        in_flight_.erase(req.block_index);
+        if (!req.flight->done) {
+            const bool canceled_or_stale = cancel_pred();
+            if (ok && req.flight->filled_bytes > 0 && !canceled_or_stale) {
+                req.flight->buffer.resize(req.flight->filled_bytes);
+                auto shared_vec = std::make_shared<const std::vector<uint8_t>>(req.flight->buffer);
+                insertBlockLocked(req.block_index, shared_vec);
+                req.flight->data = shared_vec;
+                req.flight->ok = true;
+                to_persist = std::move(shared_vec);
+            } else {
+                req.flight->ok = false;
+                req.flight->preempted = canceled_or_stale &&
+                                         !canceled_.load(std::memory_order_acquire) &&
+                                         !closed_.load(std::memory_order_acquire);
             }
-            for (size_t i = 0; i < span_flights.size(); ++i) {
-                const size_t b = span_flights[i].first;
-                auto& flight = span_flights[i].second;
-                in_flight_.erase(b);
-
-                const size_t slice_start = i * kBlockSize;
-                if (slice_start < fetched.data.size()) {
-                    const size_t slice_end = std::min(fetched.data.size(), slice_start + kBlockSize);
-                    auto shared_vec = std::make_shared<const std::vector<uint8_t>>(
-                        fetched.data.begin() + static_cast<ptrdiff_t>(slice_start),
-                        fetched.data.begin() + static_cast<ptrdiff_t>(slice_end));
-                    insertBlockLocked(b, shared_vec);
-                    flight->data = shared_vec;
-                    flight->ok = true;
-                } else {
-                    flight->ok = false;
-                    flight->preempted = true;
-                }
-                flight->done = true;
-            }
-            batch_ok = true;
-        } else {
-            const bool preempted =
-                prefetch_abort_.load(std::memory_order_acquire) &&
-                !canceled_.load(std::memory_order_acquire) &&
-                !closed_.load(std::memory_order_acquire);
-            for (auto& [b, flight] : span_flights) {
-                in_flight_.erase(b);
-                flight->ok = false;
-                flight->preempted = preempted;
-                flight->done = true;
-            }
+            req.flight->done = true;
         }
         block_cv_.notify_all();
     }
 
-    return batch_ok;
+    if (to_persist && !stream_key_.empty()) {
+        disk_cache_.writeStreamBlock(stream_key_, req.block_index, to_persist->data(), to_persist->size());
+    }
 }
 
-HttpRangeResult HttpRangeStreamCache::fetchBlockWithFailover(
-    int64_t offset,
-    size_t length,
-    const std::atomic<bool>& cancel_token) {
+bool HttpRangeStreamCache::streamSpanWithFailover(
+    int64_t start_offset,
+    size_t span_len,
+    const std::vector<std::pair<size_t, std::shared_ptr<InFlightBlock>>>& span_flights,
+    const CancelPredicate& cancel_pred) {
+    if (!NativeHttpClient::hasActiveNetworkRoute()) {
+        return false;
+    }
+
     std::vector<std::string> urls_snapshot;
     size_t start_index = 0;
     uint64_t gen_snapshot = 0;
@@ -467,58 +513,184 @@ HttpRangeResult HttpRangeStreamCache::fetchBlockWithFailover(
     }
 
     if (urls_snapshot.empty()) {
-        HttpRangeResult err;
-        err.status = RangeFetchStatus::NetworkError;
-        return err;
+        return false;
     }
 
     bool saw_expired = false;
-    HttpRangeResult res = tryUrlsLockedSnapshot(
-        urls_snapshot, start_index, offset, length, cancel_token, saw_expired);
-    if (res.isSuccess() || res.status == RangeFetchStatus::Canceled) {
-        return res;
+    HttpRangeResult res = tryStreamUrlsLockedSnapshot(
+        urls_snapshot, start_index, start_offset, span_len, span_flights, cancel_pred, saw_expired);
+    if (res.isSuccess()) {
+        return true;
+    }
+    if (res.status == RangeFetchStatus::Canceled || res.status == RangeFetchStatus::Offline) {
+        return false;
     }
 
-    if (saw_expired && tryRefreshUrls(gen_snapshot, cancel_token)) {
+    if (saw_expired && tryRefreshUrls(gen_snapshot, cancel_pred)) {
         {
             std::lock_guard<std::mutex> lock(url_mu_);
             urls_snapshot = urls_;
             start_index = active_url_index_;
         }
         bool refreshed_expired = false;
-        res = tryUrlsLockedSnapshot(
-            urls_snapshot, start_index, offset, length, cancel_token, refreshed_expired);
+        res = tryStreamUrlsLockedSnapshot(
+            urls_snapshot, start_index, start_offset, span_len, span_flights, cancel_pred, refreshed_expired);
     }
 
-    return res;
+    return res.isSuccess();
 }
 
-HttpRangeResult HttpRangeStreamCache::tryUrlsLockedSnapshot(
+HttpRangeResult HttpRangeStreamCache::tryStreamUrlsLockedSnapshot(
     const std::vector<std::string>& urls,
     size_t start_index,
-    int64_t offset,
-    size_t length,
-    const std::atomic<bool>& cancel_token,
+    int64_t start_offset,
+    size_t span_len,
+    const std::vector<std::pair<size_t, std::shared_ptr<InFlightBlock>>>& span_flights,
+    const CancelPredicate& cancel_pred,
     bool& saw_expired_out) {
     saw_expired_out = false;
     HttpRangeResult last_err;
+    if (!NativeHttpClient::hasActiveNetworkRoute()) {
+        last_err.status = RangeFetchStatus::Offline;
+        return last_err;
+    }
+
     const size_t count = urls.size();
 
     for (size_t i = 0; i < count; ++i) {
-        if (cancel_token.load(std::memory_order_acquire) ||
-            canceled_.load(std::memory_order_acquire)) {
+        if (cancel_pred() || canceled_.load(std::memory_order_acquire)) {
             HttpRangeResult canceled;
             canceled.status = RangeFetchStatus::Canceled;
             return canceled;
         }
+        if (!NativeHttpClient::hasActiveNetworkRoute()) {
+            HttpRangeResult offline;
+            offline.status = RangeFetchStatus::Offline;
+            return offline;
+        }
+
         const size_t idx = (start_index + i) % count;
         const std::string& url = urls[idx];
         if (url.empty()) continue;
 
-        HttpRangeResult res = http_client_.fetchByteRange(
-            url, offset, length, extra_headers_, &cancel_token, kConnectTimeoutMs, kReadTimeoutMs);
+        // Reset partial fill on retry if any block was not yet finalized
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            for (const auto& [b_idx, fl] : span_flights) {
+                (void)b_idx;
+                if (!fl->done) {
+                    fl->filled_bytes = 0;
+                }
+            }
+        }
+
+        size_t stream_cursor = 0;
+        bool persisted_total_size = false;
+
+        HttpRangeResult res = http_client_.streamByteRange(
+            url,
+            start_offset,
+            span_len,
+            [&](const uint8_t* chunk_data, size_t chunk_len, int64_t total_resource_size) -> bool {
+                if (cancel_pred() || canceled_.load(std::memory_order_acquire)) {
+                    return false;
+                }
+
+                int64_t total_to_persist = -1;
+                if (total_resource_size > 0) {
+                    const int64_t prev_total =
+                        total_size_.exchange(total_resource_size, std::memory_order_acq_rel);
+                    if (prev_total <= 0 && !persisted_total_size && !stream_key_.empty()) {
+                        persisted_total_size = true;
+                        total_to_persist = total_resource_size;
+                    }
+                }
+                if (total_to_persist > 0) {
+                    disk_cache_.writeStreamTotalSize(stream_key_, total_to_persist);
+                }
+
+                std::vector<std::pair<size_t, std::shared_ptr<const std::vector<uint8_t>>>> completed_blocks;
+                size_t chunk_pos = 0;
+                while (chunk_pos < chunk_len && stream_cursor < span_len) {
+                    const size_t span_idx = stream_cursor / kBlockSize;
+                    const size_t offset_in_block = stream_cursor % kBlockSize;
+                    if (span_idx >= span_flights.size()) {
+                        break;
+                    }
+
+                    const size_t b_idx = span_flights[span_idx].first;
+                    auto& flight = span_flights[span_idx].second;
+
+                    if (total_resource_size > 0) {
+                        const int64_t b_byte_start =
+                            static_cast<int64_t>(static_cast<uint64_t>(b_idx) * kBlockSize);
+                        if (b_byte_start < total_resource_size) {
+                            const size_t true_exp = static_cast<size_t>(
+                                std::min<int64_t>(kBlockSize, total_resource_size - b_byte_start));
+                            if (true_exp < flight->expected_size) {
+                                std::lock_guard<std::mutex> lock(mu_);
+                                flight->expected_size = true_exp;
+                            }
+                        }
+                    }
+
+                    const size_t max_in_this_block = kBlockSize - offset_in_block;
+                    const size_t to_copy = std::min(chunk_len - chunk_pos, max_in_this_block);
+                    if (offset_in_block + to_copy <= flight->buffer.size()) {
+                        std::memcpy(
+                            flight->buffer.data() + offset_in_block,
+                            chunk_data + chunk_pos,
+                            to_copy);
+                    }
+
+                    chunk_pos += to_copy;
+                    stream_cursor += to_copy;
+
+                    {
+                        std::lock_guard<std::mutex> lock(mu_);
+                        const size_t new_fill = std::min(offset_in_block + to_copy, flight->expected_size);
+                        if (new_fill > flight->filled_bytes) {
+                            flight->filled_bytes = new_fill;
+                        }
+                        if (!flight->done &&
+                            flight->expected_size > 0 &&
+                            flight->filled_bytes >= flight->expected_size) {
+                            flight->buffer.resize(flight->expected_size);
+                            auto shared_vec = std::make_shared<const std::vector<uint8_t>>(flight->buffer);
+                            insertBlockLocked(b_idx, shared_vec);
+                            flight->data = shared_vec;
+                            flight->ok = true;
+                            flight->done = true;
+                            in_flight_.erase(b_idx);
+                            completed_blocks.emplace_back(b_idx, std::move(shared_vec));
+                        }
+                        block_cv_.notify_all();
+                    }
+                }
+
+                if (!stream_key_.empty()) {
+                    for (const auto& [b_idx, vec] : completed_blocks) {
+                        disk_cache_.writeStreamBlock(stream_key_, b_idx, vec->data(), vec->size());
+                    }
+                }
+                return true;
+            },
+            extra_headers_,
+            &canceled_,
+            cancel_pred,
+            kConnectTimeoutMs,
+            kReadTimeoutMs);
 
         if (res.isSuccess()) {
+            if (res.total_size > 0) {
+                const int64_t prev_total =
+                    total_size_.exchange(res.total_size, std::memory_order_acq_rel);
+                if (prev_total <= 0 && !persisted_total_size && !stream_key_.empty()) {
+                    disk_cache_.writeStreamTotalSize(stream_key_, res.total_size);
+                }
+            } else if (start_offset == 0 && !res.data.empty() && total_size_.load(std::memory_order_acquire) <= 0) {
+                total_size_.store(static_cast<int64_t>(res.data.size()), std::memory_order_release);
+            }
             if (i > 0) {
                 std::lock_guard<std::mutex> lock(url_mu_);
                 if (idx < urls_.size()) {
@@ -527,17 +699,17 @@ HttpRangeResult HttpRangeStreamCache::tryUrlsLockedSnapshot(
             }
             return res;
         }
-        if (res.status == RangeFetchStatus::Canceled) {
+        if (res.status == RangeFetchStatus::Canceled || res.status == RangeFetchStatus::Offline) {
             return res;
         }
         if (res.status == RangeFetchStatus::ExpiredOrForbidden) {
             saw_expired_out = true;
         }
-        RSC_LOGW("fetchByteRange failed status=%d http=%d off=%lld len=%zu (cdn_idx=%zu)",
+        RSC_LOGW("streamByteRange failed status=%d http=%d off=%lld len=%zu (cdn_idx=%zu)",
                  static_cast<int>(res.status),
                  static_cast<int>(res.http_status),
-                 static_cast<long long>(offset),
-                 length,
+                 static_cast<long long>(start_offset),
+                 span_len,
                  idx);
         last_err = std::move(res);
     }
@@ -546,10 +718,11 @@ HttpRangeResult HttpRangeStreamCache::tryUrlsLockedSnapshot(
 
 bool HttpRangeStreamCache::tryRefreshUrls(
     uint64_t observed_generation,
-    const std::atomic<bool>& cancel_token) {
+    const CancelPredicate& cancel_pred) {
     if (!url_refresh_cb_ ||
-        cancel_token.load(std::memory_order_acquire) ||
-        canceled_.load(std::memory_order_acquire)) {
+        cancel_pred() ||
+        canceled_.load(std::memory_order_acquire) ||
+        !NativeHttpClient::hasActiveNetworkRoute()) {
         return false;
     }
 
@@ -563,7 +736,7 @@ bool HttpRangeStreamCache::tryRefreshUrls(
 
     std::vector<std::string> fresh_urls = url_refresh_cb_();
     if (fresh_urls.empty() ||
-        cancel_token.load(std::memory_order_acquire) ||
+        cancel_pred() ||
         canceled_.load(std::memory_order_acquire)) {
         return false;
     }
@@ -572,6 +745,9 @@ bool HttpRangeStreamCache::tryRefreshUrls(
     urls_ = std::move(fresh_urls);
     active_url_index_ = 0;
     ++url_generation_;
+    if (stream_key_.empty() && !urls_.empty()) {
+        stream_key_ = cache::DiskCache::extractStreamCacheKey(urls_.front());
+    }
     RSC_LOGI("Refreshed CDN URLs (%zu candidates, gen=%llu)",
              urls_.size(), static_cast<unsigned long long>(url_generation_));
     return true;
@@ -595,7 +771,7 @@ void HttpRangeStreamCache::insertBlockLocked(
 
 void HttpRangeStreamCache::touchLruLocked(size_t block_index) {
     if (block_index < kPinnedHeaderBlocks) {
-        // Pin first 512 KiB (MP4 ftyp / moov / sidx container index) permanently in RAM.
+        // Pin first 256 KiB (MP4 ftyp / moov / sidx container index) permanently in RAM.
         return;
     }
     auto it = lru_map_.find(block_index);
@@ -607,80 +783,6 @@ void HttpRangeStreamCache::touchLruLocked(size_t block_index) {
     auto end_it = lru_order_.end();
     --end_it;
     lru_map_[block_index] = end_it;
-}
-
-void HttpRangeStreamCache::schedulePrefetchLocked(size_t next_block_index) {
-    const int64_t total = total_size_.load(std::memory_order_acquire);
-    if (total <= 0) return;
-    const size_t total_blocks = static_cast<size_t>((static_cast<uint64_t>(total) + kBlockSize - 1) / kBlockSize);
-    if (next_block_index >= total_blocks) return;
-
-    const size_t window_end = std::min(total_blocks, next_block_index + kPrefetchAheadBlocks);
-    size_t first_missing = next_block_index;
-    while (first_missing < window_end &&
-           (blocks_.find(first_missing) != blocks_.end() ||
-            in_flight_.find(first_missing) != in_flight_.end())) {
-        ++first_missing;
-    }
-    if (first_missing >= window_end) {
-        return;
-    }
-
-    prefetch_target_block_ = first_missing;
-    has_prefetch_target_ = true;
-    prefetch_cv_.notify_one();
-}
-
-void HttpRangeStreamCache::prefetchWorker() {
-    for (;;) {
-        size_t target = 0;
-        {
-            std::unique_lock<std::mutex> lock(mu_);
-            prefetch_cv_.wait(lock, [&]() {
-                return has_prefetch_target_ ||
-                       canceled_.load(std::memory_order_acquire) ||
-                       closed_.load(std::memory_order_acquire);
-            });
-            if (canceled_.load(std::memory_order_acquire) || closed_.load(std::memory_order_acquire)) {
-                return;
-            }
-            target = prefetch_target_block_;
-            has_prefetch_target_ = false;
-            prefetch_abort_.store(false, std::memory_order_release);
-        }
-
-        const int64_t total = total_size_.load(std::memory_order_acquire);
-        if (total <= 0) continue;
-        const size_t total_blocks = static_cast<size_t>((static_cast<uint64_t>(total) + kBlockSize - 1) / kBlockSize);
-        const size_t limit = std::min(total_blocks, target + kPrefetchAheadBlocks);
-
-        size_t blk = target;
-        while (blk < limit) {
-            if (canceled_.load(std::memory_order_acquire) ||
-                closed_.load(std::memory_order_acquire) ||
-                prefetch_abort_.load(std::memory_order_acquire)) {
-                break;
-            }
-            {
-                std::lock_guard<std::mutex> lock(mu_);
-                if (has_prefetch_target_) {
-                    break;
-                }
-                while (blk < limit &&
-                       (blocks_.find(blk) != blocks_.end() ||
-                        in_flight_.find(blk) != in_flight_.end())) {
-                    ++blk;
-                }
-            }
-            if (blk >= limit) break;
-
-            const size_t batch_blocks = std::min(kPrefetchBatchBlocks, limit - blk);
-            if (!acquirePrefetchBatch(blk, batch_blocks)) {
-                break;
-            }
-            blk += batch_blocks;
-        }
-    }
 }
 
 } // namespace spotify::network

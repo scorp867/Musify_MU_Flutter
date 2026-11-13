@@ -55,8 +55,10 @@ public:
     /// Interrupt any active blocking I/O immediately without waiting for timeout.
     virtual void cancel() {}
 
-    /// Abort stale background read-ahead transfers (e.g. on user seek) without
-    /// canceling active foreground reads.
+    /// Abort stale foreground and background range transfers from a superseded seek epoch.
+    virtual void onSeek() { preemptPrefetch(); }
+
+    /// Abort stale background read-ahead transfers on user seek.
     virtual void preemptPrefetch() {}
 
     /// Returns the configured AMediaExtractor (borrowed pointer, owned by this source).
@@ -191,6 +193,7 @@ public:
 
     EngineStatus open() override;
     void cancel() override;
+    void onSeek() override;
     void preemptPrefetch() override;
     AMediaExtractor* getExtractor() const override;
     size_t getSelectedTrack() const override;
@@ -213,6 +216,13 @@ public:
     void buildWidevinePsshBox(const uint8_t* kidBytes, size_t kidLen,
                               const uint8_t* contentIdBytes = nullptr, size_t contentIdLen = 0,
                               uint32_t protectionScheme = 0x63626373);
+
+    /// Deterministically constructs a Spotify Widevine PSSH box from the 40-char hex fileId
+    /// embedded in a CDN URL (`/audio/<40-hex>` or `/head/<40-hex>`).
+    static bool deriveWidevinePsshFromUrl(
+        const char* url,
+        std::vector<uint8_t>& outPssh,
+        uint32_t protectionScheme = 0x63626373);
 
 private:
     void extractWidevinePssh();

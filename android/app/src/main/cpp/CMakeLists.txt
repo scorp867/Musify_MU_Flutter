@@ -50,6 +50,11 @@ set(CURL_ZSTD OFF CACHE BOOL "" FORCE)
 set(CURL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
 set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
 set(ENABLE_UNIX_SOCKETS OFF CACHE BOOL "" FORCE)
+# Disable eventfd in libcurl 8.11.1 to avoid the upstream asyn-thread.c double-close
+# fdsan abort (Curl_eventfd assigns the same fd to sock_pair[0] and sock_pair[1] while
+# asyn-thread.c closes both ends independently; Curl_pipe uses two distinct fds).
+set(HAVE_EVENTFD 0 CACHE INTERNAL "" FORCE)
+set(HAVE_SYS_EVENTFD_H 0 CACHE INTERNAL "" FORCE)
 
 FetchContent_Declare(
     curl

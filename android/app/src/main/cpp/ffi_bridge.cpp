@@ -28,25 +28,26 @@
 namespace {
 
 /// Process-wide singleton holding native liborbit Layer 4 playback services so Kodiak
-/// metadata seeding and auth session updates work deterministically at any lifecycle point.
+/// metadata seeding, Tier 2 DiskCache, and auth session updates work deterministically
+/// across all playback and JNI subsystems.
 struct NativePlaybackServices {
     spotify::network::AuthSessionStore& auth_store;
-    spotify::network::NativeHttpClient http_client;
-    spotify::cache::DiskCache disk_cache;
+    spotify::network::NativeHttpClient& http_client;
+    spotify::cache::DiskCache& disk_cache;
     spotify::metadata::TrackInfoProvider track_info_provider;
     spotify::content_delivery::HeadFileManager head_file_manager;
     spotify::content_delivery::StorageResolveClient storage_resolve_client;
-    spotify::drm::WidevineLicenseClient widevine_license_client;
+    spotify::drm::WidevineLicenseClient& widevine_license_client;
     spotify::streamer::FileStreamerImpl file_streamer;
 
     NativePlaybackServices()
         : auth_store(spotify::network::AuthSessionStore::instance()),
-          http_client(auth_store),
-          disk_cache(),
+          http_client(spotify::network::NativeHttpClient::defaultInstance()),
+          disk_cache(spotify::cache::DiskCache::defaultInstance()),
           track_info_provider(auth_store, http_client),
           head_file_manager(disk_cache, auth_store, http_client),
           storage_resolve_client(http_client),
-          widevine_license_client(auth_store, http_client),
+          widevine_license_client(spotify::drm::WidevineLicenseClient::defaultInstance()),
           file_streamer(auth_store, head_file_manager, storage_resolve_client, widevine_license_client) {}
 
     static NativePlaybackServices& instance() {

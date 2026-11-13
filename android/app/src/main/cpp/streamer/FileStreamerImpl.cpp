@@ -1,6 +1,7 @@
 #include "FileStreamerImpl.h"
 
 #include <android/log.h>
+#include <future>
 
 #define FS_LOG_TAG "MusifyFileStreamer"
 #define FS_LOGI(...) __android_log_print(ANDROID_LOG_INFO, FS_LOG_TAG, __VA_ARGS__)
@@ -137,6 +138,21 @@ std::optional<ResolvedFullStream> FileStreamerImpl::resolveFullTrackStream(
         return std::nullopt;
     }
 
+    bool any_encrypted = false;
+    for (const auto& candidate : candidates) {
+        if (isEncryptedMp4Format(candidate.format)) {
+            any_encrypted = true;
+            break;
+        }
+    }
+
+    std::future<drm::WidevineLicenseContext> license_future;
+    if (any_encrypted) {
+        license_future = std::async(std::launch::async, [this]() {
+            return license_client_.resolveLicenseContext();
+        });
+    }
+
     for (const auto& candidate : candidates) {
         const auto sr = storage_resolve_.resolveAudioFile(candidate.format, candidate.file_id_hex, false);
         if (!sr.ok || sr.cdn_urls.empty()) {
@@ -150,7 +166,9 @@ std::optional<ResolvedFullStream> FileStreamerImpl::resolveFullTrackStream(
         out.is_encrypted = isEncryptedMp4Format(candidate.format);
 
         if (out.is_encrypted) {
-            const auto drm_ctx = license_client_.resolveLicenseContext();
+            const auto drm_ctx = license_future.valid()
+                                     ? license_future.get()
+                                     : license_client_.resolveLicenseContext();
             out.license_url = drm_ctx.license_url;
             out.auth_header = drm_ctx.auth_header;
         }

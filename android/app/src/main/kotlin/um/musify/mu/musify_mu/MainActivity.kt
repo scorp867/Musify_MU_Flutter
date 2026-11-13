@@ -12,26 +12,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
-import kotlin.concurrent.thread
-
-object NativeDrmBridge {
-    private val drmManager = MusifyDrmManager()
-
-    @JvmStatic
-    fun acquireSession(pssh: ByteArray, licenseUrl: String, authHeader: String?): ByteArray? {
-        return drmManager.acquireStreamingSession(pssh, licenseUrl, authHeader)
-    }
-
-    @JvmStatic
-    fun closeSession(sessionId: ByteArray) {
-        drmManager.closeSession(sessionId)
-    }
-
-    @JvmStatic
-    fun closeActiveSession() {
-        drmManager.closeActiveSession()
-    }
-}
 
 class MainActivity : FlutterFragmentActivity() {
     private var vaultBridge: VaultHardwareKeyStoreBridge? = null
@@ -56,7 +36,6 @@ class MainActivity : FlutterFragmentActivity() {
 
     private val OBSERVER_CHANNEL = "musify_mu/mediastore_observer"
     private val COOKIE_CHANNEL = "com.musify.mu/cookies"
-    private val DRM_CHANNEL = "com.musify.mu/drm"
     private val SCREEN_PRIVACY_CHANNEL = "um.musify.mu/screen_privacy"
     private val LOCAL_ARTWORK_CHANNEL = "um.musify.mu/local_artwork"
 
@@ -103,43 +82,6 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                 } else {
                     result.notImplemented()
-                }
-            }
-
-        // DRM method channel - facilitates Widevine license acquisition from Dart if desired.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DRM_CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "acquireDrmSession" -> {
-                        val pssh = call.argument<ByteArray>("pssh")
-                        val licenseUrl = call.argument<String>("licenseUrl")
-                        val authHeader = call.argument<String>("authHeader")
-
-                        if (pssh != null && licenseUrl != null) {
-                            thread {
-                                val sessionId = NativeDrmBridge.acquireSession(pssh, licenseUrl, authHeader)
-                                Handler(Looper.getMainLooper()).post {
-                                    if (sessionId != null) {
-                                        result.success(sessionId)
-                                    } else {
-                                        result.error("DRM_FAILED", "Failed to acquire Widevine session after retries", null)
-                                    }
-                                }
-                            }
-                        } else {
-                            result.error("INVALID_ARGS", "pssh and licenseUrl are required", null)
-                        }
-                    }
-                    "closeDrmSession" -> {
-                        val sessionId = call.argument<ByteArray>("sessionId")
-                        if (sessionId != null) {
-                            NativeDrmBridge.closeSession(sessionId)
-                        } else {
-                            NativeDrmBridge.closeActiveSession()
-                        }
-                        result.success(true)
-                    }
-                    else -> result.notImplemented()
                 }
             }
 
@@ -274,7 +216,6 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
-        localArtworkChannel = artworkChannel
         localArtworkChannel = artworkChannel
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, OBSERVER_CHANNEL).setStreamHandler(

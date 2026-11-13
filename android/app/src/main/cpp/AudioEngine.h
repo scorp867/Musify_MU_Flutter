@@ -50,7 +50,7 @@ public:
     /// Configure whether reaching the prebuffer watermark automatically starts Oboe output.
     void setAutoPlay(bool autoPlay);
 
-    /// Stop active decoders, Oboe stream, and worker threads and reset state to Idle.
+    /// Stop active decoders, pause/flush Oboe stream, and reset state to Idle.
     void stop();
 
     /// Load a local audio file or direct HTTP URL (with optional CDN fallbacks & URL refresh callback).
@@ -153,6 +153,8 @@ public:
 
 private:
     void stopPlayback();
+    void closeOboeStream();
+    void wakeMonitor() noexcept;
     void cancelAllActiveSources();
     void joinMonitorThread();
     void eosDispatcherFunc();
@@ -182,6 +184,7 @@ private:
     std::unique_ptr<IAudioDataSource> mDataSource;
     mutable std::mutex mStreamMutex;
     std::shared_ptr<oboe::AudioStream> mStream;
+    int32_t mStreamSampleRate{0};
     std::unique_ptr<NativeDecoder> mDecoder;
 
     // --- Dual-decoder components ---
@@ -203,6 +206,7 @@ private:
     std::atomic<int64_t> mPrimaryDurationMs{0};
     std::atomic<int64_t> mPendingSeekOverrideMs{-1};
     std::atomic<bool> mPrimarySeekInvalidated{false};
+    std::atomic<uint64_t> mSeekGeneration{0};
 
     std::thread mSecondaryWorkerThread;
     std::atomic<bool> mSecondaryWorkerShouldStop{false};
@@ -223,6 +227,8 @@ private:
     // --- Decoder-to-Oboe watermark handoff ---
     static constexpr size_t kStartWatermarkFrames = 3840; // 80 ms @ 48 kHz
     std::atomic<bool> mDecoderEndOfStream{false};
+    std::mutex mMonitorMutex;
+    std::condition_variable mMonitorCv;
     std::thread mMonitorThread;
     std::atomic<bool> mMonitorShouldStop{false};
     bool mIsEncryptedSource{false};

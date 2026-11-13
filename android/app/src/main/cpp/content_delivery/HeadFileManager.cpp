@@ -5,6 +5,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <fcntl.h>
 #include <memory>
 #include <mutex>
@@ -12,6 +13,7 @@
 #include <thread>
 #include <unistd.h>
 #include <unordered_map>
+#include <vector>
 
 #define HF_LOG_TAG "MusifyHeadFile"
 #define HF_LOGI(...) __android_log_print(ANDROID_LOG_INFO, HF_LOG_TAG, __VA_ARGS__)
@@ -44,6 +46,13 @@ void ensureParentDirectories(const std::string& file_path) {
     }
 }
 
+std::string normalizeTargetPath(const std::string& path) {
+    if (path.size() > 5 && path.compare(path.size() - 5, 5, ".part") == 0) {
+        return path.substr(0, path.size() - 5);
+    }
+    return path;
+}
+
 struct InFlightHeadState {
     std::mutex mutex;
     std::condition_variable cv;
@@ -58,9 +67,20 @@ std::mutex& registryMutex() {
     return m;
 }
 
-std::unordered_map<std::string, std::shared_ptr<InFlightHeadState>>& activeDownloads() {
+std::unordered_map<std::string, std::shared_ptr<InFlightHeadState>>& activeDownloadsById() {
     static std::unordered_map<std::string, std::shared_ptr<InFlightHeadState>> map;
     return map;
+}
+
+std::unordered_map<std::string, std::shared_ptr<InFlightHeadState>>& activeDownloadsByPath() {
+    static std::unordered_map<std::string, std::shared_ptr<InFlightHeadState>> map;
+    return map;
+}
+
+void unregisterDownload(const std::string& file_id_hex, const std::string& target_path) {
+    std::lock_guard<std::mutex> reg_lk(registryMutex());
+    activeDownloadsById().erase(file_id_hex);
+    activeDownloadsByPath().erase(target_path);
 }
 
 void runHeadDownloadWorker(network::NativeHttpClient* http_client,
@@ -73,13 +93,15 @@ void runHeadDownloadWorker(network::NativeHttpClient* http_client,
 
     struct stat existing_st{};
     if (::stat(target_path.c_str(), &existing_st) == 0 && existing_st.st_size >= kMinHeadFileSize) {
-        std::lock_guard<std::mutex> lk(state->mutex);
-        state->ready = true;
-        state->completed = true;
-        state->failed = false;
-        state->cv.notify_all();
-        std::lock_guard<std::mutex> reg_lk(registryMutex());
-        activeDownloads().erase(file_id_hex);
+        {
+            std::lock_guard<std::mutex> lk(state->mutex);
+            state->written_bytes = static_cast<int64_t>(existing_st.st_size);
+            state->ready = true;
+            state->completed = true;
+            state->failed = false;
+            state->cv.notify_all();
+        }
+        unregisterDownload(file_id_hex, target_path);
         return;
     }
 
@@ -93,8 +115,7 @@ void runHeadDownloadWorker(network::NativeHttpClient* http_client,
             state->completed = true;
             state->cv.notify_all();
         }
-        std::lock_guard<std::mutex> reg_lk(registryMutex());
-        activeDownloads().erase(file_id_hex);
+        unregisterDownload(file_id_hex, target_path);
         return;
     }
 
@@ -115,13 +136,13 @@ void runHeadDownloadWorker(network::NativeHttpClient* http_client,
                 offset += static_cast<size_t>(n);
             }
             total_written += static_cast<int64_t>(len);
-            if (total_written >= kInitialReadyBytes || total_written >= kMinHeadFileSize) {
+            {
                 std::lock_guard<std::mutex> lk(state->mutex);
                 state->written_bytes = total_written;
                 if (total_written >= kInitialReadyBytes && !state->ready) {
                     state->ready = true;
-                    state->cv.notify_all();
                 }
+                state->cv.notify_all();
             }
             return true;
         },
@@ -143,6 +164,7 @@ void runHeadDownloadWorker(network::NativeHttpClient* http_client,
     if (expected_match) {
         if (::rename(part_path.c_str(), target_path.c_str()) == 0) {
             success = true;
+            cache::DiskCache::defaultInstance().onHeadStored(file_id_hex);
             HF_LOGI("Head file complete: %s (size=%lld)",
                     target_path.c_str(), static_cast<long long>(final_len));
         } else {
@@ -168,10 +190,7 @@ void runHeadDownloadWorker(network::NativeHttpClient* http_client,
         state->cv.notify_all();
     }
 
-    {
-        std::lock_guard<std::mutex> reg_lk(registryMutex());
-        activeDownloads().erase(file_id_hex);
-    }
+    unregisterDownload(file_id_hex, target_path);
 }
 
 } // namespace
@@ -188,24 +207,28 @@ bool HeadFileManager::streamHeadFile(network::NativeHttpClient& http_client,
                                      const std::string& target_path) {
     if (file_id_hex.empty() || target_path.empty()) return false;
 
+    const std::string norm_target = normalizeTargetPath(target_path);
+
     struct stat st{};
-    if (::stat(target_path.c_str(), &st) == 0) {
+    if (::stat(norm_target.c_str(), &st) == 0) {
         if (st.st_size >= kMinHeadFileSize) {
             return true;
         }
-        ::unlink(target_path.c_str());
+        ::unlink(norm_target.c_str());
     }
 
     std::shared_ptr<InFlightHeadState> state;
     bool spawn_worker = false;
     {
         std::lock_guard<std::mutex> reg_lk(registryMutex());
-        auto it = activeDownloads().find(file_id_hex);
-        if (it != activeDownloads().end()) {
+        auto it = activeDownloadsById().find(file_id_hex);
+        if (it != activeDownloadsById().end()) {
             state = it->second;
+            activeDownloadsByPath()[norm_target] = state;
         } else {
             state = std::make_shared<InFlightHeadState>();
-            activeDownloads()[file_id_hex] = state;
+            activeDownloadsById()[file_id_hex] = state;
+            activeDownloadsByPath()[norm_target] = state;
             spawn_worker = true;
         }
     }
@@ -215,7 +238,7 @@ bool HeadFileManager::streamHeadFile(network::NativeHttpClient& http_client,
             &runHeadDownloadWorker,
             &http_client,
             file_id_hex,
-            target_path,
+            norm_target,
             state).detach();
     }
 
@@ -223,13 +246,58 @@ bool HeadFileManager::streamHeadFile(network::NativeHttpClient& http_client,
     const bool signaled = state->cv.wait_for(lk, kReadyWaitTimeout, [&]() {
         return state->ready || state->completed || state->failed;
     });
-    if (!signaled) {
-        return false;
-    }
-    if (state->failed) {
+    if (!signaled || state->failed) {
         return false;
     }
     return state->ready || (state->completed && !state->failed);
+}
+
+bool HeadFileManager::waitForHeadBytes(const std::string& part_or_target_path,
+                                       int64_t required_bytes,
+                                       int timeout_ms,
+                                       const std::atomic<bool>& cancel_flag) {
+    if (cancel_flag.load(std::memory_order_acquire)) {
+        return false;
+    }
+
+    const std::string norm_target = normalizeTargetPath(part_or_target_path);
+    std::shared_ptr<InFlightHeadState> state;
+    {
+        std::lock_guard<std::mutex> reg_lk(registryMutex());
+        auto it = activeDownloadsByPath().find(norm_target);
+        if (it != activeDownloadsByPath().end()) {
+            state = it->second;
+        }
+    }
+
+    if (!state) {
+        return true;
+    }
+
+    std::unique_lock<std::mutex> lk(state->mutex);
+    state->cv.wait_for(lk, std::chrono::milliseconds(std::max(1, timeout_ms)), [&]() {
+        return cancel_flag.load(std::memory_order_acquire) ||
+               state->written_bytes >= required_bytes ||
+               state->completed ||
+               state->failed;
+    });
+    return !cancel_flag.load(std::memory_order_acquire) && !state->failed;
+}
+
+void HeadFileManager::wakeAllWaiters() {
+    std::vector<std::shared_ptr<InFlightHeadState>> snapshot;
+    {
+        std::lock_guard<std::mutex> reg_lk(registryMutex());
+        snapshot.reserve(activeDownloadsById().size());
+        for (const auto& [id, st] : activeDownloadsById()) {
+            (void)id;
+            if (st) snapshot.push_back(st);
+        }
+    }
+    for (const auto& st : snapshot) {
+        std::lock_guard<std::mutex> lk(st->mutex);
+        st->cv.notify_all();
+    }
 }
 
 void HeadFileManager::syncCacheDir() {

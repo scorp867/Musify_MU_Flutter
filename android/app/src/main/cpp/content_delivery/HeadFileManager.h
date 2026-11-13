@@ -4,6 +4,8 @@
 #include "../network/AuthSessionStore.h"
 #include "../network/NativeHttpClient.h"
 
+#include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace spotify::content_delivery {
@@ -20,13 +22,24 @@ public:
     HeadFileManager& operator=(const HeadFileManager&) = delete;
 
     /// Downloads or joins an active download for `file_id_hex` into `target_path`,
-    /// returning true once at least 8 KiB is flushed to disk (for <30ms decoder open)
+    /// returning true once at least 4 KiB is flushed to disk (for <30ms decoder open)
     /// or the complete head file already exists.
     static bool streamHeadFile(network::NativeHttpClient& http_client,
                                const std::string& file_id_hex,
                                const std::string& target_path);
 
-    /// Synchronously ensures the head file for `file_id_hex` is cached or has at least 8 KiB
+    /// Waits on the active download condition variable until `part_or_target_path` has
+    /// at least `required_bytes` written to disk, the download completes, `cancel_flag` becomes
+    /// true, or `timeout_ms` elapses.
+    static bool waitForHeadBytes(const std::string& part_or_target_path,
+                                 int64_t required_bytes,
+                                 int timeout_ms,
+                                 const std::atomic<bool>& cancel_flag);
+
+    /// Wakes all threads currently waiting in `waitForHeadBytes()` (e.g., when a data source cancels).
+    static void wakeAllWaiters();
+
+    /// Synchronously ensures the head file for `file_id_hex` is cached or has at least 4 KiB
     /// streamed to disk for immediate decoder open. Returns local file path or empty on failure.
     [[nodiscard]] std::string acquireHeadFile(const std::string& file_id_hex);
 

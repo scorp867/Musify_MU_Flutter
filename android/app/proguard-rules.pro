@@ -1,17 +1,5 @@
 # Proguard / R8 rules for Musify MU release build
 
-# Preserve JNI-invoked Kotlin/Java classes called from native C++ (Widevine MediaDrm)
--keep class um.musify.mu.musify_mu.NativeDrmBridge { *; }
--keepclassmembers class um.musify.mu.musify_mu.NativeDrmBridge {
-    public static <methods>;
-    public static *;
-}
-
--keep class um.musify.mu.musify_mu.MusifyDrmManager { *; }
--keepclassmembers class um.musify.mu.musify_mu.MusifyDrmManager {
-    public *;
-}
-
 -keep class um.musify.mu.musify_mu.MainActivity { *; }
 -keepclassmembers class um.musify.mu.musify_mu.MainActivity {
     public *;

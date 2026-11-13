@@ -241,7 +241,6 @@ bool CoreAudioTrackPlayer::startRemoteTrack(const metadata::TrackInfo& info,
     }
 
     if (!head_started) {
-        engine_->stop();
         phase_.store(TrackPlayerPhase::Buffering, std::memory_order_release);
         notifyPhaseChanged(TrackPlayerPhase::Buffering);
     }

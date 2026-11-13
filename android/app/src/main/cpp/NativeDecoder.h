@@ -1,7 +1,10 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <thread>
 
 #include <media/NdkMediaCodec.h>
@@ -17,12 +20,14 @@
 /// Reads compressed audio from AMediaExtractor, decodes via AMediaCodec configured
 /// for PCM output, converts int16->float (the standard Android decoder output format),
 /// up-mixes mono->stereo if needed, and pushes interleaved stereo float frames into
-/// the SPSC RingBuffer.
+/// the SPSC RingBuffer under strict seek-epoch isolation.
 ///
 /// Supports Widevine DRM playback via optional AMediaCrypto and bounded frame decoding
 /// for seamless dual-decoder handoff.
 class NativeDecoder {
 public:
+    using ProgressCallback = std::function<void()>;
+
     NativeDecoder(RingBuffer& ringBuffer,
                   AMediaExtractor* extractor,
                   const char* mimeType,
@@ -30,7 +35,8 @@ public:
                   int32_t sourceChannelCount,
                   AMediaCrypto* crypto = nullptr,
                   int64_t maxFramesToDecode = -1,
-                  int64_t discardPriorToUs = -1);
+                  int64_t discardPriorToUs = -1,
+                  ProgressCallback progressCb = nullptr);
 
     ~NativeDecoder();
 
@@ -46,8 +52,11 @@ public:
     /// Request the decoder thread to stop and join it.
     void stop();
 
-    /// Request a seek. The decoder thread will execute it on its next iteration.
+    /// Request a seek. Wakes the decoder thread immediately to execute it.
     void requestSeek(int64_t positionUs);
+
+    /// Wake the decoder thread when ring buffer space becomes available.
+    void notifyRingSpaceAvailable() noexcept;
 
     /// True after the decoder has consumed all input and flushed all output.
     bool isEndOfStream() const;
@@ -79,6 +88,7 @@ private:
     void executeSeek();
 
     RingBuffer& mRingBuffer;
+    ProgressCallback mProgressCallback;
 
     AMediaExtractor* mExtractor;    // Borrowed - owned by the data source
     AMediaCodec* mCodec{nullptr};
@@ -92,6 +102,10 @@ private:
     bool mOutputIsFloat{false};
 
     std::thread mThread;
+    mutable std::mutex mWakeMutex;
+    std::condition_variable mWakeCv;
+    uint64_t mActiveRingEpoch{1};
+
     std::atomic<bool> mShouldStop{false};
     std::atomic<bool> mEndOfStream{false};
     std::atomic<bool> mInputEos{false};
@@ -103,7 +117,7 @@ private:
     std::atomic<int64_t> mSeekTargetUs{0};
     std::atomic<int64_t> mActualSeekMs{-1};
 
-    // Intermediate conversion buffer (worst case: 1 MB decoded chunk)
+    // Intermediate conversion buffer (worst case: 8192 stereo frames)
     static constexpr size_t kConversionBufferFrames = 8192;
     float mConversionBuffer[kConversionBufferFrames * RingBuffer::kChannelCount]{};
 };

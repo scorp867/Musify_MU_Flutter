@@ -39,6 +39,7 @@ enum class RangeFetchStatus : int32_t {
     ExpiredOrForbidden = 2,
     HttpError = 3,
     NetworkError = 4,
+    Offline = 5,
 };
 
 struct HttpRangeResult {
@@ -66,6 +67,16 @@ using StreamChunkCallback = std::function<bool(
     size_t len,
     int64_t expected_total_bytes)>;
 
+/// Invoked progressively as byte-range payload chunks arrive from the socket.
+/// Return false to abort the active range transfer immediately.
+using RangeChunkCallback = std::function<bool(
+    const uint8_t* data,
+    size_t len,
+    int64_t total_resource_size)>;
+
+/// Return true from the predicate to cancel an in-flight HTTP transfer immediately.
+using CancelPredicate = std::function<bool()>;
+
 /// Pure C++ HTTPS client built over libcurl + mbedTLS + Android CA stores.
 class NativeHttpClient {
 public:
@@ -76,6 +87,11 @@ public:
     NativeHttpClient& operator=(const NativeHttpClient&) = delete;
 
     [[nodiscard]] static NativeHttpClient& defaultInstance();
+
+    /// Synchronous, zero-packet Linux kernel FIB routing table probe (~3 microseconds).
+    /// Returns true if the device currently has an active IPv4 or IPv6 default route,
+    /// or false immediately when the device is offline (Wi-Fi and cellular data disabled).
+    [[nodiscard]] static bool hasActiveNetworkRoute() noexcept;
 
     [[nodiscard]] HttpResponse get(
         const std::string& url,
@@ -106,6 +122,19 @@ public:
         size_t length,
         const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
         const std::atomic<bool>* cancel_flag = nullptr,
+        int connect_timeout_ms = 8000,
+        int read_timeout_ms = 15000) const;
+
+    /// Streams a byte range `[offset, offset + length - 1]` progressively, invoking `on_chunk`
+    /// as each socket buffer arrives so waiting decoders can unblock before the full range finishes.
+    [[nodiscard]] HttpRangeResult streamByteRange(
+        const std::string& url,
+        int64_t offset,
+        size_t length,
+        const RangeChunkCallback& on_chunk,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
+        const std::atomic<bool>* cancel_flag = nullptr,
+        const CancelPredicate& cancel_pred = nullptr,
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 15000) const;
 

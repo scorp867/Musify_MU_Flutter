@@ -1,9 +1,12 @@
 #include "NativeHttpClient.h"
 
 #include <android/log.h>
+#include <arpa/inet.h>
 #include <curl/curl.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -37,7 +40,7 @@ constexpr const char* kUserAddedCaDir = "/data/misc/user/0/cacerts-added";
 void extractPemCertificatesFromFile(const std::string& path,
                                     std::string& out_bundle,
                                     size_t& out_cert_count) {
-    const int fd = ::open(path.c_str(), O_RDONLY);
+    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return;
 
     struct stat st{};
@@ -140,7 +143,7 @@ public:
         curl_easy_setopt(easy, CURLOPT_TCP_KEEPALIVE, 1L);
         curl_easy_setopt(easy, CURLOPT_TCP_NODELAY, 1L);
         curl_easy_setopt(easy, CURLOPT_PIPEWAIT, 1L);
-        curl_easy_setopt(easy, CURLOPT_MAXCONNECTS, 10L);
+        curl_easy_setopt(easy, CURLOPT_MAXCONNECTS, 12L);
         curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 1L);
         curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 2L);
         curl_easy_setopt(easy, CURLOPT_SHARE, share_handle_);
@@ -159,7 +162,8 @@ public:
     }
 
 private:
-    static constexpr size_t kMaxPooledHandles = 12;
+    static constexpr size_t kMaxPooledHandles = 16;
+
     static void shareLockCallback(CURL* /*handle*/,
                                   curl_lock_data data,
                                   curl_lock_access /*access*/,
@@ -187,6 +191,7 @@ private:
             curl_share_setopt(share_handle_, CURLSHOPT_UNLOCKFUNC, &CurlEnvironment::shareUnlockCallback);
             curl_share_setopt(share_handle_, CURLSHOPT_SHARE, CURL_LOCK_DATA_DNS);
             curl_share_setopt(share_handle_, CURLSHOPT_SHARE, CURL_LOCK_DATA_SSL_SESSION);
+            curl_share_setopt(share_handle_, CURLSHOPT_SHARE, CURL_LOCK_DATA_CONNECT);
         }
 
         ca_pem_bundle_.reserve(320 * 1024);
@@ -219,7 +224,7 @@ private:
     }
 
     CURLSH* share_handle_{nullptr};
-    std::array<std::mutex, 8> share_mutexes_{};
+    std::array<std::mutex, 16> share_mutexes_{};
     std::mutex pool_mutex_;
     std::vector<CURL*> free_handles_;
     bool shutting_down_{false};
@@ -293,6 +298,13 @@ size_t headerCollectorCallback(char* buffer, size_t size, size_t nitems, void* u
     auto* parsed = static_cast<ParsedHeaders*>(userdata);
     if (!parsed || total == 0) return total;
 
+    if (equalsIgnoreCasePrefix(buffer, total, "HTTP/")) {
+        parsed->content_range_total = -1;
+        parsed->content_length = -1;
+        parsed->accepts_ranges = false;
+        return total;
+    }
+
     if (equalsIgnoreCasePrefix(buffer, total, "content-range:")) {
         const std::string value = trimAsciiWhitespace(buffer + 14, total - 14);
         const size_t slash = value.rfind('/');
@@ -323,13 +335,28 @@ size_t headerCollectorCallback(char* buffer, size_t size, size_t nitems, void* u
     return total;
 }
 
+struct CancelContext {
+    const std::atomic<bool>* cancel_flag{nullptr};
+    const CancelPredicate* cancel_pred{nullptr};
+
+    [[nodiscard]] bool isCanceled() const {
+        if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+            return true;
+        }
+        if (cancel_pred && *cancel_pred && (*cancel_pred)()) {
+            return true;
+        }
+        return false;
+    }
+};
+
 int cancelProgressCallback(void* clientp,
                            curl_off_t /*dltotal*/,
                            curl_off_t /*dlnow*/,
                            curl_off_t /*ultotal*/,
                            curl_off_t /*ulnow*/) {
-    const auto* cancel_flag = static_cast<const std::atomic<bool>*>(clientp);
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    const auto* ctx = static_cast<const CancelContext*>(clientp);
+    if (ctx && ctx->isCanceled()) {
         return 1;
     }
     return 0;
@@ -337,7 +364,7 @@ int cancelProgressCallback(void* clientp,
 
 struct VectorWriteContext {
     std::vector<uint8_t>* buffer{nullptr};
-    const std::atomic<bool>* cancel_flag{nullptr};
+    const CancelContext* cancel_ctx{nullptr};
     size_t max_bytes{0}; // 0 means unlimited
 };
 
@@ -345,7 +372,7 @@ size_t vectorWriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata)
     const size_t total = size * nmemb;
     auto* ctx = static_cast<VectorWriteContext*>(userdata);
     if (!ctx) return total;
-    if (ctx->cancel_flag && ctx->cancel_flag->load(std::memory_order_acquire)) {
+    if (ctx->cancel_ctx && ctx->cancel_ctx->isCanceled()) {
         return 0;
     }
     if (!ctx->buffer || total == 0) return total;
@@ -362,10 +389,91 @@ size_t vectorWriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata)
     return total;
 }
 
+struct RangeStreamWriteContext {
+    CURL* easy{nullptr};
+    const ParsedHeaders* parsed_headers{nullptr};
+    std::vector<uint8_t>* buffer{nullptr};
+    const RangeChunkCallback* on_chunk{nullptr};
+    const CancelContext* cancel_ctx{nullptr};
+    int64_t requested_offset{0};
+    size_t requested_length{0};
+    int64_t raw_stream_pos{0};
+    bool aborted_by_caller{false};
+    bool completed_full_200_slice{false};
+};
+
+size_t rangeStreamWriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    const size_t total = size * nmemb;
+    auto* ctx = static_cast<RangeStreamWriteContext*>(userdata);
+    if (!ctx) return total;
+
+    if (ctx->cancel_ctx && ctx->cancel_ctx->isCanceled()) {
+        ctx->aborted_by_caller = true;
+        return 0;
+    }
+    if (total == 0) return 0;
+
+    long http_code = 0;
+    curl_easy_getinfo(ctx->easy, CURLINFO_RESPONSE_CODE, &http_code);
+
+    const auto* u8 = reinterpret_cast<const uint8_t*>(ptr);
+
+    if (http_code == 206) {
+        const int64_t total_size =
+            ctx->parsed_headers ? ctx->parsed_headers->content_range_total : -1;
+        if (ctx->buffer) {
+            ctx->buffer->insert(ctx->buffer->end(), u8, u8 + total);
+        }
+        if (ctx->on_chunk && *ctx->on_chunk) {
+            if (!(*ctx->on_chunk)(u8, total, total_size)) {
+                ctx->aborted_by_caller = true;
+                return 0;
+            }
+        }
+        return total;
+    }
+
+    if (http_code == 200) {
+        // Server ignored Range and returned the full entity from byte 0.
+        const int64_t total_size =
+            ctx->parsed_headers ? ctx->parsed_headers->content_length : -1;
+        const int64_t chunk_start = ctx->raw_stream_pos;
+        const int64_t chunk_end = chunk_start + static_cast<int64_t>(total);
+        ctx->raw_stream_pos = chunk_end;
+
+        const int64_t req_start = ctx->requested_offset;
+        const int64_t req_end = req_start + static_cast<int64_t>(ctx->requested_length);
+
+        const int64_t overlap_start = std::max(chunk_start, req_start);
+        const int64_t overlap_end = std::min(chunk_end, req_end);
+
+        if (overlap_end > overlap_start) {
+            const size_t slice_off = static_cast<size_t>(overlap_start - chunk_start);
+            const size_t slice_len = static_cast<size_t>(overlap_end - overlap_start);
+            if (ctx->buffer) {
+                ctx->buffer->insert(ctx->buffer->end(), u8 + slice_off, u8 + slice_off + slice_len);
+            }
+            if (ctx->on_chunk && *ctx->on_chunk) {
+                if (!(*ctx->on_chunk)(u8 + slice_off, slice_len, total_size)) {
+                    ctx->aborted_by_caller = true;
+                    return 0;
+                }
+            }
+        }
+        if (chunk_end >= req_end) {
+            ctx->completed_full_200_slice = true;
+            return 0;
+        }
+        return total;
+    }
+
+    return total;
+}
+
 struct StreamWriteContext {
     CURL* easy{nullptr};
     const StreamChunkCallback* on_chunk{nullptr};
-    const std::atomic<bool>* cancel_flag{nullptr};
+    const CancelContext* cancel_ctx{nullptr};
     int64_t bytes_received{0};
     bool aborted_by_callback{false};
 };
@@ -375,7 +483,7 @@ size_t streamWriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata)
     auto* ctx = static_cast<StreamWriteContext*>(userdata);
     if (!ctx) return total;
 
-    if (ctx->cancel_flag && ctx->cancel_flag->load(std::memory_order_acquire)) {
+    if (ctx->cancel_ctx && ctx->cancel_ctx->isCanceled()) {
         ctx->aborted_by_callback = true;
         return 0;
     }
@@ -422,6 +530,44 @@ NativeHttpClient::NativeHttpClient(AuthSessionStore& auth_store)
 NativeHttpClient& NativeHttpClient::defaultInstance() {
     static NativeHttpClient instance(AuthSessionStore::instance());
     return instance;
+}
+
+bool NativeHttpClient::hasActiveNetworkRoute() noexcept {
+    // Synchronous in-kernel FIB routing table lookup via UDP connect().
+    // Calling connect() on a SOCK_DGRAM socket performs zero network I/O and sends zero packets;
+    // the kernel immediately checks whether a non-loopback outgoing route exists (~3 microseconds).
+    const int fd4 = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd4 >= 0) {
+        struct sockaddr_in addr4{};
+        addr4.sin_family = AF_INET;
+        addr4.sin_port = htons(53);
+        addr4.sin_addr.s_addr = htonl(0x08080808U); // 8.8.8.8
+        const int rc = ::connect(fd4, reinterpret_cast<const struct sockaddr*>(&addr4), sizeof(addr4));
+        ::close(fd4);
+        if (rc == 0) {
+            return true;
+        }
+    }
+
+    const int fd6 = ::socket(AF_INET6, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    if (fd6 >= 0) {
+        struct sockaddr_in6 addr6{};
+        addr6.sin6_family = AF_INET6;
+        addr6.sin6_port = htons(53);
+        // 2001:4860:4860::8888 (IPv6 route check for IPv6-only cellular networks)
+        static constexpr uint8_t kDns6[16] = {
+            0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88
+        };
+        std::memcpy(addr6.sin6_addr.s6_addr, kDns6, sizeof(kDns6));
+        const int rc = ::connect(fd6, reinterpret_cast<const struct sockaddr*>(&addr6), sizeof(addr6));
+        ::close(fd6);
+        if (rc == 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 HttpResponse NativeHttpClient::get(
@@ -471,6 +617,10 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
     int read_timeout_ms,
     bool include_spotify_auth) const {
     for (int attempt = 0; attempt < 2; ++attempt) {
+        if (!hasActiveNetworkRoute()) {
+            return HttpResponse{};
+        }
+
         const AuthCredentials creds = auth_store_.snapshot();
         std::vector<std::pair<std::string, std::string>> headers;
         headers.reserve(extra_headers.size() + 8);
@@ -523,7 +673,7 @@ HttpResponse NativeHttpClient::executeOnce(
     int connect_timeout_ms,
     int read_timeout_ms) const {
     HttpResponse out;
-    if (url.empty()) return out;
+    if (url.empty() || !hasActiveNetworkRoute()) return out;
 
     CurlEasyGuard easy;
     if (!easy.handle) return out;
@@ -566,13 +716,13 @@ HttpResponse NativeHttpClient::executeOnce(
     curl_easy_setopt(easy.handle, CURLOPT_WRITEDATA, &write_ctx);
 
     const CURLcode rc = curl_easy_perform(easy.handle);
+    easy.reusable = true;
     if (rc != CURLE_OK) {
         HTTP_LOGW("libcurl %s %s failed: %s (%d)",
                   method.c_str(), url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
         out.body.clear();
         return out;
     }
-    easy.reusable = true;
 
     long status_code = 0;
     curl_easy_getinfo(easy.handle, CURLINFO_RESPONSE_CODE, &status_code);
@@ -596,8 +746,12 @@ HttpRangeProbe NativeHttpClient::probeRangeLength(
     int read_timeout_ms) const {
     HttpRangeProbe probe;
     if (url.empty()) return probe;
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    CancelContext cancel_ctx{cancel_flag, nullptr};
+    if (cancel_ctx.isCanceled()) {
         probe.canceled = true;
+        return probe;
+    }
+    if (!hasActiveNetworkRoute()) {
         return probe;
     }
 
@@ -628,7 +782,7 @@ HttpRangeProbe NativeHttpClient::probeRangeLength(
 
     ParsedHeaders parsed_headers;
     std::vector<uint8_t> discard;
-    VectorWriteContext write_ctx{&discard, cancel_flag, 1024};
+    VectorWriteContext write_ctx{&discard, &cancel_ctx, 1024};
     curl_easy_setopt(easy.handle, CURLOPT_HEADERFUNCTION, &headerCollectorCallback);
     curl_easy_setopt(easy.handle, CURLOPT_HEADERDATA, &parsed_headers);
     curl_easy_setopt(easy.handle, CURLOPT_WRITEFUNCTION, &vectorWriteCallback);
@@ -637,11 +791,12 @@ HttpRangeProbe NativeHttpClient::probeRangeLength(
     if (cancel_flag) {
         curl_easy_setopt(easy.handle, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(easy.handle, CURLOPT_XFERINFOFUNCTION, &cancelProgressCallback);
-        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, const_cast<std::atomic<bool>*>(cancel_flag));
+        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, &cancel_ctx);
     }
 
     const CURLcode rc = curl_easy_perform(easy.handle);
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    easy.reusable = true;
+    if (cancel_ctx.isCanceled()) {
         probe.canceled = true;
         return probe;
     }
@@ -650,7 +805,6 @@ HttpRangeProbe NativeHttpClient::probeRangeLength(
                   url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
         return probe;
     }
-    easy.reusable = true;
 
     long status_code = 0;
     curl_easy_getinfo(easy.handle, CURLINFO_RESPONSE_CODE, &status_code);
@@ -678,12 +832,39 @@ HttpRangeResult NativeHttpClient::fetchByteRange(
     const std::atomic<bool>* cancel_flag,
     int connect_timeout_ms,
     int read_timeout_ms) const {
+    return streamByteRange(
+        url,
+        offset,
+        length,
+        nullptr,
+        extra_headers,
+        cancel_flag,
+        nullptr,
+        connect_timeout_ms,
+        read_timeout_ms);
+}
+
+HttpRangeResult NativeHttpClient::streamByteRange(
+    const std::string& url,
+    int64_t offset,
+    size_t length,
+    const RangeChunkCallback& on_chunk,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    const std::atomic<bool>* cancel_flag,
+    const CancelPredicate& cancel_pred,
+    int connect_timeout_ms,
+    int read_timeout_ms) const {
     HttpRangeResult out;
     if (url.empty() || offset < 0 || length == 0) {
         return out;
     }
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    CancelContext cancel_ctx{cancel_flag, &cancel_pred};
+    if (cancel_ctx.isCanceled()) {
         out.status = RangeFetchStatus::Canceled;
+        return out;
+    }
+    if (!hasActiveNetworkRoute()) {
+        out.status = RangeFetchStatus::Offline;
         return out;
     }
 
@@ -720,38 +901,67 @@ HttpRangeResult NativeHttpClient::fetchByteRange(
     ParsedHeaders parsed_headers;
     std::vector<uint8_t> raw_body;
     raw_body.reserve(length + 256);
-    VectorWriteContext write_ctx{&raw_body, cancel_flag, 0};
+
+    RangeStreamWriteContext stream_ctx{
+        easy.handle,
+        &parsed_headers,
+        &raw_body,
+        &on_chunk,
+        &cancel_ctx,
+        offset,
+        length,
+        0,
+        false,
+        false
+    };
 
     curl_easy_setopt(easy.handle, CURLOPT_HEADERFUNCTION, &headerCollectorCallback);
     curl_easy_setopt(easy.handle, CURLOPT_HEADERDATA, &parsed_headers);
-    curl_easy_setopt(easy.handle, CURLOPT_WRITEFUNCTION, &vectorWriteCallback);
-    curl_easy_setopt(easy.handle, CURLOPT_WRITEDATA, &write_ctx);
+    curl_easy_setopt(easy.handle, CURLOPT_WRITEFUNCTION, &rangeStreamWriteCallback);
+    curl_easy_setopt(easy.handle, CURLOPT_WRITEDATA, &stream_ctx);
 
-    if (cancel_flag) {
+    if (cancel_flag || cancel_pred) {
         curl_easy_setopt(easy.handle, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(easy.handle, CURLOPT_XFERINFOFUNCTION, &cancelProgressCallback);
-        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, const_cast<std::atomic<bool>*>(cancel_flag));
+        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, &cancel_ctx);
     }
 
     const CURLcode rc = curl_easy_perform(easy.handle);
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    easy.reusable = true;
+
+    if (stream_ctx.aborted_by_caller || cancel_ctx.isCanceled()) {
         out.status = RangeFetchStatus::Canceled;
         return out;
     }
-    if (rc != CURLE_OK) {
-        HTTP_LOGW("fetchByteRange(%s, bytes=%s) failed: %s (%d)",
-                  url.c_str(), range_buf, curl_easy_strerror(rc), static_cast<int>(rc));
-        out.status = (rc == CURLE_ABORTED_BY_CALLBACK)
-            ? RangeFetchStatus::Canceled
-            : RangeFetchStatus::NetworkError;
-        return out;
-    }
-    easy.reusable = true;
 
     long status_code = 0;
     curl_easy_getinfo(easy.handle, CURLINFO_RESPONSE_CODE, &status_code);
     out.http_status = static_cast<int32_t>(status_code);
     out.total_size = parsed_headers.content_range_total;
+
+    if (status_code == 200 && stream_ctx.completed_full_200_slice) {
+        if (parsed_headers.content_length >= 0) {
+            out.total_size = parsed_headers.content_length;
+        }
+        out.status = RangeFetchStatus::Ok;
+        out.data = std::move(raw_body);
+        return out;
+    }
+
+    if (rc != CURLE_OK) {
+        if (rc == CURLE_ABORTED_BY_CALLBACK) {
+            out.status = RangeFetchStatus::Canceled;
+            return out;
+        }
+        if (!hasActiveNetworkRoute()) {
+            out.status = RangeFetchStatus::Offline;
+            return out;
+        }
+        HTTP_LOGW("streamByteRange(%s, bytes=%s) failed: %s (%d)",
+                  url.c_str(), range_buf, curl_easy_strerror(rc), static_cast<int>(rc));
+        out.status = RangeFetchStatus::NetworkError;
+        return out;
+    }
 
     if (status_code == 206) {
         out.status = RangeFetchStatus::Ok;
@@ -760,25 +970,15 @@ HttpRangeResult NativeHttpClient::fetchByteRange(
     }
 
     if (status_code == 200) {
-        // Server ignored Range and returned the full entity.
         if (parsed_headers.content_length >= 0) {
             out.total_size = parsed_headers.content_length;
         }
-        const size_t uoffset = static_cast<size_t>(offset);
-        if (uoffset < raw_body.size()) {
-            const size_t avail = raw_body.size() - uoffset;
-            const size_t count = std::min(avail, length);
-            out.data.assign(raw_body.begin() + static_cast<ptrdiff_t>(uoffset),
-                            raw_body.begin() + static_cast<ptrdiff_t>(uoffset + count));
-            out.status = RangeFetchStatus::Ok;
-        } else {
-            out.status = RangeFetchStatus::Ok;
-        }
+        out.status = RangeFetchStatus::Ok;
+        out.data = std::move(raw_body);
         return out;
     }
 
     if (status_code == 416) {
-        // Satisfy EOF beyond total length cleanly when Content-Range reports "bytes */total"
         out.status = RangeFetchStatus::Ok;
         return out;
     }
@@ -801,8 +1001,12 @@ HttpStreamResult NativeHttpClient::downloadToStream(
     int read_timeout_ms) const {
     HttpStreamResult out;
     if (url.empty()) return out;
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    CancelContext cancel_ctx{cancel_flag, nullptr};
+    if (cancel_ctx.isCanceled()) {
         out.canceled = true;
+        return out;
+    }
+    if (!hasActiveNetworkRoute()) {
         return out;
     }
 
@@ -830,7 +1034,7 @@ HttpStreamResult NativeHttpClient::downloadToStream(
     curl_easy_setopt(easy.handle, CURLOPT_HTTPHEADER, header_list.list);
 
     ParsedHeaders parsed_headers;
-    StreamWriteContext stream_ctx{easy.handle, &on_chunk, cancel_flag, 0, false};
+    StreamWriteContext stream_ctx{easy.handle, &on_chunk, &cancel_ctx, 0, false};
 
     curl_easy_setopt(easy.handle, CURLOPT_HEADERFUNCTION, &headerCollectorCallback);
     curl_easy_setopt(easy.handle, CURLOPT_HEADERDATA, &parsed_headers);
@@ -840,11 +1044,12 @@ HttpStreamResult NativeHttpClient::downloadToStream(
     if (cancel_flag) {
         curl_easy_setopt(easy.handle, CURLOPT_NOPROGRESS, 0L);
         curl_easy_setopt(easy.handle, CURLOPT_XFERINFOFUNCTION, &cancelProgressCallback);
-        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, const_cast<std::atomic<bool>*>(cancel_flag));
+        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, &cancel_ctx);
     }
 
     const CURLcode rc = curl_easy_perform(easy.handle);
-    if (cancel_flag && cancel_flag->load(std::memory_order_acquire)) {
+    easy.reusable = true;
+    if (cancel_ctx.isCanceled()) {
         out.canceled = true;
         out.bytes_received = stream_ctx.bytes_received;
         return out;
@@ -865,7 +1070,6 @@ HttpStreamResult NativeHttpClient::downloadToStream(
                   url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
         return out;
     }
-    easy.reusable = true;
 
     out.ok = (status_code >= 200 && status_code < 300);
     return out;

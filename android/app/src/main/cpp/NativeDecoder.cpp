@@ -1,8 +1,8 @@
 #include "NativeDecoder.h"
 
-#include <cstring>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <vector>
 
 #include <android/log.h>
@@ -23,8 +23,10 @@ NativeDecoder::NativeDecoder(RingBuffer& ringBuffer,
                              int32_t sourceChannelCount,
                              AMediaCrypto* crypto,
                              int64_t maxFramesToDecode,
-                             int64_t discardPriorToUs)
+                             int64_t discardPriorToUs,
+                             ProgressCallback progressCb)
     : mRingBuffer(ringBuffer)
+    , mProgressCallback(std::move(progressCb))
     , mExtractor(extractor)
     , mTrackFormat(trackFormat)
     , mCrypto(crypto)
@@ -136,9 +138,11 @@ EngineStatus NativeDecoder::start() {
 
     if (mThread.joinable()) {
         mShouldStop.store(true, std::memory_order_release);
+        mWakeCv.notify_all();
         mThread.join();
     }
 
+    mActiveRingEpoch = mRingBuffer.currentEpoch();
     mShouldStop.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
     mInputEos.store(false, std::memory_order_release);
@@ -149,6 +153,7 @@ EngineStatus NativeDecoder::start() {
 
 void NativeDecoder::stop() {
     mShouldStop.store(true, std::memory_order_release);
+    mWakeCv.notify_all();
     if (mThread.joinable()) {
         mThread.join();
     }
@@ -162,6 +167,11 @@ void NativeDecoder::stop() {
 void NativeDecoder::requestSeek(int64_t positionUs) {
     mSeekTargetUs.store(positionUs, std::memory_order_relaxed);
     mSeekRequested.store(true, std::memory_order_release);
+    mWakeCv.notify_all();
+}
+
+void NativeDecoder::notifyRingSpaceAvailable() noexcept {
+    mWakeCv.notify_one();
 }
 
 bool NativeDecoder::isEndOfStream() const {
@@ -178,11 +188,15 @@ void NativeDecoder::threadFunc() {
     while (!mShouldStop.load(std::memory_order_acquire)) {
         if (mSeekRequested.load(std::memory_order_acquire)) {
             executeSeek();
+            continue;
         }
 
         if (mEndOfStream.load(std::memory_order_relaxed)) {
-            // Wait for seek or stop without terminating the thread
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            std::unique_lock<std::mutex> lock(mWakeMutex);
+            mWakeCv.wait_for(lock, std::chrono::milliseconds(10), [this]() {
+                return mSeekRequested.load(std::memory_order_acquire) ||
+                       mShouldStop.load(std::memory_order_acquire);
+            });
             continue;
         }
 
@@ -198,16 +212,20 @@ void NativeDecoder::threadFunc() {
 
         didWork |= drainOutputBuffer();
 
-        if (!didWork) {
-            // Buffer full or codec busy - yield briefly without spinning.
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (!didWork &&
+            !mSeekRequested.load(std::memory_order_acquire) &&
+            !mShouldStop.load(std::memory_order_acquire)) {
+            std::unique_lock<std::mutex> lock(mWakeMutex);
+            mWakeCv.wait_for(lock, std::chrono::microseconds(500), [this]() {
+                return mSeekRequested.load(std::memory_order_acquire) ||
+                       mShouldStop.load(std::memory_order_acquire);
+            });
         }
     }
 }
 
 bool NativeDecoder::feedInputBuffer() {
     if (mMaxFramesToDecode > 0 && mTotalFramesDecoded.load(std::memory_order_relaxed) >= mMaxFramesToDecode) {
-        // Target handoff boundary reached on decoded frames - queue EOS.
         ssize_t inputIdx = AMediaCodec_dequeueInputBuffer(mCodec, kCodecTimeoutUs);
         if (inputIdx >= 0) {
             AMediaCodec_queueInputBuffer(
@@ -228,6 +246,16 @@ bool NativeDecoder::feedInputBuffer() {
 
     ssize_t sampleSize = AMediaExtractor_readSampleData(
         mExtractor, inputBuf, inputCapacity);
+
+    // If readSampleData was interrupted by a concurrent seek or stop, return the buffer cleanly
+    // without falsely latching mInputEos.
+    if (sampleSize <= 0 &&
+        (mSeekRequested.load(std::memory_order_acquire) ||
+         mShouldStop.load(std::memory_order_acquire))) {
+        AMediaCodec_queueInputBuffer(
+            mCodec, static_cast<size_t>(inputIdx), 0, 0, 0, 0);
+        return false;
+    }
 
     if (sampleSize > 0) {
         int64_t pts = AMediaExtractor_getSampleTime(mExtractor);
@@ -331,7 +359,6 @@ bool NativeDecoder::feedInputBuffer() {
         AMediaExtractor_advance(mExtractor);
     } else {
         LOGI("NativeDecoder input reached EOS or completed (sampleSize=%zd)", sampleSize);
-        // End of input stream.
         AMediaCodec_queueInputBuffer(
             mCodec, static_cast<size_t>(inputIdx),
             0, 0, 0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
@@ -375,6 +402,8 @@ bool NativeDecoder::drainOutputBuffer() {
 
     if (outputIdx < 0) return false;
 
+    bool wroteAnyFrames = false;
+
     if (info.size > 0) {
         size_t outBufSize = 0;
         uint8_t* outBuf = AMediaCodec_getOutputBuffer(
@@ -393,11 +422,9 @@ bool NativeDecoder::drainOutputBuffer() {
                 const int64_t ptsUs = info.presentationTimeUs;
                 const int64_t bufferDurUs = (static_cast<int64_t>(totalFrames) * 1000000LL) / mSampleRate;
                 if (ptsUs + bufferDurUs <= discardUs) {
-                    // Whole buffer is pre-roll prior to handoff boundary - release without committing to RingBuffer
                     AMediaCodec_releaseOutputBuffer(mCodec, static_cast<size_t>(outputIdx), false);
                     return true;
                 } else if (ptsUs < discardUs) {
-                    // Buffer spans the handoff boundary: skip leading frames up to exact discardUs timestamp
                     const int64_t framesToSkip = ((discardUs - ptsUs) * mSampleRate) / 1000000LL;
                     if (framesToSkip > 0 && static_cast<size_t>(framesToSkip) < totalFrames) {
                         discardLeadingFrames = static_cast<size_t>(framesToSkip);
@@ -411,7 +438,6 @@ bool NativeDecoder::drainOutputBuffer() {
                 }
             }
 
-            // If bounded frame decoding is enabled, clamp total frames
             if (mMaxFramesToDecode > 0) {
                 int64_t currentDecoded = mTotalFramesDecoded.load(std::memory_order_relaxed);
                 int64_t remainingAllowed = mMaxFramesToDecode - currentDecoded;
@@ -427,32 +453,29 @@ bool NativeDecoder::drainOutputBuffer() {
             size_t frameOffset = discardLeadingFrames;
 
             while (framesRemaining > 0 && !mShouldStop.load(std::memory_order_relaxed)) {
-                if (mSeekRequested.load(std::memory_order_relaxed)) {
+                if (mSeekRequested.load(std::memory_order_acquire) ||
+                    mRingBuffer.currentEpoch() != mActiveRingEpoch) {
                     break;
                 }
 
-                // Pre-check ring buffer space BEFORE converting samples.
-                // This eliminates the spin-wait that previously held codec output
-                // buffers hostage while waiting for ring buffer drain, causing
-                // periodic underruns heard as clicks every few seconds.
                 const size_t spaceAvailable = mRingBuffer.availableToWrite();
                 if (spaceAvailable == 0) {
-                    // Ring buffer completely full - yield and let Oboe drain it.
-                    // No conversion work is wasted during this wait.
-                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                    std::unique_lock<std::mutex> lock(mWakeMutex);
+                    mWakeCv.wait_for(lock, std::chrono::microseconds(500), [this]() {
+                        return mSeekRequested.load(std::memory_order_acquire) ||
+                               mShouldStop.load(std::memory_order_acquire) ||
+                               mRingBuffer.availableToWrite() > 0;
+                    });
                     continue;
                 }
 
-                // Only convert as many frames as will fit in the ring buffer,
-                // clamped to the conversion buffer capacity.
                 const size_t chunkFrames = std::min(framesRemaining,
-                                                     std::min(kConversionBufferFrames, spaceAvailable));
+                                                    std::min(kConversionBufferFrames, spaceAvailable));
                 const float* stereoSrc = nullptr;
 
                 if (mOutputIsFloat) {
                     const auto* floatBuf = reinterpret_cast<const float*>(outBuf + info.offset);
                     if (channelCount == 1) {
-                        // Mono float -> Stereo float
                         for (size_t i = 0; i < chunkFrames; ++i) {
                             const float val = floatBuf[frameOffset + i];
                             mConversionBuffer[i * 2]     = val;
@@ -473,7 +496,6 @@ bool NativeDecoder::drainOutputBuffer() {
                             stereoSrc = floatBuf + (frameOffset * 2);
                         }
                     } else {
-                        // Multi-channel downmix -> Stereo (L, R)
                         for (size_t i = 0; i < chunkFrames; ++i) {
                             const size_t sampleIdx = (frameOffset + i) * channelCount;
                             mConversionBuffer[i * 2]     = floatBuf[sampleIdx];
@@ -482,12 +504,10 @@ bool NativeDecoder::drainOutputBuffer() {
                         stereoSrc = mConversionBuffer;
                     }
                 } else {
-                    // int16_t -> float conversion (standard Android audio decoding path)
                     const auto* i16Buf = reinterpret_cast<const int16_t*>(outBuf + info.offset);
                     constexpr float kInv32768 = 1.0f / 32768.0f;
 
                     if (channelCount == 1) {
-                        // Mono int16 -> Stereo float
                         for (size_t i = 0; i < chunkFrames; ++i) {
                             const float val = static_cast<float>(i16Buf[frameOffset + i]) * kInv32768;
                             mConversionBuffer[i * 2]     = val;
@@ -495,7 +515,6 @@ bool NativeDecoder::drainOutputBuffer() {
                         }
                         stereoSrc = mConversionBuffer;
                     } else if (channelCount == 2) {
-                        // Stereo int16 -> Stereo float
                         const size_t sampleStart = frameOffset * 2;
                         const size_t sampleCount = chunkFrames * 2;
                         for (size_t i = 0; i < sampleCount; ++i) {
@@ -503,7 +522,6 @@ bool NativeDecoder::drainOutputBuffer() {
                         }
                         stereoSrc = mConversionBuffer;
                     } else {
-                        // Multi-channel int16 downmix -> Stereo float (L, R)
                         for (size_t i = 0; i < chunkFrames; ++i) {
                             const size_t sampleIdx = (frameOffset + i) * channelCount;
                             mConversionBuffer[i * 2]     = static_cast<float>(i16Buf[sampleIdx]) * kInv32768;
@@ -522,14 +540,22 @@ bool NativeDecoder::drainOutputBuffer() {
                     }
                 }
 
-                // Write is guaranteed to succeed completely since chunkFrames <= spaceAvailable.
-                const size_t written = mRingBuffer.write(stereoSrc, chunkFrames);
+                const size_t written = mRingBuffer.writeForEpoch(stereoSrc, chunkFrames, mActiveRingEpoch);
                 if (written > 0) {
                     mTotalFramesDecoded.fetch_add(written, std::memory_order_relaxed);
                     frameOffset += written;
                     framesRemaining -= written;
+                    wroteAnyFrames = true;
                 } else {
-                    std::this_thread::sleep_for(std::chrono::microseconds(500));
+                    if (mRingBuffer.currentEpoch() != mActiveRingEpoch ||
+                        mSeekRequested.load(std::memory_order_acquire)) {
+                        break;
+                    }
+                    std::unique_lock<std::mutex> lock(mWakeMutex);
+                    mWakeCv.wait_for(lock, std::chrono::microseconds(500), [this]() {
+                        return mSeekRequested.load(std::memory_order_acquire) ||
+                               mShouldStop.load(std::memory_order_acquire);
+                    });
                 }
             }
         }
@@ -537,10 +563,17 @@ bool NativeDecoder::drainOutputBuffer() {
 
     AMediaCodec_releaseOutputBuffer(mCodec, static_cast<size_t>(outputIdx), false);
 
+    bool reachedEos = false;
     if (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) {
         mEndOfStream.store(true, std::memory_order_release);
+        reachedEos = true;
     } else if (mMaxFramesToDecode > 0 && mTotalFramesDecoded.load(std::memory_order_relaxed) >= mMaxFramesToDecode) {
         mEndOfStream.store(true, std::memory_order_release);
+        reachedEos = true;
+    }
+
+    if ((wroteAnyFrames || reachedEos) && mProgressCallback) {
+        mProgressCallback();
     }
 
     return true;
@@ -550,14 +583,21 @@ void NativeDecoder::executeSeek() {
     const int64_t targetUs = mSeekTargetUs.load(std::memory_order_relaxed);
     mSeekRequested.store(false, std::memory_order_release);
 
-    // Jump directly to the closest sync frame without fetching and decoding
-    // seconds of pre-roll frames; dual-source handoff pre-roll trim uses
-    // the constructor discardPriorToUs path instead.
     mDiscardPriorToUs.store(-1, std::memory_order_release);
     mNeedsMicroFadeIn.store(targetUs > 0, std::memory_order_release);
 
     AMediaExtractor_seekTo(mExtractor, targetUs, AMEDIAEXTRACTOR_SEEK_CLOSEST_SYNC);
     AMediaCodec_flush(mCodec);
+
+    // If a newer seek arrived while AMediaExtractor_seekTo was executing I/O, yield immediately
+    // to the newer seek before resetting epoch or decoding stale frames.
+    if (mSeekRequested.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    // Authoritative producer-side ring buffer reset after codec flush:
+    // guarantees zero pre-seek frames can leak into the post-seek playback buffer.
+    mActiveRingEpoch = mRingBuffer.reset();
     mInputEos.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
 

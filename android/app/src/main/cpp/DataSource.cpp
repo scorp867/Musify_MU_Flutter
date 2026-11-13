@@ -1,4 +1,5 @@
 #include "DataSource.h"
+#include "content_delivery/HeadFileManager.h"
 
 #include <android/log.h>
 #include <fcntl.h>
@@ -20,6 +21,79 @@ const uint8_t kWidevineUuid[16] = {
     0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce,
     0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed
 };
+
+void buildWidevinePsshBoxInto(std::vector<uint8_t>& outPssh,
+                              const uint8_t* kidBytes, size_t kidLen,
+                              const uint8_t* contentIdBytes, size_t contentIdLen,
+                              uint32_t protectionScheme) {
+    outPssh.clear();
+    if (!kidBytes || kidLen == 0) return;
+
+    std::vector<uint8_t> payload;
+
+    // Field 1: algorithm = 1 (AES_CTR)
+    payload.push_back(0x08);
+    payload.push_back(0x01);
+
+    // Field 2: key_id
+    payload.push_back(0x12);
+    payload.push_back(static_cast<uint8_t>(kidLen));
+    payload.insert(payload.end(), kidBytes, kidBytes + kidLen);
+
+    // Field 3: provider = "spotify"
+    const char* provider = "spotify";
+    payload.push_back(0x1a);
+    payload.push_back(static_cast<uint8_t>(std::strlen(provider)));
+    payload.insert(payload.end(), provider, provider + std::strlen(provider));
+
+    // Field 4: content_id
+    if (contentIdBytes && contentIdLen > 0) {
+        payload.push_back(0x22);
+        payload.push_back(static_cast<uint8_t>(contentIdLen));
+        payload.insert(payload.end(), contentIdBytes, contentIdBytes + contentIdLen);
+    }
+
+    // Field 9: protection_scheme ('cbcs' = 0x63626373 or 'cenc' = 0x63656e63)
+    if (protectionScheme != 0) {
+        payload.push_back(0x48);
+        uint32_t val = protectionScheme;
+        while (val > 0x7F) {
+            payload.push_back(static_cast<uint8_t>((val & 0x7F) | 0x80));
+            val >>= 7;
+        }
+        payload.push_back(static_cast<uint8_t>(val & 0x7F));
+    }
+
+    const uint32_t totalSize = 32 + static_cast<uint32_t>(payload.size());
+    outPssh.reserve(totalSize);
+
+    outPssh.push_back((totalSize >> 24) & 0xFF);
+    outPssh.push_back((totalSize >> 16) & 0xFF);
+    outPssh.push_back((totalSize >> 8) & 0xFF);
+    outPssh.push_back(totalSize & 0xFF);
+
+    outPssh.push_back('p');
+    outPssh.push_back('s');
+    outPssh.push_back('s');
+    outPssh.push_back('h');
+
+    // Version 0, Flags 0
+    outPssh.push_back(0x00);
+    outPssh.push_back(0x00);
+    outPssh.push_back(0x00);
+    outPssh.push_back(0x00);
+
+    // Widevine UUID
+    outPssh.insert(outPssh.end(), kWidevineUuid, kWidevineUuid + 16);
+
+    const uint32_t dataLen = static_cast<uint32_t>(payload.size());
+    outPssh.push_back((dataLen >> 24) & 0xFF);
+    outPssh.push_back((dataLen >> 16) & 0xFF);
+    outPssh.push_back((dataLen >> 8) & 0xFF);
+    outPssh.push_back(dataLen & 0xFF);
+
+    outPssh.insert(outPssh.end(), payload.begin(), payload.end());
+}
 
 /// Shared audio track selector across Local, Progressive, and HTTP extractors.
 EngineStatus selectFirstAudioTrack(
@@ -242,20 +316,32 @@ ProgressiveFileDataSource::~ProgressiveFileDataSource() {
 
 void ProgressiveFileDataSource::cancel() {
     mCanceled.store(true, std::memory_order_release);
-    std::lock_guard<std::mutex> lock(mCancelMutex);
-    mCancelCv.notify_all();
+    {
+        std::lock_guard<std::mutex> lock(mCancelMutex);
+        mCancelCv.notify_all();
+    }
+    spotify::content_delivery::HeadFileManager::wakeAllWaiters();
 }
 
 EngineStatus ProgressiveFileDataSource::open() {
     close();
     mCanceled.store(false, std::memory_order_release);
 
-    // Wait up to 500ms (abortable immediately via cancel()) for initial 512 bytes.
     for (int attempt = 0; attempt < 50; ++attempt) {
         if (mCanceled.load(std::memory_order_acquire)) {
             return EngineStatus::ErrorIO;
         }
         mFd = ::open(mFilePath, O_RDONLY);
+        if (mFd < 0) {
+            // Also check if atomic rename already moved .part -> .ogg
+            const size_t len = std::strlen(mFilePath);
+            if (len > 5 && std::strcmp(mFilePath + len - 5, ".part") == 0) {
+                char finalPath[4096]{};
+                std::strncpy(finalPath, mFilePath, len - 5);
+                finalPath[len - 5] = '\0';
+                mFd = ::open(finalPath, O_RDONLY);
+            }
+        }
         if (mFd >= 0) {
             struct stat st{};
             if (::fstat(mFd, &st) == 0 && st.st_size >= 512) {
@@ -264,10 +350,8 @@ EngineStatus ProgressiveFileDataSource::open() {
             ::close(mFd);
             mFd = -1;
         }
-        std::unique_lock<std::mutex> lock(mCancelMutex);
-        mCancelCv.wait_for(lock, std::chrono::milliseconds(2), [this]() {
-            return mCanceled.load(std::memory_order_acquire);
-        });
+        spotify::content_delivery::HeadFileManager::waitForHeadBytes(
+            mFilePath, 512, 10, mCanceled);
     }
 
     if (mFd < 0) {
@@ -319,7 +403,7 @@ ssize_t ProgressiveFileDataSource::readAt(off64_t offset, void* buffer, size_t s
 
     const off64_t actualOffset = offset + mStreamOffset;
 
-    for (int attempt = 0; attempt < 300; ++attempt) {
+    for (int attempt = 0; attempt < 200; ++attempt) {
         if (mCanceled.load(std::memory_order_acquire)) {
             return -1;
         }
@@ -348,18 +432,21 @@ ssize_t ProgressiveFileDataSource::readAt(off64_t offset, void* buffer, size_t s
             }
         }
 
-        std::unique_lock<std::mutex> lock(mCancelMutex);
-        mCancelCv.wait_for(lock, std::chrono::milliseconds(2), [this]() {
-            return mCanceled.load(std::memory_order_acquire);
-        });
+        const int64_t requiredBytes =
+            static_cast<int64_t>(actualOffset) + static_cast<int64_t>( std::min<size_t>(size, 4096));
+        if (!spotify::content_delivery::HeadFileManager::waitForHeadBytes(
+                mFilePath, requiredBytes, 15, mCanceled)) {
+            return -1;
+        }
     }
 
     return -1;
 }
 
 off64_t ProgressiveFileDataSource::getSize() {
-    // Unknown/streaming length lets AMediaExtractor read cleanly until readAt returns 0 at EOF.
-    // Check if final renamed .ogg exists first so natural EOF matches exact size.
+    // Return -1 while .part is actively downloading so Android's OggExtractor does not
+    // seek to (size - 65536) during open() and stall TTFA until all 128 KiB finish downloading.
+    // Once the download finishes and atomically renames .part -> .ogg, return the exact size.
     char finalPath[4096]{};
     std::strncpy(finalPath, mFilePath, sizeof(finalPath) - 1);
     const size_t len = std::strlen(finalPath);
@@ -369,8 +456,13 @@ off64_t ProgressiveFileDataSource::getSize() {
         if (::stat(finalPath, &finalSt) == 0 && finalSt.st_size > mStreamOffset) {
             return static_cast<off64_t>(finalSt.st_size) - mStreamOffset;
         }
+        return -1;
     }
-    return (mExpectedTotalSize > mStreamOffset) ? (mExpectedTotalSize - mStreamOffset) : 0;
+    struct stat st{};
+    if (mFd >= 0 && ::fstat(mFd, &st) == 0 && st.st_size > mStreamOffset) {
+        return static_cast<off64_t>(st.st_size) - mStreamOffset;
+    }
+    return -1;
 }
 
 AMediaExtractor* ProgressiveFileDataSource::getExtractor() const { return mExtractor; }
@@ -454,15 +546,19 @@ void HttpMediaDataSource::cancel() {
     }
 }
 
-void HttpMediaDataSource::preemptPrefetch() {
+void HttpMediaDataSource::onSeek() {
     std::shared_ptr<spotify::network::HttpRangeStreamCache> cacheSnapshot;
     {
         std::lock_guard<std::mutex> lock(mCacheMutex);
         cacheSnapshot = mCache;
     }
     if (cacheSnapshot) {
-        cacheSnapshot->preemptPrefetch();
+        cacheSnapshot->onSeek();
     }
+}
+
+void HttpMediaDataSource::preemptPrefetch() {
+    onSeek();
 }
 
 EngineStatus HttpMediaDataSource::open() {
@@ -562,76 +658,45 @@ void HttpMediaDataSource::onDataSourceClose() {
 }
 
 void HttpMediaDataSource::buildWidevinePsshBox(const uint8_t* kidBytes, size_t kidLen,
-                                                const uint8_t* contentIdBytes, size_t contentIdLen,
-                                                uint32_t protectionScheme) {
-    mPsshData.clear();
-    if (!kidBytes || kidLen == 0) return;
+                                               const uint8_t* contentIdBytes, size_t contentIdLen,
+                                               uint32_t protectionScheme) {
+    buildWidevinePsshBoxInto(mPsshData, kidBytes, kidLen, contentIdBytes, contentIdLen, protectionScheme);
+    mHasPssh = !mPsshData.empty();
+}
 
-    std::vector<uint8_t> payload;
+bool HttpMediaDataSource::deriveWidevinePsshFromUrl(
+    const char* url,
+    std::vector<uint8_t>& outPssh,
+    uint32_t protectionScheme) {
+    outPssh.clear();
+    if (!url || url[0] == '\0') return false;
 
-    // Field 1: algorithm = 1 (AES_CTR)
-    payload.push_back(0x08);
-    payload.push_back(0x01);
-
-    // Field 2: key_id
-    payload.push_back(0x12);
-    payload.push_back(static_cast<uint8_t>(kidLen));
-    payload.insert(payload.end(), kidBytes, kidBytes + kidLen);
-
-    // Field 3: provider = "spotify"
-    const char* provider = "spotify";
-    payload.push_back(0x1a);
-    payload.push_back(static_cast<uint8_t>(std::strlen(provider)));
-    payload.insert(payload.end(), provider, provider + std::strlen(provider));
-
-    // Field 4: content_id
-    if (contentIdBytes && contentIdLen > 0) {
-        payload.push_back(0x22);
-        payload.push_back(static_cast<uint8_t>(contentIdLen));
-        payload.insert(payload.end(), contentIdBytes, contentIdBytes + contentIdLen);
+    const char* audioPattern = "/audio/";
+    const char* match = std::strstr(url, audioPattern);
+    if (!match) {
+        audioPattern = "/head/";
+        match = std::strstr(url, audioPattern);
     }
+    if (!match) return false;
 
-    // Field 9: protection_scheme ('cbcs' = 0x63626373 or 'cenc' = 0x63656e63)
-    if (protectionScheme != 0) {
-        payload.push_back(0x48);
-        uint32_t val = protectionScheme;
-        while (val > 0x7F) {
-            payload.push_back(static_cast<uint8_t>((val & 0x7F) | 0x80));
-            val >>= 7;
+    const char* hexStart = match + std::strlen(audioPattern);
+    for (int i = 0; i < 40; ++i) {
+        const char c = hexStart[i];
+        if (c == '\0' || !((c >= '0' && c <= '9') ||
+                           (c >= 'a' && c <= 'f') ||
+                           (c >= 'A' && c <= 'F'))) {
+            return false;
         }
-        payload.push_back(static_cast<uint8_t>(val & 0x7F));
     }
 
-    const uint32_t totalSize = 32 + static_cast<uint32_t>(payload.size());
-    mPsshData.reserve(totalSize);
+    uint8_t fileId[20];
+    for (int i = 0; i < 20; ++i) {
+        const char byteHex[3] = {hexStart[i * 2], hexStart[i * 2 + 1], '\0'};
+        fileId[i] = static_cast<uint8_t>(std::strtoul(byteHex, nullptr, 16));
+    }
 
-    mPsshData.push_back((totalSize >> 24) & 0xFF);
-    mPsshData.push_back((totalSize >> 16) & 0xFF);
-    mPsshData.push_back((totalSize >> 8) & 0xFF);
-    mPsshData.push_back(totalSize & 0xFF);
-
-    mPsshData.push_back('p');
-    mPsshData.push_back('s');
-    mPsshData.push_back('s');
-    mPsshData.push_back('h');
-
-    // Version 0, Flags 0
-    mPsshData.push_back(0x00);
-    mPsshData.push_back(0x00);
-    mPsshData.push_back(0x00);
-    mPsshData.push_back(0x00);
-
-    // Widevine UUID
-    mPsshData.insert(mPsshData.end(), kWidevineUuid, kWidevineUuid + 16);
-
-    const uint32_t dataLen = static_cast<uint32_t>(payload.size());
-    mPsshData.push_back((dataLen >> 24) & 0xFF);
-    mPsshData.push_back((dataLen >> 16) & 0xFF);
-    mPsshData.push_back((dataLen >> 8) & 0xFF);
-    mPsshData.push_back(dataLen & 0xFF);
-
-    mPsshData.insert(mPsshData.end(), payload.begin(), payload.end());
-    mHasPssh = true;
+    buildWidevinePsshBoxInto(outPssh, fileId, 16, fileId, 20, protectionScheme);
+    return !outPssh.empty();
 }
 
 void HttpMediaDataSource::extractWidevinePssh() {
@@ -654,47 +719,21 @@ void HttpMediaDataSource::extractWidevinePssh() {
         }
     }
 
-    const char* audioPattern = "/audio/";
-    const char* match = std::strstr(mUrl, audioPattern);
-    if (!match) {
-        audioPattern = "/head/";
-        match = std::strstr(mUrl, audioPattern);
+    uint32_t protectionScheme = 0x63626373; // Default 'cbcs'
+    int32_t cryptoMode = 0;
+    if (mFormat && AMediaFormat_getInt32(mFormat, "crypto-mode", &cryptoMode)) {
+        if (cryptoMode == 1) {
+            protectionScheme = 0x63656e63; // 'cenc'
+        } else if (cryptoMode == 2) {
+            protectionScheme = 0x63626373; // 'cbcs'
+        }
     }
 
-    if (match) {
-        const char* hexStart = match + std::strlen(audioPattern);
-        bool isHex = true;
-        for (int i = 0; i < 40; ++i) {
-            const char c = hexStart[i];
-            if (c == '\0' || !((c >= '0' && c <= '9') ||
-                               (c >= 'a' && c <= 'f') ||
-                               (c >= 'A' && c <= 'F'))) {
-                isHex = false;
-                break;
-            }
-        }
-        if (isHex) {
-            uint8_t fileId[20];
-            for (int i = 0; i < 20; ++i) {
-                const char byteHex[3] = {hexStart[i * 2], hexStart[i * 2 + 1], '\0'};
-                fileId[i] = static_cast<uint8_t>(std::strtoul(byteHex, nullptr, 16));
-            }
-
-            uint32_t protectionScheme = 0x63626373; // Default 'cbcs'
-            int32_t cryptoMode = 0;
-            if (mFormat && AMediaFormat_getInt32(mFormat, "crypto-mode", &cryptoMode)) {
-                if (cryptoMode == 1) {
-                    protectionScheme = 0x63656e63; // 'cenc'
-                } else if (cryptoMode == 2) {
-                    protectionScheme = 0x63626373; // 'cbcs'
-                }
-            }
-
-            buildWidevinePsshBox(fileId, 16, fileId, 20, protectionScheme);
-            LOGI("Derived Spotify Widevine PSSH box from URL file ID (%zu bytes, scheme=%s)",
-                 mPsshData.size(), protectionScheme == 0x63626373 ? "cbcs" : "cenc");
-            return;
-        }
+    if (deriveWidevinePsshFromUrl(mUrl, mPsshData, protectionScheme)) {
+        mHasPssh = true;
+        LOGI("Derived Spotify Widevine PSSH box from URL file ID (%zu bytes, scheme=%s)",
+             mPsshData.size(), protectionScheme == 0x63626373 ? "cbcs" : "cenc");
+        return;
     }
 
     LOGI("No PSSH info found in media container or URL");
