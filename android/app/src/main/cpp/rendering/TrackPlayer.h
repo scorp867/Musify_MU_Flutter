@@ -50,9 +50,6 @@ struct TrackPlayerState {
     int64_t position_ms{0};
     int64_t duration_ms{0};
     double playback_speed{1.0};
-    bool is_playing{false};
-    bool is_paused{false};
-    bool is_buffering{false};
 };
 
 struct TrackPlayerCallbacks {

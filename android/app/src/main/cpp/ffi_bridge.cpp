@@ -178,26 +178,6 @@ MUSIFY_EXPORT int32_t musify_engine_set_drm_session(
     return static_cast<int32_t>(engine->setDrmSessionId(sessionId, sessionLen));
 }
 
-MUSIFY_EXPORT int32_t musify_engine_init_encrypted_stream(
-        void* handle,
-        int64_t totalSize,
-        const uint8_t* key16,
-        const uint8_t* iv16) {
-    if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
-    auto* engine = static_cast<AudioEngine*>(handle);
-    return static_cast<int32_t>(engine->initEncryptedStream(totalSize, key16, iv16));
-}
-
-MUSIFY_EXPORT int32_t musify_engine_push_stream_chunk(
-        void* handle,
-        int64_t offset,
-        const uint8_t* data,
-        int32_t length) {
-    if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
-    auto* engine = static_cast<AudioEngine*>(handle);
-    return static_cast<int32_t>(engine->pushStreamChunk(offset, data, length));
-}
-
 MUSIFY_EXPORT int32_t musify_engine_play(void* handle) {
     if (!handle) return static_cast<int32_t>(EngineStatus::ErrorInvalidArg);
     auto* engine = static_cast<AudioEngine*>(handle);

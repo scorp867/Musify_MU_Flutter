@@ -590,9 +590,7 @@ ContextPlayerImpl::SessionPlaybackPhase ContextPlayerImpl::map_track_player_stat
         case rendering::TrackPlayerPhase::Idle:
             return SessionPlaybackPhase::Idle;
         case rendering::TrackPlayerPhase::Buffering:
-            return state.is_paused
-                ? SessionPlaybackPhase::BufferingPaused
-                : SessionPlaybackPhase::BufferingPlay;
+            return SessionPlaybackPhase::BufferingPlay;
         case rendering::TrackPlayerPhase::Playing:
             return SessionPlaybackPhase::Playing;
         case rendering::TrackPlayerPhase::Paused:

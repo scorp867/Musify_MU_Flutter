@@ -117,6 +117,18 @@ public:
         Dispatched = 1,
     };
 
+    enum class MonitorLifecycle : uint8_t {
+        Idle = 0,
+        Running = 1,
+        StopRequested = 2,
+    };
+
+    enum class EosDispatcherState : uint8_t {
+        Idle = 0,
+        Pending = 1,
+        Stopping = 2,
+    };
+
     AudioEngine();
     ~AudioEngine();
 
@@ -138,6 +150,11 @@ public:
 
     /// Stop active decoders, pause/flush Oboe stream, and reset state to Idle.
     void stop();
+
+    /// Silence hardware output immediately (flipping engine state, resetting the ring buffer,
+    /// canceling active I/O sources, and synchronously pausing/flushing Oboe) prior to joining
+    /// caller worker threads on track switch or stop.
+    void quiesceOutputForTransition(EngineState nextState = EngineState::Loading);
 
     /// Signal any in-flight source open or Widevine exchange to abort immediately so caller worker threads can join.
     void cancelPendingLoads();
@@ -191,18 +208,11 @@ public:
                                        std::vector<std::string> fallbackUrls = {},
                                        spotify::network::UrlRefreshCallback urlRefreshCb = nullptr);
 
+    /// Aborts a pending secondary attachment (transitioning Attaching -> Failed) if stream resolution fails.
+    void abortSecondaryAttachment(const std::string& reason);
+
     /// Set DRM session ID directly if negotiated externally.
     EngineStatus setDrmSessionId(const uint8_t* sessionId, int32_t sessionLen);
-
-    /// Initialise an encrypted stream source.
-    EngineStatus initEncryptedStream(int64_t totalSize,
-                                     const uint8_t* key16,
-                                     const uint8_t* iv16);
-
-    /// Push an encrypted chunk into the stream data source.
-    EngineStatus pushStreamChunk(int64_t offset,
-                                 const uint8_t* data,
-                                 int32_t length);
 
     /// Resume / start playback. Transitions: Paused -> Playing.
     EngineStatus play();
@@ -250,7 +260,9 @@ public:
 private:
     std::shared_ptr<LoadSessionToken> beginNewLoadSession();
     void cancelActiveLoadSession();
-    void stopPlayback();
+    void silenceAndResetTelemetry(EngineState targetState) noexcept;
+    bool quiesceAndFlushOboeStream(const std::shared_ptr<oboe::AudioStream>& stream);
+    void stopPlayback(EngineState targetState = EngineState::Idle);
     void closeOboeStream();
     void wakeMonitor() noexcept;
     void cancelAllActiveSources();
@@ -259,6 +271,7 @@ private:
     void notifyStateChanged(EngineState state);
     EngineStatus loadSource(std::unique_ptr<IAudioDataSource> source);
     EngineStatus openOboeStream();
+    EngineStatus openOboeStreamLocked();
     oboe::Result startOrReopenOboeStream(std::shared_ptr<oboe::AudioStream>* outStream = nullptr);
     void decoderMonitorFunc();
     void secondaryWorkerFunc(std::shared_ptr<LoadSessionToken> sessionToken,
@@ -285,6 +298,7 @@ private:
     std::mutex mSourceCancelMutex;
     std::shared_ptr<LoadSessionToken> mActiveLoadSession;
     std::unique_ptr<IAudioDataSource> mDataSource;
+    std::mutex mStreamLifecycleMutex;
     mutable std::mutex mStreamMutex;
     std::shared_ptr<oboe::AudioStream> mStream;
     int32_t mStreamSampleRate{0};
@@ -328,7 +342,7 @@ private:
     std::mutex mMonitorMutex;
     std::condition_variable mMonitorCv;
     std::thread mMonitorThread;
-    std::atomic<bool> mMonitorShouldStop{false};
+    std::atomic<MonitorLifecycle> mMonitorLifecycle{MonitorLifecycle::Idle};
     SourceEncryptionMode mEncryptionMode{SourceEncryptionMode::Cleartext};
     UnderrunRecoveryState mUnderrunRecovery{UnderrunRecoveryState::Normal};
 
@@ -340,6 +354,5 @@ private:
     SecondaryFailureCallback mSecondaryFailureCallback;
     StateCallback mStateCallback;
     std::atomic<EosNotificationState> mEosNotificationState{EosNotificationState::Pending};
-    bool mEosPending{false};
-    bool mEosWorkerStop{false};
+    EosDispatcherState mEosDispatcherState{EosDispatcherState::Idle};
 };

@@ -575,7 +575,8 @@ HttpResponse NativeHttpClient::get(
     const std::vector<std::pair<std::string, std::string>>& extra_headers,
     int connect_timeout_ms,
     int read_timeout_ms,
-    bool include_spotify_auth) const {
+    bool include_spotify_auth,
+    const CancelPredicate& cancel_pred) const {
     return executeWithAuthRetry(
         "GET",
         url,
@@ -583,7 +584,8 @@ HttpResponse NativeHttpClient::get(
         nullptr,
         connect_timeout_ms,
         read_timeout_ms,
-        include_spotify_auth);
+        include_spotify_auth,
+        cancel_pred);
 }
 
 HttpResponse NativeHttpClient::post(
@@ -593,7 +595,8 @@ HttpResponse NativeHttpClient::post(
     const std::vector<std::pair<std::string, std::string>>& extra_headers,
     int connect_timeout_ms,
     int read_timeout_ms,
-    bool include_spotify_auth) const {
+    bool include_spotify_auth,
+    const CancelPredicate& cancel_pred) const {
     std::vector<std::pair<std::string, std::string>> merged = extra_headers;
     if (!content_type.empty() && !hasHeaderCaseInsensitive(merged, "Content-Type")) {
         merged.emplace_back("Content-Type", content_type);
@@ -605,7 +608,8 @@ HttpResponse NativeHttpClient::post(
         &body,
         connect_timeout_ms,
         read_timeout_ms,
-        include_spotify_auth);
+        include_spotify_auth,
+        cancel_pred);
 }
 
 HttpResponse NativeHttpClient::executeWithAuthRetry(
@@ -615,8 +619,12 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
     const std::vector<uint8_t>* body,
     int connect_timeout_ms,
     int read_timeout_ms,
-    bool include_spotify_auth) const {
+    bool include_spotify_auth,
+    const CancelPredicate& cancel_pred) const {
     for (int attempt = 0; attempt < 2; ++attempt) {
+        if (cancel_pred && cancel_pred()) {
+            return HttpResponse{};
+        }
         if (!hasActiveNetworkRoute()) {
             return HttpResponse{};
         }
@@ -650,7 +658,11 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
         }
 
         HttpResponse resp = executeOnce(
-            method, url, headers, body, connect_timeout_ms, read_timeout_ms);
+            method, url, headers, body, connect_timeout_ms, read_timeout_ms, cancel_pred);
+
+        if (cancel_pred && cancel_pred()) {
+            return HttpResponse{};
+        }
 
         if (include_spotify_auth && resp.transport_ok && resp.status_code == 401 && attempt == 0) {
             HTTP_LOGW("HTTP 401 on %s %s; requesting token refresh from Dart",
@@ -671,12 +683,15 @@ HttpResponse NativeHttpClient::executeOnce(
     const std::vector<std::pair<std::string, std::string>>& headers,
     const std::vector<uint8_t>* body,
     int connect_timeout_ms,
-    int read_timeout_ms) const {
+    int read_timeout_ms,
+    const CancelPredicate& cancel_pred) const {
     HttpResponse out;
-    if (url.empty() || !hasActiveNetworkRoute()) return out;
+    if (url.empty() || (cancel_pred && cancel_pred()) || !hasActiveNetworkRoute()) return out;
 
     CurlEasyGuard easy;
     if (!easy.handle) return out;
+
+    CancelContext cancel_ctx{nullptr, cancel_pred ? &cancel_pred : nullptr};
 
     curl_easy_setopt(easy.handle, CURLOPT_URL, url.c_str());
     curl_easy_setopt(easy.handle, CURLOPT_FOLLOWLOCATION, 1L);
@@ -684,6 +699,13 @@ HttpResponse NativeHttpClient::executeOnce(
     curl_easy_setopt(easy.handle, CURLOPT_ACCEPT_ENCODING, "gzip, deflate");
     curl_easy_setopt(easy.handle, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(std::max(1000, connect_timeout_ms)));
     curl_easy_setopt(easy.handle, CURLOPT_TIMEOUT_MS, static_cast<long>(std::max(2000, connect_timeout_ms + read_timeout_ms)));
+    if (cancel_pred) {
+        curl_easy_setopt(easy.handle, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(easy.handle, CURLOPT_XFERINFOFUNCTION, &cancelProgressCallback);
+        curl_easy_setopt(easy.handle, CURLOPT_XFERINFODATA, &cancel_ctx);
+    } else {
+        curl_easy_setopt(easy.handle, CURLOPT_NOPROGRESS, 1L);
+    }
 
     if (method == "POST") {
         curl_easy_setopt(easy.handle, CURLOPT_POST, 1L);
@@ -709,7 +731,7 @@ HttpResponse NativeHttpClient::executeOnce(
     }
 
     ParsedHeaders parsed_headers;
-    VectorWriteContext write_ctx{&out.body, nullptr, 0};
+    VectorWriteContext write_ctx{&out.body, cancel_pred ? &cancel_ctx : nullptr, 0};
     curl_easy_setopt(easy.handle, CURLOPT_HEADERFUNCTION, &headerCollectorCallback);
     curl_easy_setopt(easy.handle, CURLOPT_HEADERDATA, &parsed_headers);
     curl_easy_setopt(easy.handle, CURLOPT_WRITEFUNCTION, &vectorWriteCallback);

@@ -1,6 +1,5 @@
 import '../../../data/esperanto/context_player_control_client.dart';
 import '../../../data/esperanto/context_player_options_client.dart';
-import '../../../data/esperanto/context_player_play_client.dart';
 import '../../../data/esperanto/context_player_queue_client.dart';
 import '../../../data/queue/queue_key_resolver.dart';
 import '../../../domain/commands/add_to_queue_command.dart';
@@ -29,7 +28,6 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
   final ContextPlayerQueueClient? queueClient;
   final ContextPlayerControlClient? controlClient;
   final ContextPlayerOptionsClient? optionsClient;
-  final ContextPlayerPlayClient? playClient;
   final PlayerQueue Function() getCurrentQueue;
   final QueueModel Function() getCurrentModel;
 
@@ -37,7 +35,6 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
     this.queueClient,
     this.controlClient,
     this.optionsClient,
-    this.playClient,
     required this.getCurrentQueue,
     required this.getCurrentModel,
   });

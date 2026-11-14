@@ -70,8 +70,8 @@ private:
                                int64_t duration_hint_ms,
                                int64_t start_position_ms,
                                PlaybackIntent intent);
-    void cancelWorker();
-    void prefetchUpcomingTrack();
+    uint64_t cancelWorker(std::optional<EngineState> quiesce_state = std::nullopt);
+    void prefetchUpcomingTrack(const network::CancelPredicate& cancel_pred = nullptr);
     void notifyPhaseChanged(TrackPlayerPhase phase);
 
     AudioEngine* engine_;

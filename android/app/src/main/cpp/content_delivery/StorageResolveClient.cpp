@@ -114,7 +114,8 @@ StorageResolveResult StorageResolveClient::resolveAudioFile(
                 {{"Accept", "application/x-protobuf"}},
                 6000,
                 10000,
-                true);
+                true,
+                cancel_pred);
 
             if (resp.transport_ok) {
                 batch_outcome = network::TransferOutcome::Success;

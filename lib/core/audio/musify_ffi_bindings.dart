@@ -80,19 +80,6 @@ class MusifyFfiBindings {
                     Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32)>>(
                 'musify_engine_set_drm_session')
             .asFunction(isLeaf: true),
-        _initEncryptedStream = lib
-            .lookup<
-                NativeFunction<
-                    Int32 Function(Pointer<Void>, Int64, Pointer<Uint8>,
-                        Pointer<Uint8>)>>('musify_engine_init_encrypted_stream')
-            .asFunction(isLeaf: true),
-        _pushStreamChunk = lib
-            .lookup<
-                NativeFunction<
-                    Int32 Function(
-                        Pointer<Void>, Int64, Pointer<Uint8>, Int32)>>(
-                'musify_engine_push_stream_chunk')
-            .asFunction(isLeaf: true),
         _play = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
                 'musify_engine_play')
@@ -350,9 +337,6 @@ class MusifyFfiBindings {
     Pointer<Utf8>,
   ) _prefetchHead;
   final int Function(Pointer<Void>, Pointer<Uint8>, int) _setDrmSession;
-  final int Function(Pointer<Void>, int, Pointer<Uint8>, Pointer<Uint8>)
-      _initEncryptedStream;
-  final int Function(Pointer<Void>, int, Pointer<Uint8>, int) _pushStreamChunk;
   final int Function(Pointer<Void>) _play;
   final int Function(Pointer<Void>) _pause;
   final int Function(Pointer<Void>, int) _seekMs;
@@ -503,20 +487,6 @@ class MusifyFfiBindings {
     int sessionLen,
   ) =>
       _setDrmSession(h, sessionId, sessionLen);
-  int initEncryptedStream(
-    Pointer<Void> h,
-    int totalSize,
-    Pointer<Uint8> key,
-    Pointer<Uint8> iv,
-  ) =>
-      _initEncryptedStream(h, totalSize, key, iv);
-  int pushStreamChunk(
-    Pointer<Void> h,
-    int offset,
-    Pointer<Uint8> data,
-    int length,
-  ) =>
-      _pushStreamChunk(h, offset, data, length);
   int play(Pointer<Void> h) => _play(h);
   int pause(Pointer<Void> h) => _pause(h);
   int seekMs(Pointer<Void> h, int positionMs) => _seekMs(h, positionMs);

@@ -123,10 +123,16 @@ void CoreAudioTrackPlayer::notifyPhaseChanged(TrackPlayerPhase phase) {
     }
 }
 
-void CoreAudioTrackPlayer::cancelWorker() {
-    session_gen_.fetch_add(1, std::memory_order_acq_rel);
+uint64_t CoreAudioTrackPlayer::cancelWorker(std::optional<EngineState> quiesce_state) {
+    const uint64_t next_gen = session_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    // Silence hardware output BEFORE waking/joining stream_worker_ so any active previous
+    // track cannot keep playing during metadata/head-cache checks or worker teardown.
     if (engine_) {
-        engine_->cancelPendingLoads();
+        if (quiesce_state.has_value()) {
+            engine_->quiesceOutputForTransition(*quiesce_state);
+        } else {
+            engine_->cancelPendingLoads();
+        }
     }
     network::NativeTrafficController::instance().notifyAllWaiters();
     content_delivery::HeadFileManager::wakeAllWaiters();
@@ -134,6 +140,7 @@ void CoreAudioTrackPlayer::cancelWorker() {
     if (stream_worker_.joinable()) {
         stream_worker_.join();
     }
+    return next_gen;
 }
 
 uint64_t CoreAudioTrackPlayer::beginTrackSession(std::optional<metadata::TrackInfo> info,
@@ -141,8 +148,7 @@ uint64_t CoreAudioTrackPlayer::beginTrackSession(std::optional<metadata::TrackIn
                                                  int64_t start_position_ms,
                                                  PlaybackIntent intent) {
     eos_state_.store(EosTriggerState::Disarmed, std::memory_order_release);
-    cancelWorker();
-    const uint64_t gen = session_gen_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const uint64_t gen = cancelWorker(EngineState::Loading);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         current_info_ = std::move(info);
@@ -171,9 +177,14 @@ bool CoreAudioTrackPlayer::startLocalFile(const std::string& file_path,
     phase_.store(wait_phase, std::memory_order_release);
     notifyPhaseChanged(wait_phase);
 
+    std::shared_ptr<std::atomic<bool>> alive_guard = alive_flag_;
     std::lock_guard<std::mutex> wlock(worker_mutex_);
-    stream_worker_ = std::thread([this, gen, file_path]() {
-        if (session_gen_.load(std::memory_order_acquire) != gen) {
+    stream_worker_ = std::thread([this, gen, file_path, alive_guard]() {
+        const network::CancelPredicate cancel_pred = [this, gen, alive_guard]() -> bool {
+            return !alive_guard->load(std::memory_order_acquire) ||
+                   session_gen_.load(std::memory_order_acquire) != gen;
+        };
+        if (cancel_pred()) {
             return;
         }
 
@@ -213,8 +224,8 @@ bool CoreAudioTrackPlayer::startLocalFile(const std::string& file_path,
         phase_.store(next_phase, std::memory_order_release);
         notifyPhaseChanged(next_phase);
 
-        if (session_gen_.load(std::memory_order_acquire) == gen) {
-            prefetchUpcomingTrack();
+        if (!cancel_pred()) {
+            prefetchUpcomingTrack(cancel_pred);
         }
     });
 
@@ -350,7 +361,12 @@ bool CoreAudioTrackPlayer::startRemoteTrack(const metadata::TrackInfo& info,
 
         if (!resolved.has_value() || resolved->cdn_url.empty()) {
             CATP_LOGE("Failed to resolve full stream for %s", info.uri.c_str());
-            if (!local_head_started) {
+            if (local_head_started) {
+                if (!cancel_pred()) {
+                    engine_->abortSecondaryAttachment(
+                        "Failed to resolve audio stream for " + info.uri);
+                }
+            } else {
                 phase_.store(TrackPlayerPhase::Faulted, std::memory_order_release);
                 ErrorHandler err_cb;
                 {
@@ -394,6 +410,11 @@ bool CoreAudioTrackPlayer::startRemoteTrack(const metadata::TrackInfo& info,
             if (attach_st != EngineStatus::Ok) {
                 CATP_LOGW("attachSecondaryStream returned %d for %s",
                           static_cast<int>(attach_st), info.uri.c_str());
+                if (!cancel_pred()) {
+                    engine_->abortSecondaryAttachment(
+                        "attachSecondaryStream rejected (" +
+                        std::to_string(static_cast<int>(attach_st)) + ")");
+                }
             }
         } else {
             const bool paused_now =
@@ -450,14 +471,17 @@ bool CoreAudioTrackPlayer::startRemoteTrack(const metadata::TrackInfo& info,
         }
 
         if (!cancel_pred()) {
-            prefetchUpcomingTrack();
+            prefetchUpcomingTrack(cancel_pred);
         }
     });
 
     return true;
 }
 
-void CoreAudioTrackPlayer::prefetchUpcomingTrack() {
+void CoreAudioTrackPlayer::prefetchUpcomingTrack(
+    const network::CancelPredicate& cancel_pred) {
+    if (cancel_pred && cancel_pred()) return;
+
     PrefetchPeekHandler peek_cb;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -467,7 +491,10 @@ void CoreAudioTrackPlayer::prefetchUpcomingTrack() {
 
     const auto next_entry = peek_cb();
     if (!next_entry.has_value() || next_entry->uri.empty()) return;
-    if (next_entry->uri.rfind("spotify:track:", 0) != 0) return;
+    const bool is_prefetchable =
+        next_entry->uri.rfind("spotify:track:", 0) == 0 ||
+        next_entry->uri.rfind("spotify:episode:", 0) == 0;
+    if (!is_prefetchable) return;
 
     if (const auto cached = track_info_provider_.getCached(next_entry->uri);
         cached.has_value() && cached->hasPlayableSource()) {
@@ -475,7 +502,7 @@ void CoreAudioTrackPlayer::prefetchUpcomingTrack() {
         // Pre-warm /storage-resolve CDN URLs on P3_BackgroundBatch (FailFastOffline).
         (void)file_streamer_.resolveFullTrackStream(
             *cached,
-            nullptr,
+            cancel_pred,
             network::AcquisitionIntent::BackgroundPrefetch);
     } else {
         track_info_provider_.requestResolution(
@@ -486,7 +513,7 @@ void CoreAudioTrackPlayer::prefetchUpcomingTrack() {
 
 void CoreAudioTrackPlayer::stop() {
     eos_state_.store(EosTriggerState::Disarmed, std::memory_order_release);
-    cancelWorker();
+    (void)cancelWorker(EngineState::Idle);
     if (engine_) {
         engine_->stop();
     }

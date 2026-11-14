@@ -109,7 +109,6 @@ class PlayerQueueMobiusController extends ChangeNotifier
       queueClient: queueClient,
       controlClient: controlClient,
       optionsClient: optionsClient,
-      playClient: playClient,
       getCurrentQueue: queueRef.resolve,
       getCurrentModel: modelRef.resolve,
     );

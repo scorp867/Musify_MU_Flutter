@@ -31,15 +31,14 @@ AudioEngine::AudioEngine() {
 }
 
 AudioEngine::~AudioEngine() {
-    mMonitorShouldStop.store(true, std::memory_order_release);
+    mMonitorLifecycle.store(MonitorLifecycle::StopRequested, std::memory_order_release);
     wakeMonitor();
     {
         std::lock_guard<std::mutex> lock(mEosMutex);
         mEosCallback = nullptr;
         mSecondaryFailureCallback = nullptr;
         mStateCallback = nullptr;
-        mEosPending = false;
-        mEosWorkerStop = true;
+        mEosDispatcherState = EosDispatcherState::Stopping;
     }
     mEosCv.notify_all();
     if (mEosDispatcherThread.joinable()) {
@@ -88,11 +87,13 @@ void AudioEngine::eosDispatcherFunc() {
         EosCallback cb;
         {
             std::unique_lock<std::mutex> lock(mEosMutex);
-            mEosCv.wait(lock, [this]() { return mEosPending || mEosWorkerStop; });
-            if (mEosWorkerStop && !mEosPending) {
+            mEosCv.wait(lock, [this]() {
+                return mEosDispatcherState != EosDispatcherState::Idle;
+            });
+            if (mEosDispatcherState == EosDispatcherState::Stopping) {
                 break;
             }
-            mEosPending = false;
+            mEosDispatcherState = EosDispatcherState::Idle;
             cb = mEosCallback;
         }
         if (cb) {
@@ -102,7 +103,7 @@ void AudioEngine::eosDispatcherFunc() {
 }
 
 void AudioEngine::joinMonitorThread() {
-    mMonitorShouldStop.store(true, std::memory_order_release);
+    mMonitorLifecycle.store(MonitorLifecycle::StopRequested, std::memory_order_release);
     wakeMonitor();
     if (mMonitorThread.joinable()) {
         if (mMonitorThread.get_id() == std::this_thread::get_id()) {
@@ -111,6 +112,7 @@ void AudioEngine::joinMonitorThread() {
             mMonitorThread.join();
         }
     }
+    mMonitorLifecycle.store(MonitorLifecycle::Idle, std::memory_order_release);
 }
 
 void AudioEngine::setEosCallback(EosCallback cb) {
@@ -163,13 +165,132 @@ void AudioEngine::setAutoPlay(bool autoPlay) {
         std::memory_order_release);
 }
 
-void AudioEngine::stop() {
-    stopPlayback();
+void AudioEngine::silenceAndResetTelemetry(EngineState targetState) noexcept {
+    mMonitorLifecycle.store(MonitorLifecycle::StopRequested, std::memory_order_release);
+    mState.store(targetState, std::memory_order_release);
+    mRingBuffer.reset();
     mFramesConsumedByHardware.store(0, std::memory_order_release);
     mSeekPositionMs.store(0, std::memory_order_release);
-    mDurationMs.store(0, std::memory_order_release);
-    mDurationAuthority.store(DurationAuthority::Estimated, std::memory_order_release);
-    mState.store(EngineState::Idle, std::memory_order_release);
+    if (targetState == EngineState::Idle) {
+        mDurationMs.store(0, std::memory_order_release);
+        mDurationAuthority.store(DurationAuthority::Estimated, std::memory_order_release);
+    }
+    wakeMonitor();
+}
+
+bool AudioEngine::quiesceAndFlushOboeStream(const std::shared_ptr<oboe::AudioStream>& stream) {
+    if (!stream) {
+        return false;
+    }
+
+    constexpr int64_t kTransitionTimeoutNs = 150LL * oboe::kNanosPerMillisecond;
+    oboe::StreamState st = stream->getState();
+    if (st == oboe::StreamState::Closed ||
+        st == oboe::StreamState::Closing ||
+        st == oboe::StreamState::Disconnected) {
+        return false;
+    }
+
+    if (st == oboe::StreamState::Starting ||
+        st == oboe::StreamState::Started ||
+        st == oboe::StreamState::Pausing) {
+        if (st == oboe::StreamState::Starting || st == oboe::StreamState::Started) {
+            const oboe::Result pauseReq = stream->requestPause();
+            if (pauseReq != oboe::Result::OK &&
+                pauseReq != oboe::Result::ErrorInvalidState) {
+                LOGW("Oboe requestPause returned %d", static_cast<int>(pauseReq));
+            }
+        }
+
+        oboe::StreamState nextState = stream->getState();
+        const auto deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+        while (nextState == oboe::StreamState::Starting ||
+               nextState == oboe::StreamState::Started ||
+               nextState == oboe::StreamState::Pausing) {
+            const auto remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (remaining.count() <= 0) {
+                LOGW("Oboe timed out waiting for Paused state (cur=%d)", static_cast<int>(nextState));
+                return false;
+            }
+            oboe::StreamState observed = oboe::StreamState::Unknown;
+            const oboe::Result waitRes = stream->waitForStateChange(
+                nextState,
+                &observed,
+                std::min<int64_t>(kTransitionTimeoutNs, static_cast<int64_t>(remaining.count())));
+            if (waitRes != oboe::Result::OK) {
+                LOGW("Oboe waitForStateChange(pause) failed: %d (observed=%d)",
+                     static_cast<int>(waitRes), static_cast<int>(observed));
+                return false;
+            }
+            nextState = observed;
+        }
+        st = nextState;
+    }
+
+    if (st == oboe::StreamState::Stopping) {
+        oboe::StreamState observed = oboe::StreamState::Unknown;
+        (void)stream->waitForStateChange(st, &observed, kTransitionTimeoutNs);
+        st = observed;
+    }
+
+    if (st == oboe::StreamState::Closed ||
+        st == oboe::StreamState::Closing ||
+        st == oboe::StreamState::Disconnected) {
+        return false;
+    }
+
+    if (st == oboe::StreamState::Flushing) {
+        oboe::StreamState observed = oboe::StreamState::Unknown;
+        const oboe::Result waitRes = stream->waitForStateChange(st, &observed, kTransitionTimeoutNs);
+        st = (waitRes == oboe::Result::OK) ? observed : oboe::StreamState::Unknown;
+    } else if (st == oboe::StreamState::Paused ||
+               st == oboe::StreamState::Open ||
+               st == oboe::StreamState::Stopped) {
+        const oboe::Result flushRes = stream->flush(kTransitionTimeoutNs);
+        if (flushRes != oboe::Result::OK) {
+            LOGW("Oboe flush failed: %d (state=%d)",
+                 static_cast<int>(flushRes), static_cast<int>(stream->getState()));
+            return false;
+        }
+        st = stream->getState();
+    }
+
+    return st == oboe::StreamState::Flushed ||
+           st == oboe::StreamState::Paused ||
+           st == oboe::StreamState::Open ||
+           st == oboe::StreamState::Stopped;
+}
+
+void AudioEngine::quiesceOutputForTransition(EngineState nextState) {
+    silenceAndResetTelemetry(nextState);
+    cancelPendingLoads();
+
+    std::shared_ptr<oboe::AudioStream> dirtyStreamToClose;
+    {
+        std::lock_guard<std::mutex> lifecycleLock(mStreamLifecycleMutex);
+        std::shared_ptr<oboe::AudioStream> streamSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamSnapshot = mStream;
+        }
+        if (streamSnapshot && !quiesceAndFlushOboeStream(streamSnapshot)) {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            if (mStream == streamSnapshot) {
+                dirtyStreamToClose = std::move(mStream);
+                mStreamSampleRate = 0;
+            }
+        }
+    }
+    if (dirtyStreamToClose) {
+        dirtyStreamToClose->requestStop();
+        dirtyStreamToClose->close();
+    }
+}
+
+void AudioEngine::stop() {
+    stopPlayback(EngineState::Idle);
 }
 
 void AudioEngine::cancelPendingLoads() {
@@ -195,6 +316,7 @@ void AudioEngine::cancelAllActiveSources() {
 void AudioEngine::closeOboeStream() {
     std::shared_ptr<oboe::AudioStream> streamToClose;
     {
+        std::lock_guard<std::mutex> lifecycleLock(mStreamLifecycleMutex);
         std::lock_guard<std::mutex> lock(mStreamMutex);
         streamToClose = std::move(mStream);
         mStreamSampleRate = 0;
@@ -209,33 +331,43 @@ void AudioEngine::closeOboeStream() {
 // Internal: stop all playback components (preserving warm Oboe stream & DRM LRU)
 // ===========================================================================
 
-void AudioEngine::stopPlayback() {
-    mMonitorShouldStop.store(true, std::memory_order_release);
-    cancelActiveLoadSession();
-    wakeMonitor();
+void AudioEngine::stopPlayback(EngineState targetState) {
+    // 1. Silence hardware output deterministically BEFORE any worker join or Oboe wait:
+    //    onAudioReady() zeroes output whenever mState != Playing, and resetting the ring
+    //    buffer + monitor lifecycle prevents stale frames or monitor wakeups from racing.
+    silenceAndResetTelemetry(targetState);
 
-    // 1. Cancel all I/O data sources and wake NativeTrafficController waiters FIRST so any blocking
-    // open()/readAt()/Widevine/libcurl transfers return in <1ms without stalling thread joins.
-    cancelAllActiveSources();
-    spotify::network::NativeTrafficController::instance().notifyAllWaiters();
+    // 2. Abort all active I/O sources and wake traffic waiters so blocking transfers exit in <1ms.
+    cancelPendingLoads();
+
+    // 3. Synchronously pause and flush the warm Oboe stream (WaitForStateChange -> Paused -> Flush)
+    //    so already-submitted HAL/FIFO bursts do not drain into the next track or silence window.
+    std::shared_ptr<oboe::AudioStream> dirtyStreamToClose;
+    {
+        std::lock_guard<std::mutex> lifecycleLock(mStreamLifecycleMutex);
+        std::shared_ptr<oboe::AudioStream> streamSnapshot;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            streamSnapshot = mStream;
+        }
+        if (streamSnapshot && !quiesceAndFlushOboeStream(streamSnapshot)) {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            if (mStream == streamSnapshot) {
+                dirtyStreamToClose = std::move(mStream);
+                mStreamSampleRate = 0;
+            }
+        }
+    }
+    if (dirtyStreamToClose) {
+        dirtyStreamToClose->requestStop();
+        dirtyStreamToClose->close();
+    }
+
+    // 4. Join monitor thread before touching decoders/workers so it can never call requestStart() after pause.
+    joinMonitorThread();
 
     if (mSecondaryWorkerThread.joinable()) {
         mSecondaryWorkerThread.join();
-    }
-
-    // Pause and flush the Oboe stream rather than destroying the hardware audio sink on every
-    // track transition. The warm stream is reused immediately when the next track matches sample rate.
-    std::shared_ptr<oboe::AudioStream> streamSnapshot;
-    {
-        std::lock_guard<std::mutex> lock(mStreamMutex);
-        streamSnapshot = mStream;
-    }
-    if (streamSnapshot) {
-        const auto st = streamSnapshot->getState();
-        if (st != oboe::StreamState::Closed && st != oboe::StreamState::Disconnected) {
-            streamSnapshot->requestPause();
-            streamSnapshot->requestFlush();
-        }
     }
 
     if (mDecoder) {
@@ -253,10 +385,11 @@ void AudioEngine::stopPlayback() {
         mSecondaryDecoder.reset();
     }
 
-    joinMonitorThread();
     {
         std::lock_guard<std::mutex> lock(mEosMutex);
-        mEosPending = false;
+        if (mEosDispatcherState == EosDispatcherState::Pending) {
+            mEosDispatcherState = EosDispatcherState::Idle;
+        }
     }
 
     std::unique_ptr<IAudioDataSource> dataSrc;
@@ -284,7 +417,10 @@ void AudioEngine::stopPlayback() {
 
     mFramesConsumedByHardware.store(0, std::memory_order_release);
     mSeekPositionMs.store(0, std::memory_order_release);
-    mDurationMs.store(0, std::memory_order_release);
+    if (targetState == EngineState::Idle) {
+        mDurationMs.store(0, std::memory_order_release);
+        mDurationAuthority.store(DurationAuthority::Estimated, std::memory_order_release);
+    }
     mDecoderStreamState.store(DecoderStreamState::Decoding, std::memory_order_release);
     mSourceTopology.store(SourceTopology::SingleStream, std::memory_order_release);
     mSecondaryPhase.store(SecondaryStreamPhase::Inactive, std::memory_order_release);
@@ -293,7 +429,6 @@ void AudioEngine::stopPlayback() {
     mPrimaryDurationMs.store(0, std::memory_order_release);
     mPendingSeekOverrideMs.store(-1, std::memory_order_release);
     mPrimaryHeadState.store(PrimaryHeadState::Released, std::memory_order_release);
-    mDurationAuthority.store(DurationAuthority::Estimated, std::memory_order_release);
     mEosNotificationState.store(EosNotificationState::Pending, std::memory_order_relaxed);
 }
 
@@ -308,7 +443,7 @@ EngineStatus AudioEngine::loadLocal(const char* filePath,
         return EngineStatus::ErrorInvalidArg;
     }
 
-    stopPlayback();
+    stopPlayback(EngineState::Loading);
     mEncryptionMode = SourceEncryptionMode::Cleartext;
     mSourceTopology.store(SourceTopology::SingleStream, std::memory_order_release);
 
@@ -344,7 +479,7 @@ EngineStatus AudioEngine::loadTrackWithHead(const char* fileIdHex,
         return EngineStatus::ErrorInvalidArg;
     }
 
-    stopPlayback();
+    stopPlayback(EngineState::Loading);
     mEncryptionMode = SourceEncryptionMode::Cleartext;
     mSourceTopology.store(SourceTopology::SingleStream, std::memory_order_release);
     mSecondaryPhase.store(SecondaryStreamPhase::Attaching, std::memory_order_release);
@@ -470,7 +605,7 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
         return EngineStatus::ErrorInvalidArg;
     }
 
-    stopPlayback();
+    stopPlayback(EngineState::Loading);
     auto sessionToken = beginNewLoadSession();
 
     mEncryptionMode = SourceEncryptionMode::Cleartext;
@@ -566,6 +701,21 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
     mUnderrunCount.store(0, std::memory_order_relaxed);
     mDecoderStreamState.store(DecoderStreamState::Decoding, std::memory_order_relaxed);
 
+    if (sessionToken->isCancelled()) {
+        if (mPrimaryDecoder) {
+            mPrimaryDecoder->stop();
+            mPrimaryDecoder.reset();
+        }
+        std::unique_ptr<IAudioDataSource> primaryToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            primaryToClose = std::move(mPrimarySource);
+        }
+        if (primaryToClose) primaryToClose->close();
+        mState.store(EngineState::Idle, std::memory_order_release);
+        return EngineStatus::ErrorIO;
+    }
+
     mState.store(EngineState::Prebuffering, std::memory_order_release);
 
     // 4. Start primary decoder immediately for ultra-low TTFA
@@ -606,7 +756,7 @@ EngineStatus AudioEngine::loadDualSource(std::unique_ptr<IAudioDataSource> prima
 
     // 6. Start monitor thread
     joinMonitorThread();
-    mMonitorShouldStop.store(false, std::memory_order_release);
+    mMonitorLifecycle.store(MonitorLifecycle::Running, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
     return EngineStatus::Ok;
@@ -625,7 +775,7 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
         return EngineStatus::ErrorInvalidArg;
     }
 
-    stopPlayback();
+    stopPlayback(EngineState::Loading);
     const auto sessionToken = beginNewLoadSession();
     const auto cancelPred = sessionToken->asCancelPredicate();
 
@@ -818,6 +968,21 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
     mUnderrunCount.store(0, std::memory_order_relaxed);
     mDecoderStreamState.store(DecoderStreamState::Decoding, std::memory_order_relaxed);
 
+    if (sessionToken->isCancelled()) {
+        if (mDecoder) {
+            mDecoder->stop();
+            mDecoder.reset();
+        }
+        std::unique_ptr<IAudioDataSource> dataToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            dataToClose = std::move(mDataSource);
+        }
+        if (dataToClose) dataToClose->close();
+        mState.store(EngineState::Idle, std::memory_order_release);
+        return EngineStatus::ErrorIO;
+    }
+
     mState.store(EngineState::Prebuffering, std::memory_order_release);
 
     status = mDecoder->start();
@@ -836,7 +1001,7 @@ EngineStatus AudioEngine::loadEncryptedStream(const char* url,
     }
 
     joinMonitorThread();
-    mMonitorShouldStop.store(false, std::memory_order_release);
+    mMonitorLifecycle.store(MonitorLifecycle::Running, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
     LOGI("Encrypted stream started successfully: mime=%s dur=%lldms",
@@ -897,11 +1062,31 @@ EngineStatus AudioEngine::attachSecondaryStream(const char* secondaryUrl,
     );
 
     if (!mMonitorThread.joinable()) {
-        mMonitorShouldStop.store(false, std::memory_order_release);
+        mMonitorLifecycle.store(MonitorLifecycle::Running, std::memory_order_release);
         mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
     }
 
     return EngineStatus::Ok;
+}
+
+void AudioEngine::abortSecondaryAttachment(const std::string& reason) {
+    if (mSourceTopology.load(std::memory_order_acquire) != SourceTopology::DualHeadAndCdn) {
+        return;
+    }
+    SecondaryStreamPhase expected = SecondaryStreamPhase::Attaching;
+    if (mSecondaryPhase.compare_exchange_strong(
+            expected, SecondaryStreamPhase::Failed, std::memory_order_acq_rel)) {
+        LOGE("Secondary attachment aborted: %s", reason.c_str());
+        wakeMonitor();
+        SecondaryFailureCallback cb;
+        {
+            std::lock_guard<std::mutex> lock(mEosMutex);
+            cb = mSecondaryFailureCallback;
+        }
+        if (cb) {
+            cb(reason);
+        }
+    }
 }
 
 // ===========================================================================
@@ -1190,7 +1375,7 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
         return EngineStatus::ErrorInvalidArg;
     }
 
-    stopPlayback();
+    stopPlayback(EngineState::Loading);
     const auto sessionToken = beginNewLoadSession();
 
     mEncryptionMode = SourceEncryptionMode::Cleartext;
@@ -1283,6 +1468,21 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
     mUnderrunCount.store(0, std::memory_order_relaxed);
     mDecoderStreamState.store(DecoderStreamState::Decoding, std::memory_order_relaxed);
 
+    if (sessionToken->isCancelled()) {
+        if (mDecoder) {
+            mDecoder->stop();
+            mDecoder.reset();
+        }
+        std::unique_ptr<IAudioDataSource> dataToClose;
+        {
+            std::lock_guard<std::mutex> lock(mSourceCancelMutex);
+            dataToClose = std::move(mDataSource);
+        }
+        if (dataToClose) dataToClose->close();
+        mState.store(EngineState::Idle, std::memory_order_release);
+        return EngineStatus::ErrorIO;
+    }
+
     mState.store(EngineState::Prebuffering, std::memory_order_release);
 
     status = mDecoder->start();
@@ -1301,7 +1501,7 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
     }
 
     joinMonitorThread();
-    mMonitorShouldStop.store(false, std::memory_order_release);
+    mMonitorLifecycle.store(MonitorLifecycle::Running, std::memory_order_release);
     mMonitorThread = std::thread(&AudioEngine::decoderMonitorFunc, this);
 
     return EngineStatus::Ok;
@@ -1314,7 +1514,7 @@ EngineStatus AudioEngine::loadSource(std::unique_ptr<IAudioDataSource> source) {
 void AudioEngine::decoderMonitorFunc() {
     size_t emptyRingTicks = 0;
 
-    while (!mMonitorShouldStop.load(std::memory_order_acquire)) {
+    while (mMonitorLifecycle.load(std::memory_order_acquire) == MonitorLifecycle::Running) {
         if (mRingBuffer.availableToWrite() > 0) {
             if (mDecoder) mDecoder->notifyRingSpaceAvailable();
             if (mPrimaryDecoder) mPrimaryDecoder->notifyRingSpaceAvailable();
@@ -1514,7 +1714,9 @@ void AudioEngine::decoderMonitorFunc() {
                 {
                     std::lock_guard<std::mutex> lock(mEosMutex);
                     hasEosCallback = static_cast<bool>(mEosCallback);
-                    mEosPending = true;
+                    if (mEosDispatcherState == EosDispatcherState::Idle) {
+                        mEosDispatcherState = EosDispatcherState::Pending;
+                    }
                 }
                 if (!hasEosCallback) {
                     notifyStateChanged(EngineState::Stopped);
@@ -1542,20 +1744,30 @@ void AudioEngine::decoderMonitorFunc() {
 // ===========================================================================
 
 EngineStatus AudioEngine::openOboeStream() {
+    std::lock_guard<std::mutex> lifecycleLock(mStreamLifecycleMutex);
+    return openOboeStreamLocked();
+}
+
+EngineStatus AudioEngine::openOboeStreamLocked() {
+    std::shared_ptr<oboe::AudioStream> candidateStream;
+    bool sampleRateMatches = false;
+    {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        candidateStream = mStream;
+        sampleRateMatches = (mStreamSampleRate == mSampleRate);
+    }
+
+    if (candidateStream && sampleRateMatches && quiesceAndFlushOboeStream(candidateStream)) {
+        std::lock_guard<std::mutex> lock(mStreamMutex);
+        if (mStream == candidateStream && mStreamSampleRate == mSampleRate) {
+            return EngineStatus::Ok;
+        }
+    }
+
     std::shared_ptr<oboe::AudioStream> staleStream;
     {
         std::lock_guard<std::mutex> lock(mStreamMutex);
-        if (mStream) {
-            const auto st = mStream->getState();
-            if (st != oboe::StreamState::Closed &&
-                st != oboe::StreamState::Disconnected &&
-                mStreamSampleRate == mSampleRate) {
-                if (st == oboe::StreamState::Started || st == oboe::StreamState::Starting) {
-                    mStream->requestPause();
-                }
-                mStream->requestFlush();
-                return EngineStatus::Ok;
-            }
+        if (mStream == candidateStream || !sampleRateMatches) {
             staleStream = std::move(mStream);
             mStreamSampleRate = 0;
         }
@@ -1602,6 +1814,7 @@ EngineStatus AudioEngine::openOboeStream() {
 }
 
 oboe::Result AudioEngine::startOrReopenOboeStream(std::shared_ptr<oboe::AudioStream>* outStream) {
+    std::lock_guard<std::mutex> lifecycleLock(mStreamLifecycleMutex);
     std::shared_ptr<oboe::AudioStream> streamSnapshot;
     {
         std::lock_guard<std::mutex> lock(mStreamMutex);
@@ -1610,8 +1823,9 @@ oboe::Result AudioEngine::startOrReopenOboeStream(std::shared_ptr<oboe::AudioStr
 
     if (!streamSnapshot ||
         streamSnapshot->getState() == oboe::StreamState::Closed ||
+        streamSnapshot->getState() == oboe::StreamState::Closing ||
         streamSnapshot->getState() == oboe::StreamState::Disconnected) {
-        if (openOboeStream() != EngineStatus::Ok) {
+        if (openOboeStreamLocked() != EngineStatus::Ok) {
             return oboe::Result::ErrorClosed;
         }
         std::lock_guard<std::mutex> lock(mStreamMutex);
@@ -1631,8 +1845,19 @@ oboe::Result AudioEngine::startOrReopenOboeStream(std::shared_ptr<oboe::AudioStr
 
     oboe::Result result = streamSnapshot->requestStart();
     if (result == oboe::Result::ErrorClosed || result == oboe::Result::ErrorDisconnected) {
-        closeOboeStream();
-        if (openOboeStream() == EngineStatus::Ok) {
+        std::shared_ptr<oboe::AudioStream> staleStream;
+        {
+            std::lock_guard<std::mutex> lock(mStreamMutex);
+            if (mStream == streamSnapshot) {
+                staleStream = std::move(mStream);
+                mStreamSampleRate = 0;
+            }
+        }
+        if (staleStream) {
+            staleStream->requestStop();
+            staleStream->close();
+        }
+        if (openOboeStreamLocked() == EngineStatus::Ok) {
             std::lock_guard<std::mutex> lock(mStreamMutex);
             streamSnapshot = mStream;
             if (streamSnapshot) {
@@ -1805,35 +2030,6 @@ EngineStatus AudioEngine::seekMs(int64_t positionMs) {
     }
 
     return EngineStatus::Ok;
-}
-
-// ===========================================================================
-// Control: encrypted stream (stub)
-// ===========================================================================
-
-EngineStatus AudioEngine::initEncryptedStream(int64_t totalSize,
-                                               const uint8_t* key16,
-                                               const uint8_t* iv16) {
-    if (!key16 || !iv16 || totalSize <= 0) {
-        return EngineStatus::ErrorInvalidArg;
-    }
-
-    stopPlayback();
-    mEncryptionMode = SourceEncryptionMode::Encrypted;
-    mSourceTopology.store(SourceTopology::SingleStream, std::memory_order_release);
-
-    auto source = std::make_unique<EncryptedStreamDataSource>(totalSize, key16, iv16);
-    return loadSource(std::move(source));
-}
-
-EngineStatus AudioEngine::pushStreamChunk(int64_t offset,
-                                           const uint8_t* data,
-                                           int32_t length) {
-    if (mEncryptionMode != SourceEncryptionMode::Encrypted || !mDataSource) {
-        return EngineStatus::ErrorInvalidState;
-    }
-    auto* encrypted = static_cast<EncryptedStreamDataSource*>(mDataSource.get());
-    return encrypted->pushChunk(offset, data, length);
 }
 
 // ===========================================================================

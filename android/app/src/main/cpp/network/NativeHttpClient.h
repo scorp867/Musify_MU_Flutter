@@ -98,7 +98,8 @@ public:
         const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 12000,
-        bool include_spotify_auth = true) const;
+        bool include_spotify_auth = true,
+        const CancelPredicate& cancel_pred = nullptr) const;
 
     [[nodiscard]] HttpResponse post(
         const std::string& url,
@@ -107,7 +108,8 @@ public:
         const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 15000,
-        bool include_spotify_auth = true) const;
+        bool include_spotify_auth = true,
+        const CancelPredicate& cancel_pred = nullptr) const;
 
     [[nodiscard]] HttpRangeProbe probeRangeLength(
         const std::string& url,
@@ -153,7 +155,8 @@ private:
         const std::vector<std::pair<std::string, std::string>>& headers,
         const std::vector<uint8_t>* body,
         int connect_timeout_ms,
-        int read_timeout_ms) const;
+        int read_timeout_ms,
+        const CancelPredicate& cancel_pred) const;
 
     [[nodiscard]] HttpResponse executeWithAuthRetry(
         const std::string& method,
@@ -162,7 +165,8 @@ private:
         const std::vector<uint8_t>* body,
         int connect_timeout_ms,
         int read_timeout_ms,
-        bool include_spotify_auth) const;
+        bool include_spotify_auth,
+        const CancelPredicate& cancel_pred) const;
 
     AuthSessionStore& auth_store_;
 };

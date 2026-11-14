@@ -340,9 +340,6 @@ TrackPlayerState AudioTrackPlayer::getState() const {
             st.phase = start_paused ? TrackPlayerPhase::Paused : TrackPlayerPhase::Buffering;
             st.position_ms = pending_start_->position_ms;
             st.duration_ms = current_track_.has_value() ? extractDurationHintMs(*current_track_) : 0;
-            st.is_playing = !start_paused;
-            st.is_paused = start_paused;
-            st.is_buffering = !start_paused;
             st.playback_speed = 0.0;
             return st;
         }
@@ -352,9 +349,6 @@ TrackPlayerState AudioTrackPlayer::getState() const {
         st.phase = core_player_->getPhase();
         st.position_ms = core_player_->getPositionMs();
         st.duration_ms = core_player_->getDurationMs();
-        st.is_playing = (st.phase == TrackPlayerPhase::Playing || st.phase == TrackPlayerPhase::Buffering);
-        st.is_paused = (st.phase == TrackPlayerPhase::Paused);
-        st.is_buffering = (st.phase == TrackPlayerPhase::Buffering);
         if (st.phase != TrackPlayerPhase::Playing) {
             st.playback_speed = 0.0;
         }
@@ -368,8 +362,8 @@ std::optional<context_view::Entry> AudioTrackPlayer::getCurrentTrack() const {
 }
 
 bool AudioTrackPlayer::isPlaying() const {
-    const auto st = getState();
-    return st.is_playing && !st.is_paused;
+    const auto phase = getState().phase;
+    return phase == TrackPlayerPhase::Playing || phase == TrackPlayerPhase::Buffering;
 }
 
 StartReason AudioTrackPlayer::getLastStartReason() const {
