@@ -31,6 +31,92 @@ public:
     using SecondaryFailureCallback = std::function<void(const std::string& reason)>;
     using StateCallback = std::function<void(EngineState state)>;
 
+    /// Scoped, reference-counted cancellation token per track/secondary load session.
+    /// Eliminates shared boolean flags across overlapping track transitions and closes
+    /// the TOCTOU window between cancelPendingLoads() and source->open().
+    class LoadSessionToken final : public std::enable_shared_from_this<LoadSessionToken> {
+    public:
+        void cancel() noexcept {
+            mCancelled.store(true, std::memory_order_release);
+            std::lock_guard<std::mutex> lock(mMutex);
+            if (mOpeningSource) {
+                mOpeningSource->cancel();
+            }
+        }
+
+        [[nodiscard]] bool isCancelled() const noexcept {
+            return mCancelled.load(std::memory_order_acquire);
+        }
+
+        void bindOpeningSource(IAudioDataSource* source) noexcept {
+            std::lock_guard<std::mutex> lock(mMutex);
+            mOpeningSource = source;
+            if (source && mCancelled.load(std::memory_order_acquire)) {
+                source->cancel();
+            }
+        }
+
+        [[nodiscard]] spotify::network::CancelPredicate asCancelPredicate() {
+            auto self = shared_from_this();
+            return [self]() -> bool {
+                return self->isCancelled();
+            };
+        }
+
+    private:
+        std::atomic<bool> mCancelled{false};
+        std::mutex mMutex;
+        IAudioDataSource* mOpeningSource{nullptr};
+    };
+
+    enum class StartPolicy : uint8_t {
+        AutoPlayOnWatermark = 0,
+        HoldPausedOnWatermark = 1,
+    };
+
+    enum class SourceTopology : uint8_t {
+        SingleStream = 0,
+        DualHeadAndCdn = 1,
+    };
+
+    enum class SecondaryStreamPhase : uint8_t {
+        Inactive = 0,
+        Attaching = 1,
+        HandedOff = 2,
+        Failed = 3,
+    };
+
+    enum class PrimaryHeadState : uint8_t {
+        Active = 0,
+        SuspendedForOutOfRangeSeek = 1,
+        Released = 2,
+    };
+
+    enum class DurationAuthority : uint8_t {
+        Estimated = 0,
+        ContainerVerified = 1,
+    };
+
+    enum class DecoderStreamState : uint8_t {
+        Decoding = 0,
+        EndOfStreamReached = 1,
+    };
+
+    enum class SourceEncryptionMode : uint8_t {
+        Cleartext = 0,
+        Encrypted = 1,
+    };
+
+    enum class UnderrunRecoveryState : uint8_t {
+        Normal = 0,
+        NeedsRampUp = 1,
+    };
+
+    enum class EosNotificationState : uint8_t {
+        Pending = 0,
+        Dispatched = 1,
+    };
+
     AudioEngine();
     ~AudioEngine();
 
@@ -52,6 +138,9 @@ public:
 
     /// Stop active decoders, pause/flush Oboe stream, and reset state to Idle.
     void stop();
+
+    /// Signal any in-flight source open or Widevine exchange to abort immediately so caller worker threads can join.
+    void cancelPendingLoads();
 
     /// Load a local audio file or direct HTTP URL (with optional CDN fallbacks & URL refresh callback).
     EngineStatus loadLocal(const char* filePath,
@@ -131,12 +220,19 @@ public:
     int64_t getPositionMs() const;
     int64_t getDurationMs() const;
     bool hasAuthoritativeDuration() const {
-        return mDurationAuthoritative.load(std::memory_order_acquire);
+        return mDurationAuthority.load(std::memory_order_acquire) ==
+               DurationAuthority::ContainerVerified;
     }
     int32_t getState() const;
     int32_t getUnderrunCount() const;
-    bool isDualSource() const { return mIsDualSource.load(std::memory_order_relaxed); }
-    bool isHandoffCompleted() const { return mHandoffCompleted.load(std::memory_order_relaxed); }
+    bool isDualSource() const {
+        return mSourceTopology.load(std::memory_order_relaxed) ==
+               SourceTopology::DualHeadAndCdn;
+    }
+    bool isHandoffCompleted() const {
+        return mSecondaryPhase.load(std::memory_order_relaxed) ==
+               SecondaryStreamPhase::HandedOff;
+    }
 
     // -----------------------------------------------------------------------
     // Oboe callbacks
@@ -152,6 +248,8 @@ public:
         oboe::Result error) override;
 
 private:
+    std::shared_ptr<LoadSessionToken> beginNewLoadSession();
+    void cancelActiveLoadSession();
     void stopPlayback();
     void closeOboeStream();
     void wakeMonitor() noexcept;
@@ -163,24 +261,29 @@ private:
     EngineStatus openOboeStream();
     oboe::Result startOrReopenOboeStream(std::shared_ptr<oboe::AudioStream>* outStream = nullptr);
     void decoderMonitorFunc();
-    void secondaryWorkerFunc(std::vector<std::string> secondaryUrls,
+    void secondaryWorkerFunc(std::shared_ptr<LoadSessionToken> sessionToken,
+                             std::vector<std::string> secondaryUrls,
                              std::string licenseServerUrl,
                              std::string authHeader,
                              int64_t handoffMs,
                              spotify::network::UrlRefreshCallback urlRefreshCb);
-    AMediaCrypto* acquireWidevineCrypto(const std::vector<uint8_t>& psshData,
-                                        const std::string& licenseServerUrl,
-                                        const std::string& authHeader);
+    AMediaCrypto* acquireWidevineCrypto(
+        const std::vector<uint8_t>& psshData,
+        const std::string& licenseServerUrl,
+        const std::string& authHeader,
+        const spotify::network::CancelPredicate& cancelPred = nullptr);
     void closeActiveDrmSession();
-    void failSecondary(const std::string& reason);
+    void failSecondary(const std::shared_ptr<LoadSessionToken>& sessionToken,
+                       const std::string& reason);
 
     // --- State ---
     std::atomic<EngineState> mState{EngineState::Uninitialized};
-    std::atomic<bool> mAutoPlay{true};
+    std::atomic<StartPolicy> mStartPolicy{StartPolicy::AutoPlayOnWatermark};
 
     // --- Audio pipeline components ---
     RingBuffer mRingBuffer;
     std::mutex mSourceCancelMutex;
+    std::shared_ptr<LoadSessionToken> mActiveLoadSession;
     std::unique_ptr<IAudioDataSource> mDataSource;
     mutable std::mutex mStreamMutex;
     std::shared_ptr<oboe::AudioStream> mStream;
@@ -190,32 +293,27 @@ private:
     // --- Dual-decoder components ---
     std::unique_ptr<IAudioDataSource> mPrimarySource;
     std::unique_ptr<NativeDecoder> mPrimaryDecoder;
-    IAudioDataSource* mOpeningSecondarySource{nullptr};
     std::unique_ptr<HttpMediaDataSource> mSecondarySource;
     std::unique_ptr<NativeDecoder> mSecondaryDecoder;
     AMediaCrypto* mSecondaryCrypto{nullptr};
     std::vector<uint8_t> mActiveDrmSessionId;
 
-    std::atomic<bool> mIsDualSource{false};
-    std::atomic<bool> mSecondaryPending{false};
-    std::atomic<bool> mSecondaryReady{false};
-    std::atomic<bool> mSecondaryFailed{false};
-    std::atomic<bool> mHandoffCompleted{false};
+    std::atomic<SourceTopology> mSourceTopology{SourceTopology::SingleStream};
+    std::atomic<SecondaryStreamPhase> mSecondaryPhase{SecondaryStreamPhase::Inactive};
     std::atomic<int64_t> mHandoffTargetMs{-1};
     std::atomic<int64_t> mHandoffActualMs{0};
     std::atomic<int64_t> mPrimaryDurationMs{0};
     std::atomic<int64_t> mPendingSeekOverrideMs{-1};
-    std::atomic<bool> mPrimarySeekInvalidated{false};
+    std::atomic<PrimaryHeadState> mPrimaryHeadState{PrimaryHeadState::Released};
     std::atomic<uint64_t> mSeekGeneration{0};
 
     std::thread mSecondaryWorkerThread;
-    std::atomic<bool> mSecondaryWorkerShouldStop{false};
 
     // --- Format info ---
     int32_t mSampleRate{48000};
     int32_t mSourceChannelCount{2};
     std::atomic<int64_t> mDurationMs{0};
-    std::atomic<bool> mDurationAuthoritative{false};
+    std::atomic<DurationAuthority> mDurationAuthority{DurationAuthority::Estimated};
 
     // --- Position tracking ---
     std::atomic<int64_t> mFramesConsumedByHardware{0};
@@ -226,13 +324,13 @@ private:
 
     // --- Decoder-to-Oboe watermark handoff ---
     static constexpr size_t kStartWatermarkFrames = 3840; // 80 ms @ 48 kHz
-    std::atomic<bool> mDecoderEndOfStream{false};
+    std::atomic<DecoderStreamState> mDecoderStreamState{DecoderStreamState::Decoding};
     std::mutex mMonitorMutex;
     std::condition_variable mMonitorCv;
     std::thread mMonitorThread;
     std::atomic<bool> mMonitorShouldStop{false};
-    bool mIsEncryptedSource{false};
-    bool mWasUnderrun{false};  // Tracks underrun state for symmetric ramp-up on recovery
+    SourceEncryptionMode mEncryptionMode{SourceEncryptionMode::Cleartext};
+    UnderrunRecoveryState mUnderrunRecovery{UnderrunRecoveryState::Normal};
 
     // --- EOS & State Notification Callbacks ---
     std::mutex mEosMutex;
@@ -241,7 +339,7 @@ private:
     EosCallback mEosCallback;
     SecondaryFailureCallback mSecondaryFailureCallback;
     StateCallback mStateCallback;
-    std::atomic<bool> mEosNotified{false};
+    std::atomic<EosNotificationState> mEosNotificationState{EosNotificationState::Pending};
     bool mEosPending{false};
     bool mEosWorkerStop{false};
 };

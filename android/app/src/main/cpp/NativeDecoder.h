@@ -28,6 +28,12 @@ class NativeDecoder {
 public:
     using ProgressCallback = std::function<void()>;
 
+    enum class DecoderRunState : uint8_t {
+        Active = 0,
+        Suspended = 1,
+        Stopping = 2,
+    };
+
     NativeDecoder(RingBuffer& ringBuffer,
                   AMediaExtractor* extractor,
                   const char* mimeType,
@@ -51,6 +57,10 @@ public:
 
     /// Request the decoder thread to stop and join it.
     void stop();
+
+    /// Temporarily suspends decoding without closing the underlying extractor/codec.
+    /// Automatically transitions back to `Active` on `requestSeek()`.
+    void suspend() noexcept;
 
     /// Request a seek. Wakes the decoder thread immediately to execute it.
     void requestSeek(int64_t positionUs);
@@ -106,6 +116,7 @@ private:
     std::condition_variable mWakeCv;
     uint64_t mActiveRingEpoch{1};
 
+    std::atomic<DecoderRunState> mRunState{DecoderRunState::Active};
     std::atomic<bool> mShouldStop{false};
     std::atomic<bool> mEndOfStream{false};
     std::atomic<bool> mInputEos{false};

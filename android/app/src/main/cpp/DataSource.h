@@ -157,7 +157,7 @@ public:
 private:
     char mFilePath[4096]{};
     int mFd{-1};
-    int64_t mExpectedTotalSize{131072};
+    [[maybe_unused]] int64_t mExpectedTotalSize{131072};
     off64_t mStreamOffset{0};
 
     std::atomic<bool> mCanceled{false};

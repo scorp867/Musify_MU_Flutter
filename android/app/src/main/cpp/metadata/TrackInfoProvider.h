@@ -2,6 +2,7 @@
 
 #include "../network/AuthSessionStore.h"
 #include "../network/NativeHttpClient.h"
+#include "../network/NativeTrafficController.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -71,14 +72,27 @@ public:
     [[nodiscard]] std::optional<TrackInfo> getCached(const std::string& entity_uri) const;
 
     /// Requests asynchronous native resolution if `entity_uri` lacks playable audio info.
-    void requestResolution(const std::string& entity_uri);
+    /// InteractivePlayback requests are placed at the front of the pending queue;
+    /// BackgroundPrefetch requests are skipped while offline and placed at the back when online.
+    void requestResolution(
+        const std::string& entity_uri,
+        network::AcquisitionIntent intent = network::AcquisitionIntent::InteractivePlayback);
+
+    /// Cancels a queued (not yet in-flight) metadata resolution request when superseded by a track switch.
+    void cancelResolution(const std::string& entity_uri);
 
     int32_t addListener(MetadataChangedCallback callback);
     void removeListener(int32_t listener_id);
 
 private:
+    enum class BatchFetchResult : uint8_t {
+        Completed = 0,
+        TransientNetworkFailure = 1,
+    };
+
     void workerLoop();
-    void fetchBatch(const std::vector<std::string>& uris);
+    BatchFetchResult fetchBatch(const std::vector<std::string>& uris,
+                                network::TrafficPermit& permit);
     bool applyExtensionLocked(int32_t extension_kind,
                               const std::string& entity_uri,
                               const uint8_t* payload,

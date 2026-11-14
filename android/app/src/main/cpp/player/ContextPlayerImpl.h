@@ -24,6 +24,25 @@ namespace spotify::player {
 /// Delegates all audio playback rendering to `rendering::TrackPlayer` (`RoutingTrackPlayer`).
 class ContextPlayerImpl {
 public:
+    /// Exhaustive session playback state machine replacing loose booleans
+    /// (`is_playing_`, `is_paused_`, `is_buffering_`).
+    enum class SessionPlaybackPhase : uint8_t {
+        Idle = 0,
+        BufferingPlay = 1,
+        BufferingPaused = 2,
+        Playing = 3,
+        Paused = 4,
+        Halted = 5
+    };
+
+    /// Exhaustive session repeat mode replacing loose booleans
+    /// (`repeating_context_`, `repeating_track_`).
+    enum class SessionRepeatMode : uint8_t {
+        Off = 0,
+        Context = 1,
+        Track = 2
+    };
+
     /// Callback invoked when ContextPlayerState changes, sending protobuf-encoded bytes
     using StateChangedCallback = std::function<void(const uint8_t* data, size_t len)>;
 
@@ -106,6 +125,30 @@ public:
     [[nodiscard]] const RestrictionsEngine& get_restrictions_engine() const noexcept { return restrictions_engine_; }
 
 private:
+    static constexpr bool is_phase_playing(SessionPlaybackPhase phase) noexcept {
+        return phase == SessionPlaybackPhase::Playing ||
+               phase == SessionPlaybackPhase::BufferingPlay;
+    }
+
+    static constexpr bool is_phase_paused(SessionPlaybackPhase phase) noexcept {
+        return phase == SessionPlaybackPhase::Paused ||
+               phase == SessionPlaybackPhase::BufferingPaused;
+    }
+
+    static constexpr bool is_phase_buffering(SessionPlaybackPhase phase) noexcept {
+        return phase == SessionPlaybackPhase::BufferingPlay ||
+               phase == SessionPlaybackPhase::BufferingPaused;
+    }
+
+    static SessionPlaybackPhase map_track_player_state_to_phase(
+        const rendering::TrackPlayerState& state) noexcept;
+    void apply_repeat_overrides_locked(
+        std::optional<bool> repeating_context,
+        std::optional<bool> repeating_track) noexcept;
+    void begin_track_transition_locked(
+        const context_view::Entry& track,
+        SessionPlaybackPhase initial_phase);
+
     void bind_track_player_callbacks(const std::shared_ptr<rendering::TrackPlayer>& tp);
     void on_track_player_state_changed(const rendering::TrackPlayerState& state);
     void on_track_metadata_resolved(const std::string& uri, const metadata::TrackInfo& info);
@@ -130,12 +173,9 @@ private:
     std::unordered_map<std::string, std::string> page_metadata_;
     PlayOriginData play_origin_;
 
-    bool is_playing_{false};
-    bool is_paused_{false};
-    bool is_buffering_{false};
+    SessionPlaybackPhase playback_phase_{SessionPlaybackPhase::Idle};
+    SessionRepeatMode repeat_mode_{SessionRepeatMode::Off};
     bool shuffling_{false};
-    bool repeating_context_{false};
-    bool repeating_track_{false};
     double playback_speed_{1.0};
 
     int64_t position_ms_{0};

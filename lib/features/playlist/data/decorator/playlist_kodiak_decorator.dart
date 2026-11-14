@@ -48,6 +48,40 @@ class PlaylistKodiakDecorator {
     required ExtendedMetadataService metadataService,
   }) : _metadataService = metadataService;
 
+  /// Enriches [playlist] purely from the local `DataPool` / `KodiakDiskCache`
+  /// without performing any network I/O. Ideal for instant offline rendering
+  /// and zero-latency playback startup.
+  Future<PlaylistEntity> decorateFromCache(PlaylistEntity playlist) async {
+    if (playlist.items.isEmpty) {
+      return playlist;
+    }
+
+    await _metadataService.ensureLoaded();
+
+    final tracks = <String, TrackV4>{};
+    final episodes = <String, EpisodeV4>{};
+
+    for (final item in playlist.items) {
+      final uri = item.uri;
+      if (uri.isEmpty) continue;
+      if (uri.startsWith('spotify:episode:')) {
+        if (_metadataService.getCachedEpisode(uri) case final cachedEp?) {
+          episodes[uri] = cachedEp;
+        }
+      } else if (uri.startsWith('spotify:track:')) {
+        if (_metadataService.getCachedTrack(uri) case final cachedTrack?) {
+          tracks[uri] = cachedTrack;
+        }
+      }
+    }
+
+    if (tracks.isEmpty && episodes.isEmpty) {
+      return playlist;
+    }
+
+    return _applyResolved(playlist, tracks, episodes);
+  }
+
   Future<PlaylistEntity> decorate(PlaylistEntity playlist) async {
     if (playlist.items.isEmpty) {
       return playlist;
@@ -67,6 +101,14 @@ class PlaylistKodiakDecorator {
       return playlist;
     }
 
+    return _applyResolved(playlist, resolved.tracks, resolved.episodes);
+  }
+
+  PlaylistEntity _applyResolved(
+    PlaylistEntity playlist,
+    Map<String, TrackV4> tracks,
+    Map<String, EpisodeV4> episodes,
+  ) {
     final enrichedItems = <PlaylistItem>[];
     var calculatedTotalDurationMs = 0;
     String? derivedFirstCover;
@@ -74,9 +116,9 @@ class PlaylistKodiakDecorator {
     for (final item in playlist.items) {
       final existingMeta = item.trackMetadata;
       final TrackItemMetadata? enriched;
-      if (resolved.tracks[item.uri] case final trackV4?) {
+      if (tracks[item.uri] case final trackV4?) {
         enriched = _fromTrack(item, trackV4, existingMeta);
-      } else if (resolved.episodes[item.uri] case final episodeV4?) {
+      } else if (episodes[item.uri] case final episodeV4?) {
         enriched = _fromEpisode(item, episodeV4, existingMeta);
       } else {
         enriched = existingMeta;

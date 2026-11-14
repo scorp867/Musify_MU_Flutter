@@ -1,14 +1,10 @@
 library;
 
-import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/core/navigation/spotify_navigator.dart';
-import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
-import 'package:musify_mu/features/player/application/queue/mobius/player_queue_mobius_controller.dart';
+import 'package:musify_mu/core/navigation/spotify_navigator_impl.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
-import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
-import 'package:musify_mu/features/playlist/presentation/playlist_screen.dart';
 
 /// Centralized Spotify URI navigation router.
 /// Replicates Spotify Android's internal `LinkDispatcher` / `NavigationManager` pattern.
@@ -54,9 +50,6 @@ class SpotifyUriNavigator {
     return false;
   }
 
-  static int _lastNavigateTimeMs = 0;
-  static String _lastNavigateUri = '';
-
   /// Opens a Spotify URI within the active nested navigation stack.
   /// Uses [rootNavigator: false] so the screen renders inside the current tab stack,
   /// extending behind the persistent MiniPlayer and bottom navigation bar.
@@ -64,98 +57,28 @@ class SpotifyUriNavigator {
   /// Returns `true` if the URI was handled by a known route, or `false` otherwise.
   static bool openUri(BuildContext context, String uri, {ContextTrack? track}) {
     if (getIt.isRegistered<SpotifyNavigator>()) {
-      return getIt<SpotifyNavigator>().openUri(context, uri);
+      return getIt<SpotifyNavigator>().openUri(context, uri, track: track);
     }
-
-    if (uri.isEmpty) return false;
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (_lastNavigateUri == uri && (now - _lastNavigateTimeMs) < 600) {
-      return false;
-    }
-    _lastNavigateTimeMs = now;
-    _lastNavigateUri = uri;
-
-    if (isPlaylistUri(uri)) {
-      try {
-        if (getIt.isRegistered<UbiLogger>()) {
-          final ubiLogger = getIt<UbiLogger>();
-          ubiLogger.logInteraction(
-            UbiInteractionElement(
-              elementPath: 'link_dispatcher',
-              uri: uri,
-              actionName: 'navigate',
-            ),
-          );
-        }
-      } catch (e, stack) {
-        dev.log(
-          'Failed to log navigation interaction for $uri: $e',
-          name: 'SpotifyUriNavigator',
-          error: e,
-          stackTrace: stack,
-        );
-      }
-
-      Navigator.of(context, rootNavigator: false).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PlaylistScreen(playlistUri: uri),
-        ),
-      );
-      return true;
-    }
-
-    if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
-      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
-        final effectiveTrack = switch (track) {
-          final t? => t,
-          null => ContextTrack.builder(uri).build(),
-        };
-        getIt<PlayerQueueMobiusController>().dispatch(TrackTappedEvent(effectiveTrack));
-        return true;
-      }
-    }
-
-    // Other entity types (artists, albums, episodes) are reserved for future screens.
-    return false;
+    return SpotifyNavigatorImpl.dispatchNavigateToUri(
+      context,
+      uri,
+      track: track,
+    );
   }
 
   /// Directly plays an entity URI (track, episode, or playlist) without navigating away.
-  static Future<bool> playUri(BuildContext context, String uri, {ContextTrack? track}) async {
+  static Future<bool> playUri(
+    BuildContext context,
+    String uri, {
+    ContextTrack? track,
+  }) {
     if (getIt.isRegistered<SpotifyNavigator>()) {
       return getIt<SpotifyNavigator>().playUri(context, uri, track: track);
     }
-
-    if (uri.isEmpty) return false;
-
-    if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
-      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
-        final effectiveTrack = switch (track) {
-          final t? => t,
-          null => ContextTrack.builder(uri).build(),
-        };
-        getIt<PlayerQueueMobiusController>().dispatch(TrackTappedEvent(effectiveTrack));
-        return true;
-      }
-    }
-
-    if (isPlaylistUri(uri)) {
-      if (getIt.isRegistered<PlaylistRepository>()) {
-        try {
-          await getIt<PlaylistRepository>().playPlaylist(playlistUri: uri);
-          return true;
-        } catch (e, stack) {
-          dev.log(
-            'Failed to play playlist URI $uri: $e',
-            name: 'SpotifyUriNavigator',
-            error: e,
-            stackTrace: stack,
-          );
-        }
-      }
-    }
-
-    if (!context.mounted) return false;
-    return openUri(context, uri, track: track);
+    return SpotifyNavigatorImpl.dispatchPlayUri(
+      context,
+      uri,
+      track: track,
+    );
   }
 }

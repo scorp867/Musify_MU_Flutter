@@ -326,8 +326,6 @@ inline bool decode_prepare_play_request_body(const uint8_t* data, size_t size, D
 inline bool parse_prepare_play_request(const uint8_t* data, size_t size, DecodedPreparePlay& out) {
     if (!data || size == 0) return false;
 
-    // Check if wrapped in PlayRequest (field 1 = PreparePlayRequest)
-    // EsPlay$PlayRequest.java: Field 1 is PREPARE_PLAY_REQUEST_FIELD_NUMBER
     const uint8_t* ptr = data;
     const uint8_t* end = data + size;
     const uint8_t* f1_ptr = nullptr;
@@ -359,7 +357,6 @@ inline bool parse_prepare_play_request(const uint8_t* data, size_t size, Decoded
         }
     }
 
-    // Direct PreparePlayRequest
     return decode_prepare_play_request_body(data, size, out);
 }
 
@@ -587,6 +584,59 @@ inline bool decode_single_string(const uint8_t* data, size_t size, std::string& 
 
 } // anonymous namespace
 
+ContextPlayerImpl::SessionPlaybackPhase ContextPlayerImpl::map_track_player_state_to_phase(
+    const rendering::TrackPlayerState& state) noexcept {
+    switch (state.phase) {
+        case rendering::TrackPlayerPhase::Idle:
+            return SessionPlaybackPhase::Idle;
+        case rendering::TrackPlayerPhase::Buffering:
+            return state.is_paused
+                ? SessionPlaybackPhase::BufferingPaused
+                : SessionPlaybackPhase::BufferingPlay;
+        case rendering::TrackPlayerPhase::Playing:
+            return SessionPlaybackPhase::Playing;
+        case rendering::TrackPlayerPhase::Paused:
+            return SessionPlaybackPhase::Paused;
+        case rendering::TrackPlayerPhase::Stopped:
+            return SessionPlaybackPhase::Idle;
+        case rendering::TrackPlayerPhase::Faulted:
+            return SessionPlaybackPhase::Halted;
+    }
+    return SessionPlaybackPhase::Idle;
+}
+
+void ContextPlayerImpl::apply_repeat_overrides_locked(
+    std::optional<bool> repeating_context,
+    std::optional<bool> repeating_track) noexcept {
+    bool next_ctx = (repeat_mode_ == SessionRepeatMode::Context ||
+                     repeat_mode_ == SessionRepeatMode::Track);
+    bool next_trk = (repeat_mode_ == SessionRepeatMode::Track);
+
+    if (repeating_context.has_value()) {
+        next_ctx = *repeating_context;
+    }
+    if (repeating_track.has_value()) {
+        next_trk = *repeating_track;
+    }
+
+    if (next_trk) {
+        repeat_mode_ = SessionRepeatMode::Track;
+    } else if (next_ctx) {
+        repeat_mode_ = SessionRepeatMode::Context;
+    } else {
+        repeat_mode_ = SessionRepeatMode::Off;
+    }
+}
+
+void ContextPlayerImpl::begin_track_transition_locked(
+    const context_view::Entry& track,
+    SessionPlaybackPhase initial_phase) {
+    current_track_ = track;
+    playback_phase_ = initial_phase;
+    position_ms_ = 0;
+    duration_ms_ = 0;
+}
+
 ContextPlayerImpl::ContextPlayerImpl(std::shared_ptr<rendering::TrackPlayer> track_player)
     : track_player_(std::move(track_player)) {
     LOGI("ContextPlayerImpl initialized (track_player=%p)", track_player_.get());
@@ -658,9 +708,7 @@ void ContextPlayerImpl::on_track_player_state_changed(const rendering::TrackPlay
     std::vector<uint8_t> sc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        is_playing_ = state.is_playing;
-        is_paused_ = state.is_paused;
-        is_buffering_ = state.is_buffering;
+        playback_phase_ = map_track_player_state_to_phase(state);
         if (state.position_ms >= 0) {
             position_ms_ = state.position_ms;
         }
@@ -750,9 +798,7 @@ void ContextPlayerImpl::on_track_player_error(int32_t /*code*/, const std::strin
     std::vector<uint8_t> sc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        is_buffering_ = false;
-        is_playing_ = false;
-        is_paused_ = false;
+        playback_phase_ = SessionPlaybackPhase::Halted;
         last_error_ = "LOAD_FAILED";
         err_cb = error_callback_;
         emit_state_locked();
@@ -852,7 +898,7 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
         bool paused = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            paused = is_paused_;
+            paused = is_phase_paused(playback_phase_);
         }
         if (paused) return resume();
         return false;
@@ -887,12 +933,9 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
             shuffling_ = *parsed.overrides.shuffling_context;
             context_processor_.set_shuffling(shuffling_);
         }
-        if (parsed.overrides.repeating_context.has_value()) {
-            repeating_context_ = *parsed.overrides.repeating_context;
-        }
-        if (parsed.overrides.repeating_track.has_value()) {
-            repeating_track_ = *parsed.overrides.repeating_track;
-        }
+        apply_repeat_overrides_locked(
+            parsed.overrides.repeating_context,
+            parsed.overrides.repeating_track);
 
         int32_t initial_index = 0;
         if (parsed.skip_to.track_index >= 0) {
@@ -928,20 +971,20 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
             context_processor_.skip_to_index(static_cast<int32_t>(parsed.skip_to.track_index));
         }
 
-        current_track_ = context_processor_.get_current_track();
-
-        is_playing_ = true;
-        is_paused_ = false;
-        is_buffering_ = true;
-        position_ms_ = 0;
-        duration_ms_ = 0;
-
-        LOGI("ContextPlayerImpl.play: context_uri=%s", context_uri_.c_str());
-        if (current_track_.has_value()) {
-            LOGI("ContextPlayerImpl.play: playing uri=%s uid=%s",
-                 current_track_->uri.c_str(), current_track_->uid.c_str());
+        if (const auto resolved_cur = context_processor_.get_current_track();
+            resolved_cur.has_value()) {
+            begin_track_transition_locked(*resolved_cur, SessionPlaybackPhase::BufferingPlay);
+            LOGI("ContextPlayerImpl.play: context_uri=%s playing uri=%s uid=%s",
+                 context_uri_.c_str(),
+                 current_track_->uri.c_str(),
+                 current_track_->uid.c_str());
             track_to_play = *current_track_;
             tp = track_player_;
+        } else {
+            current_track_.reset();
+            playback_phase_ = SessionPlaybackPhase::Idle;
+            position_ms_ = 0;
+            duration_ms_ = 0;
         }
 
         emit_state_locked();
@@ -975,9 +1018,7 @@ bool ContextPlayerImpl::pause() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         LOGI("ContextPlayer RoutingTrackPlayer: PauseOrAwaitPause active");
-        is_playing_ = false;
-        is_paused_ = true;
-        is_buffering_ = false;
+        playback_phase_ = SessionPlaybackPhase::Paused;
         if (track_player_) {
             position_ms_ = track_player_->getPosition();
         }
@@ -1013,8 +1054,9 @@ bool ContextPlayerImpl::resume() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         LOGI("ContextPlayer RoutingTrackPlayer: PauseOrAwaitPause not active");
-        is_playing_ = true;
-        is_paused_ = false;
+        playback_phase_ = (playback_phase_ == SessionPlaybackPhase::BufferingPaused)
+            ? SessionPlaybackPhase::BufferingPlay
+            : SessionPlaybackPhase::Playing;
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
@@ -1139,14 +1181,10 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                 }
 
                 if (found_in_user_queue) {
-                    current_track_ = *it;
+                    const context_view::Entry selected = *it;
                     user_queue_.erase(user_queue_.begin(), it + 1);
                     queue_revision_++;
-                    is_playing_ = true;
-                    is_paused_ = false;
-                    is_buffering_ = true;
-                    position_ms_ = 0;
-                    duration_ms_ = 0;
+                    begin_track_transition_locked(selected, SessionPlaybackPhase::BufferingPlay);
                     next_track = *current_track_;
                     should_play = true;
                     handled_target = true;
@@ -1161,12 +1199,7 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                         auto track = context_processor_.get_current_track();
                         if (track.has_value()) {
                             queue_revision_++;
-                            current_track_ = *track;
-                            is_playing_ = true;
-                            is_paused_ = false;
-                            is_buffering_ = true;
-                            position_ms_ = 0;
-                            duration_ms_ = 0;
+                            begin_track_transition_locked(*track, SessionPlaybackPhase::BufferingPlay);
                             next_track = *current_track_;
                             should_play = true;
                             handled_target = true;
@@ -1177,40 +1210,29 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
 
             if (!handled_target) {
                 if (!user_queue_.empty()) {
-                    current_track_ = user_queue_.front();
+                    const context_view::Entry queued_front = user_queue_.front();
                     user_queue_.erase(user_queue_.begin());
                     queue_revision_++;
-                    is_playing_ = true;
-                    is_paused_ = false;
-                    is_buffering_ = true;
-                    position_ms_ = 0;
-                    duration_ms_ = 0;
+                    begin_track_transition_locked(queued_front, SessionPlaybackPhase::BufferingPlay);
                     next_track = *current_track_;
                     should_play = true;
                     LOGI("preroll_track_advance to user queue track: %s", next_track.uri.c_str());
                 } else {
                     bool advanced = context_processor_.skip_next();
-                    if (!advanced && repeating_context_) {
+                    if (!advanced && repeat_mode_ != SessionRepeatMode::Off) {
                         context_processor_.skip_to_index(0);
                         advanced = true;
                     }
                     if (advanced) {
                         auto track = context_processor_.get_current_track();
                         if (track.has_value()) {
-                            current_track_ = *track;
-                            is_playing_ = true;
-                            is_paused_ = false;
-                            is_buffering_ = true;
-                            position_ms_ = 0;
-                            duration_ms_ = 0;
+                            begin_track_transition_locked(*track, SessionPlaybackPhase::BufferingPlay);
                             next_track = *current_track_;
                             should_play = true;
                             LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
                         }
                     } else {
-                        is_playing_ = false;
-                        is_paused_ = false;
-                        is_buffering_ = false;
+                        playback_phase_ = SessionPlaybackPhase::Idle;
                         position_ms_ = 0;
                         should_stop_context = true;
                     }
@@ -1325,17 +1347,12 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
                 if (advanced) {
                     auto track = context_processor_.get_current_track();
                     if (track.has_value()) {
-                        current_track_ = *track;
-                        is_playing_ = true;
-                        is_paused_ = false;
-                        is_buffering_ = true;
-                        position_ms_ = 0;
-                        duration_ms_ = 0;
+                        begin_track_transition_locked(*track, SessionPlaybackPhase::BufferingPlay);
                         prev_track = *current_track_;
                         should_play = true;
                         LOGI("did_advance_to_track: %s", prev_track.uri.c_str());
                     }
-                } else if (repeating_context_) {
+                } else if (repeat_mode_ != SessionRepeatMode::Off) {
                     position_ms_ = 0;
                     should_seek_zero = true;
                 }
@@ -1379,14 +1396,14 @@ void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         tp = track_player_;
-        LOGI("ContextPlayer RoutingTrackPlayer: pause/stop player while advancing");
         LOGI("drain_on_end_of_stream: end-of-stream, track_finished_playing");
         LOGI("ContextPlayerImpl.advanceToNextTrack (reason=%d)", static_cast<int>(reason));
 
-        if (repeating_track_ && reason == rendering::AdvanceReason::EndOfTrack && current_track_.has_value()) {
+        if (repeat_mode_ == SessionRepeatMode::Track &&
+            reason == rendering::AdvanceReason::EndOfTrack &&
+            current_track_.has_value()) {
             position_ms_ = 0;
-            is_playing_ = true;
-            is_paused_ = false;
+            playback_phase_ = SessionPlaybackPhase::Playing;
             should_repeat_current = true;
             emit_state_locked();
             sc_cb = state_changed_callback_;
@@ -1397,40 +1414,29 @@ void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
             }
 
             if (!user_queue_.empty()) {
-                current_track_ = user_queue_.front();
+                const context_view::Entry queued_front = user_queue_.front();
                 user_queue_.erase(user_queue_.begin());
                 queue_revision_++;
-                is_playing_ = true;
-                is_paused_ = false;
-                is_buffering_ = true;
-                position_ms_ = 0;
-                duration_ms_ = 0;
+                begin_track_transition_locked(queued_front, SessionPlaybackPhase::BufferingPlay);
                 next_track = *current_track_;
                 should_play = true;
                 LOGI("preroll_track_advance to user queue track: %s", next_track.uri.c_str());
             } else {
                 bool advanced = context_processor_.skip_next();
-                if (!advanced && repeating_context_) {
+                if (!advanced && repeat_mode_ != SessionRepeatMode::Off) {
                     context_processor_.skip_to_index(0);
                     advanced = true;
                 }
                 if (advanced) {
                     auto track = context_processor_.get_current_track();
                     if (track.has_value()) {
-                        current_track_ = *track;
-                        is_playing_ = true;
-                        is_paused_ = false;
-                        is_buffering_ = true;
-                        position_ms_ = 0;
-                        duration_ms_ = 0;
+                        begin_track_transition_locked(*track, SessionPlaybackPhase::BufferingPlay);
                         next_track = *current_track_;
                         should_play = true;
                         LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
                     }
                 } else {
-                    is_playing_ = false;
-                    is_paused_ = false;
-                    is_buffering_ = false;
+                    playback_phase_ = SessionPlaybackPhase::Idle;
                     position_ms_ = 0;
                     should_stop_context = true;
                 }
@@ -1473,12 +1479,9 @@ bool ContextPlayerImpl::set_options(const uint8_t* payload, size_t len) {
                 shuffling_ = *overrides.shuffling_context;
                 context_processor_.set_shuffling(shuffling_);
             }
-            if (overrides.repeating_context.has_value()) {
-                repeating_context_ = *overrides.repeating_context;
-            }
-            if (overrides.repeating_track.has_value()) {
-                repeating_track_ = *overrides.repeating_track;
-            }
+            apply_repeat_overrides_locked(
+                overrides.repeating_context,
+                overrides.repeating_track);
             emit_state_locked();
             emit_queue_locked();
             sc_cb = state_changed_callback_;
@@ -1535,7 +1538,7 @@ void ContextPlayerImpl::set_repeating_context(bool repeating) {
     std::vector<uint8_t> sc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        repeating_context_ = repeating;
+        apply_repeat_overrides_locked(repeating, std::nullopt);
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
@@ -1557,7 +1560,7 @@ void ContextPlayerImpl::set_repeating_track(bool repeating) {
     std::vector<uint8_t> sc_bytes;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        repeating_track_ = repeating;
+        apply_repeat_overrides_locked(std::nullopt, repeating);
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
@@ -1708,9 +1711,7 @@ bool ContextPlayerImpl::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         tp = track_player_;
-        is_playing_ = false;
-        is_paused_ = false;
-        is_buffering_ = false;
+        playback_phase_ = SessionPlaybackPhase::Idle;
         position_ms_ = 0;
         duration_ms_ = 0;
         current_track_.reset();
@@ -1769,12 +1770,9 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
             shuffling_ = *parsed.overrides.shuffling_context;
             context_processor_.set_shuffling(shuffling_);
         }
-        if (parsed.overrides.repeating_context.has_value()) {
-            repeating_context_ = *parsed.overrides.repeating_context;
-        }
-        if (parsed.overrides.repeating_track.has_value()) {
-            repeating_track_ = *parsed.overrides.repeating_track;
-        }
+        apply_repeat_overrides_locked(
+            parsed.overrides.repeating_context,
+            parsed.overrides.repeating_track);
 
         int32_t initial_index = 0;
         if (parsed.skip_to.track_index >= 0) {
@@ -1810,20 +1808,21 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
             context_processor_.skip_to_index(static_cast<int32_t>(parsed.skip_to.track_index));
         }
 
-        current_track_ = context_processor_.get_current_track();
-        track_to_prepare = current_track_;
-        is_playing_ = false;
-        is_paused_ = true;
-        is_buffering_ = false;
-        position_ms_ = 0;
-        duration_ms_ = 0;
-        if (current_track_.has_value()) {
+        if (const auto resolved_cur = context_processor_.get_current_track();
+            resolved_cur.has_value()) {
+            begin_track_transition_locked(*resolved_cur, SessionPlaybackPhase::Paused);
+            track_to_prepare = current_track_;
             auto dur_it = current_track_->metadata.find("duration");
             if (dur_it != current_track_->metadata.end() && !dur_it->second.empty()) {
                 char* end = nullptr;
                 int64_t d = std::strtoll(dur_it->second.c_str(), &end, 10);
                 if (end != dur_it->second.c_str() && d > 0) duration_ms_ = d;
             }
+        } else {
+            current_track_.reset();
+            playback_phase_ = SessionPlaybackPhase::Idle;
+            position_ms_ = 0;
+            duration_ms_ = 0;
         }
 
         LOGI("ContextPlayerImpl.preparePlay: context_uri=%s (ready to play)", context_uri_.c_str());
@@ -2091,9 +2090,7 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
         session_id_.clear();
         session_command_id_.clear();
         signals_.clear();
-        is_playing_ = false;
-        is_paused_ = false;
-        is_buffering_ = false;
+        playback_phase_ = SessionPlaybackPhase::Idle;
         position_ms_ = 0;
         duration_ms_ = 0;
         current_track_.reset();
@@ -2190,14 +2187,23 @@ void ContextPlayerImpl::emit_state_locked() {
     const bool has_prev = !prev_tracks.empty();
     const bool has_queue = !user_queue_.empty();
 
+    const bool playing_flag = is_phase_playing(playback_phase_);
+    const bool paused_flag = is_phase_paused(playback_phase_);
+    const bool buffering_flag = is_phase_buffering(playback_phase_);
+    const bool repeating_ctx_flag =
+        repeat_mode_ == SessionRepeatMode::Context ||
+        repeat_mode_ == SessionRepeatMode::Track;
+    const bool repeating_trk_flag =
+        repeat_mode_ == SessionRepeatMode::Track;
+
     const auto restrictions_bytes = restrictions_engine_.evaluate(
-        is_playing_,
-        is_paused_,
+        playing_flag,
+        paused_flag,
         has_prev,
         has_next,
         shuffling_,
-        repeating_context_,
-        repeating_track_,
+        repeating_ctx_flag,
+        repeating_trk_flag,
         has_queue);
 
     const int64_t now_ms = get_current_timestamp_ms();
@@ -2210,14 +2216,14 @@ void ContextPlayerImpl::emit_state_locked() {
     data.restrictions = restrictions_bytes;
     data.track = track_ptr;
     data.duration_ms = duration_ms_;
-    data.is_playing = is_playing_;
-    data.is_paused = is_paused_;
-    data.playback_speed = (is_playing_ && !is_paused_ && !is_buffering_) ? playback_speed_ : 0.0;
+    data.is_playing = playing_flag;
+    data.is_paused = paused_flag;
+    data.playback_speed = (playback_phase_ == SessionPlaybackPhase::Playing) ? playback_speed_ : 0.0;
     data.position_as_of_timestamp = position_ms_;
     data.shuffling_context = shuffling_;
-    data.repeating_context = repeating_context_;
-    data.repeating_track = repeating_track_;
-    data.is_buffering = is_buffering_;
+    data.repeating_context = repeating_ctx_flag;
+    data.repeating_track = repeating_trk_flag;
+    data.is_buffering = buffering_flag;
     data.context_metadata = context_metadata_;
     data.page_metadata = page_metadata_;
     data.session_id = session_id_;

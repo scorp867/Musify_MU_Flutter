@@ -81,6 +81,7 @@ add_library(musify_audio SHARED
     ContextProcessor.cpp
     network/AuthSessionStore.cpp
     network/NativeHttpClient.cpp
+    network/NativeTrafficController.cpp
     network/HttpRangeStreamCache.cpp
     cache/DiskCache.cpp
     metadata/TrackInfoProvider.cpp

@@ -134,12 +134,19 @@ bool AudioTrackPlayer::start(const context_view::Entry& track,
     if (!core_player_) return false;
 
     std::function<void(const std::string&, const metadata::TrackInfo&)> meta_cb;
+    std::string superseded_pending_uri;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (pending_start_.has_value() && pending_start_->track.uri != track.uri) {
+            superseded_pending_uri = pending_start_->track.uri;
+        }
         current_track_ = track;
         last_start_reason_ = reason;
         pending_start_.reset();
         meta_cb = callbacks_.on_track_metadata_resolved;
+    }
+    if (!superseded_pending_uri.empty()) {
+        track_info_provider_.cancelResolution(superseded_pending_uri);
     }
 
     if (isLocalEntry(track)) {
@@ -152,12 +159,11 @@ bool AudioTrackPlayer::start(const context_view::Entry& track,
     }
 
     const auto cached = track_info_provider_.getCached(track.uri);
-    if (cached.has_value() && meta_cb) {
-        meta_cb(track.uri, *cached);
-    }
-
     if (cached.has_value() && cached->hasPlayableSource()) {
         const bool ok = core_player_->startRemoteTrack(*cached, start_position_ms, start_paused);
+        if (meta_cb) {
+            meta_cb(track.uri, *cached);
+        }
         emitStateChanged();
         return ok;
     }
@@ -167,7 +173,15 @@ bool AudioTrackPlayer::start(const context_view::Entry& track,
     core_player_->stop();
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        pending_start_ = PendingStart{track, reason, start_position_ms, start_paused};
+        pending_start_ = PendingStart{
+            track,
+            reason,
+            start_position_ms,
+            start_paused ? PlaybackStartMode::StartPaused : PlaybackStartMode::AutoPlay,
+        };
+    }
+    if (cached.has_value() && meta_cb) {
+        meta_cb(track.uri, *cached);
     }
     track_info_provider_.requestResolution(track.uri);
     emitStateChanged();
@@ -199,24 +213,37 @@ void AudioTrackPlayer::onMetadataUpdated(const std::string& uri,
         }
     }
 
-    if (matches_current && meta_cb) {
-        meta_cb(uri, info);
-    }
-
     if (ready_pending.has_value() && core_player_) {
         ATP_LOGI("AudioTrackPlayer: play pending track due to metadata changed (%s)",
                  uri.c_str());
         core_player_->startRemoteTrack(
-            info, ready_pending->position_ms, ready_pending->paused);
+            info,
+            ready_pending->position_ms,
+            ready_pending->start_mode == PlaybackStartMode::StartPaused);
+        if (matches_current && meta_cb) {
+            meta_cb(uri, info);
+        }
         emitStateChanged();
+        return;
+    }
+
+    if (matches_current && meta_cb) {
+        meta_cb(uri, info);
     }
 }
 
 void AudioTrackPlayer::stop(StopReason /*reason*/) {
+    std::string canceled_pending_uri;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (pending_start_.has_value()) {
+            canceled_pending_uri = pending_start_->track.uri;
+        }
         pending_start_.reset();
         current_track_.reset();
+    }
+    if (!canceled_pending_uri.empty()) {
+        track_info_provider_.cancelResolution(canceled_pending_uri);
     }
     if (core_player_) {
         core_player_->stop();
@@ -224,12 +251,17 @@ void AudioTrackPlayer::stop(StopReason /*reason*/) {
 }
 
 bool AudioTrackPlayer::pause() {
+    bool updated_pending = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_start_.has_value()) {
-            pending_start_->paused = true;
-            return true;
+            pending_start_->start_mode = PlaybackStartMode::StartPaused;
+            updated_pending = true;
         }
+    }
+    if (updated_pending) {
+        emitStateChanged();
+        return true;
     }
     return core_player_ ? core_player_->pause() : false;
 }
@@ -239,23 +271,33 @@ bool AudioTrackPlayer::canPause() const {
 }
 
 bool AudioTrackPlayer::resume() {
+    bool updated_pending = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_start_.has_value()) {
-            pending_start_->paused = false;
-            return true;
+            pending_start_->start_mode = PlaybackStartMode::AutoPlay;
+            updated_pending = true;
         }
+    }
+    if (updated_pending) {
+        emitStateChanged();
+        return true;
     }
     return core_player_ ? core_player_->resume() : false;
 }
 
 bool AudioTrackPlayer::seek(int64_t position_ms, SeekOrigin /*origin*/) {
+    bool updated_pending = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_start_.has_value()) {
             pending_start_->position_ms = position_ms;
-            return true;
+            updated_pending = true;
         }
+    }
+    if (updated_pending) {
+        emitStateChanged();
+        return true;
     }
     return core_player_ ? core_player_->seek(position_ms) : false;
 }
@@ -293,12 +335,14 @@ TrackPlayerState AudioTrackPlayer::getState() const {
         std::lock_guard<std::mutex> lock(mutex_);
         st.playback_speed = playback_speed_;
         if (pending_start_.has_value()) {
-            st.phase = pending_start_->paused ? TrackPlayerPhase::Paused : TrackPlayerPhase::Buffering;
+            const bool start_paused =
+                pending_start_->start_mode == PlaybackStartMode::StartPaused;
+            st.phase = start_paused ? TrackPlayerPhase::Paused : TrackPlayerPhase::Buffering;
             st.position_ms = pending_start_->position_ms;
             st.duration_ms = current_track_.has_value() ? extractDurationHintMs(*current_track_) : 0;
-            st.is_playing = !pending_start_->paused;
-            st.is_paused = pending_start_->paused;
-            st.is_buffering = !pending_start_->paused;
+            st.is_playing = !start_paused;
+            st.is_paused = start_paused;
+            st.is_buffering = !start_paused;
             st.playback_speed = 0.0;
             return st;
         }

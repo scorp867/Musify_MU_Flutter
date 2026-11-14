@@ -17,6 +17,11 @@ namespace spotify::player::rendering {
 /// and `CoreAudioTrackPlayer` execution.
 class AudioTrackPlayer final : public TrackPlayer {
 public:
+    enum class PlaybackStartMode : uint8_t {
+        AutoPlay = 0,
+        StartPaused = 1,
+    };
+
     AudioTrackPlayer(std::shared_ptr<CoreAudioTrackPlayer> core_player,
                      metadata::TrackInfoProvider& track_info_provider);
     ~AudioTrackPlayer() override;
@@ -55,7 +60,7 @@ private:
         context_view::Entry track;
         StartReason reason{StartReason::PlayCommand};
         int64_t position_ms{0};
-        bool paused{false};
+        PlaybackStartMode start_mode{PlaybackStartMode::AutoPlay};
     };
 
     void onMetadataUpdated(const std::string& uri, const metadata::TrackInfo& info);

@@ -24,6 +24,16 @@ public:
     using ErrorHandler = std::function<void(int32_t code, const std::string& message)>;
     using PrefetchPeekHandler = std::function<std::optional<context_view::Entry>()>;
 
+    enum class EosTriggerState : uint8_t {
+        Disarmed = 0,
+        Armed = 1,
+    };
+
+    enum class PlaybackIntent : uint8_t {
+        AutoPlay = 0,
+        HoldPaused = 1,
+    };
+
     CoreAudioTrackPlayer(AudioEngine* engine,
                          streamer::FileStreamerImpl& file_streamer,
                          metadata::TrackInfoProvider& track_info_provider);
@@ -56,6 +66,10 @@ public:
     [[nodiscard]] TrackPlayerPhase getPhase() const;
 
 private:
+    uint64_t beginTrackSession(std::optional<metadata::TrackInfo> info,
+                               int64_t duration_hint_ms,
+                               int64_t start_position_ms,
+                               PlaybackIntent intent);
     void cancelWorker();
     void prefetchUpcomingTrack();
     void notifyPhaseChanged(TrackPlayerPhase phase);
@@ -69,10 +83,11 @@ private:
     std::mutex worker_mutex_;
     std::thread stream_worker_;
     std::atomic<uint64_t> session_gen_{0};
-    std::atomic<bool> eos_armed_{false};
+    std::atomic<EosTriggerState> eos_state_{EosTriggerState::Disarmed};
     std::atomic<TrackPlayerPhase> phase_{TrackPlayerPhase::Idle};
     std::atomic<int64_t> duration_hint_ms_{0};
-    std::atomic<bool> desired_paused_{false};
+    std::atomic<int64_t> pending_position_ms_{0};
+    std::atomic<PlaybackIntent> playback_intent_{PlaybackIntent::AutoPlay};
     std::optional<metadata::TrackInfo> current_info_;
 
     EosHandler on_eos_;

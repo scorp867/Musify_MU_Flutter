@@ -2,6 +2,7 @@
 
 #include "../cache/DiskCache.h"
 #include "NativeHttpClient.h"
+#include "NativeTrafficController.h"
 
 #include <array>
 #include <atomic>
@@ -22,7 +23,7 @@
 namespace spotify::network {
 
 /// Optional callback invoked when all known CDN URLs return an authorization/expiry error
-/// (HTTP 401/403/404/410). Returns a fresh list of signed CDN URLs, or empty on failure.
+/// (HTTP 401/403/404/410) or when a stream opened offline from DiskCache needs live CDN URLs.
 using UrlRefreshCallback = std::function<std::vector<std::string>()>;
 
 /// Thread-safe, two-tier (RAM + Disk) block-aligned HTTPS byte-range stream cache implementing
@@ -31,19 +32,18 @@ using UrlRefreshCallback = std::function<std::vector<std::string>()>;
 /// Design properties:
 /// - Aligned 64 KiB sparse blocks with pinned 256 KiB header window (Blocks 0..3 for MP4 moov/sidx)
 /// - Two-tier lookup: 12 MiB in-memory hot LRU (`blocks_`) backed by 256 MiB persistent `DiskCache`
-/// - Zero speculative background prefetching: blocks are fetched strictly on demand when requested
-///   by the decoder, over persistent HTTP/2 + TLS keep-alive connections
-/// - Progressive sub-block streaming: foreground `readAt()` unblocks as soon as the requested slice
-///   within an in-flight 64 KiB block arrives over the socket, while the foreground worker finishes
-///   and persists the full 64 KiB block to RAM + Disk
-/// - Epoch-based seek cancellation (`onSeek()` / `preemptPrefetch()`) that immediately aborts stale
-///   in-flight transfers from superseded seeks
+/// - Governed by `NativeTrafficController` at `P0_PlaybackCritical` with `OfflinePolicy::WaitForOnline`:
+///   when offline, cached 64 KiB blocks are served in <1ms from DiskCache, while uncached blocks park
+///   cleanly in the P0 queue without returning -1 (preventing false EOS / unwanted track skips) and
+///   automatically resume the instant connectivity returns or cancel in <1ms on seek/track-switch.
 class HttpRangeStreamCache {
 public:
     static constexpr size_t kBlockSize = 64 * 1024;
     static constexpr size_t kPinnedHeaderBlocks = 4;
     static constexpr size_t kMaxCachedBlocks = 192;
     static constexpr size_t kForegroundWorkers = 2;
+    static constexpr const char* kOfflineSyntheticUrlPrefix =
+        "https://offline-cache.spotify.local/audio/";
 
     HttpRangeStreamCache(
         std::vector<std::string> urls,
@@ -57,25 +57,25 @@ public:
     HttpRangeStreamCache(const HttpRangeStreamCache&) = delete;
     HttpRangeStreamCache& operator=(const HttpRangeStreamCache&) = delete;
 
-    /// Opens the stream (from DiskCache in <1ms if cached, or via a single 64 KiB Range request)
-    /// and starts the on-demand streaming workers.
+    /// Opens the stream (from DiskCache in <1ms if cached, or via a P0 64 KiB Range request
+    /// that waits for connectivity if offline) and starts the on-demand streaming workers.
     [[nodiscard]] bool open();
 
     /// Synchronous random-access read adhering strictly to AMediaDataSource::readAt contract:
     /// - Returns > 0: exact byte count copied into `buffer`
     /// - Returns   0: strict EOF (offset >= totalSize) or zero-length request
-    /// - Returns  -1: canceled, superseded by newer seek epoch, offline miss, or transport error
+    /// - Returns  -1: canceled or superseded by a newer seek epoch
     [[nodiscard]] ssize_t readAt(int64_t offset, void* buffer, size_t size);
 
     /// Total resource byte length discovered during open(), or -1 if unknown/unopened.
     [[nodiscard]] int64_t getSize() const noexcept;
 
     /// Signals cancellation immediately. Wakes all threads blocked in readAt()/open() and
-    /// aborts any active libcurl transfers without waiting on network sockets.
+    /// aborts any active libcurl transfers or P0 queue waits without waiting on network sockets.
     void cancel() noexcept;
 
-    /// Increments the seek epoch, aborts stale transfers from prior seeks, and wakes any thread
-    /// blocked on a superseded seek read.
+    /// Increments the seek epoch, aborts stale transfers/waits from prior seeks, and wakes any
+    /// thread blocked on a superseded seek read.
     void onSeek() noexcept;
 
     /// Alias for onSeek() used by IAudioDataSource::preemptPrefetch().
@@ -91,14 +91,25 @@ public:
     [[nodiscard]] std::string primaryUrl() const;
 
 private:
+    enum class BlockTransferPhase : uint8_t {
+        Streaming = 0,
+        CompletedOk = 1,
+        PreemptedBySeek = 2,
+        Aborted = 3,
+    };
+
+    enum class WorkerPoolState : uint8_t {
+        Unstarted = 0,
+        Running = 1,
+        Stopped = 2,
+    };
+
     struct InFlightBlock {
         std::vector<uint8_t> buffer;
         size_t expected_size{0};
         size_t filled_bytes{0};
         std::shared_ptr<const std::vector<uint8_t>> data;
-        bool done{false};
-        bool ok{false};
-        bool preempted{false};
+        BlockTransferPhase phase{BlockTransferPhase::Streaming};
         uint32_t foreground_waiters{0};
     };
 
@@ -136,6 +147,8 @@ private:
         uint64_t observed_generation,
         const CancelPredicate& cancel_pred);
 
+    [[nodiscard]] static bool isOfflineSyntheticUrl(const std::string& url) noexcept;
+
     void insertBlockLocked(size_t block_index, std::shared_ptr<const std::vector<uint8_t>> data);
     void touchLruLocked(size_t block_index);
     void startWorkersIfNeeded();
@@ -168,7 +181,7 @@ private:
     std::unordered_map<size_t, std::shared_ptr<InFlightBlock>> in_flight_;
     std::deque<ForegroundRequest> fg_queue_;
 
-    bool workers_started_{false};
+    WorkerPoolState worker_pool_state_{WorkerPoolState::Unstarted};
     std::array<std::thread, kForegroundWorkers> fg_threads_;
 };
 

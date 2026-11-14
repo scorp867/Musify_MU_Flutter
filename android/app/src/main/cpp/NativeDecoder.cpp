@@ -143,6 +143,7 @@ EngineStatus NativeDecoder::start() {
     }
 
     mActiveRingEpoch = mRingBuffer.currentEpoch();
+    mRunState.store(DecoderRunState::Active, std::memory_order_release);
     mShouldStop.store(false, std::memory_order_release);
     mEndOfStream.store(false, std::memory_order_release);
     mInputEos.store(false, std::memory_order_release);
@@ -152,6 +153,7 @@ EngineStatus NativeDecoder::start() {
 }
 
 void NativeDecoder::stop() {
+    mRunState.store(DecoderRunState::Stopping, std::memory_order_release);
     mShouldStop.store(true, std::memory_order_release);
     mWakeCv.notify_all();
     if (mThread.joinable()) {
@@ -164,9 +166,19 @@ void NativeDecoder::stop() {
     }
 }
 
+void NativeDecoder::suspend() noexcept {
+    DecoderRunState expected = DecoderRunState::Active;
+    mRunState.compare_exchange_strong(
+        expected, DecoderRunState::Suspended, std::memory_order_acq_rel);
+    mWakeCv.notify_all();
+}
+
 void NativeDecoder::requestSeek(int64_t positionUs) {
     mSeekTargetUs.store(positionUs, std::memory_order_relaxed);
     mSeekRequested.store(true, std::memory_order_release);
+    if (!mShouldStop.load(std::memory_order_acquire)) {
+        mRunState.store(DecoderRunState::Active, std::memory_order_release);
+    }
     mWakeCv.notify_all();
 }
 
@@ -191,11 +203,14 @@ void NativeDecoder::threadFunc() {
             continue;
         }
 
-        if (mEndOfStream.load(std::memory_order_relaxed)) {
+        if (mRunState.load(std::memory_order_acquire) == DecoderRunState::Suspended ||
+            mEndOfStream.load(std::memory_order_relaxed)) {
             std::unique_lock<std::mutex> lock(mWakeMutex);
             mWakeCv.wait_for(lock, std::chrono::milliseconds(10), [this]() {
                 return mSeekRequested.load(std::memory_order_acquire) ||
-                       mShouldStop.load(std::memory_order_acquire);
+                       mShouldStop.load(std::memory_order_acquire) ||
+                       (mRunState.load(std::memory_order_acquire) == DecoderRunState::Active &&
+                        !mEndOfStream.load(std::memory_order_relaxed));
             });
             continue;
         }
@@ -454,6 +469,7 @@ bool NativeDecoder::drainOutputBuffer() {
 
             while (framesRemaining > 0 && !mShouldStop.load(std::memory_order_relaxed)) {
                 if (mSeekRequested.load(std::memory_order_acquire) ||
+                    mRunState.load(std::memory_order_acquire) != DecoderRunState::Active ||
                     mRingBuffer.currentEpoch() != mActiveRingEpoch) {
                     break;
                 }

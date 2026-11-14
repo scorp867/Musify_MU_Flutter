@@ -1,16 +1,24 @@
 library;
 
+import 'dart:async' show unawaited;
 import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import '../../app/di/injection.dart';
-import '../../features/player/application/queue/mobius/player_queue_mobius_controller.dart';
+import '../../features/player/data/esperanto/context_player_play_client.dart';
+import '../../features/player/domain/commands/options/prepare_play_options.dart';
+import '../../features/player/domain/commands/options/skip_to_track.dart';
+import '../../features/player/domain/commands/play_command.dart';
+import '../../features/player/domain/models/context.dart';
+import '../../features/player/domain/models/context_page.dart';
 import '../../features/player/domain/models/context_track.dart';
+import '../../features/player/domain/models/play_origin.dart';
+import '../../features/playlist/domain/repositories/playlist_repository.dart';
+import '../../features/playlist/presentation/playlist_screen.dart';
 import '../ubi/data/lifecycle/page_instance_id_holder.dart';
 import '../ubi/domain/logging/ubi_logger.dart';
 import '../ubi/domain/models/interaction_logging_result.dart';
 import 'spotify_navigator.dart';
 import 'spotify_uri_navigator.dart';
-import '../../features/playlist/presentation/playlist_screen.dart';
 
 /// 1:1 replica of Spotify Android `p199p.akl0` (NavigatorImpl).
 /// Encapsulates routing resolution and coordinates with the UBI instrumentation subsystem.
@@ -31,13 +39,22 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
   PageInstanceIdHolder get pageInstanceIdHolder => _pageInstanceIdHolder;
 
   @override
-  bool openUri(BuildContext context, String uri) {
-    return navigateToUri(context, uri);
+  bool openUri(BuildContext context, String uri, {ContextTrack? track}) {
+    return navigateToUri(context, uri, track: track);
   }
 
   @override
-  Future<bool> playUri(BuildContext context, String uri, {ContextTrack? track}) {
-    return SpotifyUriNavigator.playUri(context, uri, track: track);
+  Future<bool> playUri(
+    BuildContext context,
+    String uri, {
+    ContextTrack? track,
+  }) {
+    return dispatchPlayUri(
+      context,
+      uri,
+      track: track,
+      ubiLogger: _ubiLogger,
+    );
   }
 
   @override
@@ -46,6 +63,103 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
     String uri, {
     InteractionLoggingResult? interactionLoggingResult,
     Map<String, dynamic>? extras,
+    ContextTrack? track,
+  }) {
+    return dispatchNavigateToUri(
+      context,
+      uri,
+      interactionLoggingResult: interactionLoggingResult,
+      extras: extras,
+      track: track,
+      ubiLogger: _ubiLogger,
+    );
+  }
+
+  /// Dispatches a canonical `PlayCommand` via `ContextPlayerPlayClient` (`p.avy`)
+  /// for standalone track or episode playback initiated outside the Queue Sheet.
+  static Future<bool> _playStandaloneItem(
+    String uri, {
+    ContextTrack? track,
+  }) async {
+    if (!getIt.isRegistered<ContextPlayerPlayClient>()) {
+      return false;
+    }
+    final effectiveTrack = switch (track) {
+      final t? => t.uri.isNotEmpty ? t : t.toBuilder().uri(uri).build(),
+      null => ContextTrack.builder(uri).build(),
+    };
+    final page = ContextPage.builder()
+        .pageUrl('context://$uri?page=0')
+        .tracks([effectiveTrack])
+        .build();
+    final playbackContext = Context.builder(uri)
+        .url('context://$uri')
+        .pages([page])
+        .build();
+    final skipToBuilder = SkipToTrack.builder().trackUri(uri);
+    if (effectiveTrack.uid.isNotEmpty) {
+      skipToBuilder.trackUid(effectiveTrack.uid);
+    }
+    final options = PreparePlayOptions.builder()
+        .skipTo(skipToBuilder.build())
+        .initiallyPaused(false)
+        .build();
+    final command = PlayCommand.builder(
+      playbackContext,
+      PlayOrigin.create('link_dispatcher'),
+    ).options(options).build();
+
+    await getIt<ContextPlayerPlayClient>().play(command);
+    return true;
+  }
+
+  /// Single authoritative implementation for direct URI playback (tracks, episodes, playlists).
+  static Future<bool> dispatchPlayUri(
+    BuildContext context,
+    String uri, {
+    ContextTrack? track,
+    UbiLogger? ubiLogger,
+  }) async {
+    if (uri.isEmpty) return false;
+
+    if (uri.startsWith('spotify:track:') ||
+        uri.startsWith('spotify:episode:')) {
+      return _playStandaloneItem(uri, track: track);
+    }
+
+    if (SpotifyUriNavigator.isPlaylistUri(uri)) {
+      if (getIt.isRegistered<PlaylistRepository>()) {
+        try {
+          await getIt<PlaylistRepository>().playPlaylist(playlistUri: uri);
+          return true;
+        } catch (e, stack) {
+          dev.log(
+            'Failed to play playlist URI $uri: $e',
+            name: 'SpotifyNavigatorImpl',
+            error: e,
+            stackTrace: stack,
+          );
+        }
+      }
+    }
+
+    if (!context.mounted) return false;
+    return dispatchNavigateToUri(
+      context,
+      uri,
+      track: track,
+      ubiLogger: ubiLogger,
+    );
+  }
+
+  /// Single authoritative implementation for URI navigation and link dispatching.
+  static bool dispatchNavigateToUri(
+    BuildContext context,
+    String uri, {
+    InteractionLoggingResult? interactionLoggingResult,
+    Map<String, dynamic>? extras,
+    ContextTrack? track,
+    UbiLogger? ubiLogger,
   }) {
     if (uri.isEmpty) return false;
 
@@ -60,21 +174,27 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
     // 1:1 Spotify akl0.mo27228a: If an interaction logging result is not explicitly
     // passed, generate an interaction log on the 'link_dispatcher' leaf.
     if (interactionLoggingResult == null) {
-      try {
-        _ubiLogger.logInteraction(
-          UbiInteractionElement(
-            elementPath: 'link_dispatcher',
-            uri: uri,
-            actionName: 'navigate',
-          ),
-        );
-      } catch (e, stack) {
-        dev.log(
-          'Failed to log interaction for $uri: $e',
-          name: 'SpotifyNavigatorImpl',
-          error: e,
-          stackTrace: stack,
-        );
+      final effectiveLogger = switch (ubiLogger) {
+        final logger? => logger,
+        null => getIt.isRegistered<UbiLogger>() ? getIt<UbiLogger>() : null,
+      };
+      if (effectiveLogger != null) {
+        try {
+          effectiveLogger.logInteraction(
+            UbiInteractionElement(
+              elementPath: 'link_dispatcher',
+              uri: uri,
+              actionName: 'navigate',
+            ),
+          );
+        } catch (e, stack) {
+          dev.log(
+            'Failed to log interaction for $uri: $e',
+            name: 'SpotifyNavigatorImpl',
+            error: e,
+            stackTrace: stack,
+          );
+        }
       }
     }
 
@@ -87,10 +207,10 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
       return true;
     }
 
-    if (uri.startsWith('spotify:track:') || uri.startsWith('spotify:episode:')) {
-      if (getIt.isRegistered<PlayerQueueMobiusController>()) {
-        final track = ContextTrack.builder(uri).build();
-        getIt<PlayerQueueMobiusController>().dispatch(TrackTappedEvent(track));
+    if (uri.startsWith('spotify:track:') ||
+        uri.startsWith('spotify:episode:')) {
+      if (getIt.isRegistered<ContextPlayerPlayClient>()) {
+        unawaited(_playStandaloneItem(uri, track: track));
         return true;
       }
     }

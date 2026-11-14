@@ -260,7 +260,33 @@ void WidevineLicenseClient::putCachedSessionLocked(
     }
 }
 
-bool WidevineLicenseClient::handleProvisioningLocked() {
+bool WidevineLicenseClient::hasWarmSession(const std::vector<uint8_t>& pssh_bytes) {
+    if (pssh_bytes.empty()) return false;
+    const std::vector<uint8_t> formatted_pssh =
+        isPsshBox(pssh_bytes) ? pssh_bytes : wrapInPsshBox(pssh_bytes);
+    const std::string cache_key = bytesToHex(formatted_pssh);
+
+    std::lock_guard<std::mutex> lock(drm_mutex_);
+    if (!ensureMediaDrmLocked()) {
+        return false;
+    }
+    for (auto it = session_lru_.begin(); it != session_lru_.end(); ++it) {
+        if (it->cache_key == cache_key) {
+            const AMediaDrmSessionId cached_sid{it->session_id.data(), it->session_id.size()};
+            AMediaDrmKeyValue status_pairs[16]{};
+            size_t num_pairs = 16;
+            const media_status_t qst =
+                AMediaDrm_queryKeyStatus(media_drm_, &cached_sid, status_pairs, &num_pairs);
+            if (qst == AMEDIA_OK || qst == AMEDIA_DRM_SHORT_BUFFER) {
+                return true;
+            }
+            break;
+        }
+    }
+    return false;
+}
+
+bool WidevineLicenseClient::handleProvisioningLocked(const network::CancelPredicate& cancel_pred) {
     if (!media_drm_) return false;
 
     const uint8_t* prov_req_ptr = nullptr;
@@ -280,7 +306,20 @@ bool WidevineLicenseClient::handleProvisioningLocked() {
     const std::string default_url(server_url);
     const std::vector<uint8_t> req_bytes(prov_req_ptr, prov_req_ptr + prov_req_size);
 
+    auto permit = network::NativeTrafficController::instance().acquirePermit(
+        network::RequestPriority::P1_PlaybackSetup,
+        network::OfflinePolicy::WaitForOnline,
+        "drm:provision",
+        nullptr,
+        cancel_pred);
+    if (!permit) {
+        return false;
+    }
+
     const auto resp = executeProvisioningPost(default_url, req_bytes);
+    permit.complete(resp.transport_ok
+                        ? network::TransferOutcome::Success
+                        : network::TransferOutcome::TransportFailure);
     if (!resp.isSuccess() || resp.body.empty()) {
         WV_LOGE("Widevine provisioning HTTP exchange failed");
         return false;
@@ -303,7 +342,8 @@ std::vector<uint8_t> WidevineLicenseClient::acquireStreamingSession(
     const std::vector<uint8_t>& pssh_bytes,
     const std::string& license_url,
     const std::string& auth_header,
-    int max_retries) {
+    int max_retries,
+    const network::CancelPredicate& cancel_pred) {
     if (pssh_bytes.empty()) {
         WV_LOGE("acquireStreamingSession called with empty PSSH bytes");
         return {};
@@ -313,127 +353,191 @@ std::vector<uint8_t> WidevineLicenseClient::acquireStreamingSession(
         isPsshBox(pssh_bytes) ? pssh_bytes : wrapInPsshBox(pssh_bytes);
     const std::string cache_key = bytesToHex(formatted_pssh);
 
-    std::lock_guard<std::mutex> lock(drm_mutex_);
-    if (!ensureMediaDrmLocked()) {
-        return {};
-    }
+    std::vector<uint8_t> session_id;
+    std::vector<uint8_t> challenge;
 
-    // 1. Check LRU session cache and verify session liveness via AMediaDrm_queryKeyStatus.
-    for (auto it = session_lru_.begin(); it != session_lru_.end(); ++it) {
-        if (it->cache_key == cache_key) {
-            const AMediaDrmSessionId cached_sid{it->session_id.data(), it->session_id.size()};
-            AMediaDrmKeyValue status_pairs[16]{};
-            size_t num_pairs = 16;
-            const media_status_t qst =
-                AMediaDrm_queryKeyStatus(media_drm_, &cached_sid, status_pairs, &num_pairs);
-            if (qst == AMEDIA_OK || qst == AMEDIA_DRM_SHORT_BUFFER) {
-                std::vector<uint8_t> hit_id = it->session_id;
-                session_lru_.splice(session_lru_.begin(), session_lru_, it);
-                WV_LOGI("Native AMediaDrm session cache HIT for track PSSH (0 network calls)");
-                return hit_id;
+    {
+        std::lock_guard<std::mutex> lock(drm_mutex_);
+        if (!ensureMediaDrmLocked()) {
+            return {};
+        }
+
+        // 1. Check LRU session cache and verify session liveness via AMediaDrm_queryKeyStatus.
+        for (auto it = session_lru_.begin(); it != session_lru_.end(); ++it) {
+            if (it->cache_key == cache_key) {
+                const AMediaDrmSessionId cached_sid{it->session_id.data(), it->session_id.size()};
+                AMediaDrmKeyValue status_pairs[16]{};
+                size_t num_pairs = 16;
+                const media_status_t qst =
+                    AMediaDrm_queryKeyStatus(media_drm_, &cached_sid, status_pairs, &num_pairs);
+                if (qst == AMEDIA_OK || qst == AMEDIA_DRM_SHORT_BUFFER) {
+                    std::vector<uint8_t> hit_id = it->session_id;
+                    session_lru_.splice(session_lru_.begin(), session_lru_, it);
+                    WV_LOGI("Native AMediaDrm session cache HIT for track PSSH (0 network calls)");
+                    return hit_id;
+                }
+                WV_LOGW("Cached AMediaDrm session no longer valid (status=%d), evicting",
+                        static_cast<int>(qst));
+                closeRawSessionLocked(media_drm_, it->session_id);
+                session_lru_.erase(it);
+                break;
             }
-            WV_LOGW("Cached AMediaDrm session no longer valid (status=%d), evicting",
-                    static_cast<int>(qst));
-            closeRawSessionLocked(media_drm_, it->session_id);
-            session_lru_.erase(it);
-            break;
         }
-    }
 
-    // 2. Open a fresh hardware Widevine session.
-    AMediaDrmSessionId raw_sid{nullptr, 0};
-    media_status_t open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
-    if (open_st == AMEDIA_DRM_NOT_PROVISIONED) {
-        WV_LOGW("Device not provisioned for Widevine, executing native provisioning...");
-        if (handleProvisioningLocked()) {
-            open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
-        }
-    } else if (open_st == AMEDIA_DRM_RESOURCE_BUSY) {
-        WV_LOGW("AMediaDrm resource busy, evicting cached sessions and retrying...");
-        evictAllSessionsLocked();
-        open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
-        if (open_st != AMEDIA_OK) {
-            AMediaDrm_release(media_drm_);
-            media_drm_ = nullptr;
-            if (ensureMediaDrmLocked()) {
+        // 2. Open a fresh hardware Widevine session.
+        AMediaDrmSessionId raw_sid{nullptr, 0};
+        media_status_t open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
+        if (open_st == AMEDIA_DRM_NOT_PROVISIONED) {
+            WV_LOGW("Device not provisioned for Widevine, executing native provisioning...");
+            if (handleProvisioningLocked(cancel_pred)) {
                 open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
             }
+        } else if (open_st == AMEDIA_DRM_RESOURCE_BUSY) {
+            WV_LOGW("AMediaDrm resource busy, evicting cached sessions and retrying...");
+            evictAllSessionsLocked();
+            open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
+            if (open_st != AMEDIA_OK) {
+                AMediaDrm_release(media_drm_);
+                media_drm_ = nullptr;
+                if (ensureMediaDrmLocked()) {
+                    open_st = AMediaDrm_openSession(media_drm_, &raw_sid);
+                }
+            }
         }
-    }
 
-    if (open_st != AMEDIA_OK || !raw_sid.ptr || raw_sid.length == 0) {
-        WV_LOGE("AMediaDrm_openSession failed: status=%d", static_cast<int>(open_st));
-        return {};
-    }
-
-    std::vector<uint8_t> session_id(raw_sid.ptr, raw_sid.ptr + raw_sid.length);
-    const AMediaDrmSessionId sid{session_id.data(), session_id.size()};
-
-    // 3. Generate Widevine streaming key request challenge.
-    const uint8_t* key_req_ptr = nullptr;
-    size_t key_req_size = 0;
-    media_status_t kr_st = AMediaDrm_getKeyRequest(
-        media_drm_,
-        &sid,
-        formatted_pssh.data(),
-        formatted_pssh.size(),
-        "audio/mp4",
-        KEY_TYPE_STREAMING,
-        nullptr,
-        0,
-        &key_req_ptr,
-        &key_req_size);
-    if (kr_st == AMEDIA_DRM_NOT_PROVISIONED) {
-        WV_LOGW("AMediaDrm_getKeyRequest returned NOT_PROVISIONED, provisioning and retrying...");
-        if (handleProvisioningLocked()) {
-            kr_st = AMediaDrm_getKeyRequest(
-                media_drm_,
-                &sid,
-                formatted_pssh.data(),
-                formatted_pssh.size(),
-                "audio/mp4",
-                KEY_TYPE_STREAMING,
-                nullptr,
-                0,
-                &key_req_ptr,
-                &key_req_size);
+        if (open_st != AMEDIA_OK || !raw_sid.ptr || raw_sid.length == 0) {
+            WV_LOGE("AMediaDrm_openSession failed: status=%d", static_cast<int>(open_st));
+            return {};
         }
+
+        session_id.assign(raw_sid.ptr, raw_sid.ptr + raw_sid.length);
+        const AMediaDrmSessionId sid{session_id.data(), session_id.size()};
+
+        // 3. Generate Widevine streaming key request challenge.
+        const uint8_t* key_req_ptr = nullptr;
+        size_t key_req_size = 0;
+        media_status_t kr_st = AMediaDrm_getKeyRequest(
+            media_drm_,
+            &sid,
+            formatted_pssh.data(),
+            formatted_pssh.size(),
+            "audio/mp4",
+            KEY_TYPE_STREAMING,
+            nullptr,
+            0,
+            &key_req_ptr,
+            &key_req_size);
+        if (kr_st == AMEDIA_DRM_NOT_PROVISIONED) {
+            WV_LOGW("AMediaDrm_getKeyRequest returned NOT_PROVISIONED, provisioning and retrying...");
+            if (handleProvisioningLocked(cancel_pred)) {
+                kr_st = AMediaDrm_getKeyRequest(
+                    media_drm_,
+                    &sid,
+                    formatted_pssh.data(),
+                    formatted_pssh.size(),
+                    "audio/mp4",
+                    KEY_TYPE_STREAMING,
+                    nullptr,
+                    0,
+                    &key_req_ptr,
+                    &key_req_size);
+            }
+        }
+
+        if (kr_st != AMEDIA_OK || !key_req_ptr || key_req_size == 0) {
+            WV_LOGE("AMediaDrm_getKeyRequest failed: status=%d", static_cast<int>(kr_st));
+            closeRawSessionLocked(media_drm_, session_id);
+            return {};
+        }
+
+        challenge.assign(key_req_ptr, key_req_ptr + key_req_size);
     }
 
-    if (kr_st != AMEDIA_OK || !key_req_ptr || key_req_size == 0) {
-        WV_LOGE("AMediaDrm_getKeyRequest failed: status=%d", static_cast<int>(kr_st));
-        closeRawSessionLocked(media_drm_, session_id);
-        return {};
-    }
-
-    const std::vector<uint8_t> challenge(key_req_ptr, key_req_ptr + key_req_size);
-
-    // 4. Execute license POST over C++ libcurl + mbedTLS with retry/backoff.
+    // 4. Execute license POST over C++ libcurl + mbedTLS governed by NativeTrafficController
+    // (P1_PlaybackSetup, WaitForOnline), without holding drm_mutex_ across network waits.
     const int attempts_allowed = max_retries > 0 ? max_retries : 1;
     network::HttpResponse license_resp;
     int64_t delay_ms = kBaseBackoffMs;
-    for (int attempt = 1; attempt <= attempts_allowed; ++attempt) {
+    int http_attempt = 0;
+
+    while (!cancel_pred || !cancel_pred()) {
+        auto permit = network::NativeTrafficController::instance().acquirePermit(
+            network::RequestPriority::P1_PlaybackSetup,
+            network::OfflinePolicy::WaitForOnline,
+            "drm:" + cache_key,
+            nullptr,
+            cancel_pred);
+        if (!permit) {
+            break;
+        }
+
         license_resp = executeLicensePost(license_url, auth_header, challenge);
+        permit.complete(license_resp.transport_ok
+                            ? network::TransferOutcome::Success
+                            : network::TransferOutcome::TransportFailure);
+
         if (license_resp.isSuccess() && !license_resp.body.empty()) {
             break;
         }
-        if (license_resp.status_code == 429) {
-            WV_LOGE("Widevine license server returned HTTP 429; aborting retries immediately");
+        if (license_resp.status_code == 429 ||
+            (license_resp.status_code >= 400 && license_resp.status_code < 500 &&
+             license_resp.status_code != 408)) {
+            WV_LOGE("Widevine license server returned HTTP %d; aborting retries",
+                    license_resp.status_code);
             break;
         }
-        if (attempt < attempts_allowed) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
-            delay_ms *= 2;
+
+        if (cancel_pred && cancel_pred()) {
+            break;
         }
+
+        if (!network::NativeHttpClient::hasActiveNetworkRoute()) {
+            // Device went offline mid-request; wait for kernel route restoration without burning retry count.
+            if (!network::NativeTrafficController::instance().waitForOnline(nullptr, cancel_pred)) {
+                break;
+            }
+            continue;
+        }
+
+        if (!license_resp.transport_ok) {
+            // Transient socket/DNS warm-up right after connectivity restoration; retry without burning HTTP attempt count.
+            for (int64_t waited = 0; waited < kBaseBackoffMs; waited += 40) {
+                if (cancel_pred && cancel_pred()) {
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(40));
+            }
+            continue;
+        }
+
+        ++http_attempt;
+        if (http_attempt >= attempts_allowed) {
+            break;
+        }
+        for (int64_t waited = 0; waited < delay_ms; waited += 40) {
+            if (cancel_pred && cancel_pred()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        }
+        delay_ms *= 2;
     }
 
-    if (!license_resp.isSuccess() || license_resp.body.empty()) {
-        WV_LOGE("Widevine license exchange failed after retries");
+    std::lock_guard<std::mutex> lock(drm_mutex_);
+    if (!media_drm_) {
+        return {};
+    }
+
+    if ((cancel_pred && cancel_pred()) || !license_resp.isSuccess() || license_resp.body.empty()) {
+        if (!license_resp.isSuccess()) {
+            WV_LOGE("Widevine license exchange did not complete (canceled or failed)");
+        }
         closeRawSessionLocked(media_drm_, session_id);
         return {};
     }
 
     // 5. Provide license response to hardware CDM.
+    const AMediaDrmSessionId sid{session_id.data(), session_id.size()};
     AMediaDrmKeySetId key_set_id{nullptr, 0};
     const media_status_t pkr_st = AMediaDrm_provideKeyResponse(
         media_drm_,
@@ -577,6 +681,17 @@ std::string WidevineLicenseClient::resolveLicenseUrl() {
         }
     }
 
+    // When offline, return the deterministic direct Widevine license endpoint immediately
+    // without blocking so warm AMediaDrm LRU session hits resolve in 0ms.
+    auto permit = network::NativeTrafficController::instance().acquirePermit(
+        network::RequestPriority::P1_PlaybackSetup,
+        network::OfflinePolicy::FailFastOffline,
+        "drm:melody_url");
+    if (!permit) {
+        return kDirectFallbackLicenseUrl;
+    }
+
+    bool any_transport_ok = false;
     const char* hosts[2] = {kPrimarySpclient, kFallbackSpclient};
     for (const char* host : hosts) {
         const std::string req_url = std::string(host) + kMelodyPath;
@@ -586,6 +701,10 @@ std::string WidevineLicenseClient::resolveLicenseUrl() {
             6000,
             10000,
             true);
+
+        if (resp.transport_ok) {
+            any_transport_ok = true;
+        }
 
         if (!resp.isSuccess() || resp.body.empty()) {
             WV_LOGW("melody license_url HTTP %d from %s", resp.status_code, host);
@@ -623,11 +742,15 @@ std::string WidevineLicenseClient::resolveLicenseUrl() {
             cached_url_ = uri;
             expires_at_ = std::chrono::steady_clock::now() + std::chrono::seconds(safe_ttl);
         }
+        permit.complete(network::TransferOutcome::Success);
         WV_LOGI("Resolved Widevine license URL: %s (ttl=%llds)",
                 uri.c_str(), static_cast<long long>(safe_ttl));
         return uri;
     }
 
+    permit.complete(any_transport_ok
+                        ? network::TransferOutcome::Success
+                        : network::TransferOutcome::TransportFailure);
     WV_LOGW("Falling back to direct Widevine license endpoint");
     return kDirectFallbackLicenseUrl;
 }

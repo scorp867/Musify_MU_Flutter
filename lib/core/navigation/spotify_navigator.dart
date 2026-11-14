@@ -14,6 +14,7 @@ abstract interface class SpotifyNavigator {
     String uri, {
     InteractionLoggingResult? interactionLoggingResult,
     Map<String, dynamic>? extras,
+    ContextTrack? track,
   });
 
   /// 1:1 replica of `p199p.vgm0#mo27230c()`.
@@ -22,7 +23,7 @@ abstract interface class SpotifyNavigator {
 
   /// 1:1 replica of `p199p.vgm0#mo27234h(String uri)`.
   /// Convenient single-argument overload for URI navigation.
-  bool openUri(BuildContext context, String uri);
+  bool openUri(BuildContext context, String uri, {ContextTrack? track});
 
   /// Directly plays an entity URI (track, episode, or playlist) without navigating away.
   Future<bool> playUri(BuildContext context, String uri, {ContextTrack? track});

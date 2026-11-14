@@ -61,7 +61,7 @@ class NowPlayingScrollController extends ChangeNotifier
   }
 
   Future<void> _fetchScroll(String? trackId) async {
-    // Skip duplicate requests for the identical trackId
+    // Skip duplicate requests for the identical trackId when already loaded
     if (trackId == _lastTrackId && _state is NowPlayingScrollLoaded) {
       return;
     }
@@ -98,6 +98,11 @@ class NowPlayingScrollController extends ChangeNotifier
         lyricsFuture,
       ]);
 
+      // Ignore superseded track responses if the user switched tracks while in-flight
+      if (trackId != _lastTrackId) {
+        return;
+      }
+
       final cards = results[0] as List<ScrollCardDescriptor>;
       final lyrics = results[1] as ColorLyricsResponse?;
 
@@ -107,6 +112,9 @@ class NowPlayingScrollController extends ChangeNotifier
         lyrics: lyrics,
       ));
     } catch (e) {
+      if (trackId != _lastTrackId) {
+        return;
+      }
       _emitState(NowPlayingScrollFailure(
         trackId: trackId,
         message: e.toString(),

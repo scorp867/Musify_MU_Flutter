@@ -20,16 +20,16 @@ import 'package:musify_mu/features/player/domain/models/context_page.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/domain/models/play_origin.dart';
 import 'package:musify_mu/features/player/domain/models/player_response.dart';
-import 'package:musify_mu/features/playlist/domain/models/playlist_entity.dart';
-import 'package:musify_mu/features/playlist/domain/models/playlist_metadata.dart';
-import 'package:musify_mu/features/playlist/domain/models/sort_order.dart';
-import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_data_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_modification_client.dart';
 import 'package:musify_mu/features/playlist/data/client/playlist_play_client.dart';
 import 'package:musify_mu/features/playlist/data/decorator/playlist_kodiak_decorator.dart';
 import 'package:musify_mu/features/playlist/data/mappers/playlist_proto_mappers.dart';
 import 'package:musify_mu/features/playlist/data/proto/playlist_esperanto_proto.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_entity.dart';
+import 'package:musify_mu/features/playlist/domain/models/playlist_metadata.dart';
+import 'package:musify_mu/features/playlist/domain/models/sort_order.dart';
+import 'package:musify_mu/features/playlist/domain/repositories/playlist_repository.dart';
 import 'package:musify_mu/features/playlist/presentation/extensions/track_item_metadata_presentation.dart';
 
 /// 1:1 Implementation of Spotify PlaylistRepository.
@@ -82,7 +82,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
     final isLiked = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
     bool hasEmittedData = false;
 
-    // 1. Emit disk cache immediately for instant UI render
+    // 1. Emit disk cache immediately (enriched from local DataPool cache first)
     if (_cache != null) {
       try {
         final cachedBytes = await _cache.getRawBytes(playlistId);
@@ -93,13 +93,16 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             currentUsername: _currentUsername,
             sortOrder: sortOrder,
           );
-          _memoryCache[playlistId] = cachedEntity;
-          _memoryCache[playlistUri] = cachedEntity;
-          yield cachedEntity;
+          final locallyDecorated = _kodiakDecorator != null
+              ? await _kodiakDecorator.decorateFromCache(cachedEntity)
+              : cachedEntity;
+          _memoryCache[playlistId] = locallyDecorated;
+          _memoryCache[playlistUri] = locallyDecorated;
+          yield locallyDecorated;
           hasEmittedData = true;
 
-          if (_kodiakDecorator != null && cachedEntity.items.isNotEmpty) {
-            final decorated = await _kodiakDecorator.decorate(cachedEntity);
+          if (_kodiakDecorator != null && locallyDecorated.items.isNotEmpty) {
+            final decorated = await _kodiakDecorator.decorate(locallyDecorated);
             _memoryCache[playlistId] = decorated;
             _memoryCache[playlistUri] = decorated;
             yield decorated;
@@ -115,13 +118,16 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
               currentUsername: _currentUsername,
               sortOrder: sortOrder,
             );
-            _memoryCache[playlistId] = cachedEntity;
-            _memoryCache[playlistUri] = cachedEntity;
-            yield cachedEntity;
+            final locallyDecorated = _kodiakDecorator != null
+                ? await _kodiakDecorator.decorateFromCache(cachedEntity)
+                : cachedEntity;
+            _memoryCache[playlistId] = locallyDecorated;
+            _memoryCache[playlistUri] = locallyDecorated;
+            yield locallyDecorated;
             hasEmittedData = true;
 
-            if (_kodiakDecorator != null && cachedEntity.items.isNotEmpty) {
-              final decorated = await _kodiakDecorator.decorate(cachedEntity);
+            if (_kodiakDecorator != null && locallyDecorated.items.isNotEmpty) {
+              final decorated = await _kodiakDecorator.decorate(locallyDecorated);
               _memoryCache[playlistId] = decorated;
               _memoryCache[playlistUri] = decorated;
               yield decorated;
@@ -173,14 +179,21 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
                 currentUsername: _currentUsername,
                 sortOrder: sortOrder,
               );
-              final decoratedEntity = _kodiakDecorator != null
-                  ? await _kodiakDecorator.decorate(rawEntity)
+              final locallyDecorated = _kodiakDecorator != null
+                  ? await _kodiakDecorator.decorateFromCache(rawEntity)
                   : rawEntity;
-
-              _memoryCache[playlistId] = decoratedEntity;
-              _memoryCache[playlistUri] = decoratedEntity;
-              yield decoratedEntity;
+              _memoryCache[playlistId] = locallyDecorated;
+              _memoryCache[playlistUri] = locallyDecorated;
+              yield locallyDecorated;
               hasEmittedData = true;
+
+              if (_kodiakDecorator != null) {
+                final decoratedEntity =
+                    await _kodiakDecorator.decorate(locallyDecorated);
+                _memoryCache[playlistId] = decoratedEntity;
+                _memoryCache[playlistUri] = decoratedEntity;
+                yield decoratedEntity;
+              }
             }
           }
           if (!hasEmittedData) {
@@ -204,13 +217,13 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
                 currentUsername: _currentUsername,
                 sortOrder: sortOrder,
               );
-              final decoratedEntity = _kodiakDecorator != null
-                  ? await _kodiakDecorator.decorate(rawEntity)
+              final locallyDecorated = _kodiakDecorator != null
+                  ? await _kodiakDecorator.decorateFromCache(rawEntity)
                   : rawEntity;
 
-              _memoryCache[playlistId] = decoratedEntity;
-              _memoryCache[playlistUri] = decoratedEntity;
-              yield decoratedEntity;
+              _memoryCache[playlistId] = locallyDecorated;
+              _memoryCache[playlistUri] = locallyDecorated;
+              yield locallyDecorated;
               hasEmittedData = true;
             }
           }
@@ -230,13 +243,13 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             currentUsername: _currentUsername,
             sortOrder: sortOrder,
           );
-          final decoratedEntity = _kodiakDecorator != null
-              ? await _kodiakDecorator.decorate(rawEntity)
+          final locallyDecorated = _kodiakDecorator != null
+              ? await _kodiakDecorator.decorateFromCache(rawEntity)
               : rawEntity;
 
-          _memoryCache[playlistId] = decoratedEntity;
-          _memoryCache[playlistUri] = decoratedEntity;
-          yield decoratedEntity;
+          _memoryCache[playlistId] = locallyDecorated;
+          _memoryCache[playlistUri] = locallyDecorated;
+          yield locallyDecorated;
           hasEmittedData = true;
         }
       }
@@ -345,8 +358,8 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         );
 
         final result = _kodiakDecorator != null
-              ? await _kodiakDecorator.decorate(rawEntity)
-              : rawEntity;
+            ? await _kodiakDecorator.decorateFromCache(rawEntity)
+            : rawEntity;
         _memoryCache[playlistId] = result;
         _memoryCache[playlistUri] = result;
         return result;
@@ -364,8 +377,8 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         );
 
         final result = _kodiakDecorator != null
-              ? await _kodiakDecorator.decorate(rawEntity)
-              : rawEntity;
+            ? await _kodiakDecorator.decorateFromCache(rawEntity)
+            : rawEntity;
         _memoryCache[playlistId] = result;
         _memoryCache[playlistUri] = result;
         return result;
@@ -376,7 +389,9 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
       metadata: PlaylistMetadata(
         uri: playlistUri,
         name: isLiked ? 'Liked Songs' : 'Playlist',
-        picture: isLiked ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png' : '',
+        picture: isLiked
+            ? 'https://misc.scdn.co/liked-songs/liked-songs-300.png'
+            : '',
       ),
       items: const [],
       isLoaded: false,
@@ -423,7 +438,10 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
   }) async {
     final playlistId = _extractPlaylistId(playlistUri);
     final isLiked = SpotifyUriNavigator.isLikedSongsUri(playlistUri);
-    PlaylistEntity? entity = _memoryCache[playlistId] ?? _memoryCache[playlistUri];
+    PlaylistEntity? entity = switch (_memoryCache[playlistId]) {
+      final byId? => byId,
+      null => _memoryCache[playlistUri],
+    };
 
     if (entity == null || entity.items.isEmpty) {
       if (_cache != null) {
@@ -435,14 +453,17 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             currentUsername: _currentUsername,
           );
           entity = _kodiakDecorator != null
-              ? await _kodiakDecorator.decorate(rawEntity)
+              ? await _kodiakDecorator.decorateFromCache(rawEntity)
               : rawEntity;
           _memoryCache[playlistId] = entity;
           _memoryCache[playlistUri] = entity;
         }
       }
-      if ((entity == null || entity.items.isEmpty) && isLiked && _libraryCache != null) {
-        final colBytes = await _libraryCache.getStructureBytes('col_collection');
+      if ((entity == null || entity.items.isEmpty) &&
+          isLiked &&
+          _libraryCache != null) {
+        final colBytes =
+            await _libraryCache.getStructureBytes('col_collection');
         if (colBytes != null && colBytes.isNotEmpty) {
           final rawEntity = PlaylistProtoMappers.fromCollectionBytes(
             colBytes,
@@ -450,13 +471,19 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             currentUsername: _currentUsername,
           );
           entity = _kodiakDecorator != null
-              ? await _kodiakDecorator.decorate(rawEntity)
+              ? await _kodiakDecorator.decorateFromCache(rawEntity)
               : rawEntity;
           _memoryCache[playlistId] = entity;
           _memoryCache[playlistUri] = entity;
         }
       }
+    } else if (_kodiakDecorator != null &&
+        entity.items.any((item) => item.title.isEmpty)) {
+      entity = await _kodiakDecorator.decorateFromCache(entity);
+      _memoryCache[playlistId] = entity;
+      _memoryCache[playlistUri] = entity;
     }
+
     if (entity == null || entity.items.isEmpty) {
       try {
         entity = await getPlaylist(playlistUri);
@@ -490,9 +517,8 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             ContextTrackMetadata.keyImageSmallUrl: item.imageSmallUrl,
           if (item.durationMs > 0)
             ContextTrackMetadata.keyDuration: item.durationMs.toString(),
-          ContextTrackMetadata.keyIsExplicit: item.isExplicit
-              ? 'true'
-              : 'false',
+          ContextTrackMetadata.keyIsExplicit:
+              item.isExplicit ? 'true' : 'false',
           ContextTrackMetadata.keyContextUri: playlistUri,
           ContextTrackMetadata.keyIsQueued: 'false',
         };
@@ -528,6 +554,17 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
             .tracks(contextTracks.sublist(start, end))
             .build();
       });
+    } else if (skipToUri != null && skipToUri.isNotEmpty) {
+      // Offline fallback: if the playlist structure is not yet cached on disk,
+      // still seed the tapped track so the backend switches to that song immediately.
+      final fallbackTrack = ContextTrack.builder(skipToUri).build();
+      pages = <ContextPage>[
+        ContextPage.builder()
+            .pageUrl('context://$playlistUri?page=0')
+            .nextPageUrl('')
+            .tracks(<ContextTrack>[fallbackTrack])
+            .build(),
+      ];
     }
 
     final command = PlayCommand(
@@ -535,8 +572,10 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         uri: playlistUri,
         url: 'context://$playlistUri',
         metadata: {
-          if (entity != null && entity.name.isNotEmpty) 'context_description': entity.name,
-          if (entity != null && entity.pictureUrl.isNotEmpty) 'image_url': entity.pictureUrl,
+          if (entity != null && entity.name.isNotEmpty)
+            'context_description': entity.name,
+          if (entity != null && entity.pictureUrl.isNotEmpty)
+            'image_url': entity.pictureUrl,
         },
         pages: pages,
       ),
@@ -546,9 +585,7 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         referrerIdentifier: 'playlist',
       ),
       options: PreparePlayOptions(
-        skipTo: skipToUri != null
-            ? SkipToTrack(trackUri: skipToUri)
-            : null,
+        skipTo: skipToUri != null ? SkipToTrack(trackUri: skipToUri) : null,
         playerOptionsOverride: shuffle
             ? PlayerOptionOverrides.builder().shufflingContext(true).build()
             : null,

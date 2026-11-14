@@ -139,7 +139,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   DataPool? _dataPool;
   String _currentTrackId = '';
 
-  bool _isPlaying = false;
+  NowPlayingTransportPhase _transportPhase = NowPlayingTransportPhase.paused;
   bool _isFavorite = false;
   QueueShuffleMode _shuffleMode = QueueShuffleMode.none;
   QueueRepeatMode _repeatMode = QueueRepeatMode.none;
@@ -218,7 +218,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     final initialVm = _computeViewModel(_effectiveBloc?.state);
     _positionNotifier = ValueNotifier<Duration>(initialVm.position);
-    _isPlaying = initialVm.isPlaying;
+    _transportPhase = initialVm.transportPhase;
 
     _scrollBloc = getIt<NowPlayingScrollController>();
     _dataPool = getIt.isRegistered<DataPool>() ? getIt<DataPool>() : null;
@@ -234,9 +234,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         }
       }
     });
-    if (_isPlaying) {
-      _positionTicker.start();
-    }
+    _syncTickerForTransportPhase(_transportPhase);
 
     _currentTrackId = initialVm.trackId;
     if (_currentTrackId.isNotEmpty) {
@@ -259,11 +257,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _onQueueStateChanged() {
     if (_effectiveBloc case final bloc?) {
       final vm = _computeViewModel(bloc.state);
-      if (vm.isPlaying != _isPlaying) {
+      final previousPhase = _transportPhase;
+      if (vm.transportPhase != _transportPhase) {
         setState(() {
-          _isPlaying = vm.isPlaying;
+          _transportPhase = vm.transportPhase;
         });
-        _updatePositionTicker(vm.isPlaying);
+        _syncTickerForTransportPhase(vm.transportPhase);
       }
       if (_dragNotifier.value == null) {
         _positionNotifier.value = vm.position;
@@ -271,6 +270,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (vm.trackId.isNotEmpty && vm.trackId != _currentTrackId) {
         _currentTrackId = vm.trackId;
         _scrollBloc.add(FetchNowPlayingScroll(vm.trackId));
+      } else if (_currentTrackId.isNotEmpty &&
+          previousPhase == NowPlayingTransportPhase.bufferingUnplayedSegment &&
+          vm.transportPhase == NowPlayingTransportPhase.playing &&
+          _scrollBloc.state is! NowPlayingScrollLoaded) {
+        _scrollBloc.add(FetchNowPlayingScroll(_currentTrackId));
       }
     }
   }
@@ -297,15 +301,17 @@ class _PlayerScreenState extends State<PlayerScreen>
     return activeIndex;
   }
 
-  void _updatePositionTicker(bool isPlaying) {
-    if (isPlaying) {
-      if (!_positionTicker.isActive) {
-        _positionTicker.start();
-      }
-    } else {
-      if (_positionTicker.isActive) {
-        _positionTicker.stop();
-      }
+  void _syncTickerForTransportPhase(NowPlayingTransportPhase phase) {
+    switch (phase) {
+      case NowPlayingTransportPhase.playing:
+        if (!_positionTicker.isActive) {
+          _positionTicker.start();
+        }
+      case NowPlayingTransportPhase.paused:
+      case NowPlayingTransportPhase.bufferingUnplayedSegment:
+        if (_positionTicker.isActive) {
+          _positionTicker.stop();
+        }
     }
   }
 
@@ -337,6 +343,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final displayImageUrl = vm.imageUrl;
 
     final isPlaying = vm.isPlaying;
+    final transportPhase = vm.transportPhase;
     final shuffleMode = vm.shuffleMode;
     final repeatMode = vm.repeatMode;
 
@@ -518,6 +525,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                                 duration: displayDuration,
                                 position: currentPos,
                                 dragPosition: dragPos,
+                                transportPhase: transportPhase,
                                 onDragPositionChanged: (newDragPos) {
                                   _dragNotifier.value = newDragPos;
                                   if (newDragPos != null) {
@@ -534,19 +542,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                     const SizedBox(height: 8),
                     RepaintBoundary(
                       child: PlayerPlaybackControls(
-                        isPlaying: isPlaying,
-                        isBuffering: switch (queueState?.isBuffering) {
-                          final b? => b,
-                          null => false,
-                        },
-                        canSkipNext: switch (queueState?.canSkipNext) {
-                          final c? => c,
-                          null => true,
-                        },
-                        canSkipPrevious: switch (queueState?.canSkipPrevious) {
-                          final c? => c,
-                          null => true,
-                        },
+                        transportPhase: transportPhase,
+                        canSkipNext: vm.canSkipNext,
+                        canSkipPrevious: vm.canSkipPrev,
                         shuffleMode: shuffleMode,
                         repeatMode: repeatMode,
                         onPlayPause: _handlePlayPause,
@@ -595,8 +593,13 @@ class _PlayerScreenState extends State<PlayerScreen>
       bloc.dispatch(TogglePlayPauseEvent(loggingParams: lp));
     } else {
       setState(() {
-        _isPlaying = !_isPlaying;
-        _updatePositionTicker(_isPlaying);
+        _transportPhase = switch (_transportPhase) {
+          NowPlayingTransportPhase.playing ||
+          NowPlayingTransportPhase.bufferingUnplayedSegment =>
+            NowPlayingTransportPhase.paused,
+          NowPlayingTransportPhase.paused => NowPlayingTransportPhase.playing,
+        };
+        _syncTickerForTransportPhase(_transportPhase);
       });
     }
   }
@@ -671,7 +674,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     };
     final resolvedIsPlaying = switch (isPlayingVal) {
       final p? => p,
-      null => _isPlaying,
+      null => _transportPhase != NowPlayingTransportPhase.paused,
     };
     final resolvedShuffle = switch (shuffleVal) {
       final s? => s,

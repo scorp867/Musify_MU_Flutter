@@ -3,6 +3,7 @@
 #include "../cache/DiskCache.h"
 #include "../network/AuthSessionStore.h"
 #include "../network/NativeHttpClient.h"
+#include "../network/NativeTrafficController.h"
 
 #include <atomic>
 #include <cstdint>
@@ -26,7 +27,12 @@ public:
     /// or the complete head file already exists.
     static bool streamHeadFile(network::NativeHttpClient& http_client,
                                const std::string& file_id_hex,
-                               const std::string& target_path);
+                               const std::string& target_path,
+                               network::AcquisitionIntent intent =
+                                   network::AcquisitionIntent::InteractivePlayback);
+
+    /// Returns the local path if `file_id_hex` is already validly cached on disk, or empty string.
+    [[nodiscard]] std::string lookupCachedHeadFile(const std::string& file_id_hex);
 
     /// Waits on the active download condition variable until `part_or_target_path` has
     /// at least `required_bytes` written to disk, the download completes, `cancel_flag` becomes

@@ -3,6 +3,7 @@
 #include <android/log.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #define RSC_LOG_TAG "MusifyRangeCache"
@@ -37,6 +38,12 @@ HttpRangeStreamCache::~HttpRangeStreamCache() {
     close();
 }
 
+bool HttpRangeStreamCache::isOfflineSyntheticUrl(const std::string& url) noexcept {
+    const size_t prefix_len = std::strlen(kOfflineSyntheticUrlPrefix);
+    return url.size() >= prefix_len &&
+           std::memcmp(url.data(), kOfflineSyntheticUrlPrefix, prefix_len) == 0;
+}
+
 std::string HttpRangeStreamCache::primaryUrl() const {
     std::lock_guard<std::mutex> lock(url_mu_);
     if (urls_.empty()) return {};
@@ -50,6 +57,11 @@ int64_t HttpRangeStreamCache::getSize() const noexcept {
 void HttpRangeStreamCache::cancel() noexcept {
     canceled_.store(true, std::memory_order_release);
     seek_epoch_.fetch_add(1, std::memory_order_acq_rel);
+    if (!stream_key_.empty()) {
+        NativeTrafficController::instance().cancelByTagPrefix("stream:" + stream_key_);
+    } else {
+        NativeTrafficController::instance().notifyAllWaiters();
+    }
     std::lock_guard<std::mutex> lock(mu_);
     fg_queue_.clear();
     block_cv_.notify_all();
@@ -58,6 +70,11 @@ void HttpRangeStreamCache::cancel() noexcept {
 
 void HttpRangeStreamCache::onSeek() noexcept {
     seek_epoch_.fetch_add(1, std::memory_order_acq_rel);
+    if (!stream_key_.empty()) {
+        NativeTrafficController::instance().cancelByTagPrefix("stream:" + stream_key_);
+    } else {
+        NativeTrafficController::instance().notifyAllWaiters();
+    }
     std::lock_guard<std::mutex> lock(mu_);
     fg_queue_.clear();
     block_cv_.notify_all();
@@ -72,6 +89,11 @@ void HttpRangeStreamCache::close() noexcept {
     const bool already_closed = closed_.exchange(true, std::memory_order_acq_rel);
     canceled_.store(true, std::memory_order_release);
     seek_epoch_.fetch_add(1, std::memory_order_acq_rel);
+    if (!stream_key_.empty()) {
+        NativeTrafficController::instance().cancelByTagPrefix("stream:" + stream_key_);
+    } else {
+        NativeTrafficController::instance().notifyAllWaiters();
+    }
     {
         std::lock_guard<std::mutex> lock(mu_);
         fg_queue_.clear();
@@ -95,10 +117,11 @@ void HttpRangeStreamCache::close() noexcept {
 
 void HttpRangeStreamCache::startWorkersIfNeeded() {
     std::lock_guard<std::mutex> lock(mu_);
-    if (closed_.load(std::memory_order_acquire) || workers_started_) {
+    if (closed_.load(std::memory_order_acquire) ||
+        worker_pool_state_ != WorkerPoolState::Unstarted) {
         return;
     }
-    workers_started_ = true;
+    worker_pool_state_ = WorkerPoolState::Running;
     for (size_t i = 0; i < kForegroundWorkers; ++i) {
         fg_threads_[i] = std::thread(&HttpRangeStreamCache::foregroundWorker, this);
     }
@@ -111,8 +134,8 @@ bool HttpRangeStreamCache::open() {
 
     {
         std::lock_guard<std::mutex> lock(url_mu_);
-        if (urls_.empty()) {
-            RSC_LOGE("open() failed: no CDN URLs provided");
+        if (urls_.empty() && !url_refresh_cb_) {
+            RSC_LOGE("open() failed: no CDN URLs and no URL refresh callback provided");
             return false;
         }
     }
@@ -154,13 +177,8 @@ bool HttpRangeStreamCache::open() {
         }
     }
 
-    // 2. Network path: verify device has an active network route before dispatching
-    if (!NativeHttpClient::hasActiveNetworkRoute()) {
-        RSC_LOGW("open() aborted: device is offline and stream is not in DiskCache (key=%s)",
-                 stream_key_.c_str());
-        return false;
-    }
-
+    // 2. Network path: enqueue Block 0 on P0_PlaybackCritical (waits in NativeTrafficController
+    // if the device is currently offline, and auto-resumes as soon as connectivity returns).
     startWorkersIfNeeded();
 
     const uint64_t epoch = seek_epoch_.load(std::memory_order_acquire);
@@ -181,7 +199,7 @@ bool HttpRangeStreamCache::open() {
         std::unique_lock<std::mutex> lock(mu_);
         block_cv_.wait(lock, [&]() {
             return (total_size_.load(std::memory_order_acquire) > 0 && flight0->filled_bytes > 0) ||
-                   flight0->done ||
+                   flight0->phase != BlockTransferPhase::Streaming ||
                    canceled_.load(std::memory_order_acquire) ||
                    closed_.load(std::memory_order_acquire);
         });
@@ -192,7 +210,7 @@ bool HttpRangeStreamCache::open() {
         open_ok = !canceled_.load(std::memory_order_acquire) &&
                   !closed_.load(std::memory_order_acquire) &&
                   discovered_total > 0 &&
-                  (flight0->filled_bytes > 0 || flight0->ok);
+                  (flight0->filled_bytes > 0 || flight0->phase == BlockTransferPhase::CompletedOk);
     }
 
     if (open_ok) {
@@ -319,9 +337,6 @@ ssize_t HttpRangeStreamCache::readFromBlock(
             } else {
                 check_disk = !stream_key_.empty();
                 if (!check_disk) {
-                    if (!NativeHttpClient::hasActiveNetworkRoute()) {
-                        return -1;
-                    }
                     flight = std::make_shared<InFlightBlock>();
                     flight->expected_size = expected_block_len;
                     flight->buffer.resize(expected_block_len);
@@ -367,10 +382,8 @@ ssize_t HttpRangeStreamCache::readFromBlock(
                 flight = flight_it->second;
                 flight->foreground_waiters += 1;
             } else {
-                // Fast kernel route check before enqueuing network work on a cache miss
-                if (!NativeHttpClient::hasActiveNetworkRoute()) {
-                    return -1;
-                }
+                // Enqueue on foreground worker; if offline, worker parks in NativeTrafficController
+                // (P0_PlaybackCritical, WaitForOnline) until connectivity returns or user seeks/skips.
                 flight = std::make_shared<InFlightBlock>();
                 flight->expected_size = expected_block_len;
                 flight->buffer.resize(expected_block_len);
@@ -388,7 +401,7 @@ ssize_t HttpRangeStreamCache::readFromBlock(
             std::unique_lock<std::mutex> lock(mu_);
             block_cv_.wait(lock, [&]() {
                 return flight->filled_bytes >= required_fill ||
-                       flight->done ||
+                       flight->phase != BlockTransferPhase::Streaming ||
                        canceled_.load(std::memory_order_acquire) ||
                        closed_.load(std::memory_order_acquire) ||
                        seek_epoch_.load(std::memory_order_acquire) != caller_seek_epoch;
@@ -409,16 +422,20 @@ ssize_t HttpRangeStreamCache::readFromBlock(
                 return static_cast<ssize_t>(safe_wanted);
             }
 
-            if (flight->done) {
-                if (flight->ok && flight->filled_bytes > in_block_offset) {
-                    const size_t avail = std::min(safe_wanted, flight->filled_bytes - in_block_offset);
-                    std::memcpy(dst, flight->buffer.data() + in_block_offset, avail);
-                    return static_cast<ssize_t>(avail);
+            switch (flight->phase) {
+                case BlockTransferPhase::CompletedOk: {
+                    if (flight->filled_bytes > in_block_offset) {
+                        const size_t avail = std::min(safe_wanted, flight->filled_bytes - in_block_offset);
+                        std::memcpy(dst, flight->buffer.data() + in_block_offset, avail);
+                        return static_cast<ssize_t>(avail);
+                    }
+                    return -1;
                 }
-                if (flight->preempted) {
+                case BlockTransferPhase::PreemptedBySeek:
                     continue;
-                }
-                return -1;
+                case BlockTransferPhase::Aborted:
+                case BlockTransferPhase::Streaming:
+                    return -1;
             }
         }
     }
@@ -468,22 +485,22 @@ void HttpRangeStreamCache::executeForegroundRequest(const ForegroundRequest& req
     {
         std::lock_guard<std::mutex> lock(mu_);
         in_flight_.erase(req.block_index);
-        if (!req.flight->done) {
+        if (req.flight->phase == BlockTransferPhase::Streaming) {
             const bool canceled_or_stale = cancel_pred();
             if (ok && req.flight->filled_bytes > 0 && !canceled_or_stale) {
                 req.flight->buffer.resize(req.flight->filled_bytes);
                 auto shared_vec = std::make_shared<const std::vector<uint8_t>>(req.flight->buffer);
                 insertBlockLocked(req.block_index, shared_vec);
                 req.flight->data = shared_vec;
-                req.flight->ok = true;
+                req.flight->phase = BlockTransferPhase::CompletedOk;
                 to_persist = std::move(shared_vec);
+            } else if (canceled_or_stale &&
+                       !canceled_.load(std::memory_order_acquire) &&
+                       !closed_.load(std::memory_order_acquire)) {
+                req.flight->phase = BlockTransferPhase::PreemptedBySeek;
             } else {
-                req.flight->ok = false;
-                req.flight->preempted = canceled_or_stale &&
-                                         !canceled_.load(std::memory_order_acquire) &&
-                                         !closed_.load(std::memory_order_acquire);
+                req.flight->phase = BlockTransferPhase::Aborted;
             }
-            req.flight->done = true;
         }
         block_cv_.notify_all();
     }
@@ -498,46 +515,117 @@ bool HttpRangeStreamCache::streamSpanWithFailover(
     size_t span_len,
     const std::vector<std::pair<size_t, std::shared_ptr<InFlightBlock>>>& span_flights,
     const CancelPredicate& cancel_pred) {
-    if (!NativeHttpClient::hasActiveNetworkRoute()) {
-        return false;
-    }
+    const std::string tag = !stream_key_.empty()
+        ? ("stream:" + stream_key_)
+        : std::string("stream:active");
 
-    std::vector<std::string> urls_snapshot;
-    size_t start_index = 0;
-    uint64_t gen_snapshot = 0;
-    {
-        std::lock_guard<std::mutex> lock(url_mu_);
-        urls_snapshot = urls_;
-        start_index = active_url_index_;
-        gen_snapshot = url_generation_;
-    }
+    while (!cancel_pred() && !canceled_.load(std::memory_order_acquire)) {
+        // Acquire a P0_PlaybackCritical permit; if offline, parks cleanly in NativeTrafficController
+        // until the Linux kernel route monitor detects connectivity restoration or cancel_pred fires.
+        auto permit = NativeTrafficController::instance().acquirePermit(
+            RequestPriority::P0_PlaybackCritical,
+            OfflinePolicy::WaitForOnline,
+            tag,
+            &canceled_,
+            cancel_pred);
+        if (!permit) {
+            return false;
+        }
 
-    if (urls_snapshot.empty()) {
-        return false;
-    }
-
-    bool saw_expired = false;
-    HttpRangeResult res = tryStreamUrlsLockedSnapshot(
-        urls_snapshot, start_index, start_offset, span_len, span_flights, cancel_pred, saw_expired);
-    if (res.isSuccess()) {
-        return true;
-    }
-    if (res.status == RangeFetchStatus::Canceled || res.status == RangeFetchStatus::Offline) {
-        return false;
-    }
-
-    if (saw_expired && tryRefreshUrls(gen_snapshot, cancel_pred)) {
+        std::vector<std::string> urls_snapshot;
+        size_t start_index = 0;
+        uint64_t gen_snapshot = 0;
         {
             std::lock_guard<std::mutex> lock(url_mu_);
             urls_snapshot = urls_;
             start_index = active_url_index_;
+            gen_snapshot = url_generation_;
         }
-        bool refreshed_expired = false;
-        res = tryStreamUrlsLockedSnapshot(
-            urls_snapshot, start_index, start_offset, span_len, span_flights, cancel_pred, refreshed_expired);
+
+        const bool only_synthetic_url =
+            urls_snapshot.empty() ||
+            (urls_snapshot.size() == 1 && isOfflineSyntheticUrl(urls_snapshot.front()));
+        if (only_synthetic_url) {
+            if (!tryRefreshUrls(gen_snapshot, cancel_pred)) {
+                permit.complete(TransferOutcome::TransportFailure);
+                if (cancel_pred() || canceled_.load(std::memory_order_acquire)) {
+                    return false;
+                }
+                if (!NativeTrafficController::instance().waitForOnline(&canceled_, cancel_pred)) {
+                    return false;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+            std::lock_guard<std::mutex> lock(url_mu_);
+            urls_snapshot = urls_;
+            start_index = active_url_index_;
+            gen_snapshot = url_generation_;
+        }
+
+        if (urls_snapshot.empty()) {
+            permit.complete(TransferOutcome::TransportFailure);
+            return false;
+        }
+
+        bool saw_expired = false;
+        HttpRangeResult res = tryStreamUrlsLockedSnapshot(
+            urls_snapshot, start_index, start_offset, span_len, span_flights, cancel_pred, saw_expired);
+        if (res.isSuccess()) {
+            permit.complete(TransferOutcome::Success);
+            return true;
+        }
+        if (res.status == RangeFetchStatus::Canceled || cancel_pred() ||
+            canceled_.load(std::memory_order_acquire)) {
+            permit.complete(TransferOutcome::TransportFailure);
+            return false;
+        }
+
+        if (saw_expired && tryRefreshUrls(gen_snapshot, cancel_pred)) {
+            {
+                std::lock_guard<std::mutex> lock(url_mu_);
+                urls_snapshot = urls_;
+                start_index = active_url_index_;
+            }
+            bool refreshed_expired = false;
+            res = tryStreamUrlsLockedSnapshot(
+                urls_snapshot, start_index, start_offset, span_len, span_flights, cancel_pred, refreshed_expired);
+            if (res.isSuccess()) {
+                permit.complete(TransferOutcome::Success);
+                return true;
+            }
+            if (res.status == RangeFetchStatus::Canceled || cancel_pred() ||
+                canceled_.load(std::memory_order_acquire)) {
+                permit.complete(TransferOutcome::TransportFailure);
+                return false;
+            }
+        }
+
+        const TransferOutcome outcome = (res.status == RangeFetchStatus::NetworkError)
+            ? TransferOutcome::TimedOut
+            : TransferOutcome::TransportFailure;
+        permit.complete(outcome);
+
+        if (cancel_pred() || canceled_.load(std::memory_order_acquire)) {
+            return false;
+        }
+
+        // If the connection dropped mid-stream or had a transient failure, hold for online
+        // route restoration instead of returning -1 (which would trigger a false EOS in NativeDecoder).
+        if (!NativeTrafficController::instance().waitForOnline(&canceled_, cancel_pred)) {
+            return false;
+        }
+
+        // Brief cancellable backoff when route is nominally up but CDN socket failed transiently.
+        for (int slice = 0; slice < 10; ++slice) {
+            if (cancel_pred() || canceled_.load(std::memory_order_acquire)) {
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        }
     }
 
-    return res.isSuccess();
+    return false;
 }
 
 HttpRangeResult HttpRangeStreamCache::tryStreamUrlsLockedSnapshot(
@@ -571,14 +659,14 @@ HttpRangeResult HttpRangeStreamCache::tryStreamUrlsLockedSnapshot(
 
         const size_t idx = (start_index + i) % count;
         const std::string& url = urls[idx];
-        if (url.empty()) continue;
+        if (url.empty() || isOfflineSyntheticUrl(url)) continue;
 
         // Reset partial fill on retry if any block was not yet finalized
         {
             std::lock_guard<std::mutex> lock(mu_);
             for (const auto& [b_idx, fl] : span_flights) {
                 (void)b_idx;
-                if (!fl->done) {
+                if (fl->phase == BlockTransferPhase::Streaming) {
                     fl->filled_bytes = 0;
                 }
             }
@@ -652,15 +740,14 @@ HttpRangeResult HttpRangeStreamCache::tryStreamUrlsLockedSnapshot(
                         if (new_fill > flight->filled_bytes) {
                             flight->filled_bytes = new_fill;
                         }
-                        if (!flight->done &&
+                        if (flight->phase == BlockTransferPhase::Streaming &&
                             flight->expected_size > 0 &&
                             flight->filled_bytes >= flight->expected_size) {
                             flight->buffer.resize(flight->expected_size);
                             auto shared_vec = std::make_shared<const std::vector<uint8_t>>(flight->buffer);
                             insertBlockLocked(b_idx, shared_vec);
                             flight->data = shared_vec;
-                            flight->ok = true;
-                            flight->done = true;
+                            flight->phase = BlockTransferPhase::CompletedOk;
                             in_flight_.erase(b_idx);
                             completed_blocks.emplace_back(b_idx, std::move(shared_vec));
                         }
@@ -729,7 +816,8 @@ bool HttpRangeStreamCache::tryRefreshUrls(
     std::lock_guard<std::mutex> refresh_lock(refresh_mu_);
     {
         std::lock_guard<std::mutex> lock(url_mu_);
-        if (url_generation_ != observed_generation && !urls_.empty()) {
+        if (url_generation_ != observed_generation && !urls_.empty() &&
+            !isOfflineSyntheticUrl(urls_.front())) {
             return true;
         }
     }

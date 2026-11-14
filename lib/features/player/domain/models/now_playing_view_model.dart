@@ -6,6 +6,14 @@ import 'package:musify_mu/features/player/data/queue/context_track_extensions.da
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
 import 'package:musify_mu/features/player/presentation/widgets/queue_controls_layout.dart';
 
+/// Explicit state machine representing the transport and stream readiness phase
+/// of the Now Playing track.
+enum NowPlayingTransportPhase {
+  paused,
+  playing,
+  bufferingUnplayedSegment,
+}
+
 /// Strongly-typed, immutable view model representing the complete visual state of
 /// Spotify's Now Playing View (NPV). Matches Spotify Android `com.spotify.nowplaying`
 /// Component-Model architecture.
@@ -20,6 +28,7 @@ class NowPlayingViewModel {
   final Duration duration;
   final Duration position;
   final bool isPlaying;
+  final NowPlayingTransportPhase transportPhase;
   final bool isFavorite;
   final QueueShuffleMode shuffleMode;
   final QueueRepeatMode repeatMode;
@@ -38,6 +47,7 @@ class NowPlayingViewModel {
     required this.duration,
     required this.position,
     required this.isPlaying,
+    this.transportPhase = NowPlayingTransportPhase.paused,
     this.isFavorite = false,
     this.shuffleMode = QueueShuffleMode.none,
     this.repeatMode = QueueRepeatMode.none,
@@ -158,6 +168,13 @@ class NowPlayingViewModel {
       null => false,
     };
 
+    final transportPhase = switch (state) {
+      final q? when q.isBuffering =>
+        NowPlayingTransportPhase.bufferingUnplayedSegment,
+      final q? when q.isPlaying => NowPlayingTransportPhase.playing,
+      _ => NowPlayingTransportPhase.paused,
+    };
+
     final shuffleMode = switch (state?.isShuffling) {
       true => QueueShuffleMode.all,
       false => QueueShuffleMode.none,
@@ -204,6 +221,7 @@ class NowPlayingViewModel {
         null => Duration.zero,
       },
       isPlaying: isPlaying,
+      transportPhase: transportPhase,
       isFavorite: false,
       shuffleMode: shuffleMode,
       repeatMode: repeatMode,
@@ -224,6 +242,7 @@ class NowPlayingViewModel {
     Duration? duration,
     Duration? position,
     bool? isPlaying,
+    NowPlayingTransportPhase? transportPhase,
     bool? isFavorite,
     QueueShuffleMode? shuffleMode,
     QueueRepeatMode? repeatMode,
@@ -268,6 +287,10 @@ class NowPlayingViewModel {
       isPlaying: switch (isPlaying) {
         final p? => p,
         null => this.isPlaying,
+      },
+      transportPhase: switch (transportPhase) {
+        final tp? => tp,
+        null => this.transportPhase,
       },
       isFavorite: switch (isFavorite) {
         final f? => f,

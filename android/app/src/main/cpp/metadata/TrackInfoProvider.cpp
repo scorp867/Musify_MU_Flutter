@@ -2,6 +2,7 @@
 
 #include "../ProtobufWireHelper.h"
 
+#include <algorithm>
 #include <android/log.h>
 #include <cstring>
 
@@ -217,6 +218,7 @@ TrackInfoProvider::TrackInfoProvider(network::AuthSessionStore& auth_store,
 
 TrackInfoProvider::~TrackInfoProvider() {
     stop_worker_.store(true, std::memory_order_release);
+    network::NativeTrafficController::instance().cancelByTagPrefix("metadata:");
     worker_cv_.notify_all();
     if (worker_thread_.joinable()) {
         worker_thread_.join();
@@ -248,11 +250,17 @@ std::optional<TrackInfo> TrackInfoProvider::getCached(const std::string& entity_
     return it->second;
 }
 
-void TrackInfoProvider::requestResolution(const std::string& entity_uri) {
+void TrackInfoProvider::requestResolution(const std::string& entity_uri,
+                                          network::AcquisitionIntent intent) {
     if (entity_uri.empty()) return;
     const bool is_track = entity_uri.rfind("spotify:track:", 0) == 0;
     const bool is_episode = entity_uri.rfind("spotify:episode:", 0) == 0;
     if (!is_track && !is_episode) return;
+
+    if (intent == network::AcquisitionIntent::BackgroundPrefetch &&
+        !network::NativeTrafficController::instance().isOnline()) {
+        return;
+    }
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -261,12 +269,33 @@ void TrackInfoProvider::requestResolution(const std::string& entity_uri) {
             return;
         }
         if (queued_or_inflight_.find(entity_uri) != queued_or_inflight_.end()) {
+            if (intent == network::AcquisitionIntent::InteractivePlayback) {
+                auto q_it = std::find(pending_queue_.begin(), pending_queue_.end(), entity_uri);
+                if (q_it != pending_queue_.end() && q_it != pending_queue_.begin()) {
+                    pending_queue_.erase(q_it);
+                    pending_queue_.push_front(entity_uri);
+                }
+            }
             return;
         }
         queued_or_inflight_.insert(entity_uri);
-        pending_queue_.push_back(entity_uri);
+        if (intent == network::AcquisitionIntent::InteractivePlayback) {
+            pending_queue_.push_front(entity_uri);
+        } else {
+            pending_queue_.push_back(entity_uri);
+        }
     }
     worker_cv_.notify_one();
+}
+
+void TrackInfoProvider::cancelResolution(const std::string& entity_uri) {
+    if (entity_uri.empty()) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto q_it = std::find(pending_queue_.begin(), pending_queue_.end(), entity_uri);
+    if (q_it != pending_queue_.end()) {
+        pending_queue_.erase(q_it);
+        queued_or_inflight_.erase(entity_uri);
+    }
 }
 
 int32_t TrackInfoProvider::addListener(MetadataChangedCallback callback) {
@@ -297,33 +326,72 @@ void TrackInfoProvider::notifyListeners(const std::string& uri, const TrackInfo&
 
 void TrackInfoProvider::workerLoop() {
     while (!stop_worker_.load(std::memory_order_acquire)) {
-        std::vector<std::string> batch;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             worker_cv_.wait(lock, [this]() {
                 return stop_worker_.load(std::memory_order_acquire) || !pending_queue_.empty();
             });
             if (stop_worker_.load(std::memory_order_acquire)) break;
+        }
 
+        // Acquire a P2_InteractiveMetadata permit with WaitForOnline before draining the queue.
+        // While offline, requests accumulate in pending_queue_ and are dispatched together in a
+        // single batch the instant AF_NETLINK detects route restoration.
+        auto permit = network::NativeTrafficController::instance().acquirePermit(
+            network::RequestPriority::P2_InteractiveMetadata,
+            network::OfflinePolicy::WaitForOnline,
+            "metadata:batch",
+            &stop_worker_);
+        if (!permit) {
+            if (stop_worker_.load(std::memory_order_acquire)) break;
+            continue;
+        }
+
+        std::vector<std::string> batch;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (stop_worker_.load(std::memory_order_acquire)) break;
             while (!pending_queue_.empty() && batch.size() < 25) {
                 batch.push_back(std::move(pending_queue_.front()));
                 pending_queue_.pop_front();
             }
         }
 
-        if (!batch.empty()) {
-            fetchBatch(batch);
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
+        if (batch.empty()) {
+            permit.release();
+            continue;
+        }
+
+        const BatchFetchResult result = fetchBatch(batch, permit);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (result == BatchFetchResult::TransientNetworkFailure &&
+                !stop_worker_.load(std::memory_order_acquire)) {
+                for (const auto& u : batch) {
+                    auto it = store_.find(u);
+                    if (it != store_.end() && it->second.hasPlayableSource()) {
+                        queued_or_inflight_.erase(u);
+                    } else {
+                        pending_queue_.push_back(u);
+                    }
+                }
+            } else {
                 for (const auto& u : batch) {
                     queued_or_inflight_.erase(u);
                 }
             }
         }
+
+        if (result == BatchFetchResult::TransientNetworkFailure &&
+            !stop_worker_.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
     }
 }
 
-void TrackInfoProvider::fetchBatch(const std::vector<std::string>& uris) {
+TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
+    const std::vector<std::string>& uris,
+    network::TrafficPermit& permit) {
     const auto creds = auth_store_.snapshot();
     const std::vector<uint8_t> req_bytes =
         buildBatchedExtendedMetadataRequest(creds.country, creds.catalogue, uris);
@@ -331,6 +399,10 @@ void TrackInfoProvider::fetchBatch(const std::vector<std::string>& uris) {
     const char* hosts[2] = {kPrimarySpclient, kFallbackSpclient};
     network::HttpResponse resp;
     for (const char* host : hosts) {
+        if (stop_worker_.load(std::memory_order_acquire)) {
+            permit.complete(network::TransferOutcome::TransportFailure);
+            return BatchFetchResult::Completed;
+        }
         resp = http_client_.post(
             std::string(host) + kExtendedMetadataPath,
             req_bytes,
@@ -343,9 +415,20 @@ void TrackInfoProvider::fetchBatch(const std::vector<std::string>& uris) {
     }
 
     if (!resp.isSuccess() || resp.body.empty()) {
-        TIP_LOGW("Native extended-metadata POST failed (status=%d)", resp.status_code);
-        return;
+        permit.complete(resp.transport_ok
+                            ? network::TransferOutcome::Success
+                            : network::TransferOutcome::TransportFailure);
+        TIP_LOGW("Native extended-metadata POST failed (status=%d, transport_ok=%d)",
+                 resp.status_code,
+                 resp.transport_ok ? 1 : 0);
+        if (!resp.transport_ok || resp.status_code == 0 || resp.status_code >= 500 ||
+            resp.status_code == 408 || resp.status_code == 429) {
+            return BatchFetchResult::TransientNetworkFailure;
+        }
+        return BatchFetchResult::Completed;
     }
+
+    permit.complete(network::TransferOutcome::Success);
 
     struct ParsedCell {
         int32_t kind{0};
@@ -610,6 +693,7 @@ void TrackInfoProvider::fetchBatch(const std::vector<std::string>& uris) {
     for (const auto& [uri, info] : notifications) {
         notifyListeners(uri, info);
     }
+    return BatchFetchResult::Completed;
 }
 
 bool TrackInfoProvider::applyExtensionLocked(int32_t extension_kind,
