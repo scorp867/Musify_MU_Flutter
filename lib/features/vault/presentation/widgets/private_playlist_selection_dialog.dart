@@ -2,15 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:musify_mu/features/vault/domain/entities/private_playlist.dart';
 import 'package:musify_mu/features/vault/domain/entities/vault_result.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
+import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_artwork_image.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
-/// Modal bottom sheet allowing the user to select an existing private playlist
-/// or create a brand new private playlist on the fly.
+/// Modal bottom sheet allowing the user to select an existing vault playlist
+/// or create a new one on the fly.
 class PrivatePlaylistSelectionDialog extends StatefulWidget {
   final IVaultStorageRepository storageRepository;
+  final VaultThemeData? vaultTheme;
 
   const PrivatePlaylistSelectionDialog({
     super.key,
     required this.storageRepository,
+    this.vaultTheme,
   });
 
   /// Displays the playlist picker and returns the selected [PrivatePlaylist],
@@ -18,17 +23,21 @@ class PrivatePlaylistSelectionDialog extends StatefulWidget {
   static Future<PrivatePlaylist?> show(
     BuildContext context, {
     required IVaultStorageRepository storageRepository,
+    VaultThemeData? vaultTheme,
   }) {
+    final resolvedTheme = resolveVaultTheme(context, vaultTheme);
     return showModalBottomSheet<PrivatePlaylist>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF282828),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => PrivatePlaylistSelectionDialog(
-        storageRepository: storageRepository,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => VaultTheme(
+        data: resolvedTheme,
+        child: PrivatePlaylistSelectionDialog(
+          storageRepository: storageRepository,
+          vaultTheme: resolvedTheme,
+        ),
       ),
     );
   }
@@ -51,6 +60,10 @@ class _PrivatePlaylistSelectionDialogState
   }
 
   Future<void> _loadPlaylists() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     final result = await widget.storageRepository.getPlaylists();
     if (!mounted) return;
 
@@ -66,204 +79,288 @@ class _PrivatePlaylistSelectionDialogState
     });
   }
 
-  Future<void> _handleCreateNewPlaylist() async {
-    final controller = TextEditingController();
-    final created = await showDialog<String>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color(0xFF242424),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
-          side: const BorderSide(color: Color(0xFF383838), width: 1.0),
-        ),
-        title: const Text(
-          'New Private Playlist',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            fontFamily: 'Poppins',
-          ),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: const TextStyle(color: Colors.white, fontSize: 14),
-          decoration: InputDecoration(
-            hintText: 'Playlist name',
-            hintStyle: const TextStyle(color: Color(0xFF727272), fontSize: 14),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8.0),
-              borderSide: const BorderSide(color: Color(0xFF383838)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8.0),
-              borderSide: const BorderSide(color: Color(0xFF1ED760)),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFFB3B3B3))),
-          ),
-          TextButton(
-            onPressed: () {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                Navigator.of(dialogCtx).pop(text);
-              }
-            },
-            child: const Text('Create', style: TextStyle(color: Color(0xFF1ED760))),
-          ),
-        ],
-      ),
+  Future<void> _handleCreateNewPlaylist(VaultThemeData vaultTheme) async {
+    final created = await showVaultCreatePlaylistSheet(
+      context,
+      vaultTheme,
+      title: 'New Playlist',
+      subtitle: 'Create a playlist and add this track right away.',
+      showDescription: false,
     );
 
-    if (created case final name? when name.trim().isNotEmpty) {
+    if (created case final submission? when submission.name.isNotEmpty) {
       final createResult = await widget.storageRepository.createPlaylist(
-        name: name.trim(),
-        description: 'Private Playlist',
+        name: submission.name,
+        description: submission.description,
       );
       if (!mounted) return;
-      if (createResult case VaultSuccess<PrivatePlaylist>(:final data)) {
-        Navigator.of(context).pop(data);
+      switch (createResult) {
+        case VaultSuccess<PrivatePlaylist>(:final data):
+          Navigator.of(context).pop(data);
+        case VaultFailureResult(:final failure):
+          showVaultSettingsSnackBar(
+            context,
+            vaultTheme,
+            message: failure.message,
+            isError: true,
+            clearExisting: true,
+          );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFF282828),
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Select Private Playlist',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        fontFamily: 'Poppins',
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _handleCreateNewPlaylist,
-                    icon: const Icon(Icons.add_rounded, size: 18, color: Color(0xFF1ED760)),
-                    label: const Text(
-                      'New',
-                      style: TextStyle(
-                        color: Color(0xFF1ED760),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        fontFamily: 'Poppins',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+    final vaultTheme = resolveVaultTheme(context, widget.vaultTheme);
+
+    return VaultSheetScaffold(
+      vaultTheme: vaultTheme,
+      title: 'Add to Vault Playlist',
+      subtitle: 'Choose a destination playlist',
+      onClose: () => Navigator.of(context).pop(),
+      headerTrailing: SizedBox(
+        height: 36.0,
+        child: OutlinedButton.icon(
+          onPressed: () => _handleCreateNewPlaylist(vaultTheme),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: vaultTheme.accent,
+            side: BorderSide(
+              color: vaultTheme.borderSubtle,
+              width: VaultTheme.borderWidth,
             ),
-            const Divider(color: Color(0xFF383838), height: 1),
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.all(32.0),
-                child: Center(
-                  child: CircularProgressIndicator(color: Color(0xFF1ED760)),
-                ),
-              )
-            else if (_errorMessage case final err?)
-              Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Center(
-                  child: Text(
-                    err,
-                    style: const TextStyle(color: Color(0xFFE91429), fontSize: 13),
-                  ),
-                ),
-              )
-            else if (_playlists.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 36.0, horizontal: 24.0),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.lock_outline, color: Color(0xFF727272), size: 36),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'No Private Playlists Found',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: 'Poppins',
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton(
-                        onPressed: _handleCreateNewPlaylist,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF1ED760),
-                          side: const BorderSide(color: Color(0xFF383838)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8.0),
-                          ),
-                        ),
-                        child: const Text('Create Private Playlist'),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: _playlists.length,
-                  itemBuilder: (ctx, index) {
-                    final playlist = _playlists[index];
-                    return ListTile(
-                      key: ValueKey('picker_playlist_${playlist.id}'),
-                      leading: const Icon(
-                        Icons.lock_outline,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      title: Text(
-                        playlist.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontFamily: 'Poppins',
-                        ),
-                      ),
-                      subtitle: Text(
-                        '${playlist.trackCount} tracks',
-                        style: const TextStyle(
-                          color: Color(0xFFB3B3B3),
-                          fontSize: 12,
-                          fontFamily: 'Poppins',
-                        ),
-                      ),
-                      onTap: () => Navigator.of(context).pop(playlist),
-                    );
-                  },
-                ),
-              ),
-          ],
+            shape: VaultTheme.shape8,
+            padding: const EdgeInsets.symmetric(horizontal: 10.0),
+          ),
+          icon: const Icon(Icons.add_rounded, size: 17.0),
+          label: const Text(
+            'New',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontWeight: FontWeight.w600,
+              fontSize: 13.0,
+            ),
+          ),
         ),
       ),
+      body: _buildBody(vaultTheme),
+    );
+  }
+
+  Widget _buildBody(VaultThemeData vaultTheme) {
+    if (_isLoading) {
+      return Padding(
+        padding: const EdgeInsets.all(36.0),
+        child: Center(
+          child: CircularProgressIndicator(color: vaultTheme.accent),
+        ),
+      );
+    }
+
+    if (_errorMessage case final err?) {
+      return Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Container(
+          padding: const EdgeInsets.all(20.0),
+          decoration: BoxDecoration(
+            color: vaultTheme.background,
+            borderRadius: VaultTheme.borderRadius8,
+            border: Border.all(
+              color: vaultTheme.borderSubtle,
+              width: VaultTheme.borderWidth,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: vaultDangerInk(vaultTheme),
+                size: 32.0,
+              ),
+              const SizedBox(height: 10.0),
+              Text(
+                err,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  color: vaultTheme.textMediumSalience,
+                  fontSize: 13.0,
+                ),
+              ),
+              const SizedBox(height: 14.0),
+              SizedBox(
+                height: 44.0,
+                child: OutlinedButton(
+                  onPressed: _loadPlaylists,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: vaultTheme.accent,
+                    side: BorderSide(
+                      color: vaultTheme.border,
+                      width: VaultTheme.borderWidth,
+                    ),
+                    shape: VaultTheme.shape8,
+                  ),
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_playlists.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 28.0, horizontal: 20.0),
+          decoration: BoxDecoration(
+            color: vaultTheme.background,
+            borderRadius: VaultTheme.borderRadius8,
+            border: Border.all(
+              color: vaultTheme.borderSubtle,
+              width: VaultTheme.borderWidth,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 48.0,
+                height: 48.0,
+                decoration: BoxDecoration(
+                  color: vaultTheme.surfaceSubtle,
+                  borderRadius: VaultTheme.borderRadius8,
+                  border: Border.all(
+                    color: vaultTheme.borderSubtle,
+                    width: VaultTheme.borderWidth,
+                  ),
+                ),
+                child: Icon(
+                  Icons.library_music_outlined,
+                  color: vaultTheme.textLowSalience,
+                  size: 24.0,
+                ),
+              ),
+              const SizedBox(height: 12.0),
+              Text(
+                'No Playlists Yet',
+                style: TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  color: vaultTheme.textHighSalience,
+                  fontSize: 15.0,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4.0),
+              Text(
+                'Create a playlist to keep saved tracks organized.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  color: vaultTheme.textMediumSalience,
+                  fontSize: 12.5,
+                ),
+              ),
+              const SizedBox(height: 16.0),
+              SizedBox(
+                height: 44.0,
+                child: OutlinedButton.icon(
+                  onPressed: () => _handleCreateNewPlaylist(vaultTheme),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: vaultTheme.accent,
+                    side: BorderSide(
+                      color: vaultTheme.border,
+                      width: VaultTheme.borderWidth,
+                    ),
+                    shape: VaultTheme.shape8,
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 18.0),
+                  label: const Text(
+                    'New Playlist',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 16.0),
+      itemCount: _playlists.length,
+      itemBuilder: (ctx, index) {
+        final playlist = _playlists[index];
+        final trackNoun = playlist.trackCount == 1 ? 'track' : 'tracks';
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Material(
+            color: vaultTheme.background,
+            shape: RoundedRectangleBorder(
+              borderRadius: VaultTheme.borderRadius8,
+              side: BorderSide(
+                color: vaultTheme.borderSubtle,
+                width: VaultTheme.borderWidth,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+            key: ValueKey('picker_playlist_${playlist.id}'),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12.0,
+              vertical: 4.0,
+            ),
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(6.0),
+              child: VaultArtworkImage.forPlaylist(
+                playlist,
+                size: 42.0,
+                placeholderIconSize: 20.0,
+                vaultTheme: vaultTheme,
+              ),
+            ),
+            title: Text(
+              playlist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: VaultTheme.fontFamily,
+                color: vaultTheme.textHighSalience,
+                fontSize: 14.0,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              '${playlist.trackCount} $trackNoun',
+              style: TextStyle(
+                fontFamily: VaultTheme.fontFamily,
+                color: vaultTheme.textMediumSalience,
+                fontSize: 12.0,
+              ),
+            ),
+            trailing: Icon(
+              Icons.chevron_right_rounded,
+              size: 20.0,
+              color: vaultTheme.textLowSalience,
+            ),
+            onTap: () => Navigator.of(context).pop(playlist),
+            ),
+          ),
+        );
+      },
     );
   }
 }

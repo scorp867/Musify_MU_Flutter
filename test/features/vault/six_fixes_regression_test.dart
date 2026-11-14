@@ -1535,16 +1535,16 @@ void main() {
 
         expect(storage.currentConfig.frostedBlurSigma, greaterThan(12.0));
 
-        // Verify preview BackdropFilter updated reactively
-        final previewFilter = tester.widget<BackdropFilter>(
+        // Verify preview ImageFiltered updated reactively
+        final previewFilter = tester.widget<ImageFiltered>(
           find.descendant(
             of: find.byKey(const ValueKey('blur_preview_container')),
-            matching: find.byType(BackdropFilter),
+            matching: find.byType(ImageFiltered),
           ),
         );
         final savedSigma = storage.currentConfig.frostedBlurSigma;
         expect(
-          previewFilter.filter,
+          previewFilter.imageFilter,
           equals(ImageFilter.blur(sigmaX: savedSigma, sigmaY: savedSigma)),
         );
 

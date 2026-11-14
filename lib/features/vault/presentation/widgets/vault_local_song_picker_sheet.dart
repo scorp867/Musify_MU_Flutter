@@ -5,8 +5,6 @@ import 'package:musify_mu/features/local_music/data/database/app_database.dart';
 import 'package:musify_mu/features/local_music/data/datasources/local_tracks_store.dart';
 import 'package:musify_mu/features/local_music/domain/models/local_file_uri.dart';
 import 'package:musify_mu/features/player/presentation/widgets/player_artwork.dart';
-import 'package:musify_mu/features/player/presentation/widgets/player_header.dart';
-import 'package:musify_mu/features/player/presentation/widgets/player_theme.dart';
 import 'package:musify_mu/features/player/presentation/widgets/pull_to_dismiss_scaffold.dart';
 import 'package:musify_mu/features/player/presentation/widgets/spotify_scroll_physics.dart';
 import 'package:musify_mu/features/vault/data/datasources/vault_media_isolation_manager.dart';
@@ -15,6 +13,7 @@ import 'package:musify_mu/features/vault/domain/entities/private_track_ref.dart'
 import 'package:musify_mu/features/vault/domain/extensions/vault_storage_batch_ops.dart';
 import 'package:musify_mu/features/vault/domain/interfaces/i_vault_storage_repository.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
 /// Ingestion mode for adding local songs into the private vault.
 enum VaultSongIngestionModeEnum {
@@ -31,9 +30,9 @@ enum VaultSongIngestionModeEnum {
 
   String get description => switch (this) {
         VaultSongIngestionModeEnum.copyToVault =>
-          'Leaves the original file in place and creates a secured private reference.',
+          'Keeps the original file in your library and links it privately.',
         VaultSongIngestionModeEnum.moveToVault =>
-          'Moves the audio file into the hidden .nomedia sandbox and removes it from public storage.',
+          'Moves the audio file into private storage and hides it from public apps.',
       };
 }
 
@@ -45,6 +44,7 @@ class VaultLocalSongPickerSheet extends StatelessWidget {
   final IVaultMediaIsolationManager? isolationManager;
   final LocalTracksStore? localTracksStore;
   final AppDatabase? database;
+  final VaultThemeData? vaultTheme;
 
   const VaultLocalSongPickerSheet({
     super.key,
@@ -53,6 +53,7 @@ class VaultLocalSongPickerSheet extends StatelessWidget {
     this.isolationManager,
     this.localTracksStore,
     this.database,
+    this.vaultTheme,
   });
 
   /// Displays [VaultLocalSongPickerSheet] inside a modal route.
@@ -63,30 +64,38 @@ class VaultLocalSongPickerSheet extends StatelessWidget {
     IVaultMediaIsolationManager? isolationManager,
     LocalTracksStore? localTracksStore,
     AppDatabase? database,
+    VaultThemeData? vaultTheme,
   }) {
+    final resolvedTheme = resolveVaultTheme(context, vaultTheme);
     return showModalBottomSheet<bool>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.75),
-      builder: (ctx) => VaultLocalSongPickerSheet(
-        playlist: playlist,
-        storageRepository: storageRepository,
-        isolationManager: isolationManager,
-        localTracksStore: localTracksStore,
-        database: database,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
+      builder: (ctx) => VaultTheme(
+        data: resolvedTheme,
+        child: VaultLocalSongPickerSheet(
+          playlist: playlist,
+          storageRepository: storageRepository,
+          isolationManager: isolationManager,
+          localTracksStore: localTracksStore,
+          database: database,
+          vaultTheme: resolvedTheme,
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final resolvedTheme = resolveVaultTheme(context, vaultTheme);
     return PullToDismissScaffold(
       builder: (scaffoldContext, dismissController) {
         return _VaultLocalSongPickerContent(
           playlist: playlist,
           dismissController: dismissController,
+          vaultTheme: resolvedTheme,
           storageRepository: storageRepository,
           isolationManager: isolationManager,
           localTracksStore: localTracksStore,
@@ -100,6 +109,7 @@ class VaultLocalSongPickerSheet extends StatelessWidget {
 class _VaultLocalSongPickerContent extends StatefulWidget {
   final PrivatePlaylist playlist;
   final PullToDismissController dismissController;
+  final VaultThemeData vaultTheme;
   final IVaultStorageRepository? storageRepository;
   final IVaultMediaIsolationManager? isolationManager;
   final LocalTracksStore? localTracksStore;
@@ -108,6 +118,7 @@ class _VaultLocalSongPickerContent extends StatefulWidget {
   const _VaultLocalSongPickerContent({
     required this.playlist,
     required this.dismissController,
+    required this.vaultTheme,
     this.storageRepository,
     this.isolationManager,
     this.localTracksStore,
@@ -121,12 +132,27 @@ class _VaultLocalSongPickerContent extends StatefulWidget {
 
 class _VaultLocalSongPickerContentState
     extends State<_VaultLocalSongPickerContent> {
+  static const double _pickerRowHeight = 70.0;
+  static const double _pickerRowSpacing = 8.0;
+  static const double _pickerItemExtent = _pickerRowHeight + _pickerRowSpacing;
+
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final ValueNotifier<_FilteredTracksSnapshot> _filteredSnapshot =
+      ValueNotifier<_FilteredTracksSnapshot>(
+    const _FilteredTracksSnapshot(
+      entries: <_PickerTrackEntry>[],
+      selectablePaths: <String>[],
+      isFiltering: false,
+    ),
+  );
+  final ValueNotifier<int> _selectionVersion = ValueNotifier<int>(0);
 
   VaultSongIngestionModeEnum _ingestionMode =
       VaultSongIngestionModeEnum.copyToVault;
   List<LocalTrack> _allTracks = const [];
+  List<_PickerTrackEntry> _allEntries = const <_PickerTrackEntry>[];
+  Set<String> _existingIdentifiers = const <String>{};
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -138,21 +164,33 @@ class _VaultLocalSongPickerContentState
   @override
   void initState() {
     super.initState();
+    _existingIdentifiers = _buildExistingIdentifiers();
     _searchController.addListener(_onSearchChanged);
     _loadLocalTracks();
   }
 
   @override
+  void didUpdateWidget(covariant _VaultLocalSongPickerContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playlist != widget.playlist) {
+      _existingIdentifiers = _buildExistingIdentifiers();
+      _rebuildEntriesAndFilter(_allTracks);
+    }
+  }
+
+  @override
   void dispose() {
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _scrollController.dispose();
+    _filteredSnapshot.dispose();
+    _selectionVersion.dispose();
     super.dispose();
   }
 
   void _onSearchChanged() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (!mounted) return;
+    _applySearchFilter();
   }
 
   Future<void> _loadLocalTracks() async {
@@ -170,8 +208,9 @@ class _VaultLocalSongPickerContentState
       if (store case final resolvedStore?) {
         final tracks = await resolvedStore.getAll();
         if (mounted) {
+          _allTracks = tracks;
+          _rebuildEntriesAndFilter(tracks);
           setState(() {
-            _allTracks = tracks;
             _isLoading = false;
           });
         }
@@ -183,8 +222,9 @@ class _VaultLocalSongPickerContentState
         if (db case final resolvedDb?) {
           final tracks = await resolvedDb.getAllTracks();
           if (mounted) {
+            _allTracks = tracks;
+            _rebuildEntriesAndFilter(tracks);
             setState(() {
-              _allTracks = tracks;
               _isLoading = false;
             });
           }
@@ -241,52 +281,87 @@ class _VaultLocalSongPickerContentState
     return false;
   }
 
-  List<LocalTrack> _filteredTracks(Set<String> existingIdentifiers) {
-    final query = _searchController.text.trim().toLowerCase();
-    if (query.isEmpty) {
-      return _allTracks;
-    }
-    return _allTracks.where((track) {
-      final titleMatch = track.title.toLowerCase().contains(query);
-      final artist = switch (track.artist) {
+  _PickerTrackEntry _createEntry(LocalTrack track) {
+    final isAlreadyAdded =
+        _isTrackAlreadyInPlaylist(track, _existingIdentifiers);
+    final displayTitle =
+        track.title.isNotEmpty ? track.title : track.dataPath.split('/').last;
+    final artist = switch (track.artist) {
+      final a? when a.isNotEmpty => a,
+      _ => 'Unknown Artist',
+    };
+    final durationStr = switch (track.duration) {
+      final d? when d > 0 => DurationFormatter.milliseconds(d),
+      _ => '',
+    };
+    final displaySubtitle =
+        durationStr.isNotEmpty ? '$artist \u2022 $durationStr' : artist;
+
+    return _PickerTrackEntry(
+      track: track,
+      isAlreadyAdded: isAlreadyAdded,
+      titleLower: track.title.toLowerCase(),
+      artistLower: switch (track.artist) {
         final a? => a.toLowerCase(),
         null => '',
-      };
-      final artistMatch = artist.contains(query);
-      return titleMatch || artistMatch;
-    }).toList();
+      },
+      displayTitle: displayTitle,
+      displaySubtitle: displaySubtitle,
+      artworkUri: _localTrackArtworkUri(track),
+    );
+  }
+
+  void _rebuildEntriesAndFilter(List<LocalTrack> tracks) {
+    _allEntries =
+        List<_PickerTrackEntry>.unmodifiable(tracks.map(_createEntry));
+    _applySearchFilter();
+  }
+
+  void _applySearchFilter() {
+    final query = _searchController.text.trim().toLowerCase();
+    final List<_PickerTrackEntry> matched = query.isEmpty
+        ? _allEntries
+        : _allEntries
+            .where(
+              (entry) =>
+                  entry.titleLower.contains(query) ||
+                  entry.artistLower.contains(query),
+            )
+            .toList(growable: false);
+
+    final List<String> selectablePaths = matched
+        .where((entry) => !entry.isAlreadyAdded)
+        .map((entry) => entry.track.dataPath)
+        .toList(growable: false);
+
+    _filteredSnapshot.value = _FilteredTracksSnapshot(
+      entries: matched,
+      selectablePaths: selectablePaths,
+      isFiltering: query.isNotEmpty,
+    );
   }
 
   void _toggleTrackSelection(LocalTrack track, bool isAlreadyAdded) {
     if (isAlreadyAdded || _isProcessing) return;
-    setState(() {
-      if (_selectedTrackPaths.contains(track.dataPath)) {
-        _selectedTrackPaths.remove(track.dataPath);
-      } else {
-        _selectedTrackPaths.add(track.dataPath);
-      }
-    });
+    if (_selectedTrackPaths.contains(track.dataPath)) {
+      _selectedTrackPaths.remove(track.dataPath);
+    } else {
+      _selectedTrackPaths.add(track.dataPath);
+    }
+    _selectionVersion.value++;
   }
 
-  void _toggleSelectAllFiltered(
-      List<LocalTrack> filtered, Set<String> existingIdentifiers) {
+  void _toggleSelectAllFiltered(List<String> selectablePaths) {
     if (_isProcessing) return;
-    final selectablePaths = filtered
-        .where((t) => !_isTrackAlreadyInPlaylist(t, existingIdentifiers))
-        .map((t) => t.dataPath)
-        .toList();
-
-    setState(() {
-      final allSelected =
-          selectablePaths.every(_selectedTrackPaths.contains);
-      if (allSelected) {
-        for (final p in selectablePaths) {
-          _selectedTrackPaths.remove(p);
-        }
-      } else {
-        _selectedTrackPaths.addAll(selectablePaths);
+    final allSelected = selectablePaths.every(_selectedTrackPaths.contains);
+    if (allSelected) {
+      for (final p in selectablePaths) {
+        _selectedTrackPaths.remove(p);
       }
-    });
+    } else {
+      _selectedTrackPaths.addAll(selectablePaths);
+    }
+    _selectionVersion.value++;
   }
 
   String _localTrackArtworkUri(LocalTrack track) {
@@ -325,9 +400,14 @@ class _VaultLocalSongPickerContentState
     }
 
     if (storageRepo == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Storage repository unavailable.')),
-      );
+      if (mounted) {
+        showVaultSettingsSnackBar(
+          context,
+          widget.vaultTheme,
+          message: 'Unable to save tracks right now.',
+          isError: true,
+        );
+      }
       setState(() => _isProcessing = false);
       return;
     }
@@ -460,12 +540,11 @@ class _VaultLocalSongPickerContentState
           _ingestionMode == VaultSongIngestionModeEnum.copyToVault
               ? 'Added'
               : 'Moved';
-      final msg = '$modeVerb $count songs to "${widget.playlist.name}"';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg, style: const TextStyle(fontFamily: 'Poppins')),
-          duration: const Duration(seconds: 2),
-        ),
+      final noun = count == 1 ? 'song' : 'songs';
+      showVaultSettingsSnackBar(
+        context,
+        widget.vaultTheme,
+        message: '$modeVerb $count $noun to "${widget.playlist.name}"',
       );
       Navigator.of(context).pop(true);
     }
@@ -473,261 +552,159 @@ class _VaultLocalSongPickerContentState
 
   @override
   Widget build(BuildContext context) {
-    final existingIdentifiers = _buildExistingIdentifiers();
-    final filtered = _filteredTracks(existingIdentifiers);
+    final vaultTheme = widget.vaultTheme;
 
-    return Material(
-      color: PlayerColors.surface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-      clipBehavior: Clip.antiAlias,
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.85,
-          child: Column(
-            children: [
-              // 1. Drag Handle & Sheet Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Add Local Songs',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                widget.playlist.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: PlayerColors.textSecondary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        PlayerCircleButton(
-                          icon: Icons.close_rounded,
-                          tooltip: 'Close',
-                          onPressed: () => Navigator.of(context).pop(false),
-                        ),
-                      ],
-                    ),
-                  ],
+    return VaultSheetScaffold(
+      vaultTheme: vaultTheme,
+      title: 'Add Local Songs',
+      subtitle: widget.playlist.name,
+      heightFactor: 0.85,
+      expandBody: true,
+      onClose: () => Navigator.of(context).pop(false),
+      bottomBar: _buildBottomActionBar(vaultTheme),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 8.0),
+            child: VaultSegmentedControl<VaultSongIngestionModeEnum>(
+              vaultTheme: vaultTheme,
+              selectedValue: _ingestionMode,
+              onChanged: _isProcessing
+                  ? null
+                  : (mode) => setState(() => _ingestionMode = mode),
+              options: const [
+                VaultSegmentOption(
+                  value: VaultSongIngestionModeEnum.copyToVault,
+                  label: 'Copy to Vault',
+                  icon: Icons.copy_rounded,
+                ),
+                VaultSegmentOption(
+                  value: VaultSongIngestionModeEnum.moveToVault,
+                  label: 'Move to Vault',
+                  icon: Icons.drive_file_move_outlined,
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 0.0, 16.0, 8.0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 9.0,
+              ),
+              decoration: BoxDecoration(
+                color: vaultTheme.background,
+                borderRadius: VaultTheme.borderRadius8,
+                border: Border.all(
+                  color: vaultTheme.borderSubtle,
+                  width: VaultTheme.borderWidth,
                 ),
               ),
-
-              // 2. Segmented Mode Control [ Copy to Vault | Move to Vault ]
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-                child: _buildSegmentedControl(),
-              ),
-
-              // Mode description subtitle
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    _ingestionMode.description,
-                    style: TextStyle(
-                      fontFamily: VaultTheme.fontFamily,
-                      fontSize: 11.5,
-                      color: PlayerColors.textSecondary,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1.5),
+                    child: Icon(
+                      Icons.info_outline_rounded,
+                      size: 15.0,
+                      color: vaultTheme.accent,
                     ),
                   ),
-                ),
+                  const SizedBox(width: 8.0),
+                  Expanded(
+                    child: Text(
+                      _ingestionMode.description,
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontSize: 12.0,
+                        height: 1.35,
+                        color: vaultTheme.textMediumSalience,
+                      ),
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 0.0, 16.0, 10.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: VaultInlineSearchField(
+                    controller: _searchController,
+                    vaultTheme: vaultTheme,
+                    hintText: 'Filter songs or artists',
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+                const SizedBox(width: 8.0),
+                ListenableBuilder(
+                  listenable: Listenable.merge([
+                    _filteredSnapshot,
+                    _selectionVersion,
+                  ]),
+                  builder: (context, _) {
+                    final selectablePaths =
+                        _filteredSnapshot.value.selectablePaths;
+                    final hasSelectable = selectablePaths.isNotEmpty;
+                    final allSelectableChecked = hasSelectable &&
+                        selectablePaths.every(_selectedTrackPaths.contains);
 
-              // 3. Search and Selection Summary Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 40.0,
-                        decoration: BoxDecoration(
-                          color: PlayerColors.surfaceHigh,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            width: 1.0,
+                    return SizedBox(
+                      height: 44.0,
+                      child: OutlinedButton(
+                        onPressed: hasSelectable && !_isProcessing
+                            ? () => _toggleSelectAllFiltered(selectablePaths)
+                            : null,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: vaultTheme.accent,
+                          disabledForegroundColor: vaultTheme.textLowSalience,
+                          side: BorderSide(
+                            color: hasSelectable
+                                ? vaultTheme.borderSubtle
+                                : vaultTheme.borderSubtle
+                                    .withValues(alpha: 0.4),
+                            width: VaultTheme.borderWidth,
                           ),
+                          shape: VaultTheme.shape8,
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
                         ),
-                        child: TextField(
-                          controller: _searchController,
+                        child: Text(
+                          allSelectableChecked ? 'Clear' : 'Select All',
                           style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'Filter local songs...',
-                            hintStyle: const TextStyle(
-                              color: PlayerColors.textSecondary,
-                              fontSize: 13,
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.search_rounded,
-                              size: 18,
-                              color: PlayerColors.textSecondary,
-                            ),
-                            suffixIcon: _searchController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: const Icon(
-                                      Icons.close_rounded,
-                                      size: 16,
-                                      color: PlayerColors.textSecondary,
-                                    ),
-                                    onPressed: () => _searchController.clear(),
-                                  )
-                                : null,
-                            border: InputBorder.none,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 10.0),
+                            fontFamily: VaultTheme.fontFamily,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: () => _toggleSelectAllFiltered(
-                          filtered, existingIdentifiers),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF1DB954),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                      ),
-                      child: const Text(
-                        'Toggle All',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
-              ),
-
-              const Divider(color: PlayerColors.divider, height: 1),
-
-              // 4. Songs List
-              Expanded(
-                child: _buildTracksBody(filtered, existingIdentifiers),
-              ),
-
-              // 5. Sticky Bottom Action Bar
-              _buildBottomActionBar(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSegmentedControl() {
-    return Container(
-      height: 42,
-      decoration: BoxDecoration(
-        color: PlayerColors.surfaceHigh,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.10),
-          width: 1.0,
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildSegmentButton(
-              mode: VaultSongIngestionModeEnum.copyToVault,
-              icon: Icons.copy_rounded,
+              ],
             ),
           ),
+          Divider(
+            color: vaultTheme.borderSubtle,
+            height: 1.0,
+            thickness: VaultTheme.borderWidth,
+          ),
           Expanded(
-            child: _buildSegmentButton(
-              mode: VaultSongIngestionModeEnum.moveToVault,
-              icon: Icons.drive_file_move_outlined,
-            ),
+            child: _buildTracksBody(vaultTheme),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSegmentButton({
-    required VaultSongIngestionModeEnum mode,
-    required IconData icon,
-  }) {
-    final isSelected = _ingestionMode == mode;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _isProcessing
-            ? null
-            : () {
-                setState(() => _ingestionMode = mode);
-              },
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF1DB954) : Colors.transparent,
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: isSelected ? Colors.black : Colors.white70,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                mode.title,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected ? Colors.black : Colors.white70,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTracksBody(
-    List<LocalTrack> tracks,
-    Set<String> existingIdentifiers,
-  ) {
+  Widget _buildTracksBody(VaultThemeData vaultTheme) {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF1DB954)),
+      return Center(
+        child: CircularProgressIndicator(color: vaultTheme.accent),
       );
     }
 
@@ -735,247 +712,447 @@ class _VaultLocalSongPickerContentState
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline_rounded,
-                  color: Colors.redAccent, size: 40),
-              const SizedBox(height: 12),
-              Text(
-                err,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
+          child: Container(
+            padding: const EdgeInsets.all(20.0),
+            decoration: BoxDecoration(
+              color: vaultTheme.background,
+              borderRadius: VaultTheme.borderRadius8,
+              border: Border.all(
+                color: vaultTheme.borderSubtle,
+                width: VaultTheme.borderWidth,
               ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: _loadLocalTracks,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF1DB954),
-                  side: const BorderSide(color: Color(0xFF1DB954)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  color: vaultDangerInk(vaultTheme),
+                  size: 36.0,
                 ),
-                child: const Text('Retry'),
-              ),
-            ],
+                const SizedBox(height: 12.0),
+                Text(
+                  err,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: VaultTheme.fontFamily,
+                    color: vaultTheme.textMediumSalience,
+                    fontSize: 13.0,
+                  ),
+                ),
+                const SizedBox(height: 14.0),
+                SizedBox(
+                  height: 44.0,
+                  child: OutlinedButton(
+                    onPressed: _loadLocalTracks,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: vaultTheme.accent,
+                      side: BorderSide(
+                        color: vaultTheme.border,
+                        width: VaultTheme.borderWidth,
+                      ),
+                      shape: VaultTheme.shape8,
+                    ),
+                    child: const Text(
+                      'Retry',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
-    if (tracks.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+    return ValueListenableBuilder<_FilteredTracksSnapshot>(
+      valueListenable: _filteredSnapshot,
+      builder: (context, snapshot, _) {
+        final entries = snapshot.entries;
+        if (entries.isEmpty) {
+          final isFiltering = snapshot.isFiltering;
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 52.0,
+                    height: 52.0,
+                    decoration: BoxDecoration(
+                      color: vaultTheme.surfaceSubtle,
+                      borderRadius: VaultTheme.borderRadius8,
+                      border: Border.all(
+                        color: vaultTheme.borderSubtle,
+                        width: VaultTheme.borderWidth,
+                      ),
+                    ),
+                    child: Icon(
+                      isFiltering
+                          ? Icons.search_off_rounded
+                          : Icons.music_off_outlined,
+                      color: vaultTheme.textLowSalience,
+                      size: 26.0,
+                    ),
+                  ),
+                  const SizedBox(height: 12.0),
+                  Text(
+                    isFiltering ? 'No Songs Found' : 'No Local Songs',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      color: vaultTheme.textHighSalience,
+                      fontSize: 15.0,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4.0),
+                  Text(
+                    isFiltering
+                        ? 'Try a different song or artist.'
+                        : 'Add audio files to your device to import them here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      color: vaultTheme.textMediumSalience,
+                      fontSize: 13.0,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return SpotifyStretchOverscrollIndicator(
+          axisDirection: AxisDirection.down,
+          child: ListView.builder(
+            controller: _scrollController,
+            physics: const ClampingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 12.0),
+            itemExtent: _pickerItemExtent,
+            itemCount: entries.length,
+            itemBuilder: (context, index) {
+              return _buildTrackPickerTile(
+                vaultTheme: vaultTheme,
+                entry: entries[index],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTrackPickerTile({
+    required VaultThemeData vaultTheme,
+    required _PickerTrackEntry entry,
+  }) {
+    final track = entry.track;
+    final isAlreadyAdded = entry.isAlreadyAdded;
+
+    final Widget artworkAndMetadata = Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6.0),
+          child: SizedBox(
+            width: 44.0,
+            height: 44.0,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                PlayerArtworkImage(
+                  imageUrl: entry.artworkUri,
+                  artworkWidth: 44,
+                  artworkHeight: 44,
+                  placeholderIconSize: 20,
+                  placeholderIcon: Icons.music_note_rounded,
+                ),
+                if (isAlreadyAdded)
+                  ColoredBox(
+                    color: vaultTheme.background.withValues(alpha: 0.50),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12.0),
+        Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.music_off_outlined,
-                  color: PlayerColors.textSecondary, size: 44),
-              const SizedBox(height: 12),
-              const Text(
-                'No local tracks found.',
+              Text(
+                entry.displayTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontFamily: VaultTheme.fontFamily,
+                  color: isAlreadyAdded
+                      ? vaultTheme.textLowSalience
+                      : vaultTheme.textHighSalience,
+                  fontSize: 14.0,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2.0),
               Text(
-                _searchController.text.isNotEmpty
-                    ? 'Try adjusting your search query.'
-                    : 'Ensure audio files are present on the device.',
-                style: const TextStyle(
-                  color: PlayerColors.textSecondary,
-                  fontSize: 13,
+                entry.displaySubtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  color: isAlreadyAdded
+                      ? vaultTheme.textLowSalience
+                      : vaultTheme.textMediumSalience,
+                  fontSize: 12.0,
                 ),
               ),
             ],
           ),
         ),
+      ],
+    );
+
+    if (isAlreadyAdded) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: _pickerRowSpacing),
+        child: SizedBox(
+          height: _pickerRowHeight,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: vaultTheme.background.withValues(alpha: 0.65),
+              borderRadius: VaultTheme.borderRadius8,
+              border: Border.all(
+                color: vaultTheme.borderSubtle.withValues(alpha: 0.50),
+                width: VaultTheme.borderWidth,
+              ),
+            ),
+            child: Padding(
+              key: ValueKey('picker_track_${track.dataPath}'),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 8.0,
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: artworkAndMetadata),
+                  const SizedBox(width: 8.0),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8.0,
+                      vertical: 4.0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: vaultTheme.surfaceSubtle.withValues(alpha: 0.60),
+                      borderRadius: BorderRadius.circular(6.0),
+                      border: Border.all(
+                        color: vaultTheme.borderSubtle.withValues(alpha: 0.50),
+                        width: VaultTheme.borderWidth,
+                      ),
+                    ),
+                    child: Text(
+                      'Added',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        color: vaultTheme.textLowSalience,
+                        fontSize: 11.0,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       );
     }
 
-    return SpotifyStretchOverscrollIndicator(
-      axisDirection: AxisDirection.down,
-      child: ListView.builder(
-        controller: _scrollController,
-        physics: const ClampingScrollPhysics(),
-        itemCount: tracks.length,
-        itemBuilder: (context, index) {
-          final track = tracks[index];
-          final isAlreadyAdded =
-              _isTrackAlreadyInPlaylist(track, existingIdentifiers);
-          final isSelected = _selectedTrackPaths.contains(track.dataPath);
+    return ValueListenableBuilder<int>(
+      valueListenable: _selectionVersion,
+      child: artworkAndMetadata,
+      builder: (context, _, staticLeading) {
+        final isSelected = _selectedTrackPaths.contains(track.dataPath);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: _pickerRowSpacing),
+          child: SizedBox(
+            height: _pickerRowHeight,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? vaultTheme.accent.withValues(alpha: 0.10)
+                    : vaultTheme.background,
+                borderRadius: VaultTheme.borderRadius8,
+                border: Border.all(
+                  color:
+                      isSelected ? vaultTheme.accent : vaultTheme.borderSubtle,
+                  width: VaultTheme.borderWidth,
+                ),
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  key: ValueKey('picker_track_${track.dataPath}'),
+                  borderRadius: VaultTheme.borderRadius8,
+                  onTap: _isProcessing
+                      ? null
+                      : () => _toggleTrackSelection(track, false),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 8.0,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: staticLeading ?? artworkAndMetadata,
+                        ),
+                        const SizedBox(width: 8.0),
+                        Checkbox(
+                          value: isSelected,
+                          activeColor: vaultTheme.accent,
+                          checkColor: vaultTheme.scaffold,
+                          side: BorderSide(
+                            color: vaultTheme.border,
+                            width: 1.5,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4.0),
+                          ),
+                          onChanged: _isProcessing
+                              ? null
+                              : (_) => _toggleTrackSelection(track, false),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
-          return _buildTrackPickerTile(
-            track: track,
-            isAlreadyAdded: isAlreadyAdded,
-            isSelected: isSelected,
+  Widget _buildBottomActionBar(VaultThemeData vaultTheme) {
+    final actionVerb = _ingestionMode == VaultSongIngestionModeEnum.copyToVault
+        ? 'Add'
+        : 'Move';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 16.0),
+      decoration: BoxDecoration(
+        color: vaultTheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: vaultTheme.borderSubtle,
+            width: VaultTheme.borderWidth,
+          ),
+        ),
+      ),
+      child: ValueListenableBuilder<int>(
+        valueListenable: _selectionVersion,
+        builder: (context, _, _) {
+          final count = _selectedTrackPaths.length;
+          final canCommit = count > 0 && !_isProcessing;
+          final songWord = count == 1 ? 'Song' : 'Songs';
+
+          return SizedBox(
+            width: double.infinity,
+            height: 48.0,
+            child: ElevatedButton(
+              key: const ValueKey('picker_commit_add_songs_button'),
+              onPressed: canCommit ? _commitAddition : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: vaultTheme.accent,
+                foregroundColor: vaultTheme.scaffold,
+                disabledBackgroundColor: vaultTheme.surfaceSubtle,
+                disabledForegroundColor: vaultTheme.textLowSalience,
+                shape: VaultTheme.shape8,
+                elevation: 0.0,
+              ),
+              child: _isProcessing
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                          width: 18.0,
+                          height: 18.0,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.0,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              vaultTheme.scaffold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10.0),
+                        Text(
+                          'Processing $_processingCurrent of $_processingTotal...',
+                          style: TextStyle(
+                            fontFamily: VaultTheme.fontFamily,
+                            color: vaultTheme.scaffold,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14.0,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      count == 0
+                          ? 'Select Songs'
+                          : '$actionVerb $count $songWord to Playlist',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        color: canCommit
+                            ? vaultTheme.scaffold
+                            : vaultTheme.textLowSalience,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14.0,
+                      ),
+                    ),
+            ),
           );
         },
       ),
     );
   }
+}
 
-  Widget _buildTrackPickerTile({
-    required LocalTrack track,
-    required bool isAlreadyAdded,
-    required bool isSelected,
-  }) {
-    final title = track.title.isNotEmpty ? track.title : track.dataPath.split('/').last;
-    final artist = switch (track.artist) {
-      final a? when a.isNotEmpty => a,
-      _ => 'Unknown Artist',
-    };
-    final durationStr = switch (track.duration) {
-      final d? when d > 0 => DurationFormatter.milliseconds(d),
-      _ => '',
-    };
+class _PickerTrackEntry {
+  final LocalTrack track;
+  final bool isAlreadyAdded;
+  final String titleLower;
+  final String artistLower;
+  final String displayTitle;
+  final String displaySubtitle;
+  final String artworkUri;
 
-    return Opacity(
-      opacity: isAlreadyAdded ? 0.45 : 1.0,
-      child: ListTile(
-        key: ValueKey('picker_track_${track.dataPath}'),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
-        onTap: isAlreadyAdded
-            ? null
-            : () => _toggleTrackSelection(track, isAlreadyAdded),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: PlayerArtworkImage(
-              imageUrl: _localTrackArtworkUri(track),
-              artworkWidth: 44,
-              artworkHeight: 44,
-              placeholderIconSize: 22,
-              placeholderIcon: Icons.music_note,
-            ),
-          ),
-        ),
-        title: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: isAlreadyAdded ? Colors.white60 : Colors.white,
-            fontSize: 14.5,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        subtitle: Text(
-          durationStr.isNotEmpty ? '$artist \u2022 $durationStr' : artist,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            color: PlayerColors.textSecondary,
-            fontSize: 12.5,
-          ),
-        ),
-        trailing: isAlreadyAdded
-            ? Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    width: 1.0,
-                  ),
-                ),
-                child: const Text(
-                  'Added',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              )
-            : Checkbox(
-                value: isSelected,
-                activeColor: const Color(0xFF1DB954),
-                checkColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                onChanged: _isProcessing
-                    ? null
-                    : (_) => _toggleTrackSelection(track, isAlreadyAdded),
-              ),
-      ),
-    );
-  }
+  const _PickerTrackEntry({
+    required this.track,
+    required this.isAlreadyAdded,
+    required this.titleLower,
+    required this.artistLower,
+    required this.displayTitle,
+    required this.displaySubtitle,
+    required this.artworkUri,
+  });
+}
 
-  Widget _buildBottomActionBar() {
-    final count = _selectedTrackPaths.length;
-    final canCommit = count > 0 && !_isProcessing;
+class _FilteredTracksSnapshot {
+  final List<_PickerTrackEntry> entries;
+  final List<String> selectablePaths;
+  final bool isFiltering;
 
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      decoration: const BoxDecoration(
-        color: PlayerColors.surface,
-        border: Border(
-          top: BorderSide(color: PlayerColors.divider, width: 1.0),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          width: double.infinity,
-          height: 48,
-          child: ElevatedButton(
-            key: const ValueKey('picker_commit_add_songs_button'),
-            onPressed: canCommit ? _commitAddition : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF1DB954),
-              disabledBackgroundColor:
-                  const Color(0xFF1DB954).withValues(alpha: 0.35),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-              elevation: 0,
-            ),
-            child: _isProcessing
-                ? Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.0,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.black),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Processing $_processingCurrent / $_processingTotal...',
-                        style: const TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  )
-                : Text(
-                    count == 0
-                        ? 'Select Songs'
-                        : 'Add $count ${count == 1 ? 'Song' : 'Songs'} to Playlist',
-                    style: TextStyle(
-                      color: canCommit ? Colors.black : Colors.white38,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                    ),
-                  ),
-          ),
-        ),
-      ),
-    );
-  }
+  const _FilteredTracksSnapshot({
+    required this.entries,
+    required this.selectablePaths,
+    required this.isFiltering,
+  });
 }

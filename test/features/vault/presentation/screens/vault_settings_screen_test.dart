@@ -323,7 +323,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
     }
 
-    testWidgets('Hub screen renders top bar, status badge, quick-lock, and 5 nav tiles',
+    testWidgets('Hub screen renders top bar, quick-lock, and 5 nav tiles',
         (tester) async {
       setLargeViewport(tester);
       await tester.pumpWidget(createTestBed());
@@ -331,8 +331,8 @@ void main() {
 
       expect(find.byKey(const ValueKey('vault_settings_scaffold')), findsOneWidget);
       expect(find.text('Vault Settings'), findsOneWidget);
-      expect(find.byKey(const ValueKey('vault_settings_status_badge')), findsOneWidget);
-      expect(find.text('Active Session'), findsOneWidget);
+      expect(find.byKey(const ValueKey('vault_settings_status_badge')), findsNothing);
+      expect(find.text('Active Session'), findsNothing);
       expect(find.byKey(const ValueKey('vault_settings_quick_lock_button')), findsOneWidget);
 
       expect(find.byKey(const ValueKey('nav_tile_appearance')), findsOneWidget);
@@ -612,7 +612,7 @@ void main() {
       expect(find.byKey(const ValueKey('vault_danger_zone_screen')), findsOneWidget);
       expect(find.text('Danger Zone'), findsOneWidget);
       expect(find.byKey(const ValueKey('danger_zone_warning_card')), findsOneWidget);
-      expect(find.text('Destructive Vault Purge'), findsOneWidget);
+      expect(find.text('Erase Private Vault'), findsOneWidget);
       expect(find.byKey(const ValueKey('purge_vault_button')), findsOneWidget);
     });
 
@@ -635,23 +635,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.textContaining('Cryptographic Shredding'),
+        find.textContaining('Encryption Keys Destroyed'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('Database Wipe'),
+        find.textContaining('Private Media Deleted'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('64KB Zero-Overwriting'),
+        find.textContaining('Credentials Cleared'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('RAM Zeroization'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Irreversible Action'),
+        find.textContaining('Cannot Be Undone'),
         findsOneWidget,
       );
     });
@@ -678,7 +674,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Confirm Vault Purge'), findsOneWidget);
+      expect(find.text('Erase Vault'), findsOneWidget);
     });
 
     testWidgets('Design system compliance across all settings screens',

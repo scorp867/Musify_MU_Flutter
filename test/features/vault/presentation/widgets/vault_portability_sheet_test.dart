@@ -45,14 +45,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Vault Portability'), findsOneWidget);
-      expect(find.text('Import to Vault'), findsOneWidget);
-      expect(find.text('Export to Public'), findsOneWidget);
-      expect(find.text('All Device Music Files'), findsOneWidget);
-      expect(find.text('5 tracks discovered on device'), findsOneWidget);
+      expect(find.text('Import & Export'), findsOneWidget);
+      expect(find.text('Import'), findsOneWidget);
+      expect(find.text('Export'), findsOneWidget);
+      expect(find.text('All Device Music'), findsOneWidget);
+      expect(find.text('5 tracks found on this device'), findsOneWidget);
     });
 
-    testWidgets('Tapping Export to Public tab switches view and displays sandbox empty state when 0 tracks', (tester) async {
+    testWidgets('Tapping Export tab switches view and displays hidden-track empty state when 0 tracks', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() => tester.view.resetPhysicalSize());
@@ -76,12 +76,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap export tab
-      await tester.tap(find.text('Export to Public'));
+      await tester.tap(find.text('Export'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Option A: Restore to Public Storage'), findsOneWidget);
-      expect(find.text('No Sandboxed Tracks to Export'), findsOneWidget);
-      expect(find.text('No private playlists have sandbox-isolated tracks.'), findsOneWidget);
+      expect(find.text('Restore to Device Storage'), findsOneWidget);
+      expect(find.text('No Hidden Tracks to Export'), findsOneWidget);
+      expect(find.text('No playlists have hidden device tracks.'), findsOneWidget);
     });
 
     testWidgets('Export tab lists exportable playlists and Unvault All button when sandbox media exists', (tester) async {
@@ -132,13 +132,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Export to Public'));
+      await tester.tap(find.text('Export'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Export All 1 Sandboxed Tracks'), findsOneWidget);
+      expect(find.text('Export All 1 Hidden Track'), findsOneWidget);
       expect(find.text('Hidden Masters'), findsOneWidget);
-      expect(find.text('1 physically isolated media tracks'), findsOneWidget);
-      expect(find.text('Export'), findsOneWidget);
+      expect(find.text('1 hidden track'), findsOneWidget);
+      expect(find.text('Export'), findsNWidgets(2));
     });
   });
 }

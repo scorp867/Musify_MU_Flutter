@@ -358,6 +358,11 @@ class _DissipatingHairlinePainter extends CustomPainter {
     final int now = DateTime.now().millisecondsSinceEpoch;
     const double maxOpacity = 0.35;
     const double dissipationMs = 220.0;
+    final paint = Paint()
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
     for (int i = 1; i < timedPoints.length; i++) {
       final p0 = timedPoints[i - 1];
@@ -378,13 +383,7 @@ class _DissipatingHairlinePainter extends CustomPainter {
           ? 0.0
           : ((rawAlpha > 1.0) ? 1.0 : rawAlpha);
 
-      final paint = Paint()
-        ..color = Colors.white.withValues(alpha: alpha)
-        ..strokeWidth = 1.0
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
-
+      paint.color = Colors.white.withValues(alpha: alpha);
       canvas.drawLine(p0.position, p1.position, paint);
     }
   }

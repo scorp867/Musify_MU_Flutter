@@ -15,6 +15,7 @@ import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart
 import 'package:musify_mu/features/vault/domain/states/vault_setup_state.dart';
 import 'package:musify_mu/features/vault/domain/usecases/unlock_vault_use_case.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
 /// Dedicated full-screen route for first-time vault provisioning.
 ///
@@ -251,8 +252,10 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
           child: Scaffold(
             backgroundColor: vaultTheme.scaffold,
             appBar: AppBar(
-              backgroundColor: Colors.transparent,
+              backgroundColor: vaultTheme.scaffold,
+              surfaceTintColor: Colors.transparent,
               elevation: 0,
+              toolbarHeight: 48.0,
               leading: IconButton(
                 icon: Icon(
                   Icons.arrow_back,
@@ -283,25 +286,21 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
                           children: [
                             Column(
                               children: [
-                                const SizedBox(height: 8.0),
+                                const SizedBox(height: 4.0),
                                 _buildSetupHeader(vaultTheme),
-                                const SizedBox(height: 24.0),
-                                AnimatedBuilder(
-                                  animation: _shakeAnimation,
-                                  builder: (context, child) {
-                                    return Transform.translate(
-                                      key: const ValueKey('setup_pin_shake_container'),
-                                      offset: Offset(_shakeAnimation.value, 0),
-                                      child: child,
-                                    );
-                                  },
-                                  child: _buildPinDotsRow(vaultTheme),
-                                ),
-                                const SizedBox(height: 16.0),
+                                const SizedBox(height: 18.0),
+                                _buildPinDotsRow(vaultTheme),
+                                const SizedBox(height: 12.0),
                                 _buildStatusFeedback(vaultTheme),
                               ],
                             ),
-                            _buildKeypadSection(vaultTheme),
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                top: 8.0,
+                                bottom: 16.0,
+                              ),
+                              child: _buildKeypadSection(vaultTheme),
+                            ),
                           ],
                         ),
                       ),
@@ -320,6 +319,7 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
     return BlocBuilder<VaultSetupCubit, VaultSetupState>(
       builder: (context, setupState) {
         final IconData headerIcon;
+        final String stepCaption;
         final String headerTitle;
         final String headerSubtitle;
 
@@ -327,66 +327,80 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
           case SetupAwaitingNewPinState():
           case SetupPinMismatchState():
           case SetupEnrollmentFailedState():
-            headerIcon = Icons.lock_open_outlined;
-            headerTitle = 'Create Master PIN';
+            headerIcon = Icons.lock_open_rounded;
+            stepCaption = 'STEP 1 OF 2';
+            headerTitle = 'Create PIN';
             headerSubtitle = 'Choose a 6-digit PIN to protect your vault';
           case SetupAwaitingConfirmationState():
-            headerIcon = Icons.lock_outline;
-            headerTitle = 'Confirm Master PIN';
+            headerIcon = Icons.verified_user_outlined;
+            stepCaption = 'STEP 2 OF 2';
+            headerTitle = 'Confirm PIN';
             headerSubtitle = 'Re-enter your 6-digit PIN to confirm';
           case SetupEnrollingCredentialsState():
-            headerIcon = Icons.lock_outline;
+            headerIcon = Icons.lock_outline_rounded;
+            stepCaption = 'FINALIZING';
             headerTitle = 'Setting Up Vault';
-            headerSubtitle = 'Provisioning encryption keys...';
+            headerSubtitle = 'Securing your vault...';
           case SetupCompleteState():
-            headerIcon = Icons.check_circle_outline;
-            headerTitle = 'Vault Created';
-            headerSubtitle = 'Your private vault is ready';
+            headerIcon = Icons.check_rounded;
+            stepCaption = 'READY';
+            headerTitle = 'Vault Ready';
+            headerSubtitle = 'Your vault is set up and unlocked';
         }
+
+        final isComplete = setupState is SetupCompleteState;
 
         return Column(
           children: [
             Container(
-              width: 56.0,
-              height: 56.0,
+              width: 44.0,
+              height: 44.0,
               decoration: BoxDecoration(
-                color: vaultTheme.surfaceSubtle,
+                color: vaultTheme.surface,
                 borderRadius: VaultTheme.borderRadius8,
                 border: Border.all(
-                  color: vaultTheme.border,
+                  color: isComplete ? vaultTheme.accent : vaultTheme.borderSubtle,
                   width: VaultTheme.borderWidth,
                 ),
               ),
               child: Icon(
                 headerIcon,
-                size: 28.0,
-                color: setupState is SetupCompleteState
-                    ? vaultTheme.accent
-                    : vaultTheme.textHighSalience,
+                size: 20.0,
+                color: isComplete ? vaultTheme.accent : vaultTheme.textHighSalience,
               ),
             ),
-            const SizedBox(height: 16.0),
+            const SizedBox(height: 10.0),
+            Text(
+              stepCaption,
+              style: TextStyle(
+                fontFamily: VaultTheme.fontFamily,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.1,
+                color: vaultTheme.accent,
+              ),
+            ),
+            const SizedBox(height: 4.0),
             Text(
               headerTitle,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
-                fontSize: 22.0,
+                fontSize: 21.0,
                 fontWeight: FontWeight.w600,
+                letterSpacing: -0.3,
                 color: vaultTheme.textHighSalience,
-                letterSpacing: 0.15,
               ),
             ),
-            const SizedBox(height: 8.0),
+            const SizedBox(height: 4.0),
             Text(
               headerSubtitle,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
-                fontSize: 14.0,
+                fontSize: 13.0,
                 fontWeight: FontWeight.w400,
                 color: vaultTheme.textMediumSalience,
-                letterSpacing: 0.25,
               ),
             ),
           ],
@@ -411,47 +425,13 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
           PinPadLockedOutState() => 0,
         };
 
-        final isError = state is PinPadFailureShakeState;
-        final isSuccess = state is PinPadSuccessState;
-
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(6, (index) {
-            final isFilled = index < enteredCount;
-            final Color fillColor;
-            final Color borderColor;
-
-            if (isError) {
-              fillColor = vaultTheme.danger;
-              borderColor = vaultTheme.danger;
-            } else if (isSuccess) {
-              fillColor = vaultTheme.accent;
-              borderColor = vaultTheme.accent;
-            } else if (isFilled) {
-              fillColor = vaultTheme.textHighSalience;
-              borderColor = vaultTheme.textHighSalience;
-            } else {
-              fillColor = vaultTheme.surfaceSubtle;
-              borderColor = vaultTheme.border;
-            }
-
-            return Padding(
-              key: ValueKey('setup_pin_dot_slot_$index'),
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Container(
-                width: 16.0,
-                height: 16.0,
-                decoration: BoxDecoration(
-                  color: fillColor,
-                  borderRadius: VaultTheme.borderRadius8,
-                  border: Border.all(
-                    color: borderColor,
-                    width: VaultTheme.borderWidth,
-                  ),
-                ),
-              ),
-            );
-          }),
+        return VaultPinDotsRow(
+          vaultTheme: vaultTheme,
+          enteredCount: enteredCount,
+          isError: state is PinPadFailureShakeState,
+          shakeAnimation: _shakeAnimation,
+          shakeContainerKey: const ValueKey('setup_pin_shake_container'),
+          dotSlotKeyBuilder: (index) => ValueKey('setup_pin_dot_slot_$index'),
         );
       },
     );
@@ -463,78 +443,100 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
         switch (setupState) {
           case SetupAwaitingNewPinState():
           case SetupAwaitingConfirmationState():
-            return const SizedBox(height: 24.0);
+            return const SizedBox(height: 36.0);
           case SetupEnrollingCredentialsState():
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-                  width: 16.0,
-                  height: 16.0,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.0,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      vaultTheme.textHighSalience,
+            return SizedBox(
+              height: 36.0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 15.0,
+                    height: 15.0,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.0,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        vaultTheme.accent,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8.0),
-                Text(
-                  'Provisioning vault...',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 13.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.textHighSalience,
+                  const SizedBox(width: 8.0),
+                  Text(
+                    'Setting up vault...',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 13.0,
+                      fontWeight: FontWeight.w500,
+                      color: vaultTheme.textHighSalience,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             );
           case SetupPinMismatchState():
-            return Text(
-              'PINs do not match. Please start over.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 13.0,
-                fontWeight: FontWeight.w500,
-                color: vaultTheme.danger,
-              ),
+            return _buildInlineBanner(
+              vaultTheme: vaultTheme,
+              icon: Icons.error_outline_rounded,
+              message: 'PINs do not match. Start over.',
+              isError: true,
             );
           case SetupCompleteState():
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.check_circle_outline,
-                  size: 16.0,
-                  color: vaultTheme.accent,
-                ),
-                const SizedBox(width: 8.0),
-                Text(
-                  'Vault created successfully',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 13.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.accent,
-                  ),
-                ),
-              ],
+            return _buildInlineBanner(
+              vaultTheme: vaultTheme,
+              icon: Icons.check_circle_outline_rounded,
+              message: 'Vault ready',
+              isError: false,
             );
           case SetupEnrollmentFailedState(:final errorMessage):
-            return Text(
-              'Setup failed: $errorMessage',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 13.0,
-                fontWeight: FontWeight.w500,
-                color: vaultTheme.danger,
-              ),
+            return _buildInlineBanner(
+              vaultTheme: vaultTheme,
+              icon: Icons.error_outline_rounded,
+              message: 'Could not set up vault: $errorMessage',
+              isError: true,
             );
         }
       },
+    );
+  }
+
+  Widget _buildInlineBanner({
+    required VaultThemeData vaultTheme,
+    required IconData icon,
+    required String message,
+    required bool isError,
+  }) {
+    final tintColor = isError ? vaultTheme.danger : vaultTheme.accent;
+    final inkColor = isError ? vaultDangerInk(vaultTheme) : vaultTheme.accent;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      decoration: BoxDecoration(
+        color: tintColor.withValues(alpha: 0.12),
+        borderRadius: VaultTheme.borderRadius8,
+        border: Border.all(
+          color: tintColor.withValues(alpha: 0.40),
+          width: VaultTheme.borderWidth,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16.0, color: inkColor),
+          const SizedBox(width: 8.0),
+          Flexible(
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: VaultTheme.fontFamily,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: inkColor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -542,163 +544,22 @@ class _VaultSetupScreenState extends State<VaultSetupScreen>
     return BlocBuilder<PinPadCubit, PinPadState>(
       builder: (context, state) {
         final cubit = context.read<PinPadCubit>();
-        final isEvaluating = state is PinPadEvaluatingState;
-        final isDisabled = isEvaluating;
-
+        final isDisabled = state is PinPadEvaluatingState;
         final digits = cubit.currentKeypadDigits.isNotEmpty
             ? cubit.currentKeypadDigits
             : KeypadLayoutPolicyEnum.standardDigits;
 
         return AbsorbPointer(
           absorbing: isDisabled,
-          child: Opacity(
-            opacity: isDisabled ? 0.35 : 1.0,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 24.0, top: 12.0),
-              child: Column(
-                children: [
-                  _buildKeypadRow(vaultTheme: vaultTheme, cubit: cubit, digits: [digits[0], digits[1], digits[2]]),
-                  const SizedBox(height: 12.0),
-                  _buildKeypadRow(vaultTheme: vaultTheme, cubit: cubit, digits: [digits[3], digits[4], digits[5]]),
-                  const SizedBox(height: 12.0),
-                  _buildKeypadRow(vaultTheme: vaultTheme, cubit: cubit, digits: [digits[6], digits[7], digits[8]]),
-                  const SizedBox(height: 12.0),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // No biometric button during setup; empty spacer.
-                      const SizedBox(width: 80.0, height: 64.0),
-                      _buildKeypadButton(
-                        vaultTheme: vaultTheme,
-                        digit: digits[9],
-                        onTap: () => _handleDigitTap(cubit, digits[9]),
-                      ),
-                      _buildBackspaceButton(vaultTheme, cubit),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+          child: VaultPinKeypad(
+            vaultTheme: vaultTheme,
+            digits: digits,
+            isDisabled: isDisabled,
+            onDigitPressed: cubit.onDigitEntered,
+            onBackspace: cubit.onBackspace,
           ),
         );
       },
-    );
-  }
-
-  Widget _buildKeypadRow({
-    required VaultThemeData vaultTheme,
-    required PinPadCubit cubit,
-    required List<int> digits,
-  }) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: digits.map((digit) {
-        return _buildKeypadButton(
-          vaultTheme: vaultTheme,
-          digit: digit,
-          onTap: () => _handleDigitTap(cubit, digit),
-        );
-      }).toList(growable: false),
-    );
-  }
-
-  void _handleDigitTap(PinPadCubit cubit, int digit) {
-    HapticFeedback.lightImpact();
-    cubit.onDigitEntered(digit);
-  }
-
-  Widget _buildKeypadButton({
-    required VaultThemeData vaultTheme,
-    required int digit,
-    required VoidCallback onTap,
-  }) {
-    final letters = switch (digit) {
-      1 => '',
-      2 => 'ABC',
-      3 => 'DEF',
-      4 => 'GHI',
-      5 => 'JKL',
-      6 => 'MNO',
-      7 => 'PQRS',
-      8 => 'TUV',
-      9 => 'WXYZ',
-      0 => '+',
-      _ => '',
-    };
-
-    return Material(
-      color: vaultTheme.surfaceSubtle,
-      borderRadius: VaultTheme.borderRadius8,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: VaultTheme.borderRadius8,
-        child: Container(
-          width: 80.0,
-          height: 64.0,
-          decoration: BoxDecoration(
-            borderRadius: VaultTheme.borderRadius8,
-            border: Border.all(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '$digit',
-                style: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontSize: 24.0,
-                  fontWeight: FontWeight.w600,
-                  color: vaultTheme.textHighSalience,
-                ),
-              ),
-              if (letters.isNotEmpty)
-                Text(
-                  letters,
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 9.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.textMediumSalience,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBackspaceButton(VaultThemeData vaultTheme, PinPadCubit cubit) {
-    return Material(
-      color: vaultTheme.surfaceSubtle,
-      borderRadius: VaultTheme.borderRadius8,
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          cubit.onBackspace();
-        },
-        borderRadius: VaultTheme.borderRadius8,
-        child: Container(
-          width: 80.0,
-          height: 64.0,
-          decoration: BoxDecoration(
-            borderRadius: VaultTheme.borderRadius8,
-            border: Border.all(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
-          ),
-          child: Icon(
-            Icons.backspace_outlined,
-            size: 22.0,
-            color: vaultTheme.textHighSalience,
-          ),
-        ),
-      ),
     );
   }
 }

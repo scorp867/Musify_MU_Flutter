@@ -242,9 +242,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('vault_dashboard_empty_view')), findsOneWidget);
-      expect(find.text('No Private Playlists'), findsOneWidget);
+      expect(find.text('No Playlists Yet'), findsOneWidget);
       expect(
-        find.text('Playlists added to the vault are isolated and encrypted in local storage.'),
+        find.text('Create a playlist to keep tracks separate from your main library.'),
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('vault_dashboard_create_button')), findsOneWidget);
@@ -265,10 +265,16 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
       await tester.pumpAndSettle();
 
-      expect(find.text('New Private Playlist'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('create_playlist_sheet')),
+          matching: find.text('New Playlist'),
+        ),
+        findsOneWidget,
+      );
 
       // Enter name
-      await tester.enterText(find.widgetWithText(TextFormField, 'Playlist Name'), 'Midnight Jazz');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Name'), 'Midnight Jazz');
       await tester.pumpAndSettle();
 
       // Tap Create
@@ -327,7 +333,7 @@ void main() {
       expect(find.text('Study Lofi'), findsNothing);
 
       // Clear search via clear icon
-      await tester.tap(find.byIcon(Icons.close));
+      await tester.tap(find.byIcon(Icons.close_rounded));
       await tester.pumpAndSettle();
 
       expect(find.text('Night Drive'), findsOneWidget);
@@ -352,8 +358,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('No matching playlists'), findsOneWidget);
-      expect(find.text('No playlists match your search for "NonExistentQuery".'), findsOneWidget);
+      expect(find.text('No Results'), findsOneWidget);
+      expect(find.text('Nothing matches "NonExistentQuery".'), findsOneWidget);
 
       await cubit.close();
     });
@@ -465,7 +471,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-      expect(scaffold.backgroundColor, const Color(0xFF0F1F17));
+      expect(scaffold.backgroundColor, const Color(0xFF0B120E));
 
       await cubit.close();
     });

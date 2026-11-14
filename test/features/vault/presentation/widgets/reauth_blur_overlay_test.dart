@@ -330,7 +330,7 @@ void main() {
       ));
 
       final card = tester.widget<Card>(find.byType(Card));
-      expect(card.color, const Color(0xFF3E5A3F));
+      expect(card.color, const Color(0xFF1A2821));
     });
   });
 }

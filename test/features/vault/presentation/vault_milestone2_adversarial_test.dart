@@ -303,7 +303,7 @@ void main() {
         // Must enter evaluating state on the 6th digit
         expect(asyncCubit.state, isA<PinPadEvaluatingState>());
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        expect(find.text('Verifying PIN...'), findsOneWidget);
+        expect(find.text('Checking PIN...'), findsOneWidget);
 
         // Mashing extra digits during active evaluation must be completely ignored
         await tester.tap(find.text('9'), warnIfMissed: false);
@@ -318,7 +318,7 @@ void main() {
         await tester.pump();
 
         expect(asyncCubit.state, isA<PinPadSuccessState>());
-        expect(find.text('Verified'), findsOneWidget);
+        expect(find.text('Unlocked'), findsOneWidget);
 
         await asyncCubit.close();
       });
@@ -355,7 +355,7 @@ void main() {
 
         // Evaluates immediately against authService (which fails because digits != 654321)
         expect(randomCubit.state, isA<PinPadFailureShakeState>());
-        expect(find.textContaining('attempts remaining'), findsOneWidget);
+        expect(find.textContaining('attempts left'), findsOneWidget);
 
         await randomCubit.close();
       });
@@ -370,7 +370,7 @@ void main() {
         ));
 
         await tester.pumpWidget(buildAuthScreenHarness(mode: VaultAuthScreenMode.unlock));
-        expect(find.text('Vault Locked'), findsOneWidget);
+        expect(find.text('Temporarily Locked'), findsOneWidget);
         expect(find.text('00:30'), findsOneWidget);
 
         // Bypass attempt 1: Calling resetToIdle() during lockout is blocked
@@ -439,7 +439,7 @@ void main() {
         expect(authService.resetFailedAttemptsCalled, isTrue);
         expect(pinPadCubit.state, isA<PinPadIdleInputState>());
         expect(find.text('00:00'), findsNothing);
-        expect(find.text('Vault Locked'), findsNothing);
+        expect(find.text('Temporarily Locked'), findsNothing);
       });
     });
 
@@ -447,13 +447,13 @@ void main() {
       testWidgets('Consecutive failure progression displays accurate attempts countdown and shake', (tester) async {
         await tester.pumpWidget(buildAuthScreenHarness(mode: VaultAuthScreenMode.unlock));
 
-        // Attempt 1: 4 attempts remaining
+        // Attempt 1: 4 attempts left
         pinPadCubit.emit(const PinPadFailureShakeState(
           failedAttemptsCount: 1,
           remainingAttemptsBeforeCooldown: 4,
         ));
         await tester.pump();
-        expect(find.text('Incorrect PIN. 4 attempts remaining.'), findsOneWidget);
+        expect(find.text('Incorrect PIN. 4 attempts left.'), findsOneWidget);
 
         // Shake container has non-zero translation during animation
         final shakeFinder = find.byKey(const ValueKey('pin_shake_container'));
@@ -473,12 +473,12 @@ void main() {
         ));
         await tester.pump();
         await tester.pump();
-        expect(find.text('Incorrect PIN. 1 attempts remaining.'), findsOneWidget);
+        expect(find.text('Incorrect PIN. 1 attempt left.'), findsOneWidget);
 
         // Dots turn danger color on failure
         final dotContainer = tester.firstWidget<Container>(find.byKey(const ValueKey('pin_dot_filled')));
         final boxDecoration = dotContainer.decoration as BoxDecoration;
-        expect(boxDecoration.color, const Color(0xFFA84438),
+        expect(boxDecoration.color, const Color(0xFFB3463A),
             reason: 'Dots must show danger color on error');
       });
     });

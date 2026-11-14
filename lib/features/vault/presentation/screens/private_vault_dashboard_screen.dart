@@ -17,6 +17,7 @@ import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/reauth_blur_overlay.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/vault_artwork_image.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/vault_portability_sheet.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
 /// Primary operational screen displaying encrypted private playlists.
 ///
@@ -200,9 +201,9 @@ class _PrivateVaultDashboardScreenViewState
 
   Future<void> _showCreatePlaylistDialog(BuildContext context) async {
     final vaultTheme = VaultTheme.of(context);
-    final submission = await showDialog<({String name, String description})>(
-      context: context,
-      builder: (dialogContext) => _CreatePlaylistDialog(vaultTheme: vaultTheme),
+    final submission = await showVaultCreatePlaylistSheet(
+      context,
+      vaultTheme,
     );
 
     if (submission == null) return;
@@ -216,18 +217,12 @@ class _PrivateVaultDashboardScreenViewState
 
     if (!context.mounted) return;
     if (result case VaultFailureResult(:final failure)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            failure.message,
-            style: const TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-            ),
-          ),
-          backgroundColor: vaultTheme.danger,
-          behavior: SnackBarBehavior.floating,
-          shape: VaultTheme.shape8,
-        ),
+      showVaultSettingsSnackBar(
+        context,
+        vaultTheme,
+        message: failure.message,
+        isError: true,
+        clearExisting: true,
       );
     }
   }
@@ -237,69 +232,11 @@ class _PrivateVaultDashboardScreenViewState
     PrivatePlaylist playlist,
   ) async {
     final vaultTheme = VaultTheme.of(context);
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: vaultTheme.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: VaultTheme.borderRadius8,
-            side: BorderSide(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
-          ),
-          title: Text(
-            'Delete Playlist',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 18.0,
-              fontWeight: FontWeight.w600,
-              color: vaultTheme.textHighSalience,
-            ),
-          ),
-          content: Text(
-            'Delete "${playlist.name}" permanently from private vault?',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 14.0,
-              color: vaultTheme.textMediumSalience,
-              height: 1.4,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(
-                'Cancel',
-                style: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  color: vaultTheme.textMediumSalience,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: vaultTheme.danger,
-                foregroundColor: Colors.white,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: VaultTheme.borderRadius8,
-                ),
-              ),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text(
-                'Delete',
-                style: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
+    return confirmVaultPlaylistDeletion(
+      context,
+      vaultTheme,
+      playlistName: playlist.name,
     );
-    return result == true;
   }
 
   String _formatDuration(int durationMs) {
@@ -333,34 +270,16 @@ class _PrivateVaultDashboardScreenViewState
       onReauthRequested: _handleReauthRequested,
       child: Scaffold(
         backgroundColor: vaultTheme.scaffold,
-        appBar: AppBar(
-          backgroundColor: vaultTheme.scaffold,
-          elevation: 0,
-          centerTitle: true,
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              color: vaultTheme.textHighSalience,
-            ),
-            tooltip: 'Back',
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          title: Text(
-            'Private Vault',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 18.0,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.15,
-              color: vaultTheme.textHighSalience,
-            ),
-          ),
+        appBar: buildVaultSettingsAppBar(
+          vaultTheme: vaultTheme,
+          title: 'Private Vault',
+          onBackPressed: () => Navigator.of(context).pop(),
           actions: [
             IconButton(
               key: const ValueKey('vault_dashboard_portability_button'),
               icon: Icon(
                 Icons.import_export_rounded,
-                size: 22.0,
+                size: 21.0,
                 color: vaultTheme.textHighSalience,
               ),
               tooltip: 'Import / Export',
@@ -369,8 +288,8 @@ class _PrivateVaultDashboardScreenViewState
             IconButton(
               key: const ValueKey('vault_dashboard_quick_lock_button'),
               icon: Icon(
-                Icons.lock_outline,
-                size: 22.0,
+                Icons.lock_outline_rounded,
+                size: 21.0,
                 color: vaultTheme.textHighSalience,
               ),
               tooltip: 'Quick Lock',
@@ -380,7 +299,7 @@ class _PrivateVaultDashboardScreenViewState
               key: const ValueKey('vault_dashboard_settings_button'),
               icon: Icon(
                 Icons.settings_outlined,
-                size: 22.0,
+                size: 21.0,
                 color: vaultTheme.textHighSalience,
               ),
               tooltip: 'Vault Settings',
@@ -394,86 +313,34 @@ class _PrivateVaultDashboardScreenViewState
           onPressed: () => _showCreatePlaylistDialog(context),
           backgroundColor: vaultTheme.accent,
           foregroundColor: vaultTheme.scaffold,
-          elevation: 3.0,
+          elevation: 0.0,
+          highlightElevation: 0.0,
           shape: RoundedRectangleBorder(
             borderRadius: VaultTheme.borderRadius8,
             side: BorderSide(
-              color: vaultTheme.border,
+              color: vaultTheme.borderSubtle,
               width: VaultTheme.borderWidth,
             ),
           ),
-          icon: const Icon(Icons.add, size: 20.0),
+          icon: const Icon(Icons.add_rounded, size: 20.0),
           label: const Text(
             'New Playlist',
             style: TextStyle(
               fontFamily: VaultTheme.fontFamily,
               fontSize: 14.0,
               fontWeight: FontWeight.w600,
-              letterSpacing: 0.15,
+              letterSpacing: -0.1,
             ),
           ),
         ),
         body: Column(
           children: [
-            // Quick Inline Filter Bar
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Container(
-                height: 44.0,
-                decoration: BoxDecoration(
-                  color: vaultTheme.surfaceSubtle,
-                  borderRadius: VaultTheme.borderRadius8,
-                  border: Border.all(
-                    color: vaultTheme.border,
-                    width: VaultTheme.borderWidth,
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.search,
-                      size: 20.0,
-                      color: vaultTheme.textMediumSalience,
-                    ),
-                    const SizedBox(width: 8.0),
-                    Expanded(
-                      child: TextField(
-                        key: const ValueKey('vault_dashboard_search_input'),
-                        controller: _searchController,
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 14.0,
-                          color: vaultTheme.textHighSalience,
-                        ),
-                        cursorColor: vaultTheme.accent,
-                        decoration: InputDecoration(
-                          hintText: 'Search private playlists...',
-                          hintStyle: TextStyle(
-                            fontFamily: VaultTheme.fontFamily,
-                            fontSize: 14.0,
-                            color: vaultTheme.textLowSalience,
-                          ),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ),
-                    if (_searchController.text.isNotEmpty)
-                      GestureDetector(
-                        onTap: () {
-                          _searchController.clear();
-                        },
-                        child: Icon(
-                          Icons.close,
-                          size: 18.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+            VaultInlineSearchField(
+              controller: _searchController,
+              vaultTheme: vaultTheme,
+              hintText: 'Search playlists...',
+              inputKey: const ValueKey('vault_dashboard_search_input'),
+              padding: const EdgeInsets.fromLTRB(16.0, 10.0, 16.0, 8.0),
             ),
 
             // Dense Playlists Content
@@ -497,18 +364,31 @@ class _PrivateVaultDashboardScreenViewState
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.error_outline,
-                                size: 36.0,
-                                color: vaultTheme.danger,
+                              Container(
+                                width: 48.0,
+                                height: 48.0,
+                                decoration: BoxDecoration(
+                                  color: vaultTheme.danger.withValues(alpha: 0.12),
+                                  borderRadius: VaultTheme.borderRadius8,
+                                  border: Border.all(
+                                    color: vaultTheme.danger.withValues(alpha: 0.4),
+                                    width: VaultTheme.borderWidth,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.error_outline_rounded,
+                                  size: 24.0,
+                                  color: vaultDangerInk(vaultTheme),
+                                ),
                               ),
-                              const SizedBox(height: 12.0),
+                              const SizedBox(height: 14.0),
                               Text(
-                                'Failed to load private playlists',
+                                'Unable to Load Playlists',
                                 style: TextStyle(
                                   fontFamily: VaultTheme.fontFamily,
-                                  fontSize: 15.0,
+                                  fontSize: 16.0,
                                   fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.2,
                                   color: vaultTheme.textHighSalience,
                                 ),
                               ),
@@ -530,9 +410,7 @@ class _PrivateVaultDashboardScreenViewState
                                     color: vaultTheme.border,
                                     width: VaultTheme.borderWidth,
                                   ),
-                                  shape: const RoundedRectangleBorder(
-                                    borderRadius: VaultTheme.borderRadius8,
-                                  ),
+                                  shape: VaultTheme.shape8,
                                 ),
                                 onPressed: () {
                                   context.read<VaultPlaylistsCubit>().loadPlaylists();
@@ -562,46 +440,73 @@ class _PrivateVaultDashboardScreenViewState
                         backgroundColor: vaultTheme.surface,
                         onRefresh: () =>
                             context.read<VaultPlaylistsCubit>().loadPlaylists(),
-                        child: ListView.separated(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 88.0),
-                          itemCount: filteredPlaylists.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 8.0),
-                          itemBuilder: (context, index) {
-                            final playlist = filteredPlaylists[index];
-                            return Dismissible(
-                              key: ValueKey(playlist.id),
-                              direction: DismissDirection.endToStart,
-                              confirmDismiss: (_) =>
-                                  _confirmDeletePlaylist(context, playlist),
-                              onDismissed: (_) {
-                                context
-                                    .read<VaultPlaylistsCubit>()
-                                    .deletePlaylist(playlist.id);
-                              },
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20.0),
-                                decoration: BoxDecoration(
-                                  color: vaultTheme.danger,
-                                  borderRadius: VaultTheme.borderRadius8,
-                                ),
-                                child: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.white,
-                                  size: 22.0,
-                                ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            VaultSettingsSectionHeader(
+                              title: 'Playlists',
+                              vaultTheme: vaultTheme,
+                              padding: const EdgeInsets.fromLTRB(
+                                20.0,
+                                8.0,
+                                20.0,
+                                8.0,
                               ),
-                              child: _PrivatePlaylistTile(
-                                key: ValueKey('vault_playlist_tile_${playlist.id}'),
-                                playlist: playlist,
-                                vaultTheme: vaultTheme,
-                                formattedDuration:
-                                    _formatDuration(playlist.totalDurationMs),
-                                onTap: () => _handlePlaylistTap(playlist),
+                            ),
+                            Expanded(
+                              child: ListView.separated(
+                                controller: _scrollController,
+                                padding: const EdgeInsets.fromLTRB(
+                                  16.0,
+                                  0.0,
+                                  16.0,
+                                  88.0,
+                                ),
+                                itemCount: filteredPlaylists.length,
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 8.0),
+                                itemBuilder: (context, index) {
+                                  final playlist = filteredPlaylists[index];
+                                  return Dismissible(
+                                    key: ValueKey(playlist.id),
+                                    direction: DismissDirection.endToStart,
+                                    confirmDismiss: (_) =>
+                                        _confirmDeletePlaylist(context, playlist),
+                                    onDismissed: (_) {
+                                      context
+                                          .read<VaultPlaylistsCubit>()
+                                          .deletePlaylist(playlist.id);
+                                    },
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding:
+                                          const EdgeInsets.only(right: 20.0),
+                                      decoration: BoxDecoration(
+                                        color: vaultTheme.danger,
+                                        borderRadius: VaultTheme.borderRadius8,
+                                      ),
+                                      child: const Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Colors.white,
+                                        size: 22.0,
+                                      ),
+                                    ),
+                                    child: _PrivatePlaylistTile(
+                                      key: ValueKey(
+                                        'vault_playlist_tile_${playlist.id}',
+                                      ),
+                                      playlist: playlist,
+                                      vaultTheme: vaultTheme,
+                                      formattedDuration: _formatDuration(
+                                        playlist.totalDurationMs,
+                                      ),
+                                      onTap: () => _handlePlaylistTap(playlist),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
+                            ),
+                          ],
                         ),
                       );
                   }
@@ -652,59 +557,62 @@ class _PrivateVaultDashboardScreenViewState
                 color: vaultTheme.surfaceSubtle,
                 borderRadius: VaultTheme.borderRadius8,
                 border: Border.all(
-                  color: vaultTheme.border,
+                  color: vaultTheme.borderSubtle,
                   width: VaultTheme.borderWidth,
                 ),
               ),
               child: Icon(
-                Icons.lock_outline,
-                size: 28.0,
-                color: vaultTheme.textMediumSalience,
+                Icons.library_music_outlined,
+                size: 26.0,
+                color: vaultTheme.accent,
               ),
             ),
             const SizedBox(height: 16.0),
             Text(
-              'No Private Playlists',
+              'No Playlists Yet',
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
                 fontSize: 17.0,
                 fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
                 color: vaultTheme.textHighSalience,
               ),
             ),
             const SizedBox(height: 8.0),
             Text(
-              'Playlists added to the vault are isolated and encrypted in local storage.',
+              'Create a playlist to keep tracks separate from your main library.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
-                fontSize: 13.0,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w400,
                 color: vaultTheme.textMediumSalience,
-                height: 1.4,
+                height: 1.45,
               ),
             ),
             const SizedBox(height: 20.0),
-            OutlinedButton.icon(
-              key: const ValueKey('vault_dashboard_create_button'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: vaultTheme.accent,
-                side: BorderSide(
-                  color: vaultTheme.border,
-                  width: VaultTheme.borderWidth,
+            SizedBox(
+              height: 46.0,
+              child: OutlinedButton.icon(
+                key: const ValueKey('vault_dashboard_create_button'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: vaultTheme.accent,
+                  side: BorderSide(
+                    color: vaultTheme.border,
+                    width: VaultTheme.borderWidth,
+                  ),
+                  shape: VaultTheme.shape8,
+                  padding: const EdgeInsets.symmetric(horizontal: 18.0),
                 ),
-                shape: const RoundedRectangleBorder(
-                  borderRadius: VaultTheme.borderRadius8,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
-              ),
-              onPressed: () => _showCreatePlaylistDialog(context),
-              icon: const Icon(Icons.add, size: 18.0),
-              label: const Text(
-                'Create Playlist',
-                style: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontWeight: FontWeight.w600,
+                onPressed: () => _showCreatePlaylistDialog(context),
+                icon: const Icon(Icons.add_rounded, size: 18.0),
+                label: const Text(
+                  'Create Playlist',
+                  style: TextStyle(
+                    fontFamily: VaultTheme.fontFamily,
+                    fontSize: 14.0,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
@@ -721,24 +629,37 @@ class _PrivateVaultDashboardScreenViewState
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.search_off_outlined,
-              size: 36.0,
-              color: vaultTheme.textLowSalience,
+            Container(
+              width: 48.0,
+              height: 48.0,
+              decoration: BoxDecoration(
+                color: vaultTheme.surfaceSubtle,
+                borderRadius: VaultTheme.borderRadius8,
+                border: Border.all(
+                  color: vaultTheme.borderSubtle,
+                  width: VaultTheme.borderWidth,
+                ),
+              ),
+              child: Icon(
+                Icons.search_off_rounded,
+                size: 22.0,
+                color: vaultTheme.textLowSalience,
+              ),
             ),
-            const SizedBox(height: 12.0),
+            const SizedBox(height: 14.0),
             Text(
-              'No matching playlists',
+              'No Results',
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
-                fontSize: 15.0,
+                fontSize: 16.0,
                 fontWeight: FontWeight.w600,
+                letterSpacing: -0.2,
                 color: vaultTheme.textHighSalience,
               ),
             ),
             const SizedBox(height: 6.0),
             Text(
-              'No playlists match your search for "$query".',
+              'Nothing matches "$query".',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
@@ -753,7 +674,7 @@ class _PrivateVaultDashboardScreenViewState
   }
 }
 
-/// Dense tile rendering an individual [PrivatePlaylist] record.
+/// Dense inset tile rendering an individual [PrivatePlaylist] record.
 class _PrivatePlaylistTile extends StatelessWidget {
   final PrivatePlaylist playlist;
   final VaultThemeData vaultTheme;
@@ -770,7 +691,8 @@ class _PrivatePlaylistTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final trackCountCopy = playlist.trackCount == 1 ? '1 track' : '${playlist.trackCount} tracks';
+    final trackCountCopy =
+        playlist.trackCount == 1 ? '1 track' : '${playlist.trackCount} tracks';
 
     return Material(
       color: vaultTheme.surface,
@@ -779,25 +701,22 @@ class _PrivatePlaylistTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: VaultTheme.borderRadius8,
         child: Container(
-          padding: const EdgeInsets.all(10.0),
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 11.0),
           decoration: BoxDecoration(
             borderRadius: VaultTheme.borderRadius8,
             border: Border.all(
-              color: vaultTheme.border,
+              color: vaultTheme.borderSubtle,
               width: VaultTheme.borderWidth,
             ),
           ),
           child: Row(
             children: [
-              // 48px square thumbnail with frosted artwork peek
               _FrostedArtworkPeekThumbnail(
                 coverUri: playlist.coverUri,
                 fallbackTracks: playlist.trackRefs,
                 vaultTheme: vaultTheme,
               ),
-              const SizedBox(width: 12.0),
-
-              // Title and metadata column
+              const SizedBox(width: 14.0),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -810,37 +729,27 @@ class _PrivatePlaylistTile extends StatelessWidget {
                         fontFamily: VaultTheme.fontFamily,
                         fontSize: 14.5,
                         fontWeight: FontWeight.w600,
+                        letterSpacing: -0.1,
                         color: vaultTheme.textHighSalience,
                       ),
                     ),
-                    const SizedBox(height: 4.0),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.lock_rounded,
-                          size: 11.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                        const SizedBox(width: 4.0),
-                        Text(
-                          '$trackCountCopy \u2022 $formattedDuration',
-                          style: TextStyle(
-                            fontFamily: VaultTheme.fontFamily,
-                            fontSize: 12.0,
-                            fontWeight: FontWeight.w400,
-                            color: vaultTheme.textMediumSalience,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(height: 3.0),
+                    Text(
+                      '$trackCountCopy \u2022 $formattedDuration',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w400,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: vaultTheme.textMediumSalience,
+                      ),
                     ),
                   ],
                 ),
               ),
-
-              // Trailing chevron indicator
               Icon(
-                Icons.chevron_right,
-                size: 18.0,
+                Icons.chevron_right_rounded,
+                size: 19.0,
                 color: vaultTheme.textLowSalience,
               ),
             ],
@@ -882,38 +791,40 @@ class _FrostedArtworkPeekThumbnail extends StatelessWidget {
       return SizedBox(
         width: 48.0,
         height: 48.0,
-        child: ClipRRect(
-          borderRadius: VaultTheme.borderRadius8,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              VaultArtworkImage(
-                imageUrl: coverUri,
-                fallbackTracks: fallbackTracks,
-                width: 48.0,
-                height: 48.0,
-                placeholderIconSize: 20.0,
-                placeholderIcon: Icons.library_music_outlined,
-                vaultTheme: vaultTheme,
-              ),
-              ClipRect(
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(
+        child: RepaintBoundary(
+          child: ClipRRect(
+            borderRadius: VaultTheme.borderRadius8,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ImageFiltered(
+                  enabled: vaultTheme.blurSigma > 0.0,
+                  imageFilter: ImageFilter.blur(
                     sigmaX: vaultTheme.blurSigma,
                     sigmaY: vaultTheme.blurSigma,
+                    tileMode: TileMode.clamp,
                   ),
-                  child: Container(
-                    color: vaultTheme.overlayTint.withValues(alpha: 0.35),
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.lock_outline,
-                      size: 15.0,
-                      color: vaultTheme.accent,
-                    ),
+                  child: VaultArtworkImage(
+                    imageUrl: coverUri,
+                    fallbackTracks: fallbackTracks,
+                    width: 48.0,
+                    height: 48.0,
+                    placeholderIconSize: 20.0,
+                    placeholderIcon: Icons.library_music_outlined,
+                    vaultTheme: vaultTheme,
                   ),
                 ),
-              ),
-            ],
+                Container(
+                  color: vaultTheme.overlayTint.withValues(alpha: 0.35),
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.lock_outline,
+                    size: 15.0,
+                    color: vaultTheme.accent,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -940,169 +851,6 @@ class _FrostedArtworkPeekThumbnail extends StatelessWidget {
         size: 18.0,
         color: vaultTheme.textMediumSalience,
       ),
-    );
-  }
-}
-
-class _CreatePlaylistDialog extends StatefulWidget {
-  final VaultThemeData vaultTheme;
-
-  const _CreatePlaylistDialog({required this.vaultTheme});
-
-  @override
-  State<_CreatePlaylistDialog> createState() => _CreatePlaylistDialogState();
-}
-
-class _CreatePlaylistDialogState extends State<_CreatePlaylistDialog> {
-  late final TextEditingController _nameController;
-  late final TextEditingController _descriptionController;
-  final _formKey = GlobalKey<FormState>();
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController();
-    _descriptionController = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vaultTheme = widget.vaultTheme;
-    return AlertDialog(
-      backgroundColor: vaultTheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: VaultTheme.borderRadius8,
-        side: BorderSide(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      title: Text(
-        'New Private Playlist',
-        style: TextStyle(
-          fontFamily: VaultTheme.fontFamily,
-          fontSize: 18.0,
-          fontWeight: FontWeight.w600,
-          color: vaultTheme.textHighSalience,
-        ),
-      ),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _nameController,
-              autofocus: true,
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 14.0,
-                color: vaultTheme.textHighSalience,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Playlist Name',
-                labelStyle: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  color: vaultTheme.textMediumSalience,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: VaultTheme.borderRadius8,
-                  borderSide: BorderSide(
-                    color: vaultTheme.border,
-                    width: VaultTheme.borderWidth,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: VaultTheme.borderRadius8,
-                  borderSide: BorderSide(
-                    color: vaultTheme.accent,
-                    width: VaultTheme.borderWidth,
-                  ),
-                ),
-              ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Playlist name is required';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 12.0),
-            TextFormField(
-              controller: _descriptionController,
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 14.0,
-                color: vaultTheme.textHighSalience,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Description (optional)',
-                labelStyle: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  color: vaultTheme.textMediumSalience,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: VaultTheme.borderRadius8,
-                  borderSide: BorderSide(
-                    color: vaultTheme.border,
-                    width: VaultTheme.borderWidth,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: VaultTheme.borderRadius8,
-                  borderSide: BorderSide(
-                    color: vaultTheme.accent,
-                    width: VaultTheme.borderWidth,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(
-            'Cancel',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              color: vaultTheme.textMediumSalience,
-            ),
-          ),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: vaultTheme.accent,
-            foregroundColor: vaultTheme.scaffold,
-            shape: const RoundedRectangleBorder(
-              borderRadius: VaultTheme.borderRadius8,
-            ),
-          ),
-          onPressed: () {
-            if (_formKey.currentState?.validate() == true) {
-              final name = _nameController.text.trim();
-              final description = _descriptionController.text.trim();
-              Navigator.of(context).pop((name: name, description: description));
-            }
-          },
-          child: Text(
-            'Create',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontWeight: FontWeight.w600,
-              color: vaultTheme.scaffold,
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

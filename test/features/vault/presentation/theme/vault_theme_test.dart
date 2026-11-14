@@ -7,44 +7,44 @@ void main() {
   group('VaultTheme & Token Architecture Tests', () {
     test('warmEspresso palette matches exact hex and ARGB specifications', () {
       final theme = VaultThemeData.fromPalette(VaultThemePalettePolicyEnum.warmEspresso);
-      expect(theme.scaffold, const Color(0xFF1A120E));
-      expect(theme.scaffoldBackground, const Color(0xFF1A120E));
-      expect(theme.background, const Color(0xFF3A2418));
-      expect(theme.surface, const Color(0xFF6B4A2E));
-      expect(theme.surfaceSubtle, const Color(0xFF2A1B14));
-      expect(theme.surfaceHighlight, const Color(0xFF4A3022));
-      expect(theme.border, const Color(0xFF4A3320));
-      expect(theme.toneOnToneBorder, const Color(0xFF4A3320));
-      expect(theme.borderSubtle, const Color(0xFF332215));
-      expect(theme.textHighSalience, const Color(0xFFA88462));
-      expect(theme.textMediumSalience, const Color(0xFF8D6C4F));
-      expect(theme.textLowSalience, const Color(0xFF4A3322));
-      expect(theme.accent, const Color(0xFFD4B08C));
-      expect(theme.danger, const Color(0xFFA84438));
-      expect(theme.errorTone, const Color(0xFFA84438));
-      expect(theme.errorColor, const Color(0xFFA84438));
-      expect(theme.overlayTint, const Color(0xA61A120E));
+      expect(theme.scaffold, const Color(0xFF120E0C));
+      expect(theme.scaffoldBackground, const Color(0xFF120E0C));
+      expect(theme.background, const Color(0xFF1E1814));
+      expect(theme.surface, const Color(0xFF231C18));
+      expect(theme.surfaceSubtle, const Color(0xFF191411));
+      expect(theme.surfaceHighlight, const Color(0xFF2C241E));
+      expect(theme.border, const Color(0xFF342B24));
+      expect(theme.toneOnToneBorder, const Color(0xFF342B24));
+      expect(theme.borderSubtle, const Color(0xFF261F1A));
+      expect(theme.textHighSalience, const Color(0xFFECE6E0));
+      expect(theme.textMediumSalience, const Color(0xFFAFA59C));
+      expect(theme.textLowSalience, const Color(0xFF827870));
+      expect(theme.accent, const Color(0xFFD6B48E));
+      expect(theme.danger, const Color(0xFFB3463A));
+      expect(theme.errorTone, const Color(0xFFB3463A));
+      expect(theme.errorColor, const Color(0xFFB3463A));
+      expect(theme.overlayTint, const Color(0xA6120E0C));
     });
 
     test('forestNoir palette matches exact hex and ARGB specifications', () {
       final theme = VaultThemeData.fromPalette(VaultThemePalettePolicyEnum.forestNoir);
-      expect(theme.scaffold, const Color(0xFF0F1F17));
-      expect(theme.scaffoldBackground, const Color(0xFF0F1F17));
-      expect(theme.background, const Color(0xFF1E3A2E));
-      expect(theme.surface, const Color(0xFF3E5A3F));
-      expect(theme.surfaceSubtle, const Color(0xFF152A1F));
-      expect(theme.surfaceHighlight, const Color(0xFF284A39));
-      expect(theme.border, const Color(0xFF234233));
-      expect(theme.toneOnToneBorder, const Color(0xFF234233));
-      expect(theme.borderSubtle, const Color(0xFF193024));
-      expect(theme.textHighSalience, const Color(0xFF6B7F67));
-      expect(theme.textMediumSalience, const Color(0xFF52664F));
-      expect(theme.textLowSalience, const Color(0xFF284235));
-      expect(theme.accent, const Color(0xFF9EB29A));
-      expect(theme.danger, const Color(0xFF9C423B));
-      expect(theme.errorTone, const Color(0xFF9C423B));
-      expect(theme.errorColor, const Color(0xFF9C423B));
-      expect(theme.overlayTint, const Color(0xA60F1F17));
+      expect(theme.scaffold, const Color(0xFF0B120E));
+      expect(theme.scaffoldBackground, const Color(0xFF0B120E));
+      expect(theme.background, const Color(0xFF15221B));
+      expect(theme.surface, const Color(0xFF1A2821));
+      expect(theme.surfaceSubtle, const Color(0xFF111B16));
+      expect(theme.surfaceHighlight, const Color(0xFF22332A));
+      expect(theme.border, const Color(0xFF293D32));
+      expect(theme.toneOnToneBorder, const Color(0xFF293D32));
+      expect(theme.borderSubtle, const Color(0xFF1D2C24));
+      expect(theme.textHighSalience, const Color(0xFFE3EBE6));
+      expect(theme.textMediumSalience, const Color(0xFF9DB0A5));
+      expect(theme.textLowSalience, const Color(0xFF708479));
+      expect(theme.accent, const Color(0xFF9BC2AA));
+      expect(theme.danger, const Color(0xFFB1453A));
+      expect(theme.errorTone, const Color(0xFFB1453A));
+      expect(theme.errorColor, const Color(0xFFB1453A));
+      expect(theme.overlayTint, const Color(0xA60B120E));
     });
 
     test('Geometric border radius is strictly 8px across all shapes', () {
@@ -125,7 +125,7 @@ void main() {
         ),
       );
       final container = tester.widget<Container>(find.byType(Container));
-      expect(container.color, const Color(0xFF0F1F17));
+      expect(container.color, const Color(0xFF0B120E));
     });
 
     testWidgets('VaultTheme.maybeOf(context) returns null when not provided', (tester) async {
@@ -152,7 +152,7 @@ void main() {
         ),
       );
       expect(observed?.palette, VaultThemePalettePolicyEnum.warmEspresso);
-      expect(observed?.scaffold, const Color(0xFF1A120E));
+      expect(observed?.scaffold, const Color(0xFF120E0C));
     });
   });
 }

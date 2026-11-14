@@ -201,7 +201,7 @@ void main() {
       // In Move mode, description updates
       expect(
         find.text(
-          'Moves the audio file into the hidden .nomedia sandbox and removes it from public storage.',
+          'Moves the audio file into private storage and hides it from public apps.',
         ),
         findsOneWidget,
       );

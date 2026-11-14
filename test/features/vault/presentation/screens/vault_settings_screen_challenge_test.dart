@@ -403,17 +403,17 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tile_pin_rotation')));
       await tester.pumpAndSettle();
 
-      // Step 1: Verify Current PIN screen
+      // Step 1: Current PIN screen
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Verify Current PIN'), findsOneWidget);
+      expect(find.text('Current PIN'), findsOneWidget);
       expect(settingsMutationCubit.state, isA<SettingsMutationAwaitingStepUpAuthState>());
 
       // Enter correct current PIN (123456)
       await enterPinDigits(tester, '123456');
 
-      // Step 2: Enter New PIN screen
+      // Step 2: New PIN screen
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Enter New PIN'), findsOneWidget);
+      expect(find.text('New PIN'), findsOneWidget);
 
       // Enter valid distinct new PIN: 654321
       await enterPinDigits(tester, '654321');
@@ -465,11 +465,11 @@ void main() {
       await enterPinDigits(tester, '123456');
 
       // Step 2: Enter identical PIN (123456)
-      expect(find.text('Enter New PIN'), findsOneWidget);
+      expect(find.text('New PIN'), findsOneWidget);
       await enterPinDigits(tester, '123456');
 
       // Identical PIN was rejected! Shaken, rotation not called, stays on Step 2
-      expect(find.text('Enter New PIN'), findsOneWidget);
+      expect(find.text('New PIN'), findsOneWidget);
       expect(find.byKey(const ValueKey('pin_shake_container')), findsOneWidget);
       expect(authService.rotatePinCalls, equals(0));
 
@@ -597,12 +597,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Verify all 5 consequences in warning card
-      expect(find.textContaining('Cryptographic Shredding'), findsOneWidget);
-      expect(find.textContaining('Database Wipe'), findsOneWidget);
-      expect(find.textContaining('64KB Zero-Overwriting'), findsOneWidget);
-      expect(find.textContaining('RAM Zeroization'), findsOneWidget);
-      expect(find.textContaining('Irreversible Action'), findsOneWidget);
+      // Verify warning summary items inside danger card
+      expect(find.textContaining('Encryption Keys Destroyed'), findsOneWidget);
+      expect(find.textContaining('Private Media Deleted'), findsOneWidget);
+      expect(find.textContaining('Credentials Cleared'), findsOneWidget);
+      expect(find.textContaining('Cannot Be Undone'), findsOneWidget);
 
       // Trigger Purge
       await tester.tap(find.byKey(const ValueKey('purge_vault_button')));
@@ -610,7 +609,7 @@ void main() {
 
       // In purge confirmation screen
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Confirm Vault Purge'), findsOneWidget);
+      expect(find.text('Erase Vault'), findsOneWidget);
       expect(settingsMutationCubit.state, isA<SettingsMutationAwaitingStepUpAuthState>());
 
       // Enter valid confirmation PIN

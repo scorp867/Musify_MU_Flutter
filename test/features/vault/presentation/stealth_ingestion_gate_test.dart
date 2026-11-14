@@ -650,7 +650,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Verify playlist picker modal appeared
-        expect(find.text('Select Private Playlist'), findsOneWidget);
+        expect(find.text('Add to Vault Playlist'), findsOneWidget);
         expect(find.byKey(const ValueKey('picker_playlist_pl_1')), findsOneWidget);
 
         await tester.tap(find.byKey(const ValueKey('picker_playlist_pl_1')));

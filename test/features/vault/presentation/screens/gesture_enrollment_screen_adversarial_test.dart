@@ -406,7 +406,7 @@ void main() {
 
       expect(find.text('Sample 1 of 3'), findsOneWidget);
       expect(
-        find.text('Draw your secret single-stroke gesture on the canvas.'),
+        find.text('Draw one continuous shape inside the box.'),
         findsOneWidget,
       );
     });
@@ -448,7 +448,7 @@ void main() {
       // Should advance to Sample 3 of 3!
       expect(find.text('Sample 3 of 3'), findsOneWidget);
       expect(
-        find.text('Draw the same gesture again to verify consistency.'),
+        find.text('Draw the same shape again to confirm.'),
         findsOneWidget,
       );
     });
@@ -489,7 +489,7 @@ void main() {
 
       // Sample 3 retried successfully
       await drawStroke(tester);
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
       expect(find.byKey(const ValueKey('gesture_telemetry_card')), findsOneWidget);
     });
 
@@ -511,7 +511,7 @@ void main() {
       await drawStroke(tester);
 
       // Expect failure screen
-      expect(find.text('Sample Inconsistency'), findsOneWidget);
+      expect(find.text('Sample Mismatch'), findsOneWidget);
       expect(
         find.textContaining('Synthesis error: DBA Isolate failed to converge within 5 iterations.'),
         findsOneWidget,
@@ -563,9 +563,9 @@ void main() {
       await drawStroke(tester);
       await drawStroke(tester);
 
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
       expect(
-        find.text('Draw on the pad to test match recognition'),
+        find.text('Draw inside the box above to test recognition'),
         findsOneWidget,
       );
 
@@ -598,14 +598,14 @@ void main() {
       await drawStroke(tester);
       await drawStroke(tester);
       await drawStroke(tester);
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Tap Save Gesture -> Pushes VaultAuthScreen
       await tester.tap(find.byKey(const ValueKey('gesture_save_button')));
       await tester.pumpAndSettle();
 
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Authorize Gesture Enrollment'), findsOneWidget);
+      expect(find.text('Confirm Gesture'), findsOneWidget);
 
       // User presses back button to abort auth
       final backButton = find.byType(BackButton);
@@ -618,7 +618,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Returned to Sandbox; template NOT saved
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
       expect(storage.savedTemplate, isNull);
     });
 
@@ -636,7 +636,7 @@ void main() {
       await drawStroke(tester);
       await drawStroke(tester);
       await drawStroke(tester);
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Tap Save Gesture
       await tester.tap(find.byKey(const ValueKey('gesture_save_button')));
@@ -647,7 +647,7 @@ void main() {
         find.textContaining('Failed to persist template: Encrypted disk write rejected by test harness.'),
         findsOneWidget,
       );
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
     });
 
     testWidgets(
@@ -662,7 +662,7 @@ void main() {
       await drawStroke(tester);
       await drawStroke(tester);
       await drawStroke(tester);
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Tap Save Gesture
       await tester.tap(find.byKey(const ValueKey('gesture_save_button')));
@@ -768,7 +768,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // Real background isolate DBA synthesis executes and enters sandbox
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
       expect(find.byKey(const ValueKey('gesture_telemetry_card')), findsOneWidget);
 
       // Draw a practice V-shape stroke in sandbox using real recognizer isolate

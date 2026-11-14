@@ -18,6 +18,7 @@ import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/reauth_blur_overlay.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/vault_artwork_image.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/vault_local_song_picker_sheet.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
 /// Artwork privacy peek state on the playlist detail header.
 enum ArtworkPeekStateEnum {
@@ -463,61 +464,15 @@ class _PrivatePlaylistDetailScaffoldState
 
   Future<bool> _confirmRemoveTrack(PrivateTrackRef track) async {
     final vaultTheme = VaultTheme.of(context);
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: vaultTheme.surface,
-        shape: VaultTheme.shape8,
-        title: Text(
-          'Remove Track',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            color: vaultTheme.textHighSalience,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        content: Text(
-          'Remove "${track.title}" from this private playlist?',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            color: vaultTheme.textMediumSalience,
-            fontSize: 13.0,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                color: vaultTheme.textMediumSalience,
-              ),
-            ),
-          ),
-          Material(
-            color: vaultTheme.danger,
-            borderRadius: VaultTheme.borderRadius8,
-            child: InkWell(
-              borderRadius: VaultTheme.borderRadius8,
-              onTap: () => Navigator.of(dialogContext).pop(true),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Text(
-                  'Remove',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return showVaultConfirmationSheet(
+      context,
+      vaultTheme,
+      sheetKey: const ValueKey('remove_track_confirmation_sheet'),
+      title: 'Remove from Playlist',
+      message: 'Remove "${track.title}" from this playlist?',
+      confirmLabel: 'Remove',
+      isDestructive: true,
     );
-    return result == true;
   }
 
   Future<void> _handleRemoveTrack(PrivateTrackRef track) async {
@@ -544,16 +499,11 @@ class _PrivatePlaylistDetailScaffoldState
     });
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Removed "${track.title}" from playlist',
-            style: const TextStyle(fontFamily: VaultTheme.fontFamily),
-          ),
-          backgroundColor: VaultTheme.of(context).surfaceSubtle,
-          behavior: SnackBarBehavior.floating,
-          shape: VaultTheme.shape8,
-        ),
+      showVaultSettingsSnackBar(
+        context,
+        VaultTheme.of(context),
+        message: 'Removed "${track.title}" from playlist',
+        clearExisting: true,
       );
     }
   }
@@ -563,62 +513,13 @@ class _PrivatePlaylistDetailScaffoldState
     final loaded = _state as PrivatePlaylistDetailLoadedState;
     final vaultTheme = VaultTheme.of(context);
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: vaultTheme.surface,
-        shape: VaultTheme.shape8,
-        title: Text(
-          'Delete Private Playlist',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            color: vaultTheme.textHighSalience,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        content: Text(
-          'Are you sure you want to delete "${loaded.playlist.name}"? This action will remove this playlist from your Secure Vault.',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            color: vaultTheme.textMediumSalience,
-            fontSize: 13.0,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(
-              'Cancel',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                color: vaultTheme.textMediumSalience,
-              ),
-            ),
-          ),
-          Material(
-            color: vaultTheme.danger,
-            borderRadius: VaultTheme.borderRadius8,
-            child: InkWell(
-              borderRadius: VaultTheme.borderRadius8,
-              onTap: () => Navigator.of(dialogContext).pop(true),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Text(
-                  'Delete',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    final confirmed = await confirmVaultPlaylistDeletion(
+      context,
+      vaultTheme,
+      playlistName: loaded.playlist.name,
     );
 
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       final repo = _resolvedRepository;
       if (repo != null) {
         await repo.deletePlaylist(widget.playlistId);
@@ -634,7 +535,7 @@ class _PrivatePlaylistDetailScaffoldState
       MaterialPageRoute<bool>(
         builder: (_) => const VaultAuthScreen(
           mode: VaultAuthScreenMode.stepUp,
-          titleOverride: 'Re-authenticate Session',
+          titleOverride: "Confirm It's You",
         ),
       ),
     );
@@ -682,45 +583,45 @@ class _PrivatePlaylistDetailScaffoldState
   }
 
   PreferredSizeWidget _buildAppBar(VaultThemeData vaultTheme) {
-    return AppBar(
-      backgroundColor: vaultTheme.scaffold,
-      elevation: 0,
-      centerTitle: true,
-      leading: IconButton(
-        icon: Icon(Icons.arrow_back_rounded, color: vaultTheme.textHighSalience),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
-      title: Text(
-        switch (_state) {
-          PrivatePlaylistDetailLoadedState(:final playlist) => playlist.name,
-          PrivatePlaylistDetailLoadingState() => 'Loading...',
-          PrivatePlaylistDetailErrorState() => 'Error',
-          PrivatePlaylistDetailDeletedState() => 'Private Playlist',
-        },
-        style: TextStyle(
-          fontFamily: VaultTheme.fontFamily,
-          fontSize: 16.0,
-          fontWeight: FontWeight.w600,
-          color: vaultTheme.textHighSalience,
-        ),
-      ),
+    final title = switch (_state) {
+      PrivatePlaylistDetailLoadedState(:final playlist) => playlist.name,
+      PrivatePlaylistDetailLoadingState() => 'Loading...',
+      PrivatePlaylistDetailErrorState() => 'Error',
+      PrivatePlaylistDetailDeletedState() => 'Playlist',
+    };
+
+    return buildVaultSettingsAppBar(
+      vaultTheme: vaultTheme,
+      title: title,
+      onBackPressed: () => Navigator.of(context).pop(),
       actions: [
         if (_state case PrivatePlaylistDetailLoadedState loaded)
           IconButton(
             key: const ValueKey('playlist_detail_add_songs_button'),
             tooltip: 'Add Local Songs',
-            icon: Icon(Icons.add_rounded, color: vaultTheme.accent),
+            icon: Icon(
+              Icons.add_rounded,
+              size: 22.0,
+              color: vaultTheme.textHighSalience,
+            ),
             onPressed: () => _openAddLocalSongsPicker(loaded.playlist),
           ),
         IconButton(
           tooltip: 'Quick Lock',
-          icon: Icon(Icons.lock_outline_rounded, color: vaultTheme.accent),
+          icon: Icon(
+            Icons.lock_outline_rounded,
+            size: 21.0,
+            color: vaultTheme.textHighSalience,
+          ),
           onPressed: () {
             if (_resolveSessionBloc() case final bloc?) {
-              bloc.add(const VaultQuickLockRequested(reason: 'User manual quick-lock'));
+              bloc.add(
+                const VaultQuickLockRequested(reason: 'User manual quick-lock'),
+              );
             }
           },
         ),
+        const SizedBox(width: 4.0),
       ],
     );
   }
@@ -793,328 +694,345 @@ class _PrivatePlaylistDetailScaffoldState
     VaultThemeData vaultTheme,
   ) {
     final playlist = state.playlist;
-    final isUnblurred = state.artworkPeekState == ArtworkPeekStateEnum.unblurredPeek;
+    final isUnblurred =
+        state.artworkPeekState == ArtworkPeekStateEnum.unblurredPeek;
+    final trackLabel = playlist.trackCount == 1 ? 'track' : 'tracks';
+    final dangerInk = vaultDangerInk(vaultTheme);
 
-    return Padding(
+    return Column(
       key: const ValueKey('playlist_detail_header'),
-      padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 12.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // 140x140 Artwork with Frosted Peek / Unblur Toggle
-          GestureDetector(
-            onTap: _toggleArtworkPeek,
-            child: Container(
-              width: 140.0,
-              height: 140.0,
-              decoration: BoxDecoration(
-                color: vaultTheme.surfaceSubtle,
-                borderRadius: VaultTheme.borderRadius8,
-                border: Border.all(
-                  color: vaultTheme.border,
-                  width: VaultTheme.borderWidth,
-                ),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Editorial Hero Card (220px+ hero block with 148x148 cover & split typography)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16.0, 6.0, 16.0, 10.0),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 224.0),
+            padding: const EdgeInsets.all(14.0),
+            decoration: BoxDecoration(
+              color: vaultTheme.surface,
+              borderRadius: VaultTheme.borderRadius8,
+              border: Border.all(
+                color: vaultTheme.borderSubtle,
+                width: VaultTheme.borderWidth,
               ),
-              child: ClipRRect(
-                borderRadius: VaultTheme.borderRadius8,
-                child: Stack(
-                  fit: StackFit.expand,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    VaultArtworkImage.forPlaylist(
-                      playlist,
-                      size: 140.0,
-                      placeholderIconSize: 56.0,
-                      vaultTheme: vaultTheme,
-                    ),
-
-                    // Frosted Glass Peek Blur Filter
-                    if (!isUnblurred)
-                      BackdropFilter(
-                        filter: ImageFilter.blur(
-                          sigmaX: vaultTheme.blurSigma,
-                          sigmaY: vaultTheme.blurSigma,
+                    GestureDetector(
+                      key: const ValueKey('playlist_detail_artwork_peek'),
+                      onTap: _toggleArtworkPeek,
+                      child: Container(
+                        width: 144.0,
+                        height: 144.0,
+                        decoration: BoxDecoration(
+                          color: vaultTheme.surfaceSubtle,
+                          borderRadius: VaultTheme.borderRadius8,
+                          border: Border.all(
+                            color: vaultTheme.border,
+                            width: VaultTheme.borderWidth,
+                          ),
                         ),
-                        child: Container(
-                          color: Colors.black.withValues(alpha: 0.25),
-                          alignment: Alignment.center,
-                          child: Icon(
-                            Icons.visibility_off_outlined,
-                            size: 28.0,
-                            color: vaultTheme.textMediumSalience,
+                        child: RepaintBoundary(
+                          child: ClipRRect(
+                            borderRadius: VaultTheme.borderRadius8,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                ImageFiltered(
+                                  enabled:
+                                      !isUnblurred && vaultTheme.blurSigma > 0.0,
+                                  imageFilter: ImageFilter.blur(
+                                    sigmaX: vaultTheme.blurSigma,
+                                    sigmaY: vaultTheme.blurSigma,
+                                    tileMode: TileMode.clamp,
+                                  ),
+                                  child: VaultArtworkImage.forPlaylist(
+                                    playlist,
+                                    size: 144.0,
+                                    placeholderIconSize: 52.0,
+                                    vaultTheme: vaultTheme,
+                                  ),
+                                ),
+                                if (!isUnblurred)
+                                  Container(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    alignment: Alignment.center,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8.0),
+                                      decoration: BoxDecoration(
+                                        color: vaultTheme.surface
+                                            .withValues(alpha: 0.72),
+                                        borderRadius: VaultTheme.borderRadius8,
+                                        border: Border.all(
+                                          color: vaultTheme.borderSubtle,
+                                          width: VaultTheme.borderWidth,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.visibility_off_outlined,
+                                        size: 22.0,
+                                        color: vaultTheme.textHighSalience,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16.0),
-
-          // Playlist Title (max 2 lines)
-          Text(
-            playlist.name,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 20.0,
-              fontWeight: FontWeight.w700,
-              color: vaultTheme.textHighSalience,
-              letterSpacing: 0.15,
-            ),
-          ),
-
-          // Playlist Description (if non-empty)
-          if (playlist.description.trim().isNotEmpty) ...[
-            const SizedBox(height: 6.0),
-            Text(
-              playlist.description,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 13.0,
-                fontWeight: FontWeight.w400,
-                color: vaultTheme.textMediumSalience,
-                height: 1.3,
-              ),
-            ),
-          ],
-          const SizedBox(height: 8.0),
-
-          // Metadata Telemetry Row (Track count • Total duration)
-          Text(
-            '${playlist.trackCount} ${playlist.trackCount == 1 ? 'track' : 'tracks'} \u2022 ${_formatDuration(playlist.totalDurationMs)}',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 12.0,
-              fontWeight: FontWeight.w500,
-              color: vaultTheme.textLowSalience,
-            ),
-          ),
-          const SizedBox(height: 16.0),
-
-          // Playback Controls Row: "Play All" and "Shuffle Play"
-          Row(
-            children: [
-              Expanded(
-                child: Material(
-                  color: vaultTheme.accent,
-                  borderRadius: VaultTheme.borderRadius8,
-                  child: InkWell(
-                    key: const ValueKey('playlist_detail_play_all_button'),
-                    onTap: () => _playAll(shuffle: false),
-                    borderRadius: VaultTheme.borderRadius8,
-                    child: Container(
-                      height: 44.0,
-                      decoration: BoxDecoration(
-                        borderRadius: VaultTheme.borderRadius8,
-                        border: Border.all(
-                          color: vaultTheme.border,
-                          width: VaultTheme.borderWidth,
-                        ),
-                      ),
-                      child: Row(
+                    ),
+                    const SizedBox(width: 14.0),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
-                            Icons.play_arrow_rounded,
-                            size: 20.0,
-                            color: vaultTheme.scaffold,
-                          ),
-                          const SizedBox(width: 6.0),
                           Text(
+                            playlist.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: VaultTheme.fontFamily,
+                              fontSize: 20.0,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                              height: 1.2,
+                              color: vaultTheme.textHighSalience,
+                            ),
+                          ),
+                          if (playlist.description.trim().isNotEmpty) ...[
+                            const SizedBox(height: 6.0),
+                            Text(
+                              playlist.description,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: VaultTheme.fontFamily,
+                                fontSize: 13.0,
+                                fontWeight: FontWeight.w400,
+                                color: vaultTheme.textMediumSalience,
+                                height: 1.35,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 8.0),
+                          Text(
+                            '${playlist.trackCount} $trackLabel \u2022 ${_formatDuration(playlist.totalDurationMs)}',
+                            style: TextStyle(
+                              fontFamily: VaultTheme.fontFamily,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                              color: vaultTheme.textLowSalience,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14.0),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 44.0,
+                        child: ElevatedButton.icon(
+                          key: const ValueKey('playlist_detail_play_all_button'),
+                          onPressed: () => _playAll(shuffle: false),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: vaultTheme.accent,
+                            foregroundColor: vaultTheme.scaffold,
+                            elevation: 0.0,
+                            shape: VaultTheme.shape8,
+                          ),
+                          icon: const Icon(Icons.play_arrow_rounded, size: 20.0),
+                          label: const Text(
                             'Play All',
                             style: TextStyle(
                               fontFamily: VaultTheme.fontFamily,
                               fontSize: 14.0,
                               fontWeight: FontWeight.w600,
-                              color: vaultTheme.scaffold,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12.0),
-              Expanded(
-                child: Material(
-                  color: vaultTheme.surfaceSubtle,
-                  borderRadius: VaultTheme.borderRadius8,
-                  child: InkWell(
-                    key: const ValueKey('playlist_detail_shuffle_button'),
-                    onTap: () => _playAll(shuffle: true),
-                    borderRadius: VaultTheme.borderRadius8,
-                    child: Container(
-                      height: 44.0,
-                      decoration: BoxDecoration(
-                        borderRadius: VaultTheme.borderRadius8,
-                        border: Border.all(
-                          color: vaultTheme.border,
-                          width: VaultTheme.borderWidth,
                         ),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.shuffle_rounded,
-                            size: 18.0,
-                            color: vaultTheme.textHighSalience,
+                    ),
+                    const SizedBox(width: 12.0),
+                    Expanded(
+                      child: SizedBox(
+                        height: 44.0,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('playlist_detail_shuffle_button'),
+                          onPressed: () => _playAll(shuffle: true),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: vaultTheme.surfaceSubtle,
+                            foregroundColor: vaultTheme.textHighSalience,
+                            side: BorderSide(
+                              color: vaultTheme.border,
+                              width: VaultTheme.borderWidth,
+                            ),
+                            shape: VaultTheme.shape8,
                           ),
-                          const SizedBox(width: 6.0),
-                          Text(
+                          icon: const Icon(Icons.shuffle_rounded, size: 18.0),
+                          label: const Text(
                             'Shuffle',
                             style: TextStyle(
                               fontFamily: VaultTheme.fontFamily,
                               fontSize: 14.0,
                               fontWeight: FontWeight.w600,
-                              color: vaultTheme.textHighSalience,
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Tracks Section Bar & Destructive Playlist Action
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20.0, 2.0, 12.0, 0.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: VaultSettingsSectionHeader(
+                  title: 'Tracks',
+                  vaultTheme: vaultTheme,
+                  padding: EdgeInsets.zero,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 12.0),
-
-          // Secondary Actions Row (Delete)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
               TextButton.icon(
                 onPressed: _confirmDeletePlaylist,
+                style: TextButton.styleFrom(
+                  foregroundColor: dangerInk,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10.0,
+                    vertical: 6.0,
+                  ),
+                ),
                 icon: Icon(
                   Icons.delete_outline_rounded,
                   size: 16.0,
-                  color: vaultTheme.danger,
+                  color: dangerInk,
                 ),
                 label: Text(
                   'Delete Playlist',
                   style: TextStyle(
                     fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w500,
-                    color: vaultTheme.danger,
+                    color: dangerInk,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8.0),
+        ),
 
-          // In-Playlist Instant Search & Filter Bar
-          Container(
-            height: 44.0,
-            decoration: BoxDecoration(
-              color: vaultTheme.surfaceSubtle,
-              borderRadius: VaultTheme.borderRadius8,
-              border: Border.all(
-                color: vaultTheme.border,
-                width: VaultTheme.borderWidth,
-              ),
-            ),
-            child: TextField(
-              key: const ValueKey('playlist_detail_search_input'),
-              controller: _searchController,
-              focusNode: _searchFocusNode,
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 13.0,
-                color: vaultTheme.textHighSalience,
-              ),
-              decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(vertical: 10.0),
-                isDense: true,
-                border: InputBorder.none,
-                prefixIcon: Icon(
-                  Icons.search_rounded,
-                  size: 18.0,
-                  color: vaultTheme.textMediumSalience,
-                ),
-                hintText: 'Find in playlist...',
-                hintStyle: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontSize: 13.0,
-                  color: vaultTheme.textLowSalience,
-                ),
-                suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _searchController,
-                  builder: (context, value, _) {
-                    if (value.text.isEmpty) {
-                      return const SizedBox.shrink();
-                    }
-                    return IconButton(
-                      icon: Icon(
-                        Icons.close_rounded,
-                        size: 16.0,
-                        color: vaultTheme.textMediumSalience,
-                      ),
-                      onPressed: () {
-                        _searchController.clear();
-                      },
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
+        // Instant Track Search Field
+        VaultInlineSearchField(
+          controller: _searchController,
+          focusNode: _searchFocusNode,
+          vaultTheme: vaultTheme,
+          hintText: 'Search tracks...',
+          inputKey: const ValueKey('playlist_detail_search_input'),
+          padding: const EdgeInsets.fromLTRB(16.0, 4.0, 16.0, 10.0),
+        ),
 
-          // Empty state placeholder if playlist has no tracks
-          if (playlist.trackRefs.isEmpty) ...[
-            const SizedBox(height: 36.0),
-            Center(
+        // Empty Tracklist Placeholder
+        if (playlist.trackRefs.isEmpty) ...[
+          const SizedBox(height: 28.0),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.music_off_outlined,
-                    size: 48.0,
-                    color: vaultTheme.textLowSalience,
+                  Container(
+                    width: 48.0,
+                    height: 48.0,
+                    decoration: BoxDecoration(
+                      color: vaultTheme.surfaceSubtle,
+                      borderRadius: VaultTheme.borderRadius8,
+                      border: Border.all(
+                        color: vaultTheme.borderSubtle,
+                        width: VaultTheme.borderWidth,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.music_note_outlined,
+                      size: 24.0,
+                      color: vaultTheme.textLowSalience,
+                    ),
                   ),
                   const SizedBox(height: 12.0),
                   Text(
-                    'No songs in this playlist yet',
+                    'No Tracks Yet',
                     style: TextStyle(
                       fontFamily: VaultTheme.fontFamily,
-                      fontSize: 14.0,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.2,
+                      color: vaultTheme.textHighSalience,
+                    ),
+                  ),
+                  const SizedBox(height: 4.0),
+                  Text(
+                    'Add songs from your device to build this playlist.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 13.0,
                       color: vaultTheme.textMediumSalience,
                     ),
                   ),
                   const SizedBox(height: 16.0),
-                  OutlinedButton.icon(
-                    key: const ValueKey('playlist_detail_empty_add_songs_button'),
-                    onPressed: () => _openAddLocalSongsPicker(playlist),
-                    icon: Icon(Icons.add, color: vaultTheme.accent, size: 18),
-                    label: Text(
-                      'Add Songs',
-                      style: TextStyle(
-                        fontFamily: VaultTheme.fontFamily,
-                        color: vaultTheme.accent,
-                        fontWeight: FontWeight.w600,
+                  SizedBox(
+                    height: 46.0,
+                    child: OutlinedButton.icon(
+                      key: const ValueKey(
+                        'playlist_detail_empty_add_songs_button',
                       ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: vaultTheme.border),
-                      shape: VaultTheme.shape8,
+                      onPressed: () => _openAddLocalSongsPicker(playlist),
+                      icon: Icon(
+                        Icons.add_rounded,
+                        color: vaultTheme.accent,
+                        size: 18.0,
+                      ),
+                      label: Text(
+                        'Add Songs',
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 14.0,
+                          color: vaultTheme.accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: vaultTheme.border,
+                          width: VaultTheme.borderWidth,
+                        ),
+                        shape: VaultTheme.shape8,
+                        padding: const EdgeInsets.symmetric(horizontal: 18.0),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ],
-      ),
+      ],
     );
   }
 
@@ -1162,18 +1080,20 @@ class _PrivatePlaylistDetailScaffoldState
           onTap: () => _playTrack(track),
           child: Container(
             height: 62.0,
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             decoration: BoxDecoration(
+              color: isActiveTrack
+                  ? vaultTheme.surfaceSubtle.withValues(alpha: 0.65)
+                  : Colors.transparent,
               border: Border(
                 bottom: BorderSide(
-                  color: vaultTheme.border.withValues(alpha: 0.3),
-                  width: 0.5,
+                  color: vaultTheme.borderSubtle,
+                  width: VaultTheme.borderWidth,
                 ),
               ),
             ),
             child: Row(
               children: [
-                // Track Index or Active Equalizer Indicator
                 SizedBox(
                   width: 28.0,
                   child: isActiveTrack && state.playbackStatus.isPlaying
@@ -1188,6 +1108,7 @@ class _PrivatePlaylistDetailScaffoldState
                             fontFamily: VaultTheme.fontFamily,
                             fontSize: 13.0,
                             fontWeight: FontWeight.w500,
+                            fontFeatures: const [FontFeature.tabularFigures()],
                             color: isActiveTrack
                                 ? vaultTheme.accent
                                 : vaultTheme.textLowSalience,
@@ -1195,16 +1116,14 @@ class _PrivatePlaylistDetailScaffoldState
                         ),
                 ),
                 const SizedBox(width: 8.0),
-
-                // Artwork Thumbnail (36x36)
                 Container(
-                  width: 36.0,
-                  height: 36.0,
+                  width: 40.0,
+                  height: 40.0,
                   decoration: BoxDecoration(
                     color: vaultTheme.surfaceSubtle,
                     borderRadius: VaultTheme.borderRadius8,
                     border: Border.all(
-                      color: vaultTheme.border,
+                      color: vaultTheme.borderSubtle,
                       width: VaultTheme.borderWidth,
                     ),
                   ),
@@ -1212,15 +1131,13 @@ class _PrivatePlaylistDetailScaffoldState
                     borderRadius: VaultTheme.borderRadius8,
                     child: VaultArtworkImage.forTrack(
                       track,
-                      size: 36.0,
+                      size: 40.0,
                       placeholderIconSize: 18.0,
                       vaultTheme: vaultTheme,
                     ),
                   ),
                 ),
                 const SizedBox(width: 12.0),
-
-                // Title and Artist Column
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1233,7 +1150,8 @@ class _PrivatePlaylistDetailScaffoldState
                         style: TextStyle(
                           fontFamily: VaultTheme.fontFamily,
                           fontSize: 14.0,
-                          fontWeight: isActiveTrack ? FontWeight.w700 : FontWeight.w500,
+                          fontWeight:
+                              isActiveTrack ? FontWeight.w700 : FontWeight.w500,
                           color: isActiveTrack
                               ? vaultTheme.accent
                               : vaultTheme.textHighSalience,
@@ -1255,41 +1173,41 @@ class _PrivatePlaylistDetailScaffoldState
                   ),
                 ),
                 const SizedBox(width: 8.0),
-
-                // Source Badge (Local sandbox vs. Local reference vs. Spotify stream)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6.0,
+                    vertical: 2.0,
+                  ),
                   decoration: BoxDecoration(
                     color: vaultTheme.surfaceSubtle,
                     borderRadius: VaultTheme.borderRadius8,
                     border: Border.all(
-                      color: vaultTheme.border,
+                      color: vaultTheme.borderSubtle,
                       width: VaultTheme.borderWidth,
                     ),
                   ),
                   child: Text(
                     switch (track.sourceType) {
                       TrackSourceTypeEnum.localSandbox => 'Local',
-                      TrackSourceTypeEnum.localReference => 'Local Ref',
+                      TrackSourceTypeEnum.localReference => 'Device',
                       TrackSourceTypeEnum.spotify => 'Spotify',
                     },
                     style: TextStyle(
                       fontFamily: VaultTheme.fontFamily,
                       fontSize: 10.0,
                       fontWeight: FontWeight.w500,
-                      color: vaultTheme.textMediumSalience,
+                      color: vaultTheme.textLowSalience,
                     ),
                   ),
                 ),
                 const SizedBox(width: 8.0),
-
-                // Duration (mm:ss)
                 Text(
                   _formatTrackDuration(track.durationMs),
                   style: TextStyle(
                     fontFamily: VaultTheme.fontFamily,
                     fontSize: 12.0,
                     fontWeight: FontWeight.w400,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                     color: vaultTheme.textMediumSalience,
                   ),
                 ),

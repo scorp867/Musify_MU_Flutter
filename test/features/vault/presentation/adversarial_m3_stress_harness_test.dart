@@ -601,17 +601,18 @@ void main() {
       await tester.drag(find.byKey(firstTrackKey), const Offset(-500.0, 0.0));
       await tester.pumpAndSettle();
 
-      // Verify AlertDialog is displayed
-      expect(find.byType(AlertDialog), findsOneWidget);
-      expect(find.text('Remove Track'), findsOneWidget);
+      // Verify confirmation bottom sheet is displayed
+      final sheetFinder = find.byKey(const ValueKey('remove_track_confirmation_sheet'));
+      expect(sheetFinder, findsOneWidget);
+      expect(find.text('Remove from Playlist'), findsOneWidget);
       expect(find.text('Cancel'), findsOneWidget);
 
       // Tap Cancel
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      // Dialog dismissed, track STILL exists in widget tree and repo
-      expect(find.byType(AlertDialog), findsNothing);
+      // Sheet dismissed, track STILL exists in widget tree and repo
+      expect(sheetFinder, findsNothing);
       expect(find.byKey(firstTrackKey), findsOneWidget);
       expect(storageRepo.lastRemovedTrackId, isNull);
       expect(storageRepo.playlists[samplePlaylist.id]?.trackRefs.length, equals(4));
@@ -637,18 +638,19 @@ void main() {
       await tester.drag(find.byKey(targetTrackKey), const Offset(-500.0, 0.0));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AlertDialog), findsOneWidget);
+      final sheetFinder = find.byKey(const ValueKey('remove_track_confirmation_sheet'));
+      expect(sheetFinder, findsOneWidget);
 
-      // Tap Remove button in dialog
-      final dialogRemoveBtn = find.descendant(
-        of: find.byType(AlertDialog),
+      // Tap Remove button in confirmation sheet
+      final sheetRemoveBtn = find.descendant(
+        of: sheetFinder,
         matching: find.text('Remove'),
       );
-      await tester.tap(dialogRemoveBtn);
+      await tester.tap(sheetRemoveBtn);
       await tester.pumpAndSettle();
 
-      // Dialog gone, track removed from UI
-      expect(find.byType(AlertDialog), findsNothing);
+      // Sheet gone, track removed from UI
+      expect(sheetFinder, findsNothing);
       expect(find.byKey(targetTrackKey), findsNothing);
       expect(storageRepo.lastRemovedTrackId, equals(targetTrack.id));
       expect(storageRepo.playlists[samplePlaylist.id]?.trackRefs.length, equals(3));
@@ -682,12 +684,12 @@ void main() {
       await tester.drag(find.byKey(targetKey), const Offset(-500.0, 0.0));
       await tester.pumpAndSettle();
 
-      // Confirm in dialog
-      final dialogRemoveBtn = find.descendant(
-        of: find.byType(AlertDialog),
+      // Confirm in bottom sheet
+      final sheetRemoveBtn = find.descendant(
+        of: find.byKey(const ValueKey('remove_track_confirmation_sheet')),
         matching: find.text('Remove'),
       );
-      await tester.tap(dialogRemoveBtn);
+      await tester.tap(sheetRemoveBtn);
       await tester.pumpAndSettle();
 
       expect(find.byKey(targetKey), findsNothing);

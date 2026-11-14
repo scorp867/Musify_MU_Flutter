@@ -26,6 +26,7 @@ import 'package:musify_mu/features/vault/domain/usecases/enroll_gesture_use_case
 import 'package:musify_mu/features/vault/presentation/screens/vault_auth_screen.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/vault_session_scaffold_guard.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
 /// Exhaustive sealed state hierarchy governing the gesture enrollment wizard and sandbox testing.
 @immutable
@@ -235,7 +236,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   late GestureEnrollmentState _enrollmentState;
   final List<GestureSample> _collectedSamples = <GestureSample>[];
   final List<GesturePoint> _rawPoints = <GesturePoint>[];
-  final List<Offset> _liveDisplayPoints = <Offset>[];
+  final GestureInkController _inkController = GestureInkController();
 
   int _strokeStartMs = 0;
   bool _isPointerDown = false;
@@ -351,6 +352,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
 
   @override
   void dispose() {
+    _inkController.dispose();
     _releaseScreenPrivacy();
     super.dispose();
   }
@@ -359,7 +361,6 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
     if (_isPointerDown) return;
     _isPointerDown = true;
     _rawPoints.clear();
-    _liveDisplayPoints.clear();
     _strokeStartMs = DateTime.now().millisecondsSinceEpoch;
 
     final pt = GesturePoint(
@@ -368,11 +369,13 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       timestampMs: 0,
     );
     _rawPoints.add(pt);
-    _liveDisplayPoints.add(event.localPosition);
+    _inkController.startStroke(event.localPosition);
 
-    setState(() {
-      _temporaryWarningMessage = null;
-    });
+    if (_temporaryWarningMessage != null) {
+      setState(() {
+        _temporaryWarningMessage = null;
+      });
+    }
   }
 
   void _onPointerMove(PointerMoveEvent event) {
@@ -386,8 +389,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       timestampMs: (elapsed < 0) ? 0 : elapsed,
     );
     _rawPoints.add(pt);
-    _liveDisplayPoints.add(event.localPosition);
-    setState(() {});
+    _inkController.appendPoint(event.localPosition);
   }
 
   Future<void> _onPointerUp(PointerUpEvent event) async {
@@ -395,8 +397,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
     _isPointerDown = false;
 
     if (_rawPoints.isEmpty) {
-      _liveDisplayPoints.clear();
-      setState(() {});
+      _inkController.clear();
       return;
     }
 
@@ -411,7 +412,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
     // 2. Deadband pre-filtering check (< 2.5px)
     if (totalLength < RawTouchFilter.defaultDeadbandThreshold) {
       _rawPoints.clear();
-      _liveDisplayPoints.clear();
+      _inkController.clear();
       setState(() {
         _temporaryWarningMessage =
             'Stroke too brief. Draw a continuous gesture.';
@@ -432,7 +433,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       );
     } on FormatException catch (e) {
       _rawPoints.clear();
-      _liveDisplayPoints.clear();
+      _inkController.clear();
       setState(() {
         _temporaryWarningMessage = e.message;
       });
@@ -450,8 +451,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       case GestureSynthesizingTemplateState():
       case GestureCommittedState():
       case GestureEnrollmentFailedState():
-        _liveDisplayPoints.clear();
-        setState(() {});
+        _inkController.clear();
     }
   }
 
@@ -469,8 +469,8 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       );
       if (consistencyResult case VaultFailureResult(:final failure)) {
         HapticFeedback.mediumImpact();
+        _inkController.clear();
         setState(() {
-          _liveDisplayPoints.clear();
           _temporaryWarningMessage =
               'Stroke differed from previous sample: ${failure.message}';
         });
@@ -479,7 +479,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
     }
 
     _collectedSamples.add(sample);
-    _liveDisplayPoints.clear();
+    _inkController.clear();
 
     if (_collectedSamples.length < 3) {
       HapticFeedback.lightImpact();
@@ -533,7 +533,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       sensitivityTier: GestureSensitivityTierEnum.balanced84Percent,
     );
 
-    _liveDisplayPoints.clear();
+    _inkController.clear();
 
     final score = switch (scoreResult) {
       VaultSuccess(:final data) => data,
@@ -565,7 +565,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
         MaterialPageRoute<bool>(
           builder: (_) => VaultAuthScreen(
             mode: VaultAuthScreenMode.stepUp,
-            titleOverride: 'Authorize Gesture Enrollment',
+            titleOverride: 'Confirm Gesture',
             pinPadCubit: switch (widget.pinPadCubit) {
               final c? => c,
               null => _resolvePinPadCubit(),
@@ -613,7 +613,7 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   void _resetToSampleOne() {
     _collectedSamples.clear();
     _rawPoints.clear();
-    _liveDisplayPoints.clear();
+    _inkController.clear();
     setState(() {
       _temporaryWarningMessage = null;
       _enrollmentState = GestureRecordingSampleState(sampleIndex: 1);
@@ -622,10 +622,12 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
 
   void _clearCurrentStroke() {
     _rawPoints.clear();
-    _liveDisplayPoints.clear();
-    setState(() {
-      _temporaryWarningMessage = null;
-    });
+    _inkController.clear();
+    if (_temporaryWarningMessage != null) {
+      setState(() {
+        _temporaryWarningMessage = null;
+      });
+    }
   }
 
   @override
@@ -636,97 +638,112 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       sessionBlocOverride: _resolveSessionBloc(),
       child: Scaffold(
         key: const ValueKey('gesture_enrollment_scaffold'),
-      backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
         backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          key: const ValueKey('gesture_enrollment_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
+        appBar: AppBar(
+          backgroundColor: vaultTheme.scaffold,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0.0,
+          scrolledUnderElevation: 0.0,
+          toolbarHeight: 56.0,
+          centerTitle: false,
+          titleSpacing: 4.0,
+          leading: IconButton(
+            key: const ValueKey('gesture_enrollment_back_button'),
+            tooltip: 'Back',
+            icon: Icon(
+              Icons.arrow_back,
+              size: 22.0,
+              color: vaultTheme.textHighSalience,
+            ),
+            onPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop(false);
+              }
+            },
           ),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop(false);
-            }
-          },
-        ),
-        title: Text(
-          'Enroll Secret Gesture',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
+          title: Text(
+            'Set Unlock Gesture',
+            style: TextStyle(
+              fontFamily: VaultTheme.fontFamily,
+              fontSize: 18.0,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.2,
+              color: vaultTheme.textHighSalience,
+            ),
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1.0),
+            child: Divider(
+              height: 1.0,
+              thickness: VaultTheme.borderWidth,
+              color: vaultTheme.borderSubtle,
+            ),
           ),
         ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildStepIndicator(vaultTheme),
-              const SizedBox(height: 16.0),
-              _buildHeaderSection(vaultTheme),
-              if (_temporaryWarningMessage case final warning?) ...[
-                const SizedBox(height: 12.0),
-                _buildWarningBanner(warning, vaultTheme),
-              ],
-              const SizedBox(height: 16.0),
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 1.0,
-                    child: Container(
-                      key: const ValueKey('gesture_enrollment_pad'),
-                      decoration: BoxDecoration(
-                        color: vaultTheme.surfaceSubtle,
-                        borderRadius: VaultTheme.borderRadius8,
-                        border: Border.all(
-                          color: vaultTheme.border,
-                          width: VaultTheme.borderWidth,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20.0, 14.0, 20.0, 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildStepIndicator(vaultTheme),
+                const SizedBox(height: 14.0),
+                _buildHeaderSection(vaultTheme),
+                if (_temporaryWarningMessage case final warning?) ...[
+                  const SizedBox(height: 10.0),
+                  _buildWarningBanner(warning, vaultTheme),
+                ],
+                const SizedBox(height: 14.0),
+                Expanded(
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: 1.0,
+                      child: Container(
+                        key: const ValueKey('gesture_enrollment_pad'),
+                        decoration: BoxDecoration(
+                          color: vaultTheme.surface,
+                          borderRadius: VaultTheme.borderRadius8,
+                          border: Border.all(
+                            color: vaultTheme.border,
+                            width: VaultTheme.borderWidth,
+                          ),
                         ),
-                      ),
-                      child: ClipRRect(
-                        borderRadius: VaultTheme.borderRadius8,
-                        child: Stack(
-                          children: [
-                            _buildWatermarkGrid(vaultTheme),
-                            Listener(
-                              behavior: HitTestBehavior.opaque,
-                              onPointerDown: _onPointerDown,
-                              onPointerMove: _onPointerMove,
-                              onPointerUp: _onPointerUp,
-                              child: RepaintBoundary(
-                                child: CustomPaint(
-                                  painter: GestureInkPainter(
-                                    points: _liveDisplayPoints,
-                                    strokeColor: vaultTheme.accent,
+                        child: ClipRRect(
+                          borderRadius: VaultTheme.borderRadius8,
+                          child: Stack(
+                            children: [
+                              _buildWatermarkGrid(vaultTheme),
+                              Listener(
+                                behavior: HitTestBehavior.opaque,
+                                onPointerDown: _onPointerDown,
+                                onPointerMove: _onPointerMove,
+                                onPointerUp: _onPointerUp,
+                                child: RepaintBoundary(
+                                  child: CustomPaint(
+                                    painter: GestureInkPainter(
+                                      controller: _inkController,
+                                      strokeColor: vaultTheme.accent,
+                                    ),
+                                    child: const SizedBox.expand(),
                                   ),
-                                  child: const SizedBox.expand(),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16.0),
-              _buildBottomControls(vaultTheme),
-            ],
+                const SizedBox(height: 14.0),
+                _buildBottomControls(vaultTheme),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildStepIndicator(VaultThemeData vaultTheme) {
     final activeIndex = switch (_enrollmentState) {
@@ -743,20 +760,14 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
           Expanded(
             child: Container(
               key: ValueKey('gesture_step_indicator_$i'),
-              height: 6.0,
+              height: 4.0,
               decoration: BoxDecoration(
                 color: i < activeIndex
                     ? vaultTheme.accent
                     : (i == activeIndex
-                        ? vaultTheme.accent.withValues(alpha: 0.60)
+                        ? vaultTheme.accent.withValues(alpha: 0.65)
                         : vaultTheme.surfaceSubtle),
-                borderRadius: BorderRadius.circular(3.0),
-                border: Border.all(
-                  color: i <= activeIndex
-                      ? vaultTheme.accent
-                      : vaultTheme.borderSubtle,
-                  width: 1.0,
-                ),
+                borderRadius: BorderRadius.circular(2.0),
               ),
             ),
           ),
@@ -767,28 +778,38 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   }
 
   Widget _buildHeaderSection(VaultThemeData vaultTheme) {
-    final (title, subtitle) = switch (_enrollmentState) {
+    final (caption, title, subtitle, isError) = switch (_enrollmentState) {
       GestureRecordingSampleState(:final sampleIndex) => (
+          'STEP $sampleIndex OF 3',
           'Sample $sampleIndex of 3',
           sampleIndex == 1
-              ? 'Draw your secret single-stroke gesture on the canvas.'
-              : 'Draw the same gesture again to verify consistency.',
+              ? 'Draw one continuous shape inside the box.'
+              : 'Draw the same shape again to confirm.',
+          false,
         ),
       GestureSynthesizingTemplateState() => (
-          'Synthesizing Template',
-          'Executing DTW Barycenter Averaging on background isolate...',
+          'PROCESSING',
+          'Building Pattern',
+          'Combining your 3 samples...',
+          false,
         ),
       GestureSandboxTestingState() => (
-          'Practice & Verify',
-          'Draw on the test pad to test recognition confidence before saving.',
+          'VERIFY',
+          'Test Your Gesture',
+          'Draw inside the box to confirm it recognizes reliably.',
+          false,
         ),
       GestureCommittedState() => (
-          'Gesture Enrolled',
-          'Your secret stealth gesture has been encrypted and saved.',
+          'DONE',
+          'Gesture Saved',
+          'Your unlock gesture is saved and ready.',
+          false,
         ),
       GestureEnrollmentFailedState(:final failureReason) => (
-          'Sample Inconsistency',
+          'RETRY NEEDED',
+          'Sample Mismatch',
           failureReason,
+          true,
         ),
     };
 
@@ -796,15 +817,27 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
+          caption,
+          style: TextStyle(
+            fontFamily: VaultTheme.fontFamily,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.0,
+            color: isError ? vaultDangerInk(vaultTheme) : vaultTheme.accent,
+          ),
+        ),
+        const SizedBox(height: 3.0),
+        Text(
           title,
           style: TextStyle(
             fontFamily: VaultTheme.fontFamily,
             fontSize: 20.0,
             fontWeight: FontWeight.w600,
+            letterSpacing: -0.2,
             color: vaultTheme.textHighSalience,
           ),
         ),
-        const SizedBox(height: 4.0),
+        const SizedBox(height: 2.0),
         Text(
           subtitle,
           style: TextStyle(
@@ -819,22 +852,23 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   }
 
   Widget _buildWarningBanner(String message, VaultThemeData vaultTheme) {
+    final dangerInk = vaultDangerInk(vaultTheme);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 9.0),
       decoration: BoxDecoration(
         color: vaultTheme.danger.withValues(alpha: 0.12),
         borderRadius: VaultTheme.borderRadius8,
         border: Border.all(
-          color: vaultTheme.danger,
+          color: vaultTheme.danger.withValues(alpha: 0.45),
           width: VaultTheme.borderWidth,
         ),
       ),
       child: Row(
         children: [
           Icon(
-            Icons.error_outline,
-            size: 18.0,
-            color: vaultTheme.danger,
+            Icons.error_outline_rounded,
+            size: 17.0,
+            color: dangerInk,
           ),
           const SizedBox(width: 8.0),
           Expanded(
@@ -843,7 +877,8 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
               style: TextStyle(
                 fontFamily: VaultTheme.fontFamily,
                 fontSize: 12.0,
-                color: vaultTheme.danger,
+                fontWeight: FontWeight.w500,
+                color: dangerInk,
               ),
             ),
           ),
@@ -853,9 +888,11 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
   }
 
   Widget _buildWatermarkGrid(VaultThemeData vaultTheme) {
-    return CustomPaint(
-      painter: _CanvasGridPainter(gridColor: vaultTheme.borderSubtle),
-      child: const SizedBox.expand(),
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _CanvasGridPainter(gridColor: vaultTheme.borderSubtle),
+        child: const SizedBox.expand(),
+      ),
     );
   }
 
@@ -866,48 +903,54 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
         return Row(
           children: [
             Expanded(
-              child: OutlinedButton(
-                key: const ValueKey('gesture_clear_stroke_button'),
-                onPressed: _clearCurrentStroke,
-                style: OutlinedButton.styleFrom(
-                  shape: VaultTheme.shape8,
-                  side: BorderSide(
-                    color: vaultTheme.border,
-                    width: VaultTheme.borderWidth,
+              child: SizedBox(
+                height: 48.0,
+                child: OutlinedButton(
+                  key: const ValueKey('gesture_clear_stroke_button'),
+                  onPressed: _clearCurrentStroke,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: vaultTheme.textHighSalience,
+                    shape: VaultTheme.shape8,
+                    side: BorderSide(
+                      color: vaultTheme.border,
+                      width: VaultTheme.borderWidth,
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 14.0),
-                ),
-                child: Text(
-                  'Clear Stroke',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.textMediumSalience,
+                  child: Text(
+                    'Clear Stroke',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: vaultTheme.textHighSalience,
+                    ),
                   ),
                 ),
               ),
             ),
             const SizedBox(width: 12.0),
             Expanded(
-              child: OutlinedButton(
-                key: const ValueKey('gesture_start_over_button'),
-                onPressed: _resetToSampleOne,
-                style: OutlinedButton.styleFrom(
-                  shape: VaultTheme.shape8,
-                  side: BorderSide(
-                    color: vaultTheme.border,
-                    width: VaultTheme.borderWidth,
+              child: SizedBox(
+                height: 48.0,
+                child: OutlinedButton(
+                  key: const ValueKey('gesture_start_over_button'),
+                  onPressed: _resetToSampleOne,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: vaultTheme.textMediumSalience,
+                    shape: VaultTheme.shape8,
+                    side: BorderSide(
+                      color: vaultTheme.borderSubtle,
+                      width: VaultTheme.borderWidth,
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 14.0),
-                ),
-                child: Text(
-                  'Start Over',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.textMediumSalience,
+                  child: Text(
+                    'Start Over',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                      color: vaultTheme.textMediumSalience,
+                    ),
                   ),
                 ),
               ),
@@ -918,10 +961,14 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
       case GestureSynthesizingTemplateState():
         return Center(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16.0),
-            child: CircularProgressIndicator(
-              strokeWidth: 2.0,
-              color: vaultTheme.accent,
+            padding: const EdgeInsets.symmetric(vertical: 14.0),
+            child: SizedBox(
+              width: 24.0,
+              height: 24.0,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                color: vaultTheme.accent,
+              ),
             ),
           ),
         );
@@ -936,45 +983,49 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    key: const ValueKey('gesture_rerecord_button'),
-                    onPressed: _resetToSampleOne,
-                    style: OutlinedButton.styleFrom(
-                      shape: VaultTheme.shape8,
-                      side: BorderSide(
-                        color: vaultTheme.border,
-                        width: VaultTheme.borderWidth,
+                  child: SizedBox(
+                    height: 48.0,
+                    child: OutlinedButton(
+                      key: const ValueKey('gesture_rerecord_button'),
+                      onPressed: _resetToSampleOne,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: vaultTheme.textHighSalience,
+                        shape: VaultTheme.shape8,
+                        side: BorderSide(
+                          color: vaultTheme.border,
+                          width: VaultTheme.borderWidth,
+                        ),
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 14.0),
-                    ),
-                    child: Text(
-                      'Re-record Gesture',
-                      style: TextStyle(
-                        fontFamily: VaultTheme.fontFamily,
-                        fontSize: 13.0,
-                        fontWeight: FontWeight.w500,
-                        color: vaultTheme.textMediumSalience,
+                      child: const Text(
+                        'Re-record',
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12.0),
                 Expanded(
-                  child: FilledButton(
-                    key: const ValueKey('gesture_save_button'),
-                    onPressed: () => _commitEnrollment(synthesizedTemplate),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: vaultTheme.accent,
-                      foregroundColor: vaultTheme.scaffold,
-                      shape: VaultTheme.shape8,
-                      padding: const EdgeInsets.symmetric(vertical: 14.0),
-                    ),
-                    child: const Text(
-                      'Save Gesture',
-                      style: TextStyle(
-                        fontFamily: VaultTheme.fontFamily,
-                        fontSize: 13.0,
-                        fontWeight: FontWeight.w600,
+                  child: SizedBox(
+                    height: 48.0,
+                    child: FilledButton(
+                      key: const ValueKey('gesture_save_button'),
+                      onPressed: () => _commitEnrollment(synthesizedTemplate),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: vaultTheme.accent,
+                        foregroundColor: vaultTheme.scaffold,
+                        shape: VaultTheme.shape8,
+                      ),
+                      child: const Text(
+                        'Save Gesture',
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
@@ -986,9 +1037,9 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
 
       case GestureCommittedState():
         return Container(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(14.0),
           decoration: BoxDecoration(
-            color: vaultTheme.surfaceSubtle,
+            color: vaultTheme.surface,
             borderRadius: VaultTheme.borderRadius8,
             border: Border.all(
               color: vaultTheme.accent,
@@ -999,13 +1050,13 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.check_circle_outline,
+                Icons.check_circle_outline_rounded,
                 color: vaultTheme.accent,
                 size: 20.0,
               ),
               const SizedBox(width: 8.0),
               Text(
-                'Gesture Enrolled Successfully',
+                'Gesture Saved',
                 style: TextStyle(
                   fontFamily: VaultTheme.fontFamily,
                   fontSize: 14.0,
@@ -1018,21 +1069,24 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
         );
 
       case GestureEnrollmentFailedState():
-        return ElevatedButton(
-          key: const ValueKey('gesture_retry_failed_button'),
-          onPressed: _resetToSampleOne,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: vaultTheme.surface,
-            shape: VaultTheme.shape8,
-            padding: const EdgeInsets.symmetric(vertical: 14.0),
-          ),
-          child: Text(
-            'Try Again From Sample 1',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 14.0,
-              fontWeight: FontWeight.w500,
-              color: vaultTheme.textHighSalience,
+        return SizedBox(
+          height: 48.0,
+          child: ElevatedButton(
+            key: const ValueKey('gesture_retry_failed_button'),
+            onPressed: _resetToSampleOne,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: vaultTheme.accent,
+              foregroundColor: vaultTheme.scaffold,
+              elevation: 0.0,
+              shape: VaultTheme.shape8,
+            ),
+            child: const Text(
+              'Try Again',
+              style: TextStyle(
+                fontFamily: VaultTheme.fontFamily,
+                fontSize: 14.0,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         );
@@ -1048,21 +1102,21 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
     if (lastScore == null) {
       return Container(
         key: const ValueKey('gesture_telemetry_card'),
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
         decoration: BoxDecoration(
-          color: vaultTheme.surfaceSubtle,
+          color: vaultTheme.surface,
           borderRadius: VaultTheme.borderRadius8,
           border: Border.all(
-            color: vaultTheme.border,
+            color: vaultTheme.borderSubtle,
             width: VaultTheme.borderWidth,
           ),
         ),
         child: Center(
           child: Text(
-            'Draw on the pad to test match recognition',
+            'Draw inside the box above to test recognition',
             style: TextStyle(
               fontFamily: VaultTheme.fontFamily,
-              fontSize: 12.0,
+              fontSize: 12.5,
               color: vaultTheme.textMediumSalience,
             ),
           ),
@@ -1072,15 +1126,17 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
 
     final isMatch = lastScore.decision == GestureMatchDecisionEnum.matched;
     final matchPercentage = (lastScore.ensembleScore * 100.0).toStringAsFixed(1);
+    final statusInk = isMatch ? vaultTheme.accent : vaultDangerInk(vaultTheme);
+    final statusBorder = isMatch ? vaultTheme.accent : vaultTheme.danger;
 
     return Container(
       key: const ValueKey('gesture_telemetry_card'),
       padding: const EdgeInsets.all(12.0),
       decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
+        color: vaultTheme.surface,
         borderRadius: VaultTheme.borderRadius8,
         border: Border.all(
-          color: isMatch ? vaultTheme.accent : vaultTheme.danger,
+          color: statusBorder,
           width: VaultTheme.borderWidth,
         ),
       ),
@@ -1090,9 +1146,11 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
           Row(
             children: [
               Icon(
-                isMatch ? Icons.check_circle_outline : Icons.error_outline,
-                size: 18.0,
-                color: isMatch ? vaultTheme.accent : vaultTheme.danger,
+                isMatch
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.error_outline_rounded,
+                size: 17.0,
+                color: statusInk,
               ),
               const SizedBox(width: 8.0),
               Text(
@@ -1101,9 +1159,10 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
                     : 'No Match ($matchPercentage%)',
                 style: TextStyle(
                   fontFamily: VaultTheme.fontFamily,
+                  fontFeatures: const [FontFeature.tabularFigures()],
                   fontSize: 13.0,
                   fontWeight: FontWeight.w600,
-                  color: isMatch ? vaultTheme.accent : vaultTheme.danger,
+                  color: statusInk,
                 ),
               ),
               const Spacer(),
@@ -1111,7 +1170,8 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
                 'Tests: ${state.testAttemptsCount} (${state.successfulMatchesCount} matched)',
                 style: TextStyle(
                   fontFamily: VaultTheme.fontFamily,
-                  fontSize: 11.0,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  fontSize: 11.5,
                   color: vaultTheme.textMediumSalience,
                 ),
               ),
@@ -1122,8 +1182,9 @@ class _GestureEnrollmentScreenState extends State<GestureEnrollmentScreen> {
             '\$1: ${lastScore.dollarOneScore.toStringAsFixed(2)} | DTW: ${lastScore.dtwScore.toStringAsFixed(2)} | Rubine: ${lastScore.featureScore.toStringAsFixed(2)}',
             style: TextStyle(
               fontFamily: VaultTheme.fontFamily,
+              fontFeatures: const [FontFeature.tabularFigures()],
               fontSize: 11.0,
-              color: vaultTheme.textMediumSalience,
+              color: vaultTheme.textLowSalience,
             ),
           ),
         ],
@@ -1158,56 +1219,107 @@ class _CanvasGridPainter extends CustomPainter {
       oldDelegate.gridColor != gridColor;
 }
 
+/// Repaint-driven live ink buffer with incremental Bezier path construction.
+class GestureInkController extends ChangeNotifier {
+  final List<Offset> _points = <Offset>[];
+  final Path _cachedBodyPath = Path();
+  int _version = 0;
+
+  int get pointCount => _points.length;
+  int get version => _version;
+  Offset? get firstPoint => _points.isEmpty ? null : _points.first;
+
+  Path buildRenderPath() {
+    final path = Path.from(_cachedBodyPath);
+    if (_points.length >= 2) {
+      final last = _points.last;
+      path.lineTo(last.dx, last.dy);
+    }
+    return path;
+  }
+
+  void startStroke(Offset point) {
+    _points.clear();
+    _cachedBodyPath.reset();
+    _points.add(point);
+    _cachedBodyPath.moveTo(point.dx, point.dy);
+    _version++;
+    notifyListeners();
+  }
+
+  void appendPoint(Offset point) {
+    if (_points.isEmpty) {
+      startStroke(point);
+      return;
+    }
+    _points.add(point);
+    final int count = _points.length;
+    if (count >= 3) {
+      final p0 = _points[count - 2];
+      final p1 = _points[count - 1];
+      final midX = (p0.dx + p1.dx) / 2.0;
+      final midY = (p0.dy + p1.dy) / 2.0;
+      _cachedBodyPath.quadraticBezierTo(p0.dx, p0.dy, midX, midY);
+    }
+    _version++;
+    notifyListeners();
+  }
+
+  void clear() {
+    if (_points.isEmpty) return;
+    _points.clear();
+    _cachedBodyPath.reset();
+    _version++;
+    notifyListeners();
+  }
+}
+
 /// Custom painter rendering smooth live ink with quadratic Bezier midpoint smoothing.
 class GestureInkPainter extends CustomPainter {
-  final List<Offset> points;
+  final GestureInkController controller;
   final Color strokeColor;
   final double strokeWidth;
+  final Paint _strokePaint;
+  final Paint _dotPaint;
+  int _lastPaintedVersion = -1;
 
-  const GestureInkPainter({
-    required this.points,
+  GestureInkPainter({
+    required this.controller,
     required this.strokeColor,
     this.strokeWidth = 3.5,
-  });
+  }) : _strokePaint = Paint()
+         ..color = strokeColor
+         ..strokeWidth = strokeWidth
+         ..style = PaintingStyle.stroke
+         ..strokeCap = StrokeCap.round
+         ..strokeJoin = StrokeJoin.round,
+       _dotPaint = Paint()
+         ..color = strokeColor
+         ..style = PaintingStyle.fill,
+       super(repaint: controller);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
+    _lastPaintedVersion = controller.version;
+    final int count = controller.pointCount;
+    if (count == 0) return;
 
-    final paint = Paint()
-      ..color = strokeColor
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    if (points.length == 1) {
-      canvas.drawCircle(
-        points.first,
-        strokeWidth / 2.0,
-        paint..style = PaintingStyle.fill,
-      );
+    if (count == 1) {
+      final first = controller.firstPoint;
+      if (first != null) {
+        canvas.drawCircle(first, strokeWidth / 2.0, _dotPaint);
+      }
       return;
     }
 
-    final path = Path();
-    path.moveTo(points[0].dx, points[0].dy);
-
-    for (int i = 1; i < points.length - 1; i++) {
-      final p0 = points[i];
-      final p1 = points[i + 1];
-      final mid = Offset((p0.dx + p1.dx) / 2.0, (p0.dy + p1.dy) / 2.0);
-      path.quadraticBezierTo(p0.dx, p0.dy, mid.dx, mid.dy);
-    }
-
-    path.lineTo(points.last.dx, points.last.dy);
-    canvas.drawPath(path, paint);
+    canvas.drawPath(controller.buildRenderPath(), _strokePaint);
   }
 
   @override
   bool shouldRepaint(covariant GestureInkPainter oldDelegate) {
-    return oldDelegate.points.length != points.length ||
+    return oldDelegate.controller != controller ||
         oldDelegate.strokeColor != strokeColor ||
-        oldDelegate.strokeWidth != strokeWidth;
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate._lastPaintedVersion != controller.version;
   }
 }

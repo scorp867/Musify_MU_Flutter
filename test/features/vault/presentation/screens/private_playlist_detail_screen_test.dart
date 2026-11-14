@@ -409,11 +409,16 @@ void main() {
       await tester.drag(find.text('Ambient Rain'), const Offset(-500.0, 0.0));
       await tester.pumpAndSettle();
 
-      expect(find.text('Remove Track'), findsOneWidget);
-      expect(find.text('Remove "Ambient Rain" from this private playlist?'), findsOneWidget);
+      expect(find.text('Remove from Playlist'), findsOneWidget);
+      expect(find.text('Remove "Ambient Rain" from this playlist?'), findsOneWidget);
 
       // Confirm remove
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Remove')));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('remove_track_confirmation_sheet')),
+          matching: find.text('Remove'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(storageRepo.lastRemovedTrackId, 'track_1');

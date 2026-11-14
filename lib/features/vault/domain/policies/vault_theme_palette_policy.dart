@@ -5,40 +5,40 @@
 enum VaultThemePalettePolicyEnum {
   /// Palette 1: Warm Espresso.
   ///
-  /// - Scaffold: #1A120E (0xFF1A120E)
-  /// - Background: #3A2418 (0xFF3A2418)
-  /// - Cards / Surfaces: #6B4A2E (0xFF6B4A2E)
-  /// - Text & High-Salience Elements: #A88462 (0xFFA88462)
+  /// - Scaffold: #120E0C (0xFF120E0C)
+  /// - Background: #1E1814 (0xFF1E1814)
+  /// - Cards / Surfaces: #231C18 (0xFF231C18)
+  /// - Text & High-Salience Elements: #ECE6E0 (0xFFECE6E0)
   warmEspresso(
     id: 'WARM_ESPRESSO',
     displayName: 'Warm Espresso',
-    scaffoldColorValue: 0xFF1A120E,
-    backgroundColorValue: 0xFF3A2418,
-    surfaceColorValue: 0xFF6B4A2E,
-    textHighSalienceColorValue: 0xFFA88462,
-    scaffoldHex: '#1A120E',
-    backgroundHex: '#3A2418',
-    surfaceHex: '#6B4A2E',
-    textHighSalienceHex: '#A88462',
+    scaffoldColorValue: 0xFF120E0C,
+    backgroundColorValue: 0xFF1E1814,
+    surfaceColorValue: 0xFF231C18,
+    textHighSalienceColorValue: 0xFFECE6E0,
+    scaffoldHex: '#120E0C',
+    backgroundHex: '#1E1814',
+    surfaceHex: '#231C18',
+    textHighSalienceHex: '#ECE6E0',
   ),
 
   /// Palette 2: Forest Noir.
   ///
-  /// - Scaffold: #0F1F17 (0xFF0F1F17)
-  /// - Background: #1E3A2E (0xFF1E3A2E)
-  /// - Cards / Surfaces: #3E5A3F (0xFF3E5A3F)
-  /// - Text & High-Salience Elements: #6B7F67 (0xFF6B7F67)
+  /// - Scaffold: #0B120E (0xFF0B120E)
+  /// - Background: #15221B (0xFF15221B)
+  /// - Cards / Surfaces: #1A2821 (0xFF1A2821)
+  /// - Text & High-Salience Elements: #E3EBE6 (0xFFE3EBE6)
   forestNoir(
     id: 'FOREST_NOIR',
     displayName: 'Forest Noir',
-    scaffoldColorValue: 0xFF0F1F17,
-    backgroundColorValue: 0xFF1E3A2E,
-    surfaceColorValue: 0xFF3E5A3F,
-    textHighSalienceColorValue: 0xFF6B7F67,
-    scaffoldHex: '#0F1F17',
-    backgroundHex: '#1E3A2E',
-    surfaceHex: '#3E5A3F',
-    textHighSalienceHex: '#6B7F67',
+    scaffoldColorValue: 0xFF0B120E,
+    backgroundColorValue: 0xFF15221B,
+    surfaceColorValue: 0xFF1A2821,
+    textHighSalienceColorValue: 0xFFE3EBE6,
+    scaffoldHex: '#0B120E',
+    backgroundHex: '#15221B',
+    surfaceHex: '#1A2821',
+    textHighSalienceHex: '#E3EBE6',
   );
 
   /// Canonical serialization identifier.

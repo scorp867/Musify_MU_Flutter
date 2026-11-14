@@ -251,7 +251,7 @@ void main() {
 
       expect(find.text('Sample 1 of 3'), findsOneWidget);
       expect(
-        find.text('Draw your secret single-stroke gesture on the canvas.'),
+        find.text('Draw one continuous shape inside the box.'),
         findsOneWidget,
       );
       expect(find.byKey(const ValueKey('gesture_step_indicator_1')), findsOneWidget);
@@ -291,7 +291,7 @@ void main() {
 
       expect(find.text('Sample 2 of 3'), findsOneWidget);
       expect(
-        find.text('Draw the same gesture again to verify consistency.'),
+        find.text('Draw the same shape again to confirm.'),
         findsOneWidget,
       );
     });
@@ -338,7 +338,7 @@ void main() {
       await drawSample(tester);
 
       // Enters Sandbox testing
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
       expect(find.byKey(const ValueKey('gesture_telemetry_card')), findsOneWidget);
       expect(find.byKey(const ValueKey('gesture_rerecord_button')), findsOneWidget);
       expect(find.byKey(const ValueKey('gesture_save_button')), findsOneWidget);
@@ -355,7 +355,7 @@ void main() {
       await drawSample(tester);
       await drawSample(tester);
 
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Practice stroke in sandbox
       await drawSample(tester);
@@ -376,7 +376,7 @@ void main() {
       await drawSample(tester);
       await drawSample(tester);
 
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Tap Re-record
       await tester.tap(find.byKey(const ValueKey('gesture_rerecord_button')));
@@ -401,7 +401,7 @@ void main() {
       await drawSample(tester);
       await drawSample(tester);
 
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Tap Save Gesture
       await tester.tap(find.byKey(const ValueKey('gesture_save_button')));
@@ -421,7 +421,7 @@ void main() {
       await drawSample(tester);
       await drawSample(tester);
 
-      expect(find.text('Practice & Verify'), findsOneWidget);
+      expect(find.text('Test Your Gesture'), findsOneWidget);
 
       // Tap Save Gesture
       await tester.tap(find.byKey(const ValueKey('gesture_save_button')));
@@ -429,7 +429,7 @@ void main() {
 
       // Step-up authentication screen pushed
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Authorize Gesture Enrollment'), findsOneWidget);
+      expect(find.text('Confirm Gesture'), findsOneWidget);
     });
 
     testWidgets('Design system compliance: zero purple colors, 8px radius, zero emojis, zero em dashes',

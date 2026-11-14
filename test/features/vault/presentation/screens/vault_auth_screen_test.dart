@@ -208,32 +208,32 @@ void main() {
       );
     }
 
-    testWidgets('unlock mode renders "Enter Master PIN" and vector lock icon', (tester) async {
+    testWidgets('unlock mode renders "Unlock Vault" and vector lock icon', (tester) async {
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.unlock));
-      expect(find.text('Enter Master PIN'), findsOneWidget);
+      expect(find.text('Unlock Vault'), findsOneWidget);
       expect(find.byIcon(Icons.lock_outline), findsOneWidget);
       expect(find.textContaining('—'), findsNothing);
     });
 
-    testWidgets('stepUp mode renders "Step-Up Verification"', (tester) async {
+    testWidgets('stepUp mode renders "Confirm It\'s You"', (tester) async {
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.stepUp));
-      expect(find.text('Step-Up Verification'), findsOneWidget);
+      expect(find.text("Confirm It's You"), findsOneWidget);
     });
 
-    testWidgets('verifyOldPin mode renders "Verify Current PIN"', (tester) async {
+    testWidgets('verifyOldPin mode renders "Current PIN"', (tester) async {
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.verifyOldPin));
-      expect(find.text('Verify Current PIN'), findsOneWidget);
+      expect(find.text('Current PIN'), findsOneWidget);
     });
 
-    testWidgets('rotatePin mode renders "Enter New PIN" and lock reset icon', (tester) async {
+    testWidgets('rotatePin mode renders "New PIN" and lock reset icon', (tester) async {
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.rotatePin));
-      expect(find.text('Enter New PIN'), findsOneWidget);
+      expect(find.text('New PIN'), findsOneWidget);
       expect(find.byIcon(Icons.lock_reset_outlined), findsOneWidget);
     });
 
-    testWidgets('purgeConfirmation mode renders "Confirm Vault Purge" and warning icon', (tester) async {
+    testWidgets('purgeConfirmation mode renders "Erase Vault" and warning icon', (tester) async {
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.purgeConfirmation));
-      expect(find.text('Confirm Vault Purge'), findsOneWidget);
+      expect(find.text('Erase Vault'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
     });
 
@@ -346,7 +346,7 @@ void main() {
         remainingAttemptsBeforeCooldown: 4,
       ));
       await tester.pump();
-      expect(find.textContaining('4 attempts remaining'), findsOneWidget);
+      expect(find.textContaining('4 attempts left'), findsOneWidget);
       expect(find.byKey(const ValueKey('pin_shake_container')), findsOneWidget);
     });
 
@@ -357,7 +357,7 @@ void main() {
       ));
       await tester.pumpWidget(buildTestHarness(mode: VaultAuthScreenMode.unlock));
 
-      expect(find.text('Vault Locked'), findsOneWidget);
+      expect(find.text('Temporarily Locked'), findsOneWidget);
       expect(find.text('00:30'), findsOneWidget);
 
       // Digits are absorbed and not interactive

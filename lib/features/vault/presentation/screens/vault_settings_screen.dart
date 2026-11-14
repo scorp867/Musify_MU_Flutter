@@ -34,6 +34,7 @@ import 'package:musify_mu/features/vault/domain/usecases/unlock_vault_use_case.d
 import 'package:musify_mu/features/vault/presentation/screens/gesture_enrollment_screen.dart';
 import 'package:musify_mu/features/vault/presentation/screens/vault_auth_screen.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 import 'package:musify_mu/features/vault/presentation/widgets/vault_session_scaffold_guard.dart';
 
 /// Reusable Step-Up Authentication Guard enforcing full-screen [VaultAuthScreen] verification
@@ -300,73 +301,22 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
     final content = Scaffold(
       key: const ValueKey('vault_settings_scaffold'),
       backgroundColor: vaultTheme.scaffold,
-      appBar: AppBar(
-        backgroundColor: vaultTheme.scaffold,
-        elevation: 0,
-        leading: IconButton(
-          key: const ValueKey('vault_settings_back_button'),
-          icon: Icon(
-            Icons.arrow_back,
-            color: vaultTheme.textHighSalience,
-          ),
-          onPressed: () {
-            widget.onBack?.call();
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-        title: Text(
-          'Vault Settings',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 18.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
-        ),
+      appBar: buildVaultSettingsAppBar(
+        vaultTheme: vaultTheme,
+        title: 'Vault Settings',
+        backButtonKey: const ValueKey('vault_settings_back_button'),
+        onBackPressed: () {
+          widget.onBack?.call();
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        },
         actions: [
-          Container(
-            key: const ValueKey('vault_settings_status_badge'),
-            margin: const EdgeInsets.symmetric(vertical: 14.0),
-            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-            decoration: BoxDecoration(
-              color: vaultTheme.surfaceSubtle,
-              borderRadius: VaultTheme.borderRadius8,
-              border: Border.all(
-                color: vaultTheme.border,
-                width: VaultTheme.borderWidth,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6.0,
-                  height: 6.0,
-                  decoration: BoxDecoration(
-                    color: vaultTheme.accent,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6.0),
-                Text(
-                  'Active Session',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 11.0,
-                    fontWeight: FontWeight.w500,
-                    color: vaultTheme.accent,
-                  ),
-                ),
-              ],
-            ),
-          ),
           IconButton(
             key: const ValueKey('vault_settings_quick_lock_button'),
             icon: Icon(
-              Icons.lock_outline,
-              size: 20.0,
+              Icons.lock_outline_rounded,
+              size: 21.0,
               color: vaultTheme.textHighSalience,
             ),
             tooltip: 'Lock Vault Now',
@@ -377,103 +327,118 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 32.0),
           children: [
-            _buildNavCard(
-              key: const ValueKey('nav_tile_appearance'),
-              icon: Icons.palette_outlined,
-              title: 'Appearance',
-              subtitle: 'Theme palette, blur intensity, and lock preview',
+            VaultSettingsSectionHeader(
+              title: 'Preferences',
               vaultTheme: vaultTheme,
-              onTap: () => _navigateToSection(
-                VaultRoutes.settingsAppearance,
-                VaultAppearanceSettingsScreen(
-                  settingsMutationCubit: widget.settingsMutationCubit,
-                  sessionBloc: widget.sessionBloc,
-                  screenPrivacyCubit: widget.screenPrivacyCubit,
-                ),
-              ),
             ),
-            const SizedBox(height: 12.0),
-            _buildNavCard(
-              key: const ValueKey('nav_tile_security'),
-              icon: Icons.security_outlined,
-              title: 'Security & Authentication',
-              subtitle:
-                  'Biometrics, grace timeout, re-auth interval, keypad, and PIN',
+            VaultSettingsGroup(
               vaultTheme: vaultTheme,
-              onTap: () => _navigateToSection(
-                VaultRoutes.settingsSecurity,
-                VaultSecuritySettingsScreen(
-                  settingsMutationCubit: widget.settingsMutationCubit,
-                  sessionBloc: widget.sessionBloc,
-                  screenPrivacyCubit: widget.screenPrivacyCubit,
-                  authService: widget.authService,
-                  rotatePinUseCase: widget.rotatePinUseCase,
-                  unlockVaultUseCase: widget.unlockVaultUseCase,
-                  monotonicClock: widget.monotonicClock,
-                  onPinRotationPressed: widget.onPinRotationPressed,
+              dividerInset: 64.0,
+              children: [
+                VaultSettingsNavRow(
+                  key: const ValueKey('nav_tile_appearance'),
+                  icon: Icons.palette_outlined,
+                  title: 'Appearance',
+                  subtitle: 'Theme palette and blur intensity',
+                  vaultTheme: vaultTheme,
+                  onTap: () => _navigateToSection(
+                    VaultRoutes.settingsAppearance,
+                    VaultAppearanceSettingsScreen(
+                      settingsMutationCubit: widget.settingsMutationCubit,
+                      sessionBloc: widget.sessionBloc,
+                      screenPrivacyCubit: widget.screenPrivacyCubit,
+                    ),
+                  ),
                 ),
-              ),
+                VaultSettingsNavRow(
+                  key: const ValueKey('nav_tile_security'),
+                  icon: Icons.shield_outlined,
+                  title: 'Security & Authentication',
+                  subtitle: 'Biometrics, lock timers, keypad, and PIN',
+                  vaultTheme: vaultTheme,
+                  onTap: () => _navigateToSection(
+                    VaultRoutes.settingsSecurity,
+                    VaultSecuritySettingsScreen(
+                      settingsMutationCubit: widget.settingsMutationCubit,
+                      sessionBloc: widget.sessionBloc,
+                      screenPrivacyCubit: widget.screenPrivacyCubit,
+                      authService: widget.authService,
+                      rotatePinUseCase: widget.rotatePinUseCase,
+                      unlockVaultUseCase: widget.unlockVaultUseCase,
+                      monotonicClock: widget.monotonicClock,
+                      onPinRotationPressed: widget.onPinRotationPressed,
+                    ),
+                  ),
+                ),
+                VaultSettingsNavRow(
+                  key: const ValueKey('nav_tile_privacy'),
+                  icon: Icons.visibility_off_outlined,
+                  title: 'Playback & Privacy',
+                  subtitle:
+                      'Screen capture blocking, masking, and decoy track',
+                  vaultTheme: vaultTheme,
+                  onTap: () => _navigateToSection(
+                    VaultRoutes.settingsPrivacy,
+                    VaultPrivacySettingsScreen(
+                      settingsMutationCubit: widget.settingsMutationCubit,
+                      sessionBloc: widget.sessionBloc,
+                      screenPrivacyCubit: widget.screenPrivacyCubit,
+                    ),
+                  ),
+                ),
+                VaultSettingsNavRow(
+                  key: const ValueKey('nav_tile_gestures'),
+                  icon: Icons.gesture_rounded,
+                  title: 'Gesture Controls',
+                  subtitle: 'Recognition sensitivity, stroke trail, and reset',
+                  vaultTheme: vaultTheme,
+                  onTap: () => _navigateToSection(
+                    VaultRoutes.settingsGesture,
+                    VaultGestureSettingsScreen(
+                      settingsMutationCubit: widget.settingsMutationCubit,
+                      sessionBloc: widget.sessionBloc,
+                      screenPrivacyCubit: widget.screenPrivacyCubit,
+                      gestureEngineCubit: widget.gestureEngineCubit,
+                      onGestureReEnrollmentPressed:
+                          widget.onGestureReEnrollmentPressed,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12.0),
-            _buildNavCard(
-              key: const ValueKey('nav_tile_privacy'),
-              icon: Icons.privacy_tip_outlined,
-              title: 'Playback & Privacy',
-              subtitle:
-                  'Screen security, metadata masking, decoy persona, auto-lock',
+            const SizedBox(height: 24.0),
+            VaultSettingsSectionHeader(
+              title: 'Data & Recovery',
               vaultTheme: vaultTheme,
-              onTap: () => _navigateToSection(
-                VaultRoutes.settingsPrivacy,
-                VaultPrivacySettingsScreen(
-                  settingsMutationCubit: widget.settingsMutationCubit,
-                  sessionBloc: widget.sessionBloc,
-                  screenPrivacyCubit: widget.screenPrivacyCubit,
-                ),
-              ),
             ),
-            const SizedBox(height: 12.0),
-            _buildNavCard(
-              key: const ValueKey('nav_tile_gestures'),
-              icon: Icons.gesture_outlined,
-              title: 'Gesture Controls',
-              subtitle:
-                  'Stealth sensor, sensitivity, ink visibility, re-enrollment',
+            VaultSettingsGroup(
               vaultTheme: vaultTheme,
-              onTap: () => _navigateToSection(
-                VaultRoutes.settingsGesture,
-                VaultGestureSettingsScreen(
-                  settingsMutationCubit: widget.settingsMutationCubit,
-                  sessionBloc: widget.sessionBloc,
-                  screenPrivacyCubit: widget.screenPrivacyCubit,
-                  gestureEngineCubit: widget.gestureEngineCubit,
-                  onGestureReEnrollmentPressed:
-                      widget.onGestureReEnrollmentPressed,
+              borderColor: vaultTheme.danger.withValues(alpha: 0.45),
+              children: [
+                VaultSettingsNavRow(
+                  key: const ValueKey('nav_tile_danger_zone'),
+                  icon: Icons.delete_forever_outlined,
+                  title: 'Danger Zone',
+                  subtitle: 'Erase encryption keys and delete stored media',
+                  vaultTheme: vaultTheme,
+                  isDanger: true,
+                  onTap: () => _navigateToSection(
+                    VaultRoutes.settingsDanger,
+                    VaultDangerZoneScreen(
+                      settingsMutationCubit: widget.settingsMutationCubit,
+                      sessionBloc: widget.sessionBloc,
+                      screenPrivacyCubit: widget.screenPrivacyCubit,
+                      purgeVaultDataUseCase: widget.purgeVaultDataUseCase,
+                      unlockVaultUseCase: widget.unlockVaultUseCase,
+                      authService: widget.authService,
+                      monotonicClock: widget.monotonicClock,
+                      onPurgePressed: widget.onPurgePressed,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12.0),
-            _buildNavCard(
-              key: const ValueKey('nav_tile_danger_zone'),
-              icon: Icons.warning_amber_rounded,
-              title: 'Danger Zone',
-              subtitle: 'Irreversible vault reset and cryptographic media purge',
-              vaultTheme: vaultTheme,
-              isDanger: true,
-              onTap: () => _navigateToSection(
-                VaultRoutes.settingsDanger,
-                VaultDangerZoneScreen(
-                  settingsMutationCubit: widget.settingsMutationCubit,
-                  sessionBloc: widget.sessionBloc,
-                  screenPrivacyCubit: widget.screenPrivacyCubit,
-                  purgeVaultDataUseCase: widget.purgeVaultDataUseCase,
-                  unlockVaultUseCase: widget.unlockVaultUseCase,
-                  authService: widget.authService,
-                  monotonicClock: widget.monotonicClock,
-                  onPurgePressed: widget.onPurgePressed,
-                ),
-              ),
+              ],
             ),
           ],
         ),
@@ -492,25 +457,11 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
             case SettingsMutationPersistingConfigState():
               break;
             case SettingsMutationMutationRejectedState(:final rejectionReason):
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: vaultTheme.surface,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: VaultTheme.borderRadius8,
-                    side: BorderSide(
-                      color: vaultTheme.danger,
-                      width: VaultTheme.borderWidth,
-                    ),
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  content: Text(
-                    rejectionReason,
-                    style: TextStyle(
-                      fontFamily: VaultTheme.fontFamily,
-                      color: vaultTheme.danger,
-                    ),
-                  ),
-                ),
+              showVaultSettingsSnackBar(
+                context,
+                vaultTheme,
+                message: rejectionReason,
+                isError: true,
               );
           }
         },
@@ -524,94 +475,6 @@ class _VaultSettingsScreenState extends State<VaultSettingsScreen> {
     return VaultSessionScaffoldGuard(
       sessionBlocOverride: _resolveSessionBloc(),
       child: content,
-    );
-  }
-
-  Widget _buildNavCard({
-    required Key key,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VaultThemeData vaultTheme,
-    required VoidCallback onTap,
-    bool isDanger = false,
-  }) {
-    final borderColor = isDanger ? vaultTheme.danger : vaultTheme.border;
-    final iconColor = isDanger ? vaultTheme.danger : vaultTheme.accent;
-    final titleColor =
-        isDanger ? vaultTheme.danger : vaultTheme.textHighSalience;
-
-    return Container(
-      key: key,
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: borderColor,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: VaultTheme.borderRadius8,
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10.0),
-                  decoration: BoxDecoration(
-                    color: vaultTheme.surfaceHighlight,
-                    borderRadius: VaultTheme.borderRadius8,
-                    border: Border.all(
-                      color: borderColor.withValues(alpha: 0.5),
-                      width: VaultTheme.borderWidth,
-                    ),
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 22.0,
-                    color: iconColor,
-                  ),
-                ),
-                const SizedBox(width: 14.0),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 15.0,
-                          fontWeight: FontWeight.w600,
-                          color: titleColor,
-                        ),
-                      ),
-                      const SizedBox(height: 3.0),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 12.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right,
-                  size: 20.0,
-                  color: vaultTheme.textMediumSalience,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -765,12 +628,7 @@ class _VaultAppearanceSettingsScreenState
     SettingsMutationCubit? cubit,
     double targetSigma,
   ) async {
-    final clamped = targetSigma
-        .clamp(
-          VaultConfig.minFrostedBlurSigma,
-          VaultConfig.maxFrostedBlurSigma,
-        )
-        .toDouble();
+    final clamped = _boundBlurSigma(targetSigma);
     setState(() {
       _isDraggingBlur = false;
       _previewBlurSigma = clamped;
@@ -789,6 +647,16 @@ class _VaultAppearanceSettingsScreenState
     });
   }
 
+  double _boundBlurSigma(double value) {
+    if (value < VaultConfig.minFrostedBlurSigma) {
+      return VaultConfig.minFrostedBlurSigma;
+    }
+    if (value > VaultConfig.maxFrostedBlurSigma) {
+      return VaultConfig.maxFrostedBlurSigma;
+    }
+    return value;
+  }
+
   @override
   Widget build(BuildContext context) {
     final cubit = _resolveSettingsCubit();
@@ -800,58 +668,53 @@ class _VaultAppearanceSettingsScreenState
               cubit == null)
           ? _previewBlurSigma
           : currentConfig.frostedBlurSigma;
+
       return VaultSessionScaffoldGuard(
         sessionBlocOverride: _resolveSessionBloc(),
         child: Scaffold(
           key: const ValueKey('vault_appearance_screen'),
           backgroundColor: vaultTheme.scaffold,
-          appBar: AppBar(
-            backgroundColor: vaultTheme.scaffold,
-            elevation: 0,
-            leading: IconButton(
-              key: const ValueKey('vault_appearance_back_button'),
-              icon: Icon(
-                Icons.arrow_back,
-                color: vaultTheme.textHighSalience,
-              ),
-              onPressed: () {
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
-            title: Text(
-              'Appearance',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 18.0,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.textHighSalience,
-              ),
-            ),
+          appBar: buildVaultSettingsAppBar(
+            vaultTheme: vaultTheme,
+            title: 'Appearance',
+            backButtonKey: const ValueKey('vault_appearance_back_button'),
+            onBackPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 32.0),
               children: [
-                _buildSectionHeader(
+                VaultSettingsSectionHeader(
                   title: 'Theme Palette',
-                  subtitle: 'Choose tone-on-tone color system for vault screens',
                   vaultTheme: vaultTheme,
                 ),
-                const SizedBox(height: 12.0),
                 _buildPaletteSelector(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 24.0),
-                _buildSectionHeader(
-                  title: 'Frosted Glass Blur Calibration',
-                  subtitle:
-                      'Adjust privacy blur intensity applied to hidden album art and session re-auth overlays',
+                VaultSettingsFootnote(
+                  text: 'Applied across every private vault screen and overlay.',
                   vaultTheme: vaultTheme,
                 ),
-                const SizedBox(height: 12.0),
-                _buildBlurSlider(cubit, vaultTheme, activeBlurSigma),
-                const SizedBox(height: 16.0),
-                _buildBlurPreviewMockup(vaultTheme, activeBlurSigma),
+                const SizedBox(height: 24.0),
+                VaultSettingsSectionHeader(
+                  title: 'Privacy Overlay',
+                  vaultTheme: vaultTheme,
+                ),
+                VaultSettingsGroup(
+                  vaultTheme: vaultTheme,
+                  dividerInset: 0.0,
+                  children: [
+                    _buildBlurPreviewMockup(vaultTheme, activeBlurSigma),
+                    _buildBlurSlider(cubit, vaultTheme, activeBlurSigma),
+                  ],
+                ),
+                VaultSettingsFootnote(
+                  text:
+                      'Adjusts background blur intensity behind album artwork previews and session lock shields.',
+                  vaultTheme: vaultTheme,
+                ),
               ],
             ),
           ),
@@ -882,89 +745,65 @@ class _VaultAppearanceSettingsScreenState
     return buildScaffold(context, const VaultConfig.constant());
   }
 
-  Widget _buildSectionHeader({
-    required String title,
-    required String subtitle,
-    required VaultThemeData vaultTheme,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 16.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
-        ),
-        const SizedBox(height: 4.0),
-        Text(
-          subtitle,
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 12.0,
-            color: vaultTheme.textMediumSalience,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildPaletteSelector(
     VaultConfig currentConfig,
     SettingsMutationCubit? cubit,
     VaultThemeData vaultTheme,
   ) {
-    return Column(
+    return Row(
       children: [
-        _buildPaletteCard(
-          key: const ValueKey('palette_warm_espresso'),
-          palette: VaultThemePalettePolicyEnum.warmEspresso,
-          title: 'Warm Espresso',
-          description: 'Deep dark roast and warm bronze tones',
-          colors: const [
-            Color(0xFF1A120E),
-            Color(0xFF3A2418),
-            Color(0xFF6B4A2E),
-            Color(0xFFA88462),
-            Color(0xFFD4B08C),
-          ],
-          isSelected: currentConfig.themePalette ==
+        Expanded(
+          child: _buildPaletteCard(
+            key: const ValueKey('palette_warm_espresso'),
+            previewTheme: VaultThemeData.fromPalette(
               VaultThemePalettePolicyEnum.warmEspresso,
-          vaultTheme: vaultTheme,
-          onTap: () {
-            cubit?.mutatePolicy(
-              (current) => current.copyWith(
-                themePalette: VaultThemePalettePolicyEnum.warmEspresso,
-              ),
-            );
-          },
+            ),
+            title: 'Warm Espresso',
+            subtitle: 'Roasted umber & sand',
+            swatches: const [
+              Color(0xFF120E0C),
+              Color(0xFF231C18),
+              Color(0xFFD6B48E),
+              Color(0xFFECE6E0),
+            ],
+            isSelected: currentConfig.themePalette ==
+                VaultThemePalettePolicyEnum.warmEspresso,
+            activeTheme: vaultTheme,
+            onTap: () {
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(
+                  themePalette: VaultThemePalettePolicyEnum.warmEspresso,
+                ),
+              );
+            },
+          ),
         ),
-        const SizedBox(height: 12.0),
-        _buildPaletteCard(
-          key: const ValueKey('palette_forest_noir'),
-          palette: VaultThemePalettePolicyEnum.forestNoir,
-          title: 'Forest Noir',
-          description: 'Deep botanical emerald and slate tones',
-          colors: const [
-            Color(0xFF0F1F17),
-            Color(0xFF1E3A2E),
-            Color(0xFF3E5A3F),
-            Color(0xFF6B7F67),
-            Color(0xFF9EB29A),
-          ],
-          isSelected: currentConfig.themePalette ==
+        const SizedBox(width: 12.0),
+        Expanded(
+          child: _buildPaletteCard(
+            key: const ValueKey('palette_forest_noir'),
+            previewTheme: VaultThemeData.fromPalette(
               VaultThemePalettePolicyEnum.forestNoir,
-          vaultTheme: vaultTheme,
-          onTap: () {
-            cubit?.mutatePolicy(
-              (current) => current.copyWith(
-                themePalette: VaultThemePalettePolicyEnum.forestNoir,
-              ),
-            );
-          },
+            ),
+            title: 'Forest Noir',
+            subtitle: 'Deep pine & sage',
+            swatches: const [
+              Color(0xFF0B120E),
+              Color(0xFF1A2821),
+              Color(0xFF9BC2AA),
+              Color(0xFFE3EBE6),
+            ],
+            isSelected: currentConfig.themePalette ==
+                VaultThemePalettePolicyEnum.forestNoir,
+            activeTheme: vaultTheme,
+            onTap: () {
+              cubit?.mutatePolicy(
+                (current) => current.copyWith(
+                  themePalette: VaultThemePalettePolicyEnum.forestNoir,
+                ),
+              );
+            },
+          ),
         ),
       ],
     );
@@ -972,21 +811,23 @@ class _VaultAppearanceSettingsScreenState
 
   Widget _buildPaletteCard({
     required Key key,
-    required VaultThemePalettePolicyEnum palette,
+    required VaultThemeData previewTheme,
     required String title,
-    required String description,
-    required List<Color> colors,
+    required String subtitle,
+    required List<Color> swatches,
     required bool isSelected,
-    required VaultThemeData vaultTheme,
+    required VaultThemeData activeTheme,
     required VoidCallback onTap,
   }) {
-    return Container(
+    return DecoratedBox(
       key: key,
       decoration: BoxDecoration(
-        color: isSelected ? vaultTheme.surfaceHighlight : vaultTheme.surfaceSubtle,
+        color: isSelected
+            ? activeTheme.surfaceHighlight.withValues(alpha: 0.7)
+            : activeTheme.surfaceSubtle,
         borderRadius: VaultTheme.borderRadius8,
         border: Border.all(
-          color: isSelected ? vaultTheme.accent : vaultTheme.border,
+          color: isSelected ? activeTheme.accent : activeTheme.border,
           width: isSelected ? 1.5 : VaultTheme.borderWidth,
         ),
       ),
@@ -996,76 +837,167 @@ class _VaultAppearanceSettingsScreenState
           borderRadius: VaultTheme.borderRadius8,
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(14.0),
+            padding: const EdgeInsets.all(12.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Mini live UI canvas preview for the candidate theme
+                Container(
+                  height: 76.0,
+                  padding: const EdgeInsets.all(10.0),
+                  decoration: BoxDecoration(
+                    color: previewTheme.scaffold,
+                    borderRadius: BorderRadius.circular(6.0),
+                    border: Border.all(
+                      color: previewTheme.borderSubtle,
+                      width: VaultTheme.borderWidth,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 18.0,
+                            height: 4.0,
+                            decoration: BoxDecoration(
+                              color: previewTheme.textHighSalience,
+                              borderRadius: BorderRadius.circular(2.0),
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            width: 6.0,
+                            height: 6.0,
+                            decoration: BoxDecoration(
+                              color: previewTheme.accent,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.all(6.0),
+                        decoration: BoxDecoration(
+                          color: previewTheme.surface,
+                          borderRadius: BorderRadius.circular(4.0),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 14.0,
+                              height: 14.0,
+                              decoration: BoxDecoration(
+                                color: previewTheme.surfaceHighlight,
+                                borderRadius: BorderRadius.circular(3.0),
+                              ),
+                            ),
+                            const SizedBox(width: 6.0),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    height: 3.5,
+                                    width: 44.0,
+                                    decoration: BoxDecoration(
+                                      color: previewTheme.textHighSalience,
+                                      borderRadius: BorderRadius.circular(2.0),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3.0),
+                                  Container(
+                                    height: 3.0,
+                                    width: 28.0,
+                                    decoration: BoxDecoration(
+                                      color: previewTheme.textMediumSalience,
+                                      borderRadius: BorderRadius.circular(2.0),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12.0),
                 Row(
                   children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 13.5,
+                          fontWeight:
+                              isSelected ? FontWeight.w600 : FontWeight.w500,
+                          color: isSelected
+                              ? activeTheme.accent
+                              : activeTheme.textHighSalience,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6.0),
                     Container(
                       width: 18.0,
                       height: 18.0,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
+                        color: isSelected
+                            ? activeTheme.accent
+                            : Colors.transparent,
                         border: Border.all(
                           color: isSelected
-                              ? vaultTheme.accent
-                              : vaultTheme.borderSubtle,
-                          width: 2.0,
+                              ? activeTheme.accent
+                              : activeTheme.textLowSalience,
+                          width: 1.5,
                         ),
                       ),
                       child: isSelected
-                          ? Center(
-                              child: Container(
-                                width: 8.0,
-                                height: 8.0,
-                                decoration: BoxDecoration(
-                                  color: vaultTheme.accent,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
+                          ? Icon(
+                              Icons.check_rounded,
+                              size: 12.0,
+                              color: activeTheme.scaffold,
                             )
                           : null,
                     ),
-                    const SizedBox(width: 10.0),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontFamily: VaultTheme.fontFamily,
-                        fontSize: 14.0,
-                        fontWeight: FontWeight.w600,
-                        color: vaultTheme.textHighSalience,
-                      ),
-                    ),
                   ],
                 ),
-                const SizedBox(height: 4.0),
+                const SizedBox(height: 2.0),
                 Text(
-                  description,
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    color: vaultTheme.textMediumSalience,
+                    fontSize: 11.5,
+                    color: activeTheme.textMediumSalience,
                   ),
                 ),
                 const SizedBox(height: 10.0),
                 Row(
                   children: [
-                    for (final color in colors) ...[
+                    for (final color in swatches)
                       Container(
-                        width: 22.0,
-                        height: 22.0,
-                        margin: const EdgeInsets.only(right: 6.0),
+                        width: 16.0,
+                        height: 16.0,
+                        margin: const EdgeInsets.only(right: 5.0),
                         decoration: BoxDecoration(
                           color: color,
                           borderRadius: BorderRadius.circular(4.0),
                           border: Border.all(
-                            color: vaultTheme.borderSubtle,
-                            width: 1.0,
+                            color: activeTheme.border,
+                            width: VaultTheme.borderWidth,
                           ),
                         ),
                       ),
-                    ],
                   ],
                 ),
               ],
@@ -1081,16 +1013,9 @@ class _VaultAppearanceSettingsScreenState
     VaultThemeData vaultTheme,
     double activeBlurSigma,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(14.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
+    final boundedValue = _boundBlurSigma(activeBlurSigma);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14.0, 14.0, 14.0, 10.0),
       child: Column(
         children: [
           Row(
@@ -1100,26 +1025,25 @@ class _VaultAppearanceSettingsScreenState
                 'Blur Intensity',
                 style: TextStyle(
                   fontFamily: VaultTheme.fontFamily,
-                  fontSize: 13.0,
+                  fontSize: 14.0,
                   fontWeight: FontWeight.w500,
                   color: vaultTheme.textHighSalience,
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8.0,
+                  vertical: 3.0,
+                ),
                 decoration: BoxDecoration(
                   color: vaultTheme.surfaceHighlight,
-                  borderRadius: VaultTheme.borderRadius8,
-                  border: Border.all(
-                    color: vaultTheme.border,
-                    width: VaultTheme.borderWidth,
-                  ),
+                  borderRadius: BorderRadius.circular(6.0),
                 ),
                 child: Text(
-                  '${activeBlurSigma.toStringAsFixed(1)} px sigma',
+                  '${boundedValue.toStringAsFixed(1)} px',
                   style: TextStyle(
                     fontFamily: VaultTheme.fontFamily,
-                    fontSize: 11.0,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w600,
                     color: vaultTheme.accent,
                   ),
@@ -1127,23 +1051,30 @@ class _VaultAppearanceSettingsScreenState
               ),
             ],
           ),
-          Slider(
-            key: const ValueKey('blur_slider'),
-            value: activeBlurSigma.clamp(
-              VaultConfig.minFrostedBlurSigma,
-              VaultConfig.maxFrostedBlurSigma,
+          const SizedBox(height: 4.0),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3.0,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7.0),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0),
+              activeTrackColor: vaultTheme.accent,
+              inactiveTrackColor: vaultTheme.surfaceHighlight,
+              thumbColor: vaultTheme.accent,
+              overlayColor: vaultTheme.accent.withValues(alpha: 0.16),
             ),
-            min: VaultConfig.minFrostedBlurSigma,
-            max: VaultConfig.maxFrostedBlurSigma,
-            activeColor: vaultTheme.accent,
-            inactiveColor: vaultTheme.border,
-            onChanged: (val) {
-              setState(() {
-                _isDraggingBlur = true;
-                _previewBlurSigma = val;
-              });
-            },
-            onChangeEnd: (val) => _commitBlurSigma(cubit, val),
+            child: Slider(
+              key: const ValueKey('blur_slider'),
+              value: boundedValue,
+              min: VaultConfig.minFrostedBlurSigma,
+              max: VaultConfig.maxFrostedBlurSigma,
+              onChanged: (val) {
+                setState(() {
+                  _isDraggingBlur = true;
+                  _previewBlurSigma = val;
+                });
+              },
+              onChangeEnd: (val) => _commitBlurSigma(cubit, val),
+            ),
           ),
         ],
       ),
@@ -1154,91 +1085,109 @@ class _VaultAppearanceSettingsScreenState
     VaultThemeData vaultTheme,
     double activeBlurSigma,
   ) {
-    return Container(
+    return SizedBox(
       key: const ValueKey('blur_preview_container'),
-      height: 130.0,
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: VaultTheme.borderRadius8,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Background grid mimicking private tracks
-            Column(
-              children: [
-                for (int i = 0; i < 3; i++)
-                  Expanded(
-                    child: Row(
-                      children: [
-                        for (int j = 0; j < 4; j++)
-                          Expanded(
-                            child: Container(
-                              margin: const EdgeInsets.all(4.0),
-                              decoration: BoxDecoration(
-                                color: (i + j) % 2 == 0
-                                    ? vaultTheme.surfaceHighlight
-                                    : vaultTheme.surface,
-                                borderRadius: BorderRadius.circular(4.0),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-            // Blur overlay
-            BackdropFilter(
-              filter: ImageFilter.blur(
+      height: 144.0,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Positioned.fill(
+            child: ColoredBox(color: Colors.transparent),
+          ),
+          Positioned.fill(
+            child: ColoredBox(color: vaultTheme.background),
+          ),
+          RepaintBoundary(
+            child: ImageFiltered(
+              enabled: activeBlurSigma > 0.0,
+              imageFilter: ImageFilter.blur(
                 sigmaX: activeBlurSigma,
                 sigmaY: activeBlurSigma,
               ),
-              child: Container(
-                color: vaultTheme.overlayTint,
+              child: Padding(
+                padding: const EdgeInsets.all(14.0),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 56.0,
+                      height: 56.0,
+                      decoration: BoxDecoration(
+                        color: vaultTheme.surfaceHighlight,
+                        borderRadius: VaultTheme.borderRadius8,
+                      ),
+                      child: Icon(
+                        Icons.music_note_rounded,
+                        color: vaultTheme.accent.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    const SizedBox(width: 12.0),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 10.0,
+                            width: 132.0,
+                            decoration: BoxDecoration(
+                              color: vaultTheme.textHighSalience
+                                  .withValues(alpha: 0.65),
+                              borderRadius: BorderRadius.circular(4.0),
+                            ),
+                          ),
+                          const SizedBox(height: 8.0),
+                          Container(
+                            height: 8.0,
+                            width: 88.0,
+                            decoration: BoxDecoration(
+                              color: vaultTheme.accent.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(4.0),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            // Centered lock indicator
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36.0,
-                  height: 36.0,
-                  decoration: BoxDecoration(
-                    color: vaultTheme.surfaceSubtle,
-                    borderRadius: VaultTheme.borderRadius8,
-                    border: Border.all(
-                      color: vaultTheme.border,
-                      width: VaultTheme.borderWidth,
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.lock_outline,
-                    size: 18.0,
-                    color: vaultTheme.accent,
+          ),
+          Positioned.fill(
+            child: ColoredBox(color: vaultTheme.overlayTint),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38.0,
+                height: 38.0,
+                decoration: BoxDecoration(
+                  color: vaultTheme.surface,
+                  borderRadius: VaultTheme.borderRadius8,
+                  border: Border.all(
+                    color: vaultTheme.border,
+                    width: VaultTheme.borderWidth,
                   ),
                 ),
-                const SizedBox(height: 6.0),
-                Text(
-                  'Private Media Protected',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.textHighSalience,
-                  ),
+                child: Icon(
+                  Icons.lock_outline_rounded,
+                  size: 19.0,
+                  color: vaultTheme.accent,
                 ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(height: 8.0),
+              Text(
+                'Private Media Shielded',
+                style: TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                  color: vaultTheme.textHighSalience,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1512,7 +1461,7 @@ class _VaultSecuritySettingsScreenState
         MaterialPageRoute<bool>(
           builder: (_) => VaultAuthScreen(
             mode: VaultAuthScreenMode.rotatePin,
-            titleOverride: 'Enter New PIN',
+            titleOverride: 'New PIN',
             pinPadCubit: enterNewPinCubit,
             sessionBloc: _resolveSessionBloc(),
             screenPrivacyCubit: _resolveScreenPrivacyCubit(),
@@ -1606,26 +1555,10 @@ class _VaultSecuritySettingsScreenState
 
     if (mounted) {
       final vaultTheme = VaultTheme.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Master PIN updated successfully',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              color: vaultTheme.accent,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          backgroundColor: vaultTheme.surface,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: VaultTheme.borderRadius8,
-            side: BorderSide(
-              color: vaultTheme.border,
-              width: VaultTheme.borderWidth,
-            ),
-          ),
-        ),
+      showVaultSettingsSnackBar(
+        context,
+        vaultTheme,
+        message: 'Master PIN updated successfully',
       );
     }
   }
@@ -1641,44 +1574,38 @@ class _VaultSecuritySettingsScreenState
         child: Scaffold(
           key: const ValueKey('vault_security_screen'),
           backgroundColor: vaultTheme.scaffold,
-          appBar: AppBar(
-            backgroundColor: vaultTheme.scaffold,
-            elevation: 0,
-            leading: IconButton(
-              key: const ValueKey('vault_security_back_button'),
-              icon: Icon(
-                Icons.arrow_back,
-                color: vaultTheme.textHighSalience,
-              ),
-              onPressed: () {
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
-            title: Text(
-              'Security & Authentication',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 18.0,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.textHighSalience,
-              ),
-            ),
+          appBar: buildVaultSettingsAppBar(
+            vaultTheme: vaultTheme,
+            title: 'Security & Authentication',
+            backButtonKey: const ValueKey('vault_security_back_button'),
+            onBackPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 32.0),
               children: [
-                _buildBiometricTile(currentConfig, vaultTheme),
-                const SizedBox(height: 20.0),
+                VaultSettingsSectionHeader(
+                  title: 'Authentication',
+                  vaultTheme: vaultTheme,
+                ),
+                VaultSettingsGroup(
+                  vaultTheme: vaultTheme,
+                  dividerInset: 64.0,
+                  children: [
+                    _buildBiometricTile(currentConfig, vaultTheme),
+                    _buildPinRotationTile(vaultTheme),
+                  ],
+                ),
+                const SizedBox(height: 24.0),
                 _buildGraceTimeoutSection(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 20.0),
+                const SizedBox(height: 24.0),
                 _buildReauthIntervalSection(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 20.0),
+                const SizedBox(height: 24.0),
                 _buildKeypadLayoutSection(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 20.0),
-                _buildPinRotationTile(vaultTheme),
               ],
             ),
           ),
@@ -1716,57 +1643,25 @@ class _VaultSecuritySettingsScreenState
     final isEnabled =
         config.biometricAuth == BiometricAuthPolicyEnum.pinAndBiometricStrong;
 
-    return Container(
-      padding: const EdgeInsets.all(14.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.fingerprint,
-            size: 26.0,
-            color: vaultTheme.textHighSalience,
-          ),
-          const SizedBox(width: 14.0),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Biometric Authentication',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.textHighSalience,
-                  ),
-                ),
-                const SizedBox(height: 2.0),
-                Text(
-                  'Authorize KeyStore biometrics (fingerprint/face) with PIN fallback.',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    color: vaultTheme.textMediumSalience,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            key: const ValueKey('biometric_auth_switch'),
-            value: isEnabled,
-            activeTrackColor: vaultTheme.accent,
-            onChanged: (val) => _handleBiometricToggle(val),
-          ),
-        ],
-      ),
+    return VaultSettingsToggleRow(
+      switchKey: const ValueKey('biometric_auth_switch'),
+      icon: Icons.fingerprint_rounded,
+      title: 'Biometric Unlock',
+      subtitle: 'Allow fingerprint or face unlock alongside your PIN',
+      value: isEnabled,
+      vaultTheme: vaultTheme,
+      onChanged: (val) => _handleBiometricToggle(val),
+    );
+  }
+
+  Widget _buildPinRotationTile(VaultThemeData vaultTheme) {
+    return VaultSettingsNavRow(
+      key: const ValueKey('tile_pin_rotation'),
+      icon: Icons.pin_outlined,
+      title: 'Change Master PIN',
+      subtitle: 'Verify your current PIN to set a new 6-digit code',
+      vaultTheme: vaultTheme,
+      onTap: _startPinRotationFlow,
     );
   }
 
@@ -1779,13 +1674,13 @@ class _VaultSecuritySettingsScreenState
       (
         BackgroundGraceTimeoutEnum.immediate,
         'Immediate',
-        'Locks instantly upon backgrounding',
+        'Locks as soon as you leave the app',
         const ValueKey('grace_timeout_immediate'),
       ),
       (
         BackgroundGraceTimeoutEnum.thirtySeconds,
         '30 Seconds',
-        'Standard grace window',
+        'Brief grace window before locking',
         const ValueKey('grace_timeout_thirty_seconds'),
       ),
       (
@@ -1797,7 +1692,7 @@ class _VaultSecuritySettingsScreenState
       (
         BackgroundGraceTimeoutEnum.fiveMinutes,
         '5 Minutes',
-        'Maximum grace window',
+        'Longest grace window',
         const ValueKey('grace_timeout_five_minutes'),
       ),
     ];
@@ -1805,40 +1700,34 @@ class _VaultSecuritySettingsScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Background Grace Period',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 16.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
+        VaultSettingsSectionHeader(
+          title: 'Background Lock Delay',
+          vaultTheme: vaultTheme,
         ),
-        const SizedBox(height: 4.0),
-        Text(
-          'Duration the vault remains unlocked when switching apps or locking device.',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 12.0,
-            color: vaultTheme.textMediumSalience,
-          ),
+        VaultSettingsGroup(
+          vaultTheme: vaultTheme,
+          children: [
+            for (final opt in options)
+              VaultSettingsRadioRow(
+                optionKey: opt.$4,
+                title: opt.$2,
+                subtitle: opt.$3,
+                isSelected: config.backgroundGraceTimeout == opt.$1,
+                vaultTheme: vaultTheme,
+                onTap: () {
+                  cubit?.mutatePolicy(
+                    (current) =>
+                        current.copyWith(backgroundGraceTimeout: opt.$1),
+                  );
+                },
+              ),
+          ],
         ),
-        const SizedBox(height: 10.0),
-        for (final opt in options) ...[
-          _buildSelectorOption(
-            key: opt.$4,
-            title: opt.$2,
-            subtitle: opt.$3,
-            isSelected: config.backgroundGraceTimeout == opt.$1,
-            vaultTheme: vaultTheme,
-            onTap: () {
-              cubit?.mutatePolicy(
-                (current) => current.copyWith(backgroundGraceTimeout: opt.$1),
-              );
-            },
-          ),
-          const SizedBox(height: 8.0),
-        ],
+        VaultSettingsFootnote(
+          text:
+              'Controls how long the vault remains unlocked when switching apps or turning off the screen.',
+          vaultTheme: vaultTheme,
+        ),
       ],
     );
   }
@@ -1852,25 +1741,25 @@ class _VaultSecuritySettingsScreenState
       (
         ActiveReauthIntervalEnum.every5Minutes,
         'Every 5 Minutes',
-        'Enforce frequent verification',
+        'Strict verification cadence',
         const ValueKey('reauth_interval_5_min'),
       ),
       (
         ActiveReauthIntervalEnum.every15Minutes,
         'Every 15 Minutes',
-        'Balanced inactivity interval',
+        'Balanced verification cadence',
         const ValueKey('reauth_interval_15_min'),
       ),
       (
         ActiveReauthIntervalEnum.every30Minutes,
         'Every 30 Minutes',
-        'Extended session duration',
+        'Extended browsing window',
         const ValueKey('reauth_interval_30_min'),
       ),
       (
         ActiveReauthIntervalEnum.never,
         'Never',
-        'Keep unlocked until app backgrounded',
+        'Keep unlocked until locked or backgrounded',
         const ValueKey('reauth_interval_never'),
       ),
     ];
@@ -1878,40 +1767,34 @@ class _VaultSecuritySettingsScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Active Session Inactivity Re-Auth',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 16.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
+        VaultSettingsSectionHeader(
+          title: 'Inactivity Re-Authentication',
+          vaultTheme: vaultTheme,
         ),
-        const SizedBox(height: 4.0),
-        Text(
-          'Enforce periodic PIN verification while continuously browsing the vault.',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 12.0,
-            color: vaultTheme.textMediumSalience,
-          ),
+        VaultSettingsGroup(
+          vaultTheme: vaultTheme,
+          children: [
+            for (final opt in options)
+              VaultSettingsRadioRow(
+                optionKey: opt.$4,
+                title: opt.$2,
+                subtitle: opt.$3,
+                isSelected: config.activeReauthInterval == opt.$1,
+                vaultTheme: vaultTheme,
+                onTap: () {
+                  cubit?.mutatePolicy(
+                    (current) =>
+                        current.copyWith(activeReauthInterval: opt.$1),
+                  );
+                },
+              ),
+          ],
         ),
-        const SizedBox(height: 10.0),
-        for (final opt in options) ...[
-          _buildSelectorOption(
-            key: opt.$4,
-            title: opt.$2,
-            subtitle: opt.$3,
-            isSelected: config.activeReauthInterval == opt.$1,
-            vaultTheme: vaultTheme,
-            onTap: () {
-              cubit?.mutatePolicy(
-                (current) => current.copyWith(activeReauthInterval: opt.$1),
-              );
-            },
-          ),
-          const SizedBox(height: 8.0),
-        ],
+        VaultSettingsFootnote(
+          text:
+              'Prompts for verification periodically while actively browsing inside the vault.',
+          vaultTheme: vaultTheme,
+        ),
       ],
     );
   }
@@ -1925,13 +1808,13 @@ class _VaultSecuritySettingsScreenState
       (
         KeypadLayoutPolicyEnum.standardOrdered,
         'Standard Ordered',
-        'Fixed 1-9, 0 phone arrangement',
+        'Fixed 1 to 9, 0 phone dial arrangement',
         const ValueKey('keypad_layout_standard'),
       ),
       (
         KeypadLayoutPolicyEnum.randomizedPerAttempt,
-        'Randomized per Attempt',
-        'Shuffles digits on each presentation to prevent smudge attacks',
+        'Randomized Per Attempt',
+        'Shuffles keypad digits on every unlock screen',
         const ValueKey('keypad_layout_randomized'),
       ),
     ];
@@ -1939,191 +1822,34 @@ class _VaultSecuritySettingsScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Keypad Layout Arrangement',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 16.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
+        VaultSettingsSectionHeader(
+          title: 'Keypad Layout',
+          vaultTheme: vaultTheme,
         ),
-        const SizedBox(height: 4.0),
-        Text(
-          'Configure PIN pad digit arrangement to defeat smudge residue and shoulder surfing.',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 12.0,
-            color: vaultTheme.textMediumSalience,
-          ),
+        VaultSettingsGroup(
+          vaultTheme: vaultTheme,
+          children: [
+            for (final opt in options)
+              VaultSettingsRadioRow(
+                optionKey: opt.$4,
+                title: opt.$2,
+                subtitle: opt.$3,
+                isSelected: config.keypadLayout == opt.$1,
+                vaultTheme: vaultTheme,
+                onTap: () {
+                  cubit?.mutatePolicy(
+                    (current) => current.copyWith(keypadLayout: opt.$1),
+                  );
+                },
+              ),
+          ],
         ),
-        const SizedBox(height: 10.0),
-        for (final opt in options) ...[
-          _buildSelectorOption(
-            key: opt.$4,
-            title: opt.$2,
-            subtitle: opt.$3,
-            isSelected: config.keypadLayout == opt.$1,
-            vaultTheme: vaultTheme,
-            onTap: () {
-              cubit?.mutatePolicy(
-                (current) => current.copyWith(keypadLayout: opt.$1),
-              );
-            },
-          ),
-          const SizedBox(height: 8.0),
-        ],
+        VaultSettingsFootnote(
+          text:
+              'Randomizing digits helps prevent screen smudge tracing and shoulder surfing.',
+          vaultTheme: vaultTheme,
+        ),
       ],
-    );
-  }
-
-  Widget _buildSelectorOption({
-    required Key key,
-    required String title,
-    required String subtitle,
-    required bool isSelected,
-    required VaultThemeData vaultTheme,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      key: key,
-      decoration: BoxDecoration(
-        color: isSelected ? vaultTheme.surfaceHighlight : vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: isSelected ? vaultTheme.accent : vaultTheme.border,
-          width: isSelected ? 1.5 : VaultTheme.borderWidth,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: VaultTheme.borderRadius8,
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
-            child: Row(
-              children: [
-                Container(
-                  width: 18.0,
-                  height: 18.0,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected
-                          ? vaultTheme.accent
-                          : vaultTheme.borderSubtle,
-                      width: 2.0,
-                    ),
-                  ),
-                  child: isSelected
-                      ? Center(
-                          child: Container(
-                            width: 8.0,
-                            height: 8.0,
-                            decoration: BoxDecoration(
-                              color: vaultTheme.accent,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 12.0),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 13.0,
-                          fontWeight: FontWeight.w600,
-                          color: vaultTheme.textHighSalience,
-                        ),
-                      ),
-                      const SizedBox(height: 2.0),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 11.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPinRotationTile(VaultThemeData vaultTheme) {
-    return Container(
-      key: const ValueKey('tile_pin_rotation'),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: VaultTheme.borderRadius8,
-          onTap: _startPinRotationFlow,
-          child: Padding(
-            padding: const EdgeInsets.all(14.0),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.pin_outlined,
-                  size: 22.0,
-                  color: vaultTheme.textHighSalience,
-                ),
-                const SizedBox(width: 12.0),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Change Master 6-Digit PIN',
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 14.0,
-                          fontWeight: FontWeight.w600,
-                          color: vaultTheme.textHighSalience,
-                        ),
-                      ),
-                      const SizedBox(height: 2.0),
-                      Text(
-                        'Verify current PIN and derive new master PBKDF2 credentials.',
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 12.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right,
-                  size: 20.0,
-                  color: vaultTheme.textMediumSalience,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -2233,10 +1959,10 @@ class _VaultPrivacySettingsScreenState
         _artistController.text = artist;
         _albumController.text = album;
         FocusScope.of(context).unfocus();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Decoy persona saved and applied to active playback.'),
-          ),
+        showVaultSettingsSnackBar(
+          context,
+          VaultThemeData.fromConfig(cubit.currentConfig),
+          message: 'Decoy persona saved and applied to active playback.',
         );
       } else {
         setState(() {
@@ -2334,42 +2060,36 @@ class _VaultPrivacySettingsScreenState
         child: Scaffold(
           key: const ValueKey('vault_privacy_screen'),
           backgroundColor: vaultTheme.scaffold,
-          appBar: AppBar(
-            backgroundColor: vaultTheme.scaffold,
-            elevation: 0,
-            leading: IconButton(
-              key: const ValueKey('vault_privacy_back_button'),
-              icon: Icon(
-                Icons.arrow_back,
-                color: vaultTheme.textHighSalience,
-              ),
-              onPressed: () {
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
-            title: Text(
-              'Playback & Privacy',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 18.0,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.textHighSalience,
-              ),
-            ),
+          appBar: buildVaultSettingsAppBar(
+            vaultTheme: vaultTheme,
+            title: 'Playback & Privacy',
+            backButtonKey: const ValueKey('vault_privacy_back_button'),
+            onBackPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 32.0),
               children: [
-                _buildScreenSecurityTile(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 14.0),
-                _buildMetadataMaskingTile(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 20.0),
-                _buildDecoyPersonaSection(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 20.0),
+                VaultSettingsSectionHeader(
+                  title: 'Protection',
+                  vaultTheme: vaultTheme,
+                ),
+                VaultSettingsGroup(
+                  vaultTheme: vaultTheme,
+                  dividerInset: 64.0,
+                  children: [
+                    _buildScreenSecurityTile(currentConfig, cubit, vaultTheme),
+                    _buildMetadataMaskingTile(currentConfig, cubit, vaultTheme),
+                  ],
+                ),
+                const SizedBox(height: 24.0),
                 _buildLockPlaybackSection(currentConfig, cubit, vaultTheme),
+                const SizedBox(height: 24.0),
+                _buildDecoyPersonaSection(currentConfig, cubit, vaultTheme),
               ],
             ),
           ),
@@ -2408,65 +2128,23 @@ class _VaultPrivacySettingsScreenState
     final isBlocked = config.screenSecurity ==
         ScreenSecurityPolicyEnum.blockScreenshotsAndRecents;
 
-    return Container(
-      padding: const EdgeInsets.all(14.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.screen_lock_portrait_outlined,
-            size: 24.0,
-            color: vaultTheme.textHighSalience,
-          ),
-          const SizedBox(width: 14.0),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Screen Privacy (FLAG_SECURE)',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.textHighSalience,
-                  ),
-                ),
-                const SizedBox(height: 2.0),
-                Text(
-                  'Block screenshots, screen recordings, and blank out app preview in Android Recents.',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    color: vaultTheme.textMediumSalience,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            key: const ValueKey('screen_privacy_switch'),
-            value: isBlocked,
-            activeTrackColor: vaultTheme.accent,
-            onChanged: (val) {
-              final newPolicy = val
-                  ? ScreenSecurityPolicyEnum.blockScreenshotsAndRecents
-                  : ScreenSecurityPolicyEnum.allowCapture;
-              cubit?.mutatePolicy(
-                (current) => current.copyWith(screenSecurity: newPolicy),
-              );
-              _resolveScreenPrivacyCubit()?.updateSecurityPolicy(newPolicy);
-            },
-          ),
-        ],
-      ),
+    return VaultSettingsToggleRow(
+      switchKey: const ValueKey('screen_privacy_switch'),
+      icon: Icons.screen_lock_portrait_outlined,
+      title: 'Screen Capture Blocking',
+      subtitle:
+          'Prevent screenshots, screen recording, and app switcher previews',
+      value: isBlocked,
+      vaultTheme: vaultTheme,
+      onChanged: (val) {
+        final newPolicy = val
+            ? ScreenSecurityPolicyEnum.blockScreenshotsAndRecents
+            : ScreenSecurityPolicyEnum.allowCapture;
+        cubit?.mutatePolicy(
+          (current) => current.copyWith(screenSecurity: newPolicy),
+        );
+        _resolveScreenPrivacyCubit()?.updateSecurityPolicy(newPolicy);
+      },
     );
   }
 
@@ -2478,64 +2156,22 @@ class _VaultPrivacySettingsScreenState
     final isMasked = config.metadataVisibility ==
         MetadataVisibilityPolicyEnum.maskWithPlaceholder;
 
-    return Container(
-      padding: const EdgeInsets.all(14.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.visibility_off_outlined,
-            size: 24.0,
-            color: vaultTheme.textHighSalience,
-          ),
-          const SizedBox(width: 14.0),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Public Metadata Masking',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.textHighSalience,
-                  ),
-                ),
-                const SizedBox(height: 2.0),
-                Text(
-                  'Replace real track details with custom decoy persona on lockscreen, Bluetooth, and Auto.',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    color: vaultTheme.textMediumSalience,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            key: const ValueKey('metadata_masking_switch'),
-            value: isMasked,
-            activeTrackColor: vaultTheme.accent,
-            onChanged: (val) {
-              final newPolicy = val
-                  ? MetadataVisibilityPolicyEnum.maskWithPlaceholder
-                  : MetadataVisibilityPolicyEnum.showActualMetadata;
-              cubit?.mutatePolicy(
-                (current) => current.copyWith(metadataVisibility: newPolicy),
-              );
-            },
-          ),
-        ],
-      ),
+    return VaultSettingsToggleRow(
+      switchKey: const ValueKey('metadata_masking_switch'),
+      icon: Icons.visibility_off_outlined,
+      title: 'Mask Track Metadata',
+      subtitle:
+          'Show decoy track info on the lock screen, Bluetooth, and notifications',
+      value: isMasked,
+      vaultTheme: vaultTheme,
+      onChanged: (val) {
+        final newPolicy = val
+            ? MetadataVisibilityPolicyEnum.maskWithPlaceholder
+            : MetadataVisibilityPolicyEnum.showActualMetadata;
+        cubit?.mutatePolicy(
+          (current) => current.copyWith(metadataVisibility: newPolicy),
+        );
+      },
     );
   }
 
@@ -2545,120 +2181,143 @@ class _VaultPrivacySettingsScreenState
     VaultThemeData vaultTheme,
   ) {
     final hasChanges = _hasUnsavedDecoyChanges(currentConfig);
+    final dangerInk = vaultDangerInk(vaultTheme);
 
-    return Container(
-      padding: const EdgeInsets.all(14.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        VaultSettingsSectionHeader(
+          title: 'Decoy Track Info',
+          vaultTheme: vaultTheme,
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Decoy Persona Configuration',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 14.0,
-              fontWeight: FontWeight.w600,
-              color: vaultTheme.textHighSalience,
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: vaultTheme.surfaceSubtle,
+            borderRadius: VaultTheme.borderRadius8,
+            border: Border.all(
+              color: vaultTheme.border,
+              width: VaultTheme.borderWidth,
             ),
           ),
-          const SizedBox(height: 4.0),
-          Text(
-            'Metadata projected to OS media notifications when masking is enabled.',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 12.0,
-              color: vaultTheme.textMediumSalience,
-            ),
-          ),
-          const SizedBox(height: 12.0),
-          _buildTextField(
-            key: const ValueKey('decoy_title_field'),
-            controller: _titleController,
-            focusNode: _titleFocus,
-            labelText: 'Decoy Track Title',
-            vaultTheme: vaultTheme,
-            onChanged: (_) {
-              setState(() {
-                _decoyValidationError = null;
-              });
-            },
-          ),
-          const SizedBox(height: 10.0),
-          _buildTextField(
-            key: const ValueKey('decoy_artist_field'),
-            controller: _artistController,
-            focusNode: _artistFocus,
-            labelText: 'Decoy Artist Name',
-            vaultTheme: vaultTheme,
-            onChanged: (_) {
-              setState(() {
-                _decoyValidationError = null;
-              });
-            },
-          ),
-          const SizedBox(height: 10.0),
-          _buildTextField(
-            key: const ValueKey('decoy_album_field'),
-            controller: _albumController,
-            focusNode: _albumFocus,
-            labelText: 'Decoy Album Name',
-            vaultTheme: vaultTheme,
-            onChanged: (_) {
-              setState(() {
-                _decoyValidationError = null;
-              });
-            },
-          ),
-          if (_decoyValidationError case final errorText?) ...[
-            const SizedBox(height: 10.0),
-            Text(
-              errorText,
-              key: const ValueKey('decoy_validation_error'),
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 12.0,
-                color: vaultTheme.danger,
-              ),
-            ),
-          ],
-          const SizedBox(height: 12.0),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              key: const ValueKey('decoy_save_button'),
-              onPressed: (hasChanges && !_isSavingDecoy)
-                  ? () => _saveDecoyPersona(cubit)
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: vaultTheme.accent,
-                foregroundColor: vaultTheme.scaffold,
-                disabledBackgroundColor: vaultTheme.surface,
-                disabledForegroundColor: vaultTheme.textLowSalience,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 12.0),
-                shape: RoundedRectangleBorder(
-                  borderRadius: VaultTheme.borderRadius8,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildTextField(
+                  key: const ValueKey('decoy_title_field'),
+                  controller: _titleController,
+                  focusNode: _titleFocus,
+                  labelText: 'Track Title',
+                  vaultTheme: vaultTheme,
+                  onChanged: (_) {
+                    setState(() {
+                      _decoyValidationError = null;
+                    });
+                  },
                 ),
-              ),
-              child: Text(
-                _isSavingDecoy ? 'Saving...' : 'Save Decoy Persona',
-                style: const TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontSize: 13.0,
-                  fontWeight: FontWeight.w600,
+                const SizedBox(height: 12.0),
+                _buildTextField(
+                  key: const ValueKey('decoy_artist_field'),
+                  controller: _artistController,
+                  focusNode: _artistFocus,
+                  labelText: 'Artist Name',
+                  vaultTheme: vaultTheme,
+                  onChanged: (_) {
+                    setState(() {
+                      _decoyValidationError = null;
+                    });
+                  },
                 ),
-              ),
+                const SizedBox(height: 12.0),
+                _buildTextField(
+                  key: const ValueKey('decoy_album_field'),
+                  controller: _albumController,
+                  focusNode: _albumFocus,
+                  labelText: 'Album Title',
+                  vaultTheme: vaultTheme,
+                  onChanged: (_) {
+                    setState(() {
+                      _decoyValidationError = null;
+                    });
+                  },
+                ),
+                if (_decoyValidationError case final errorText?) ...[
+                  const SizedBox(height: 12.0),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12.0,
+                      vertical: 10.0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: vaultTheme.danger.withValues(alpha: 0.14),
+                      borderRadius: VaultTheme.borderRadius8,
+                      border: Border.all(
+                        color: vaultTheme.danger.withValues(alpha: 0.45),
+                        width: VaultTheme.borderWidth,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline_rounded,
+                          size: 16.0,
+                          color: dangerInk,
+                        ),
+                        const SizedBox(width: 8.0),
+                        Expanded(
+                          child: Text(
+                            errorText,
+                            key: const ValueKey('decoy_validation_error'),
+                            style: TextStyle(
+                              fontFamily: VaultTheme.fontFamily,
+                              fontSize: 12.5,
+                              color: dangerInk,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16.0),
+                SizedBox(
+                  height: 48.0,
+                  child: ElevatedButton(
+                    key: const ValueKey('decoy_save_button'),
+                    onPressed: (hasChanges && !_isSavingDecoy)
+                        ? () => _saveDecoyPersona(cubit)
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: vaultTheme.accent,
+                      foregroundColor: vaultTheme.scaffold,
+                      disabledBackgroundColor: vaultTheme.surfaceHighlight,
+                      disabledForegroundColor: vaultTheme.textLowSalience,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: VaultTheme.borderRadius8,
+                      ),
+                    ),
+                    child: Text(
+                      _isSavingDecoy ? 'Saving...' : 'Save Decoy Info',
+                      style: const TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontSize: 14.0,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+        VaultSettingsFootnote(
+          text:
+              'Shown in system media controls whenever metadata masking is active.',
+          vaultTheme: vaultTheme,
+        ),
+      ],
     );
   }
 
@@ -2677,20 +2336,22 @@ class _VaultPrivacySettingsScreenState
       onChanged: onChanged,
       style: TextStyle(
         fontFamily: VaultTheme.fontFamily,
-        fontSize: 13.0,
+        fontSize: 14.0,
         color: vaultTheme.textHighSalience,
       ),
       decoration: InputDecoration(
         labelText: labelText,
         labelStyle: TextStyle(
           fontFamily: VaultTheme.fontFamily,
-          fontSize: 12.0,
+          fontSize: 12.5,
           color: vaultTheme.textMediumSalience,
         ),
         filled: true,
         fillColor: vaultTheme.surface,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14.0,
+          vertical: 14.0,
+        ),
         enabledBorder: OutlineInputBorder(
           borderRadius: VaultTheme.borderRadius8,
           borderSide: BorderSide(
@@ -2718,19 +2379,19 @@ class _VaultPrivacySettingsScreenState
       (
         LockPlaybackBehaviorEnum.stopImmediately,
         'Stop Immediately',
-        'Halts playback instantly and clears private RAM queue',
+        'Pause audio and clear active queue on lock',
         const ValueKey('lock_playback_stop'),
       ),
       (
         LockPlaybackBehaviorEnum.finishCurrentTrack,
         'Finish Current Track',
-        'Allows active track to complete, then stops',
+        'Allow the current song to finish before stopping',
         const ValueKey('lock_playback_finish_track'),
       ),
       (
         LockPlaybackBehaviorEnum.continueMaskedInBackground,
         'Continue Masked',
-        'Plays continuously in background with decoy metadata',
+        'Keep playing silently behind decoy metadata',
         const ValueKey('lock_playback_continue_masked'),
       ),
     ];
@@ -2738,117 +2399,33 @@ class _VaultPrivacySettingsScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Behavior on Vault Auto-Lock',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 16.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
+        VaultSettingsSectionHeader(
+          title: 'When Vault Locks',
+          vaultTheme: vaultTheme,
         ),
-        const SizedBox(height: 4.0),
-        Text(
-          'Determines audio playback action when vault locks mid-song.',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 12.0,
-            color: vaultTheme.textMediumSalience,
-          ),
-        ),
-        const SizedBox(height: 10.0),
-        for (final opt in options) ...[
-          Container(
-            key: opt.$4,
-            decoration: BoxDecoration(
-              color: config.lockPlaybackBehavior == opt.$1
-                  ? vaultTheme.surfaceHighlight
-                  : vaultTheme.surfaceSubtle,
-              borderRadius: VaultTheme.borderRadius8,
-              border: Border.all(
-                color: config.lockPlaybackBehavior == opt.$1
-                    ? vaultTheme.accent
-                    : vaultTheme.border,
-                width: config.lockPlaybackBehavior == opt.$1
-                    ? 1.5
-                    : VaultTheme.borderWidth,
-              ),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: VaultTheme.borderRadius8,
+        VaultSettingsGroup(
+          vaultTheme: vaultTheme,
+          children: [
+            for (final opt in options)
+              VaultSettingsRadioRow(
+                optionKey: opt.$4,
+                title: opt.$2,
+                subtitle: opt.$3,
+                isSelected: config.lockPlaybackBehavior == opt.$1,
+                vaultTheme: vaultTheme,
                 onTap: () {
                   cubit?.mutatePolicy(
                     (current) => current.copyWith(lockPlaybackBehavior: opt.$1),
                   );
                 },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14.0,
-                    vertical: 12.0,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 18.0,
-                        height: 18.0,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: config.lockPlaybackBehavior == opt.$1
-                                ? vaultTheme.accent
-                                : vaultTheme.borderSubtle,
-                            width: 2.0,
-                          ),
-                        ),
-                        child: config.lockPlaybackBehavior == opt.$1
-                            ? Center(
-                                child: Container(
-                                  width: 8.0,
-                                  height: 8.0,
-                                  decoration: BoxDecoration(
-                                    color: vaultTheme.accent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 12.0),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              opt.$2,
-                              style: TextStyle(
-                                fontFamily: VaultTheme.fontFamily,
-                                fontSize: 13.0,
-                                fontWeight: FontWeight.w600,
-                                color: vaultTheme.textHighSalience,
-                              ),
-                            ),
-                            const SizedBox(height: 2.0),
-                            Text(
-                              opt.$3,
-                              style: TextStyle(
-                                fontFamily: VaultTheme.fontFamily,
-                                fontSize: 11.0,
-                                color: vaultTheme.textMediumSalience,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 8.0),
-        ],
+          ],
+        ),
+        VaultSettingsFootnote(
+          text:
+              'Chooses how private audio behaves whenever the vault locks mid-track.',
+          vaultTheme: vaultTheme,
+        ),
       ],
     );
   }
@@ -3016,42 +2593,36 @@ class _VaultGestureSettingsScreenState
         child: Scaffold(
           key: const ValueKey('vault_gesture_screen'),
           backgroundColor: vaultTheme.scaffold,
-          appBar: AppBar(
-            backgroundColor: vaultTheme.scaffold,
-            elevation: 0,
-            leading: IconButton(
-              key: const ValueKey('vault_gesture_back_button'),
-              icon: Icon(
-                Icons.arrow_back,
-                color: vaultTheme.textHighSalience,
-              ),
-              onPressed: () {
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
-            title: Text(
-              'Gesture Controls',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 18.0,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.textHighSalience,
-              ),
-            ),
+          appBar: buildVaultSettingsAppBar(
+            vaultTheme: vaultTheme,
+            title: 'Gesture Controls',
+            backButtonKey: const ValueKey('vault_gesture_back_button'),
+            onBackPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
           body: SafeArea(
             child: ListView(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 32.0),
               children: [
                 _buildStatusCard(vaultTheme),
-                const SizedBox(height: 20.0),
-                _buildSensitivitySection(currentConfig, cubit, vaultTheme),
-                const SizedBox(height: 20.0),
-                _buildInkVisibilityTile(currentConfig, cubit, vaultTheme),
                 const SizedBox(height: 24.0),
-                _buildReEnrollButton(vaultTheme),
+                _buildSensitivitySection(currentConfig, cubit, vaultTheme),
+                const SizedBox(height: 24.0),
+                VaultSettingsSectionHeader(
+                  title: 'Pattern & Drawing',
+                  vaultTheme: vaultTheme,
+                ),
+                VaultSettingsGroup(
+                  vaultTheme: vaultTheme,
+                  dividerInset: 64.0,
+                  children: [
+                    _buildInkVisibilityTile(currentConfig, cubit, vaultTheme),
+                    _buildReEnrollButton(vaultTheme),
+                  ],
+                ),
               ],
             ),
           ),
@@ -3083,116 +2654,127 @@ class _VaultGestureSettingsScreenState
   }
 
   Widget _buildStatusCard(VaultThemeData vaultTheme) {
-    return Container(
+    return VaultSettingsGroup(
       key: const ValueKey('gesture_status_card'),
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      vaultTheme: vaultTheme,
+      dividerInset: 16.0,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
             children: [
-              Icon(
-                Icons.gesture_outlined,
-                size: 22.0,
-                color: vaultTheme.accent,
-              ),
-              const SizedBox(width: 10.0),
-              Text(
-                'Stealth Gesture Gateway',
-                style: TextStyle(
-                  fontFamily: VaultTheme.fontFamily,
-                  fontSize: 15.0,
-                  fontWeight: FontWeight.w600,
-                  color: vaultTheme.textHighSalience,
-                ),
-              ),
-              const Spacer(),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8.0,
-                  vertical: 3.0,
-                ),
+                width: 40.0,
+                height: 40.0,
                 decoration: BoxDecoration(
                   color: vaultTheme.surfaceHighlight,
                   borderRadius: VaultTheme.borderRadius8,
-                  border: Border.all(
-                    color: vaultTheme.accent.withValues(alpha: 0.5),
-                    width: VaultTheme.borderWidth,
-                  ),
                 ),
-                child: Text(
-                  'Active & Armed',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 10.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.accent,
-                  ),
+                child: Icon(
+                  Icons.gesture_rounded,
+                  size: 21.0,
+                  color: vaultTheme.accent,
+                ),
+              ),
+              const SizedBox(width: 14.0),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Stealth Gesture Unlock',
+                          style: TextStyle(
+                            fontFamily: VaultTheme.fontFamily,
+                            fontSize: 15.0,
+                            fontWeight: FontWeight.w600,
+                            color: vaultTheme.textHighSalience,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          width: 7.0,
+                          height: 7.0,
+                          decoration: BoxDecoration(
+                            color: vaultTheme.accent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6.0),
+                        Text(
+                          'Armed',
+                          style: TextStyle(
+                            fontFamily: VaultTheme.fontFamily,
+                            fontSize: 12.0,
+                            fontWeight: FontWeight.w600,
+                            color: vaultTheme.accent,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3.0),
+                    Text(
+                      'Draw your saved single-stroke pattern on the menu drawer pad to open the vault.',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontSize: 12.5,
+                        height: 1.38,
+                        color: vaultTheme.textMediumSalience,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8.0),
-          Text(
-            'Single-stroke touch path drawn on the drawer sensor pad to unlock the vault.',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 12.0,
-              color: vaultTheme.textMediumSalience,
-            ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Column(
+            children: [
+              _buildSummaryDetailRow(
+                label: 'Recognizer',
+                value: 'On-Device Private Engine',
+                vaultTheme: vaultTheme,
+              ),
+              const SizedBox(height: 6.0),
+              _buildSummaryDetailRow(
+                label: 'Execution',
+                value: 'Isolated Background Thread',
+                vaultTheme: vaultTheme,
+              ),
+            ],
           ),
-          const SizedBox(height: 12.0),
-          Divider(color: vaultTheme.borderSubtle, height: 1.0),
-          const SizedBox(height: 12.0),
-          _buildTelemetryRow(
-            label: 'Classifiers',
-            value: '3-Stage Ensemble (\$1-B + FastDTW + 7D Rubine)',
-            vaultTheme: vaultTheme,
-          ),
-          const SizedBox(height: 6.0),
-          _buildTelemetryRow(
-            label: 'Execution',
-            value: 'Off-thread Background Isolate (latency <= 35ms, 0 jank)',
-            vaultTheme: vaultTheme,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildTelemetryRow({
+  Widget _buildSummaryDetailRow({
     required String label,
     required String value,
     required VaultThemeData vaultTheme,
   }) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '$label: ',
+          label,
           style: TextStyle(
             fontFamily: VaultTheme.fontFamily,
-            fontSize: 11.0,
-            fontWeight: FontWeight.w600,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
             color: vaultTheme.textMediumSalience,
           ),
         ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 11.0,
-              color: vaultTheme.textHighSalience,
-            ),
+        const Spacer(),
+        Text(
+          value,
+          style: TextStyle(
+            fontFamily: VaultTheme.fontFamily,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: vaultTheme.textHighSalience,
           ),
         ),
       ],
@@ -3207,20 +2789,20 @@ class _VaultGestureSettingsScreenState
     final options = [
       (
         GestureSensitivityTierEnum.strict92Percent,
-        'Strict (92%)',
-        'High security; requires high geometric fidelity (S_ensemble >= 0.88)',
+        'Strict',
+        'Requires close stroke precision for maximum security',
         const ValueKey('gesture_sensitivity_strict'),
       ),
       (
         GestureSensitivityTierEnum.balanced84Percent,
-        'Balanced (84%)',
-        'Recommended; balances security and natural motor variance (S_ensemble >= 0.78)',
+        'Balanced',
+        'Recommended balance of security and everyday speed',
         const ValueKey('gesture_sensitivity_balanced'),
       ),
       (
         GestureSensitivityTierEnum.relaxed76Percent,
-        'Relaxed (76%)',
-        'Accommodates motor tremor and drawing speed variations (S_ensemble >= 0.68)',
+        'Relaxed',
+        'Allows natural curve variation and drawing speed changes',
         const ValueKey('gesture_sensitivity_relaxed'),
       ),
     ];
@@ -3228,118 +2810,34 @@ class _VaultGestureSettingsScreenState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Ensemble Matching Sensitivity',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 16.0,
-            fontWeight: FontWeight.w600,
-            color: vaultTheme.textHighSalience,
-          ),
+        VaultSettingsSectionHeader(
+          title: 'Matching Sensitivity',
+          vaultTheme: vaultTheme,
         ),
-        const SizedBox(height: 4.0),
-        Text(
-          'Minimum consensus score required to trigger vault unlock.',
-          style: TextStyle(
-            fontFamily: VaultTheme.fontFamily,
-            fontSize: 12.0,
-            color: vaultTheme.textMediumSalience,
-          ),
-        ),
-        const SizedBox(height: 10.0),
-        for (final opt in options) ...[
-          Container(
-            key: opt.$4,
-            decoration: BoxDecoration(
-              color: config.gestureSensitivity == opt.$1
-                  ? vaultTheme.surfaceHighlight
-                  : vaultTheme.surfaceSubtle,
-              borderRadius: VaultTheme.borderRadius8,
-              border: Border.all(
-                color: config.gestureSensitivity == opt.$1
-                    ? vaultTheme.accent
-                    : vaultTheme.border,
-                width: config.gestureSensitivity == opt.$1
-                    ? 1.5
-                    : VaultTheme.borderWidth,
-              ),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: VaultTheme.borderRadius8,
+        VaultSettingsGroup(
+          vaultTheme: vaultTheme,
+          children: [
+            for (final opt in options)
+              VaultSettingsRadioRow(
+                optionKey: opt.$4,
+                title: opt.$2,
+                subtitle: opt.$3,
+                isSelected: config.gestureSensitivity == opt.$1,
+                vaultTheme: vaultTheme,
                 onTap: () {
                   cubit?.mutatePolicy(
                     (current) => current.copyWith(gestureSensitivity: opt.$1),
                   );
                   _resolveGestureEngineCubit()?.updateSensitivityTier(opt.$1);
                 },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14.0,
-                    vertical: 12.0,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 18.0,
-                        height: 18.0,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: config.gestureSensitivity == opt.$1
-                                ? vaultTheme.accent
-                                : vaultTheme.borderSubtle,
-                            width: 2.0,
-                          ),
-                        ),
-                        child: config.gestureSensitivity == opt.$1
-                            ? Center(
-                                child: Container(
-                                  width: 8.0,
-                                  height: 8.0,
-                                  decoration: BoxDecoration(
-                                    color: vaultTheme.accent,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 12.0),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              opt.$2,
-                              style: TextStyle(
-                                fontFamily: VaultTheme.fontFamily,
-                                fontSize: 13.0,
-                                fontWeight: FontWeight.w600,
-                                color: vaultTheme.textHighSalience,
-                              ),
-                            ),
-                            const SizedBox(height: 2.0),
-                            Text(
-                              opt.$3,
-                              style: TextStyle(
-                                fontFamily: VaultTheme.fontFamily,
-                                fontSize: 11.0,
-                                color: vaultTheme.textMediumSalience,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 8.0),
-        ],
+          ],
+        ),
+        VaultSettingsFootnote(
+          text:
+              'Adjusts how closely a drawn stroke must match your enrolled gesture pattern.',
+          vaultTheme: vaultTheme,
+        ),
       ],
     );
   }
@@ -3352,130 +2850,34 @@ class _VaultGestureSettingsScreenState
     final isVisible = config.gestureVisibility ==
         GestureVisibilityPolicyEnum.faintDissipatingHairline;
 
-    return Container(
-      padding: const EdgeInsets.all(14.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.surfaceSubtle,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.draw_outlined,
-            size: 24.0,
-            color: vaultTheme.textHighSalience,
-          ),
-          const SizedBox(width: 14.0),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Sensor Pad Ink Visibility',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 14.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.textHighSalience,
-                  ),
-                ),
-                const SizedBox(height: 2.0),
-                Text(
-                  isVisible
-                      ? 'Faint Dissipating Hairline: 1px subtle trail fading in 150-280ms'
-                      : 'Invisible Stealth: 0 ink rendered; maximum plausible deniability',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 12.0,
-                    color: vaultTheme.textMediumSalience,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            key: const ValueKey('gesture_ink_visibility_switch'),
-            value: isVisible,
-            activeTrackColor: vaultTheme.accent,
-            onChanged: (val) {
-              final newPolicy = val
-                  ? GestureVisibilityPolicyEnum.faintDissipatingHairline
-                  : GestureVisibilityPolicyEnum.invisibleStealth;
-              cubit?.mutatePolicy(
-                (current) => current.copyWith(gestureVisibility: newPolicy),
-              );
-            },
-          ),
-        ],
-      ),
+    return VaultSettingsToggleRow(
+      switchKey: const ValueKey('gesture_ink_visibility_switch'),
+      icon: Icons.draw_outlined,
+      title: 'Visible Stroke Trail',
+      subtitle: isVisible
+          ? 'Shows a faint line that fades away after lifting your finger'
+          : 'Keeps strokes completely invisible for discreet entry',
+      value: isVisible,
+      vaultTheme: vaultTheme,
+      onChanged: (val) {
+        final newPolicy = val
+            ? GestureVisibilityPolicyEnum.faintDissipatingHairline
+            : GestureVisibilityPolicyEnum.invisibleStealth;
+        cubit?.mutatePolicy(
+          (current) => current.copyWith(gestureVisibility: newPolicy),
+        );
+      },
     );
   }
 
   Widget _buildReEnrollButton(VaultThemeData vaultTheme) {
-    return Container(
+    return VaultSettingsNavRow(
       key: const ValueKey('re_enroll_gesture_button'),
-      decoration: BoxDecoration(
-        color: vaultTheme.surface,
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.border,
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: VaultTheme.borderRadius8,
-          onTap: _handleReEnrollment,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.refresh,
-                  size: 22.0,
-                  color: vaultTheme.accent,
-                ),
-                const SizedBox(width: 14.0),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Re-Enroll Stealth Gesture',
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 14.0,
-                          fontWeight: FontWeight.w600,
-                          color: vaultTheme.textHighSalience,
-                        ),
-                      ),
-                      const SizedBox(height: 2.0),
-                      Text(
-                        'Record 3 new matching single-stroke samples in the guided wizard.',
-                        style: TextStyle(
-                          fontFamily: VaultTheme.fontFamily,
-                          fontSize: 12.0,
-                          color: vaultTheme.textMediumSalience,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(
-                  Icons.chevron_right,
-                  size: 20.0,
-                  color: vaultTheme.textMediumSalience,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      icon: Icons.refresh_rounded,
+      title: 'Re-Enroll Gesture',
+      subtitle: 'Draw 3 new samples to update your unlock pattern',
+      vaultTheme: vaultTheme,
+      onTap: _handleReEnrollment,
     );
   }
 }
@@ -3699,16 +3101,12 @@ class _VaultDangerZoneScreenState extends State<VaultDangerZoneScreen> {
       sessionBloc?.add(const VaultPurged());
 
       if (mounted) {
+        final theme = VaultThemeData.fromConfig(cubit.currentConfig);
         Navigator.of(context).popUntil((route) => route.isFirst);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Vault and all private media have been securely deleted.',
-              style: TextStyle(fontFamily: VaultTheme.fontFamily),
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
+        showVaultSettingsSnackBar(
+          context,
+          theme,
+          message: 'Vault and all private media have been securely deleted.',
         );
       }
     } else {
@@ -3729,60 +3127,66 @@ class _VaultDangerZoneScreenState extends State<VaultDangerZoneScreen> {
         child: Scaffold(
           key: const ValueKey('vault_danger_zone_screen'),
           backgroundColor: vaultTheme.scaffold,
-          appBar: AppBar(
-            backgroundColor: vaultTheme.scaffold,
-            elevation: 0,
-            leading: IconButton(
-              key: const ValueKey('vault_danger_zone_back_button'),
-              icon: Icon(
-                Icons.arrow_back,
-                color: vaultTheme.textHighSalience,
-              ),
-              onPressed: () {
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                }
-              },
-            ),
-            title: Text(
-              'Danger Zone',
-              style: TextStyle(
-                fontFamily: VaultTheme.fontFamily,
-                fontSize: 18.0,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.danger,
-              ),
-            ),
+          appBar: buildVaultSettingsAppBar(
+            vaultTheme: vaultTheme,
+            title: 'Danger Zone',
+            backButtonKey: const ValueKey('vault_danger_zone_back_button'),
+            onBackPressed: () {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
           body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildWarningCard(vaultTheme),
-                  const Spacer(),
-                  ElevatedButton(
-                    key: const ValueKey('purge_vault_button'),
-                    onPressed: _handlePurge,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: vaultTheme.danger,
-                      foregroundColor: Colors.white,
-                      shape: VaultTheme.shape8,
-                      padding: const EdgeInsets.symmetric(vertical: 14.0),
-                    ),
-                    child: const Text(
-                      'Purge All Vault Data',
-                      style: TextStyle(
-                        fontFamily: VaultTheme.fontFamily,
-                        fontSize: 14.0,
-                        fontWeight: FontWeight.w600,
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 24.0),
+                    children: [
+                      VaultSettingsSectionHeader(
+                        title: 'Permanent Erase',
+                        vaultTheme: vaultTheme,
+                      ),
+                      _buildWarningCard(vaultTheme),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20.0, 12.0, 20.0, 16.0),
+                  decoration: BoxDecoration(
+                    color: vaultTheme.scaffold,
+                    border: Border(
+                      top: BorderSide(
+                        color: vaultTheme.borderSubtle,
+                        width: VaultTheme.borderWidth,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16.0),
-                ],
-              ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 48.0,
+                    child: ElevatedButton(
+                      key: const ValueKey('purge_vault_button'),
+                      onPressed: _handlePurge,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: vaultTheme.danger,
+                        foregroundColor: vaultTheme.textHighSalience,
+                        elevation: 0,
+                        shape: VaultTheme.shape8,
+                      ),
+                      child: const Text(
+                        'Erase Vault Data',
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -3813,91 +3217,138 @@ class _VaultDangerZoneScreenState extends State<VaultDangerZoneScreen> {
   }
 
   Widget _buildWarningCard(VaultThemeData vaultTheme) {
+    final dangerInk = vaultDangerInk(vaultTheme);
+    final dangerBorder = vaultTheme.danger.withValues(alpha: 0.42);
+    final dangerSurface = vaultTheme.danger.withValues(alpha: 0.10);
+
     final consequences = [
-      'Cryptographic Shredding: Master Vault Key and AES-256-GCM wrapping keys permanently destroyed from memory and secure storage.',
-      'Database Wipe: All private playlists, track references, custom configuration, gesture templates, and lockout deadlines deleted from SQLite.',
-      '64KB Zero-Overwriting: Every isolated media file under .nomedia overwritten with zeroes in 64KB blocks within a background isolate before unlinking.',
-      'RAM Zeroization: Cryptographic session keys immediately cleared from memory buffers.',
-      'Irreversible Action: Once confirmed, vault state resets to uninitialized. This action cannot be undone.',
+      (
+        Icons.vpn_key_off_outlined,
+        'Encryption Keys Destroyed',
+        'Your vault master key and unlock secrets are permanently erased from storage.',
+      ),
+      (
+        Icons.library_music_outlined,
+        'Private Media Deleted',
+        'All hidden tracks, playlists, and cached artwork are wiped cleanly.',
+      ),
+      (
+        Icons.fingerprint_rounded,
+        'Credentials Cleared',
+        'Saved PIN hashes, gesture patterns, and active memory keys are removed.',
+      ),
+      (
+        Icons.lock_reset_rounded,
+        'Cannot Be Undone',
+        'After PIN confirmation, the vault resets cleanly with no recovery backup.',
+      ),
     ];
 
-    return Container(
+    return VaultSettingsGroup(
       key: const ValueKey('danger_zone_warning_card'),
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: vaultTheme.danger.withValues(alpha: 0.12),
-        borderRadius: VaultTheme.borderRadius8,
-        border: Border.all(
-          color: vaultTheme.danger.withValues(alpha: 0.50),
-          width: VaultTheme.borderWidth,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      vaultTheme: vaultTheme,
+      backgroundColor: dangerSurface,
+      borderColor: dangerBorder,
+      dividerColor: vaultTheme.danger.withValues(alpha: 0.22),
+      dividerInset: 64.0,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.warning_amber_rounded,
-                size: 26.0,
-                color: vaultTheme.danger,
+              Container(
+                width: 40.0,
+                height: 40.0,
+                decoration: BoxDecoration(
+                  color: vaultTheme.danger.withValues(alpha: 0.18),
+                  borderRadius: VaultTheme.borderRadius8,
+                ),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  size: 22.0,
+                  color: dangerInk,
+                ),
               ),
-              const SizedBox(width: 10.0),
+              const SizedBox(width: 14.0),
               Expanded(
-                child: Text(
-                  'Destructive Vault Purge',
-                  style: TextStyle(
-                    fontFamily: VaultTheme.fontFamily,
-                    fontSize: 16.0,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.danger,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Erase Private Vault',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontSize: 15.5,
+                        fontWeight: FontWeight.w600,
+                        color: vaultTheme.textHighSalience,
+                      ),
+                    ),
+                    const SizedBox(height: 3.0),
+                    Text(
+                      'This permanently removes every encrypted file and resets vault settings.',
+                      style: TextStyle(
+                        fontFamily: VaultTheme.fontFamily,
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: vaultTheme.textMediumSalience,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10.0),
-          Text(
-            'Warning: Actions in this section are irreversible and will permanently destroy all vault data.',
-            style: TextStyle(
-              fontFamily: VaultTheme.fontFamily,
-              fontSize: 12.0,
-              fontWeight: FontWeight.w500,
-              color: vaultTheme.danger,
+        ),
+        for (final item in consequences)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 12.0,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 34.0,
+                  height: 34.0,
+                  decoration: BoxDecoration(
+                    color: vaultTheme.danger.withValues(alpha: 0.14),
+                    borderRadius: VaultTheme.borderRadius8,
+                  ),
+                  child: Icon(item.$1, size: 18.0, color: dangerInk),
+                ),
+                const SizedBox(width: 14.0),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.$2,
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.w500,
+                          color: vaultTheme.textHighSalience,
+                        ),
+                      ),
+                      const SizedBox(height: 2.0),
+                      Text(
+                        item.$3,
+                        style: TextStyle(
+                          fontFamily: VaultTheme.fontFamily,
+                          fontSize: 12.5,
+                          height: 1.38,
+                          color: vaultTheme.textMediumSalience,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12.0),
-          for (final item in consequences) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '* ',
-                    style: TextStyle(
-                      fontFamily: VaultTheme.fontFamily,
-                      fontSize: 12.0,
-                      fontWeight: FontWeight.bold,
-                      color: vaultTheme.danger,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: TextStyle(
-                        fontFamily: VaultTheme.fontFamily,
-                        fontSize: 11.0,
-                        color: vaultTheme.textHighSalience,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
+      ],
     );
   }
 }

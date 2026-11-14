@@ -125,7 +125,7 @@ void main() {
 
       // Verify full-screen VaultAuthScreen is mounted on top
       expect(find.byType(VaultAuthScreen), findsOneWidget);
-      expect(find.text('Enter Master PIN'), findsOneWidget);
+      expect(find.text('Unlock Vault'), findsOneWidget);
     });
 
     testWidgets(

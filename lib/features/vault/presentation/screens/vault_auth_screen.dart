@@ -12,6 +12,7 @@ import 'package:musify_mu/features/vault/domain/policies/biometric_auth_policy.d
 import 'package:musify_mu/features/vault/domain/states/pin_pad_state.dart';
 import 'package:musify_mu/features/vault/domain/states/screen_privacy_state.dart';
 import 'package:musify_mu/features/vault/presentation/theme/vault_theme.dart';
+import 'package:musify_mu/features/vault/presentation/widgets/vault_settings_components.dart';
 
 import '../../domain/states/vault_session_state.dart';
 
@@ -298,7 +299,7 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
           pinPad?.enterLockout(deadlineMonotonicMs: failure.deadlineMonotonicMs);
         } else {
           setState(() {
-            _biometricFeedbackMessage = 'Biometric canceled or unavailable. Enter PIN.';
+            _biometricFeedbackMessage = 'Biometrics unavailable. Use your PIN.';
           });
         }
     }
@@ -409,19 +410,19 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
                         padding: const EdgeInsets.symmetric(horizontal: 24.0),
                         child: Column(
                           children: [
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 4),
                             _buildHeader(vaultTheme),
-                            const SizedBox(height: 32),
+                            const SizedBox(height: 18),
                             RepaintBoundary(
                               child: _buildPinIndicators(vaultTheme),
                             ),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 10),
                             _buildStatusMessage(vaultTheme),
                             const Spacer(),
                             RepaintBoundary(
                               child: _buildKeypad(vaultTheme),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 14),
                           ],
                         ),
                       ),
@@ -448,52 +449,76 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
     final title = switch (widget.titleOverride) {
       final override? => override,
       null => switch (widget.mode) {
-          VaultAuthScreenMode.unlock => 'Enter Master PIN',
-          VaultAuthScreenMode.stepUp => 'Step-Up Verification',
-          VaultAuthScreenMode.verifyOldPin => 'Verify Current PIN',
-          VaultAuthScreenMode.rotatePin => 'Enter New PIN',
-          VaultAuthScreenMode.purgeConfirmation => 'Confirm Vault Purge',
+          VaultAuthScreenMode.unlock => 'Unlock Vault',
+          VaultAuthScreenMode.stepUp => "Confirm It's You",
+          VaultAuthScreenMode.verifyOldPin => 'Current PIN',
+          VaultAuthScreenMode.rotatePin => 'New PIN',
+          VaultAuthScreenMode.purgeConfirmation => 'Erase Vault',
         },
     };
 
     final subtitle = switch (widget.mode) {
-      VaultAuthScreenMode.unlock => 'Enter 6-digit master PIN to unlock',
-      VaultAuthScreenMode.stepUp => 'Enter master PIN to authorize changes',
-      VaultAuthScreenMode.verifyOldPin => 'Enter current 6-digit PIN to continue',
-      VaultAuthScreenMode.rotatePin => 'Enter 6-digit replacement PIN',
+      VaultAuthScreenMode.unlock => 'Enter your 6-digit PIN',
+      VaultAuthScreenMode.stepUp => 'Enter your PIN to continue',
+      VaultAuthScreenMode.verifyOldPin => 'Enter your current 6-digit PIN',
+      VaultAuthScreenMode.rotatePin => 'Choose a new 6-digit PIN',
       VaultAuthScreenMode.purgeConfirmation =>
-        'Enter master PIN to permanently purge vault',
+        'Enter your PIN to permanently erase your vault',
     };
+
+    final isDestructive = widget.mode.isDestructive;
+    final badgeBackground = isDestructive
+        ? vaultTheme.danger.withValues(alpha: 0.12)
+        : vaultTheme.surfaceSubtle;
+    final badgeBorder = isDestructive
+        ? vaultTheme.danger.withValues(alpha: 0.45)
+        : vaultTheme.borderSubtle;
+    final iconColor =
+        isDestructive ? vaultDangerInk(vaultTheme) : vaultTheme.accent;
 
     return Column(
       children: [
-        Icon(
-          modeIcon,
-          size: 40,
-          color: widget.mode.isDestructive
-              ? vaultTheme.danger
-              : vaultTheme.accent,
+        Container(
+          width: 44.0,
+          height: 44.0,
+          decoration: BoxDecoration(
+            color: badgeBackground,
+            borderRadius: VaultTheme.borderRadius8,
+            border: Border.all(
+              color: badgeBorder,
+              width: VaultTheme.borderWidth,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            modeIcon,
+            size: 22.0,
+            color: iconColor,
+          ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10.0),
         Text(
           title,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 22,
+            fontFamily: VaultTheme.fontFamily,
+            fontSize: 21.0,
             fontWeight: FontWeight.w600,
             color: vaultTheme.textHighSalience,
             letterSpacing: -0.3,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 4.0),
         Text(
           subtitle,
           textAlign: TextAlign.center,
           style: TextStyle(
-            fontSize: 14,
+            fontFamily: VaultTheme.fontFamily,
+            fontSize: 13.0,
             fontWeight: FontWeight.w400,
-            color: widget.mode.isDestructive
-                ? vaultTheme.danger
+            height: 1.35,
+            color: isDestructive
+                ? vaultDangerInk(vaultTheme)
                 : vaultTheme.textMediumSalience,
           ),
         ),
@@ -513,92 +538,73 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
         };
 
         final isError = state is PinPadFailureShakeState;
-        final dotColor = isError ? vaultTheme.danger : vaultTheme.accent;
-
-        return AnimatedBuilder(
-          animation: _shakeAnimation,
-          builder: (context, child) {
-            return Transform.translate(
-              key: const ValueKey('pin_shake_container'),
-              offset: Offset(_shakeAnimation.value, 0),
-              child: child,
-            );
-          },
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(6, (index) {
-              final isFilled = index < enteredCount;
-              final borderColor = isError
-                  ? vaultTheme.danger
-                  : (isFilled ? vaultTheme.accent : vaultTheme.border);
-
-              return Container(
-                width: 44,
-                height: 52,
-                margin: const EdgeInsets.symmetric(horizontal: 5),
-                decoration: BoxDecoration(
-                  color: isFilled ? vaultTheme.surfaceSubtle : vaultTheme.surface,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: borderColor,
-                    width: 1.0,
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: isFilled
-                    ? Container(
-                        key: const ValueKey('pin_dot_filled'),
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: dotColor,
-                          shape: BoxShape.circle,
-                        ),
-                      )
-                    : null,
-              );
-            }),
-          ),
+        return VaultPinDotsRow(
+          vaultTheme: vaultTheme,
+          enteredCount: enteredCount,
+          isError: isError,
+          shakeAnimation: _shakeAnimation,
+          shakeContainerKey: const ValueKey('pin_shake_container'),
+          keyFilledDots: true,
         );
       },
     );
   }
 
   Widget _buildStatusMessage(VaultThemeData vaultTheme) {
+    final dangerInk = vaultDangerInk(vaultTheme);
+
     return BlocBuilder<PinPadCubit, PinPadState>(
       builder: (context, state) {
         switch (state) {
           case PinPadIdleInputState():
             if (_biometricFeedbackMessage case final msg?) {
-              return Text(
-                msg,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: vaultTheme.danger,
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 8.0,
+                ),
+                decoration: BoxDecoration(
+                  color: vaultTheme.danger.withValues(alpha: 0.10),
+                  borderRadius: VaultTheme.borderRadius8,
+                  border: Border.all(
+                    color: vaultTheme.danger.withValues(alpha: 0.35),
+                    width: VaultTheme.borderWidth,
+                  ),
+                ),
+                child: Text(
+                  msg,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontFamily: VaultTheme.fontFamily,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    color: dangerInk,
+                  ),
                 ),
               );
             }
-            return const SizedBox(height: 18);
+            return const SizedBox(height: 22.0);
 
           case PinPadEvaluatingState():
             return Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 SizedBox(
-                  width: 16,
-                  height: 16,
+                  width: 15.0,
+                  height: 15.0,
                   child: CircularProgressIndicator(
-                    strokeWidth: 2,
+                    strokeWidth: 2.0,
                     valueColor: AlwaysStoppedAnimation<Color>(
                       vaultTheme.accent,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 8.0),
                 Text(
-                  'Verifying PIN...',
+                  'Checking PIN...',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontFamily: VaultTheme.fontFamily,
+                    fontSize: 13.0,
                     fontWeight: FontWeight.w500,
                     color: vaultTheme.textMediumSalience,
                   ),
@@ -607,57 +613,108 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
             );
 
           case PinPadSuccessState():
-            return Text(
-              'Verified',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: vaultTheme.accent,
-              ),
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.check_rounded,
+                  size: 16.0,
+                  color: vaultTheme.accent,
+                ),
+                const SizedBox(width: 6.0),
+                Text(
+                  'Unlocked',
+                  style: TextStyle(
+                    fontFamily: VaultTheme.fontFamily,
+                    fontSize: 13.0,
+                    fontWeight: FontWeight.w600,
+                    color: vaultTheme.accent,
+                  ),
+                ),
+              ],
             );
 
           case PinPadFailureShakeState(:final remainingAttemptsBeforeCooldown):
-            return Text(
-              'Incorrect PIN. $remainingAttemptsBeforeCooldown attempts remaining.',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: vaultTheme.danger,
+            final attemptsWord =
+                remainingAttemptsBeforeCooldown == 1 ? 'attempt' : 'attempts';
+            return Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12.0,
+                vertical: 8.0,
+              ),
+              decoration: BoxDecoration(
+                color: vaultTheme.danger.withValues(alpha: 0.10),
+                borderRadius: VaultTheme.borderRadius8,
+                border: Border.all(
+                  color: vaultTheme.danger.withValues(alpha: 0.40),
+                  width: VaultTheme.borderWidth,
+                ),
+              ),
+              child: Text(
+                'Incorrect PIN. $remainingAttemptsBeforeCooldown $attemptsWord left.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: VaultTheme.fontFamily,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                  color: dangerInk,
+                ),
               ),
             );
 
           case PinPadLockedOutState(:final cooldownRemainingSeconds):
-            final minutes = (cooldownRemainingSeconds ~/ 60).toString().padLeft(2, '0');
-            final seconds = (cooldownRemainingSeconds % 60).toString().padLeft(2, '0');
-            return Column(
-              children: [
-                Text(
-                  'Vault Locked',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: vaultTheme.danger,
-                  ),
+            final minutes =
+                (cooldownRemainingSeconds ~/ 60).toString().padLeft(2, '0');
+            final seconds =
+                (cooldownRemainingSeconds % 60).toString().padLeft(2, '0');
+            return Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 18.0,
+                vertical: 14.0,
+              ),
+              decoration: BoxDecoration(
+                color: vaultTheme.surface,
+                borderRadius: VaultTheme.borderRadius8,
+                border: Border.all(
+                  color: vaultTheme.danger.withValues(alpha: 0.45),
+                  width: VaultTheme.borderWidth,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '$minutes:$seconds',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: vaultTheme.danger,
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Temporarily Locked',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 15.0,
+                      fontWeight: FontWeight.w600,
+                      color: dangerInk,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Too many consecutive failed attempts. Please wait for cooldown to expire.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: vaultTheme.textMediumSalience,
+                  const SizedBox(height: 4.0),
+                  Text(
+                    '$minutes:$seconds',
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 24.0,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: dangerInk,
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4.0),
+                  Text(
+                    'Try again once the timer ends.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: VaultTheme.fontFamily,
+                      fontSize: 12.0,
+                      color: vaultTheme.textMediumSalience,
+                    ),
+                  ),
+                ],
+              ),
             );
         }
       },
@@ -670,65 +727,15 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
         final isLockedOut = state is PinPadLockedOutState;
         final isEvaluating = state is PinPadEvaluatingState;
         final isDisabled = isLockedOut || isEvaluating;
-
         final cubit = context.read<PinPadCubit>();
-        final digits = cubit.currentKeypadDigits;
 
-        return Column(
-          children: [
-            for (var row = 0; row < 3; row++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    for (var col = 0; col < 3; col++)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                        child: _SpringKeypadButton(
-                          digit: digits[row * 3 + col],
-                          vaultTheme: vaultTheme,
-                          isDisabled: isDisabled,
-                          onTap: () {
-                            cubit.onDigitEntered(digits[row * 3 + col]);
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                  child: _buildBiometricOrEmptyButton(vaultTheme, isDisabled),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                  child: _SpringKeypadButton(
-                    digit: digits[9],
-                    vaultTheme: vaultTheme,
-                    isDisabled: isDisabled,
-                    onTap: () {
-                      cubit.onDigitEntered(digits[9]);
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                  child: _SpringActionButton(
-                    icon: Icons.backspace_outlined,
-                    vaultTheme: vaultTheme,
-                    isDisabled: isDisabled,
-                    onTap: () {
-                      cubit.onBackspace();
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
+        return VaultPinKeypad(
+          vaultTheme: vaultTheme,
+          digits: cubit.currentKeypadDigits,
+          isDisabled: isDisabled,
+          onDigitPressed: cubit.onDigitEntered,
+          onBackspace: cubit.onBackspace,
+          leadingSlot: _buildBiometricOrEmptyButton(vaultTheme, isDisabled),
         );
       },
     );
@@ -743,344 +750,19 @@ class _VaultAuthScreenViewState extends State<_VaultAuthScreenView>
         widget.mode == VaultAuthScreenMode.unlock;
 
     if (!isBiometricEnabled) {
-      return const SizedBox(width: 72, height: 72);
+      return const SizedBox(width: 64.0, height: 64.0);
     }
 
-    return _SpringBiometricButton(
+    return VaultKeypadActionTile(
       vaultTheme: vaultTheme,
       isDisabled: isDisabled,
+      backgroundColor: vaultTheme.surface,
+      borderColor: vaultTheme.borderSubtle,
       onTap: _handleBiometricTap,
-    );
-  }
-}
-
-/// Tactile keypad digit button featuring high refresh-rate spring simulation
-/// and localized RepaintBoundary isolation for 60/120 FPS performance.
-class _SpringKeypadButton extends StatefulWidget {
-  final int digit;
-  final VaultThemeData vaultTheme;
-  final bool isDisabled;
-  final VoidCallback onTap;
-
-  const _SpringKeypadButton({
-    required this.digit,
-    required this.vaultTheme,
-    required this.isDisabled,
-    required this.onTap,
-  });
-
-  @override
-  State<_SpringKeypadButton> createState() => _SpringKeypadButtonState();
-}
-
-class _SpringKeypadButtonState extends State<_SpringKeypadButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _springController;
-  late final Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _springController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 120),
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.92).animate(
-      CurvedAnimation(
-        parent: _springController,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeOutQuad,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _springController.dispose();
-    super.dispose();
-  }
-
-  void _onTapDown(TapDownDetails details) {
-    if (widget.isDisabled) return;
-    HapticFeedback.lightImpact();
-    _springController.forward();
-  }
-
-  void _onTapCancel() {
-    if (widget.isDisabled) return;
-    _springController.reverse();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vaultTheme = widget.vaultTheme;
-
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _scaleAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          );
-        },
-        child: SizedBox(
-          width: 72,
-          height: 72,
-          child: Material(
-            color: vaultTheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(
-                color: vaultTheme.border,
-                width: 1.0,
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTapDown: _onTapDown,
-              onTap: widget.isDisabled
-                  ? null
-                  : () {
-                      _springController.reverse();
-                      widget.onTap();
-                    },
-              onTapCancel: _onTapCancel,
-              splashColor: vaultTheme.accent.withValues(alpha: 0.15),
-              highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
-              child: Center(
-                child: Text(
-                  '${widget.digit}',
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w500,
-                    color: widget.isDisabled
-                        ? vaultTheme.textLowSalience
-                        : vaultTheme.textHighSalience,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Spring-animated action button for keypad secondary functions (e.g. backspace).
-class _SpringActionButton extends StatefulWidget {
-  final IconData icon;
-  final VaultThemeData vaultTheme;
-  final bool isDisabled;
-  final VoidCallback onTap;
-
-  const _SpringActionButton({
-    required this.icon,
-    required this.vaultTheme,
-    required this.isDisabled,
-    required this.onTap,
-  });
-
-  @override
-  State<_SpringActionButton> createState() => _SpringActionButtonState();
-}
-
-class _SpringActionButtonState extends State<_SpringActionButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _springController;
-  late final Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _springController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 120),
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.92).animate(
-      CurvedAnimation(
-        parent: _springController,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeOutQuad,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _springController.dispose();
-    super.dispose();
-  }
-
-  void _onTapDown(TapDownDetails details) {
-    if (widget.isDisabled) return;
-    HapticFeedback.lightImpact();
-    _springController.forward();
-  }
-
-  void _onTapCancel() {
-    if (widget.isDisabled) return;
-    _springController.reverse();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vaultTheme = widget.vaultTheme;
-
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _scaleAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          );
-        },
-        child: SizedBox(
-          width: 72,
-          height: 72,
-          child: Material(
-            color: Colors.transparent,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(
-                color: vaultTheme.border,
-                width: 1.0,
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTapDown: _onTapDown,
-              onTap: widget.isDisabled
-                  ? null
-                  : () {
-                      _springController.reverse();
-                      widget.onTap();
-                    },
-              onTapCancel: _onTapCancel,
-              splashColor: vaultTheme.accent.withValues(alpha: 0.15),
-              highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
-              child: Center(
-                child: Icon(
-                  widget.icon,
-                  size: 24,
-                  color: widget.isDisabled
-                      ? vaultTheme.textLowSalience
-                      : vaultTheme.textHighSalience,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Spring-animated button for biometric hardware authentication challenge.
-class _SpringBiometricButton extends StatefulWidget {
-  final VaultThemeData vaultTheme;
-  final bool isDisabled;
-  final VoidCallback onTap;
-
-  const _SpringBiometricButton({
-    required this.vaultTheme,
-    required this.isDisabled,
-    required this.onTap,
-  });
-
-  @override
-  State<_SpringBiometricButton> createState() => _SpringBiometricButtonState();
-}
-
-class _SpringBiometricButtonState extends State<_SpringBiometricButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _springController;
-  late final Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _springController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 120),
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.92).animate(
-      CurvedAnimation(
-        parent: _springController,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeOutQuad,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _springController.dispose();
-    super.dispose();
-  }
-
-  void _onTapDown(TapDownDetails details) {
-    if (widget.isDisabled) return;
-    HapticFeedback.lightImpact();
-    _springController.forward();
-  }
-
-  void _onTapCancel() {
-    if (widget.isDisabled) return;
-    _springController.reverse();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final vaultTheme = widget.vaultTheme;
-
-    return RepaintBoundary(
-      child: AnimatedBuilder(
-        animation: _scaleAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          );
-        },
-        child: SizedBox(
-          width: 72,
-          height: 72,
-          child: Material(
-            color: vaultTheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(
-                color: vaultTheme.border,
-                width: 1.0,
-              ),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTapDown: _onTapDown,
-              onTap: widget.isDisabled
-                  ? null
-                  : () {
-                      _springController.reverse();
-                      widget.onTap();
-                    },
-              onTapCancel: _onTapCancel,
-              splashColor: vaultTheme.accent.withValues(alpha: 0.15),
-              highlightColor: vaultTheme.accent.withValues(alpha: 0.08),
-              child: Center(
-                child: Icon(
-                  Icons.fingerprint,
-                  size: 30,
-                  color: widget.isDisabled
-                      ? vaultTheme.textLowSalience
-                      : vaultTheme.accent,
-                ),
-              ),
-            ),
-          ),
-        ),
+      child: Icon(
+        Icons.fingerprint,
+        size: 26.0,
+        color: isDisabled ? vaultTheme.textLowSalience : vaultTheme.accent,
       ),
     );
   }

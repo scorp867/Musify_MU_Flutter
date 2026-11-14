@@ -471,16 +471,22 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
       await tester.pumpAndSettle();
 
-      expect(find.text('New Private Playlist'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsOneWidget,
+      );
 
       // Tap Create with empty name input
       await tester.tap(find.text('Create'));
       await tester.pumpAndSettle();
 
       // Validator error must display
-      expect(find.text('Playlist name is required'), findsOneWidget);
-      // Dialog must still be open
-      expect(find.text('New Private Playlist'), findsOneWidget);
+      expect(find.text('Enter a playlist name'), findsOneWidget);
+      // Sheet must still be open
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsOneWidget,
+      );
       // Repository must not have been called
       expect(storageRepo.playlists, isEmpty);
 
@@ -494,7 +500,7 @@ void main() {
       await tester.pumpWidget(buildDashboardHarness());
       await tester.pumpAndSettle();
 
-      // Open creation dialog
+      // Open creation sheet
       await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
       await tester.pumpAndSettle();
 
@@ -504,9 +510,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Validator error must display
-      expect(find.text('Playlist name is required'), findsOneWidget);
-      // Dialog must still be open
-      expect(find.text('New Private Playlist'), findsOneWidget);
+      expect(find.text('Enter a playlist name'), findsOneWidget);
+      // Sheet must still be open
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsOneWidget,
+      );
       expect(storageRepo.playlists, isEmpty);
 
       await tester.pumpWidget(const SizedBox());
@@ -525,8 +534,11 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
-      // Dialog dismissed
-      expect(find.text('New Private Playlist'), findsNothing);
+      // Sheet dismissed
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsNothing,
+      );
       expect(storageRepo.playlists, isEmpty);
 
       await tester.pumpWidget(const SizedBox());
@@ -543,7 +555,7 @@ void main() {
       await tester.pumpWidget(buildDashboardHarness());
       await tester.pumpAndSettle();
 
-      // Open creation dialog
+      // Open creation sheet
       await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
       await tester.pumpAndSettle();
 
@@ -553,17 +565,21 @@ void main() {
       await tester.tap(find.text('Create'));
       await tester.pumpAndSettle();
 
-      // Dialog is dismissed
-      expect(find.text('New Private Playlist'), findsNothing);
+      // Sheet is dismissed
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsNothing,
+      );
 
-      // Error SnackBar rendered with failure message
+      // Error SnackBar rendered with failure message and danger border styling
       expect(find.text(failureMsg), findsOneWidget);
       expect(find.byType(SnackBar), findsOneWidget);
 
-      // Verify SnackBar background color matches danger palette
       final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
       final theme = VaultThemeData.fromPalette(VaultThemePalettePolicyEnum.warmEspresso);
-      expect(snackBar.backgroundColor, theme.danger);
+      expect(snackBar.backgroundColor, theme.surface);
+      final shape = snackBar.shape as RoundedRectangleBorder;
+      expect(shape.side.color, theme.danger);
 
       await tester.pumpWidget(const SizedBox());
     });
@@ -607,18 +623,24 @@ void main() {
       await tester.tap(find.text('Open Dashboard'));
       await tester.pumpAndSettle();
 
-      // Open creation dialog
+      // Open creation sheet
       await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
       await tester.pumpAndSettle();
-      expect(find.text('New Private Playlist'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsOneWidget,
+      );
 
       // Session lock occurs (e.g. background grace timeout / quick lock)
       sessionBloc.emitState(const VaultLockedState(lockedAtMonotonicMs: 25000));
       await tester.pumpAndSettle();
 
-      // Both dialog and dashboard must be popped back to root screen without assertion errors
+      // Both sheet and dashboard must be popped back to root screen without assertion errors
       expect(find.text('Open Dashboard'), findsOneWidget);
-      expect(find.text('New Private Playlist'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('create_playlist_sheet')),
+        findsNothing,
+      );
       expect(find.text('Private Vault'), findsNothing);
 
       await tester.pumpWidget(const SizedBox());

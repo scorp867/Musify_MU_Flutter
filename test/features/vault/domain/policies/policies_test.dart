@@ -15,27 +15,27 @@ void main() {
     test('warmEspresso defines correct hex and ARGB constants', () {
       const palette = VaultThemePalettePolicyEnum.warmEspresso;
       expect(palette.id, 'WARM_ESPRESSO');
-      expect(palette.scaffoldColorValue, 0xFF1A120E);
-      expect(palette.backgroundColorValue, 0xFF3A2418);
-      expect(palette.surfaceColorValue, 0xFF6B4A2E);
-      expect(palette.textHighSalienceColorValue, 0xFFA88462);
-      expect(palette.scaffoldHex, '#1A120E');
-      expect(palette.backgroundHex, '#3A2418');
-      expect(palette.surfaceHex, '#6B4A2E');
-      expect(palette.textHighSalienceHex, '#A88462');
+      expect(palette.scaffoldColorValue, 0xFF120E0C);
+      expect(palette.backgroundColorValue, 0xFF1E1814);
+      expect(palette.surfaceColorValue, 0xFF231C18);
+      expect(palette.textHighSalienceColorValue, 0xFFECE6E0);
+      expect(palette.scaffoldHex, '#120E0C');
+      expect(palette.backgroundHex, '#1E1814');
+      expect(palette.surfaceHex, '#231C18');
+      expect(palette.textHighSalienceHex, '#ECE6E0');
     });
 
     test('forestNoir defines correct hex and ARGB constants', () {
       const palette = VaultThemePalettePolicyEnum.forestNoir;
       expect(palette.id, 'FOREST_NOIR');
-      expect(palette.scaffoldColorValue, 0xFF0F1F17);
-      expect(palette.backgroundColorValue, 0xFF1E3A2E);
-      expect(palette.surfaceColorValue, 0xFF3E5A3F);
-      expect(palette.textHighSalienceColorValue, 0xFF6B7F67);
-      expect(palette.scaffoldHex, '#0F1F17');
-      expect(palette.backgroundHex, '#1E3A2E');
-      expect(palette.surfaceHex, '#3E5A3F');
-      expect(palette.textHighSalienceHex, '#6B7F67');
+      expect(palette.scaffoldColorValue, 0xFF0B120E);
+      expect(palette.backgroundColorValue, 0xFF15221B);
+      expect(palette.surfaceColorValue, 0xFF1A2821);
+      expect(palette.textHighSalienceColorValue, 0xFFE3EBE6);
+      expect(palette.scaffoldHex, '#0B120E');
+      expect(palette.backgroundHex, '#15221B');
+      expect(palette.surfaceHex, '#1A2821');
+      expect(palette.textHighSalienceHex, '#E3EBE6');
     });
 
     test('round trip serialization and deserialization', () {

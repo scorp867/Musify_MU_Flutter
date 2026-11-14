@@ -391,17 +391,17 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Private Vault'), findsOneWidget);
 
-        // 2. Open Create Playlist Dialog
+        // 2. Open Create Playlist Sheet
         await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
         await tester.pumpAndSettle();
-        expect(find.text('New Private Playlist'), findsOneWidget);
+        expect(find.byKey(const ValueKey('create_playlist_sheet')), findsOneWidget);
 
         // 3. Dispatch VaultLockedState
         sessionBloc.emitState(const VaultLockedState(lockedAtMonotonicMs: 15000));
         await tester.pumpAndSettle();
 
-        // 4. Assert: Dialog is gone, Dashboard is gone, Root screen is restored
-        expect(find.text('New Private Playlist'), findsNothing);
+        // 4. Assert: Sheet is gone, Dashboard is gone, Root screen is restored
+        expect(find.byKey(const ValueKey('create_playlist_sheet')), findsNothing);
         expect(find.text('Private Vault'), findsNothing);
         expect(find.text('Root Public Screen'), findsOneWidget);
 
@@ -425,17 +425,17 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Private Vault'), findsOneWidget);
 
-        // 2. Open Create Playlist Dialog
+        // 2. Open Create Playlist Sheet
         await tester.tap(find.byKey(const ValueKey('create_private_playlist_fab')));
         await tester.pumpAndSettle();
-        expect(find.text('New Private Playlist'), findsOneWidget);
+        expect(find.byKey(const ValueKey('create_playlist_sheet')), findsOneWidget);
 
         // 3. Dispatch VaultUninitializedState (e.g. Purge)
         sessionBloc.emitState(const VaultUninitializedState());
         await tester.pumpAndSettle();
 
-        // 4. Assert: Dialog is gone, Dashboard is gone, Root screen is restored
-        expect(find.text('New Private Playlist'), findsNothing);
+        // 4. Assert: Sheet is gone, Dashboard is gone, Root screen is restored
+        expect(find.byKey(const ValueKey('create_playlist_sheet')), findsNothing);
         expect(find.text('Private Vault'), findsNothing);
         expect(find.text('Root Public Screen'), findsOneWidget);
 
@@ -459,18 +459,25 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Private Vault'), findsOneWidget);
 
-        // 2. Trigger delete confirmation dialog by swiping tile
+        // 2. Trigger delete confirmation sheet by swiping tile
         final tileKey = ValueKey(samplePlaylist.id);
         await tester.drag(find.byKey(tileKey), const Offset(-500.0, 0.0));
         await tester.pumpAndSettle();
 
-        expect(find.text('Delete Playlist'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('delete_playlist_confirmation_sheet')),
+          findsOneWidget,
+        );
 
         // 3. Dispatch VaultLockedState
         sessionBloc.emitState(const VaultLockedState(lockedAtMonotonicMs: 25000));
         await tester.pumpAndSettle();
 
-        // 4. Assert: Dialog gone, Dashboard gone, Root restored
+        // 4. Assert: Sheet gone, Dashboard gone, Root restored
+        expect(
+          find.byKey(const ValueKey('delete_playlist_confirmation_sheet')),
+          findsNothing,
+        );
         expect(find.text('Delete Playlist'), findsNothing);
         expect(find.text('Private Vault'), findsNothing);
         expect(find.text('Root Public Screen'), findsOneWidget);
@@ -492,19 +499,19 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(PrivatePlaylistDetailScreen), findsOneWidget);
 
-        // 2. Trigger track removal confirmation dialog by swiping track tile
+        // 2. Trigger track removal confirmation sheet by swiping track tile
         final trackDismissKey = ValueKey('dismiss_${sampleTrack.id}');
         await tester.drag(find.byKey(trackDismissKey), const Offset(-500.0, 0.0));
         await tester.pumpAndSettle();
 
-        expect(find.text('Remove Track'), findsOneWidget);
+        expect(find.text('Remove from Playlist'), findsOneWidget);
 
         // 3. Dispatch VaultLockedState
         sessionBloc.emitState(const VaultLockedState(lockedAtMonotonicMs: 35000));
         await tester.pumpAndSettle();
 
-        // 4. Assert: Dialog gone, Detail screen gone, Root restored
-        expect(find.text('Remove Track'), findsNothing);
+        // 4. Assert: Sheet gone, Detail screen gone, Root restored
+        expect(find.text('Remove from Playlist'), findsNothing);
         expect(find.byType(PrivatePlaylistDetailScreen), findsNothing);
         expect(find.text('Root Public Screen'), findsOneWidget);
 
@@ -529,13 +536,20 @@ void main() {
         await tester.tap(deleteBtn);
         await tester.pumpAndSettle();
 
-        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('delete_playlist_confirmation_sheet')),
+          findsOneWidget,
+        );
 
         // 3. Dispatch VaultUninitializedState
         sessionBloc.emitState(const VaultUninitializedState());
         await tester.pumpAndSettle();
 
-        // 4. Assert: Dialog gone, Detail screen gone, Root restored
+        // 4. Assert: Sheet gone, Detail screen gone, Root restored
+        expect(
+          find.byKey(const ValueKey('delete_playlist_confirmation_sheet')),
+          findsNothing,
+        );
         expect(find.text('Delete Playlist'), findsNothing);
         expect(find.byType(PrivatePlaylistDetailScreen), findsNothing);
         expect(find.text('Root Public Screen'), findsOneWidget);
