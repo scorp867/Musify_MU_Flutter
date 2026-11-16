@@ -1,15 +1,43 @@
+// ============================================================================
+// 1:1 Replicated Spotify ContextProcessor & ContextView State Machine
+// Sources:
+// - `liborbit-jni-spotify.so` `spotify.player.proto.ContextProcessor` (`0x3cea34`)
+// - `liborbit-jni-spotify.so` `is_delimiter` (`0x16b81d4`), `create_delimiter` (`0xf564d6`, `0xfb85bc`)
+// - `liborbit-jni-spotify.so` `get_next_tracks` (`0xf5529c`-`0xf552cd`), `parseLoadedContextPage` (`0x16a7530`)
+// ============================================================================
+
 #include "ContextProcessor.h"
 
 #include <algorithm>
 #include <android/log.h>
+#include <iterator>
 #include <random>
 #include <unordered_set>
 
 #define TAG "ContextProcessor"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
 
 namespace spotify::player {
+
+namespace {
+
+std::string entry_identity_key(const context_view::Entry& entry) {
+    return entry.uid.empty() ? entry.uri : entry.uid;
+}
+
+void normalize_context_entry(context_view::Entry& entry) {
+    if (entry.uid.empty()) {
+        entry.uid = generate_track_uid();
+    }
+    if (entry.provider.empty()) {
+        entry.provider = "context";
+    }
+    entry.metadata["provider"] = entry.provider;
+}
+
+} // namespace
 
 ContextProcessor::ContextProcessor() = default;
 
@@ -28,6 +56,32 @@ context_view::Entry ContextProcessor::create_delimiter(int32_t iteration) noexce
     return delimiter;
 }
 
+const std::vector<context_view::Entry>& ContextProcessor::active_list_locked() const noexcept {
+    return shuffling_ ? shuffled_order_ : loaded_tracks_;
+}
+
+void ContextProcessor::build_shuffled_order_locked() {
+    shuffled_order_ = loaded_tracks_;
+    if (shuffled_order_.empty()) {
+        index_ = 0;
+        return;
+    }
+
+    if (index_ < 0 || index_ >= static_cast<int32_t>(shuffled_order_.size())) {
+        LOGW("build_shuffled_order_locked: index=%d out of range [0, %zu), resetting to 0",
+             index_, shuffled_order_.size());
+        index_ = 0;
+    }
+
+    auto current = std::move(shuffled_order_[static_cast<size_t>(index_)]);
+    shuffled_order_.erase(shuffled_order_.begin() + index_);
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(shuffled_order_.begin(), shuffled_order_.end(), g);
+    shuffled_order_.insert(shuffled_order_.begin(), std::move(current));
+    index_ = 0;
+}
+
 void ContextProcessor::set_context(
         const std::string& context_uri,
         const std::string& page_url,
@@ -39,26 +93,30 @@ void ContextProcessor::set_context(
     current_page_url_ = page_url;
     next_page_url_ = next_page_url;
     iteration_ = 0;
+
+    shuffled_order_.clear();
     loaded_tracks_ = tracks;
     for (auto& t : loaded_tracks_) {
-        if (t.uid.empty()) {
-            t.uid = generate_track_uid();
-        }
-        if (t.provider.empty()) {
-            t.provider = "context";
-        }
-        t.metadata["provider"] = t.provider;
+        normalize_context_entry(t);
     }
 
-    if (initial_index >= 0 && initial_index < static_cast<int32_t>(loaded_tracks_.size())) {
+    if (loaded_tracks_.empty()) {
+        index_ = 0;
+    } else if (initial_index >= 0 && initial_index < static_cast<int32_t>(loaded_tracks_.size())) {
         index_ = initial_index;
     } else {
+        LOGW("set_context: initial_index=%d out of range [0, %zu), resetting to 0",
+             initial_index, loaded_tracks_.size());
         index_ = 0;
     }
 
+    if (shuffling_) {
+        build_shuffled_order_locked();
+    }
+
     rebuild_cyclic_list_locked();
-    LOGI("set_context: uri=%s (%zu tracks, initial_index=%d, next_page=%s)",
-         context_uri_.c_str(), loaded_tracks_.size(), index_, next_page_url_.c_str());
+    LOGI("set_context: uri=%s (%zu tracks, shuffling=%d, index=%d, next_page=%s)",
+         context_uri_.c_str(), loaded_tracks_.size(), shuffling_ ? 1 : 0, index_, next_page_url_.c_str());
 }
 
 // 1:1 match with liborbit.so 0x16a7530
@@ -75,17 +133,31 @@ void ContextProcessor::parseLoadedContextPage(
     current_page_url_ = page_url;
     next_page_url_ = next_page_url;
 
-    // Append newly resolved page tracks ensuring unique UIDs and context provider
+    std::vector<context_view::Entry> normalized_tracks;
+    normalized_tracks.reserve(tracks.size());
     for (const auto& track : tracks) {
         auto t = track;
-        if (t.uid.empty()) {
-            t.uid = generate_track_uid();
+        normalize_context_entry(t);
+        normalized_tracks.push_back(std::move(t));
+    }
+
+    loaded_tracks_.insert(
+        loaded_tracks_.end(),
+        normalized_tracks.begin(),
+        normalized_tracks.end());
+
+    if (shuffling_) {
+        if (shuffled_order_.empty()) {
+            build_shuffled_order_locked();
+        } else if (!normalized_tracks.empty()) {
+            std::random_device rd;
+            std::mt19937 g(rd());
+            std::shuffle(normalized_tracks.begin(), normalized_tracks.end(), g);
+            shuffled_order_.insert(
+                shuffled_order_.end(),
+                std::make_move_iterator(normalized_tracks.begin()),
+                std::make_move_iterator(normalized_tracks.end()));
         }
-        if (t.provider.empty()) {
-            t.provider = "context";
-        }
-        t.metadata["provider"] = t.provider;
-        loaded_tracks_.push_back(std::move(t));
     }
 
     rebuild_cyclic_list_locked();
@@ -95,7 +167,7 @@ void ContextProcessor::rebuild_cyclic_list_locked() {
     auto& cyclic = context_view_.cyclic_list;
     cyclic.items.clear();
 
-    const auto& source_list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    const auto& source_list = active_list_locked();
     cyclic.items.reserve(source_list.size() + 2);
 
     for (const auto& track : source_list) {
@@ -122,9 +194,9 @@ void ContextProcessor::rebuild_cyclic_list_locked() {
 
 std::optional<context_view::Entry> ContextProcessor::get_current_track() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    const auto& list = active_list_locked();
     if (index_ >= 0 && index_ < static_cast<int32_t>(list.size())) {
-        return list[index_];
+        return list[static_cast<size_t>(index_)];
     }
     return std::nullopt;
 }
@@ -133,13 +205,17 @@ std::optional<context_view::Entry> ContextProcessor::get_current_track() const {
 std::vector<context_view::Entry> ContextProcessor::get_next_tracks(int32_t max_count) const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<context_view::Entry> result;
-    const auto& items = context_view_.cyclic_list.items;
-
-    if (items.empty() || index_ < 0) {
+    if (max_count <= 0) {
         return result;
     }
 
-    result.reserve(static_cast<size_t>(max_count));
+    const auto& active = active_list_locked();
+    const auto& items = context_view_.cyclic_list.items;
+    if (active.empty() || items.empty() || index_ < 0) {
+        return result;
+    }
+
+    result.reserve(std::min(static_cast<size_t>(max_count), items.size()));
 
     for (size_t i = static_cast<size_t>(index_ + 1); i < items.size(); ++i) {
         const auto& item = items[i];
@@ -167,13 +243,13 @@ std::vector<context_view::Entry> ContextProcessor::get_next_tracks(int32_t max_c
 std::vector<context_view::Entry> ContextProcessor::get_prev_tracks() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<context_view::Entry> result;
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    const auto& list = active_list_locked();
 
     if (list.empty() || index_ <= 0) {
         return result;
     }
 
-    int32_t start = std::min(index_ - 1, static_cast<int32_t>(list.size()) - 1);
+    const int32_t start = std::min(index_ - 1, static_cast<int32_t>(list.size()) - 1);
     for (int32_t i = start; i >= 0; --i) {
         result.push_back(list[static_cast<size_t>(i)]);
     }
@@ -188,28 +264,58 @@ void ContextProcessor::filter_next_tracks(const std::vector<context_view::Entry>
     std::unordered_set<std::string> valid_keys;
     valid_keys.reserve(valid_next.size());
     for (const auto& e : valid_next) {
-        valid_keys.insert(e.uid.empty() ? e.uri : e.uid);
+        valid_keys.insert(entry_identity_key(e));
     }
 
-    auto filter_list = [&](std::vector<context_view::Entry>& list) {
-        if (index_ + 1 >= static_cast<int32_t>(list.size())) return;
-        auto it = list.begin() + (index_ + 1);
-        while (it != list.end()) {
-            std::string key = it->uid.empty() ? it->uri : it->uid;
+    if (!shuffling_) {
+        if (index_ + 1 >= static_cast<int32_t>(loaded_tracks_.size())) return;
+        auto it = loaded_tracks_.begin() + (index_ + 1);
+        while (it != loaded_tracks_.end()) {
             if (it->is_delimiter() || it->is_placeholder()) {
                 ++it;
-            } else if (valid_keys.find(key) == valid_keys.end()) {
-                it = list.erase(it);
+            } else if (valid_keys.find(entry_identity_key(*it)) == valid_keys.end()) {
+                it = loaded_tracks_.erase(it);
             } else {
                 ++it;
             }
         }
-    };
+    } else {
+        if (index_ + 1 >= static_cast<int32_t>(shuffled_order_.size())) return;
+        std::unordered_set<std::string> prefix_keys;
+        for (int32_t i = 0; i <= index_; ++i) {
+            prefix_keys.insert(entry_identity_key(shuffled_order_[static_cast<size_t>(i)]));
+        }
 
-    filter_list(loaded_tracks_);
-    if (!shuffled_order_.empty()) {
-        filter_list(shuffled_order_);
+        std::unordered_set<std::string> erased_keys;
+        auto it = shuffled_order_.begin() + (index_ + 1);
+        while (it != shuffled_order_.end()) {
+            const std::string key = entry_identity_key(*it);
+            if (it->is_delimiter() || it->is_placeholder()) {
+                ++it;
+            } else if (valid_keys.find(key) == valid_keys.end()) {
+                erased_keys.insert(key);
+                it = shuffled_order_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        if (!erased_keys.empty()) {
+            auto lit = loaded_tracks_.begin();
+            while (lit != loaded_tracks_.end()) {
+                const std::string key = entry_identity_key(*lit);
+                if (!lit->is_delimiter() &&
+                    !lit->is_placeholder() &&
+                    prefix_keys.find(key) == prefix_keys.end() &&
+                    erased_keys.find(key) != erased_keys.end()) {
+                    lit = loaded_tracks_.erase(lit);
+                } else {
+                    ++lit;
+                }
+            }
+        }
     }
+
     rebuild_cyclic_list_locked();
 }
 
@@ -217,18 +323,27 @@ void ContextProcessor::set_next_tracks_slice(const std::vector<context_view::Ent
     std::lock_guard<std::mutex> lock(mutex_);
     if (index_ < 0) return;
 
-    auto update_list = [&](std::vector<context_view::Entry>& list) {
+    std::vector<context_view::Entry> normalized_next;
+    normalized_next.reserve(reordered_next.size());
+    std::unordered_set<std::string> incoming_uids;
+    incoming_uids.reserve(reordered_next.size());
+    for (const auto& req : reordered_next) {
+        auto track = req;
+        if (track.uid.empty()) {
+            track.uid = generate_track_uid();
+        }
+        track.provider = "context";
+        track.metadata["provider"] = "context";
+        track.metadata["is_queued"] = "false";
+        incoming_uids.insert(track.uid);
+        normalized_next.push_back(std::move(track));
+    }
+
+    auto apply_slice_to_list = [&](std::vector<context_view::Entry>& list,
+                                   std::unordered_set<std::string>* removed_keys_out) {
         if (index_ + 1 >= static_cast<int32_t>(list.size())) {
-            for (const auto& req : reordered_next) {
-                auto track = req;
-                if (track.uid.empty()) {
-                    track.uid = generate_track_uid();
-                }
-                if (track.provider.empty()) {
-                    track.provider = "context";
-                }
-                track.metadata["provider"] = track.provider;
-                list.push_back(std::move(track));
+            for (const auto& track : normalized_next) {
+                list.push_back(track);
             }
             return;
         }
@@ -236,25 +351,9 @@ void ContextProcessor::set_next_tracks_slice(const std::vector<context_view::Ent
         std::vector<context_view::Entry> tail(list.begin() + (index_ + 1), list.end());
         list.erase(list.begin() + (index_ + 1), list.end());
 
-        // Index incoming UIDs for fast lookup of lookahead slice items
-        std::unordered_set<std::string> incoming_uids;
-        incoming_uids.reserve(reordered_next.size());
-        for (const auto& req : reordered_next) {
-            if (!req.uid.empty()) {
-                incoming_uids.insert(req.uid);
-            }
-        }
-
         // 1. Directly adopt the client's resolved reordered slice
-        for (const auto& req : reordered_next) {
-            auto track = req;
-            if (track.uid.empty()) {
-                track.uid = generate_track_uid();
-            }
-            track.provider = "context";
-            track.metadata["provider"] = "context";
-            track.metadata["is_queued"] = "false";
-            list.push_back(std::move(track));
+        for (const auto& track : normalized_next) {
+            list.push_back(track);
         }
 
         // 2. Preserve unexposed trailing tail items (delimiters, placeholders, and tracks beyond lookahead)
@@ -263,20 +362,68 @@ void ContextProcessor::set_next_tracks_slice(const std::vector<context_view::Ent
                 list.push_back(std::move(item));
             } else if (!item.uid.empty() && incoming_uids.find(item.uid) == incoming_uids.end()) {
                 list.push_back(std::move(item));
+            } else if (removed_keys_out != nullptr && !item.uid.empty()) {
+                removed_keys_out->insert(item.uid);
             }
         }
     };
 
-    update_list(loaded_tracks_);
-    if (!shuffled_order_.empty()) {
-        update_list(shuffled_order_);
+    if (!shuffling_) {
+        apply_slice_to_list(loaded_tracks_, nullptr);
+    } else if (shuffled_order_.empty()) {
+        for (const auto& track : normalized_next) {
+            loaded_tracks_.push_back(track);
+        }
+        build_shuffled_order_locked();
+    } else {
+        std::unordered_set<std::string> prefix_uids;
+        const int32_t prefix_end = std::min(index_, static_cast<int32_t>(shuffled_order_.size()) - 1);
+        for (int32_t i = 0; i <= prefix_end; ++i) {
+            if (!shuffled_order_[static_cast<size_t>(i)].uid.empty()) {
+                prefix_uids.insert(shuffled_order_[static_cast<size_t>(i)].uid);
+            }
+        }
+
+        std::unordered_set<std::string> removed_uids;
+        apply_slice_to_list(shuffled_order_, &removed_uids);
+        for (const auto& uid : incoming_uids) {
+            removed_uids.erase(uid);
+        }
+
+        if (!removed_uids.empty()) {
+            auto lit = loaded_tracks_.begin();
+            while (lit != loaded_tracks_.end()) {
+                if (!lit->uid.empty() &&
+                    prefix_uids.find(lit->uid) == prefix_uids.end() &&
+                    removed_uids.find(lit->uid) != removed_uids.end()) {
+                    lit = loaded_tracks_.erase(lit);
+                } else {
+                    ++lit;
+                }
+            }
+        }
+
+        std::unordered_set<std::string> existing_loaded_uids;
+        existing_loaded_uids.reserve(loaded_tracks_.size());
+        for (const auto& item : loaded_tracks_) {
+            if (!item.uid.empty()) {
+                existing_loaded_uids.insert(item.uid);
+            }
+        }
+        for (const auto& track : normalized_next) {
+            if (existing_loaded_uids.find(track.uid) == existing_loaded_uids.end()) {
+                existing_loaded_uids.insert(track.uid);
+                loaded_tracks_.push_back(track);
+            }
+        }
     }
+
     rebuild_cyclic_list_locked();
 }
 
 bool ContextProcessor::skip_next() {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    const auto& list = active_list_locked();
     if (index_ + 1 < static_cast<int32_t>(list.size())) {
         ++index_;
         return true;
@@ -295,7 +442,7 @@ bool ContextProcessor::skip_prev() {
 
 bool ContextProcessor::skip_to_index(int32_t index) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    const auto& list = active_list_locked();
     if (index >= 0 && index < static_cast<int32_t>(list.size())) {
         index_ = index;
         return true;
@@ -305,7 +452,8 @@ bool ContextProcessor::skip_to_index(int32_t index) {
 
 bool ContextProcessor::skip_to_uri(const std::string& uri) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    if (uri.empty()) return false;
+    const auto& list = active_list_locked();
     for (size_t i = 0; i < list.size(); ++i) {
         if (list[i].uri == uri) {
             index_ = static_cast<int32_t>(i);
@@ -317,7 +465,8 @@ bool ContextProcessor::skip_to_uri(const std::string& uri) {
 
 bool ContextProcessor::skip_to_uid(const std::string& uid) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
+    if (uid.empty()) return false;
+    const auto& list = active_list_locked();
     for (size_t i = 0; i < list.size(); ++i) {
         if (list[i].uid == uid) {
             index_ = static_cast<int32_t>(i);
@@ -333,25 +482,25 @@ void ContextProcessor::set_shuffling(bool shuffle) {
     shuffling_ = shuffle;
 
     if (shuffling_) {
-        shuffled_order_ = loaded_tracks_;
-        if (!shuffled_order_.empty() && index_ >= 0 && index_ < static_cast<int32_t>(shuffled_order_.size())) {
-            auto current = shuffled_order_[static_cast<size_t>(index_)];
-            shuffled_order_.erase(shuffled_order_.begin() + index_);
-            std::random_device rd;
-            std::mt19937 g(rd());
-            std::shuffle(shuffled_order_.begin(), shuffled_order_.end(), g);
-            shuffled_order_.insert(shuffled_order_.begin(), current);
-            index_ = 0;
-        }
+        build_shuffled_order_locked();
     } else {
-        if (!shuffled_order_.empty() && index_ >= 0 && index_ < static_cast<int32_t>(shuffled_order_.size())) {
-            const auto& current_uid = shuffled_order_[static_cast<size_t>(index_)].uid;
+        if (!shuffled_order_.empty() &&
+            index_ >= 0 &&
+            index_ < static_cast<int32_t>(shuffled_order_.size())) {
+            const std::string current_uid = shuffled_order_[static_cast<size_t>(index_)].uid;
+            bool found = false;
             for (size_t i = 0; i < loaded_tracks_.size(); ++i) {
                 if (loaded_tracks_[i].uid == current_uid) {
                     index_ = static_cast<int32_t>(i);
+                    found = true;
                     break;
                 }
             }
+            if (!found) {
+                index_ = 0;
+            }
+        } else {
+            index_ = 0;
         }
         shuffled_order_.clear();
     }
@@ -369,8 +518,8 @@ bool ContextProcessor::needs_next_page() const {
     if (next_page_url_.empty()) {
         return false;
     }
-    const auto& list = (shuffling_ && !shuffled_order_.empty()) ? shuffled_order_ : loaded_tracks_;
-    int32_t remaining = static_cast<int32_t>(list.size()) - 1 - index_;
+    const auto& list = active_list_locked();
+    const int32_t remaining = static_cast<int32_t>(list.size()) - 1 - index_;
     return remaining <= kPageLookaheadThreshold;
 }
 
@@ -400,8 +549,10 @@ void ContextProcessor::clear() {
     shuffling_ = false;
     loaded_tracks_.clear();
     shuffled_order_.clear();
+    context_view_.patch_map.clear();
     context_view_.cyclic_list.items.clear();
     context_view_.cyclic_list.delimiter = {};
+    context_view_.cyclic_list.patch = {};
     context_view_.iteration_size = 0;
 }
 

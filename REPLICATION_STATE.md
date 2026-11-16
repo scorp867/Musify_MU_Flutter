@@ -41,7 +41,8 @@
 ## REPLICATION PROGRESS TRACKER
 
 ##### In Progress
-- **Active Item:** Phase 11 Completed (All 106 Items 100% Replicated 1:1)
+- **Active Item:** None (Phase 12G Items 172–180 and full Phase 12A–12G ConnectState & DoDo replication Items 107–180 complete and verified).
+- **Status:** Complete & Verified: All 74 Connect State, DoDo, and R2 modularity items (Items 107–180) are implemented 1:1 across the C++20 native engine (`android/app/src/main/cpp/connect/`), Esperanto FFI bridge, Dart domain/data/Mobius/UI layers (`lib/features/connect/`), and Player/Shell/DI/App wiring (`lib/features/player/`, `lib/features/shell/`, `lib/app/`). Item 180 cross-phase verification gate passed (C++20 NDK CMake build `[321/321]` with 0 errors/0 warnings and 12 exported `musify_connect_`/`musify_dodo_` symbols, scoped `flutter analyze` 0 issues, `flutter analyze lib/` 0 errors/0 warnings, `348/348` Item 180 tests + `68/68` core unit tests with 1 pre-existing skip).
 - **Completed in Phase 11 (Native Architecture Parity — C++ ContextPlayerImpl):**
   1. `android/app/src/main/cpp/player/ContextPlayerImpl.h` (Item 99): C++ header matching `liborbit-jni-spotify.so` — PlayTrackCallback, StateChangedCallback, QueueChangedCallback, ErrorCallback, 26 command methods, thread-safe state.
   2. `android/app/src/main/cpp/player/ContextPlayerImpl.cpp` (Item 100): Full 1567-line C++ implementation — manual protobuf wire parsing, `handle_command` string dispatch, `advanceToNextTrack` EOS, `RoutingTrackPlayer` pause/stop during advancement, user queue interleaving, state protobuf emission (fields 1-31). NDK 28 Clang C++20: 0 errors.
@@ -53,6 +54,9 @@
   8. `android/app/src/main/cpp/CMakeLists.txt` (Item 106): Updated for CPI + `dart_api_dl.c`.
   9. Zero analyzer issues (`flutter analyze`: No issues found).
   10. 100% test pass rate (211/211 passed, 1 skipped).
+- **Completed in Phase 12A (Exhaustive Forensics & Master Inventory):**
+  - Scanned `/home/Downloads/Spotify_decompiled/sources/com/spotify/connect`, `/home/Downloads/Spotify_decompiled/sources/p199p/`, `/home/Downloads/Spotify_decompiled/resources/lib/arm64-v8a/liborbit-jni-spotify.so`, and `/home/Downloads/Spotify_decompiled/memdump/liborbit-jni-spotify_memdump.so`.
+  - Enumerated Items 107 through 180 covering Protobuf wire schemas, Native C++ Connect State engine, Esperanto RPC services & FFI bridge, Dart clients/models/mappers, Mobius loops, Room/SQLite device sorting comparator, R2 modularity extractions, and Output Switcher UI.
 
 ---
 
@@ -92,7 +96,7 @@
 29. [x] `lib/features/player/domain/commands/options/play_trigger.dart` (`PlayTrigger.java`)
 30. [x] `lib/features/player/domain/commands/options/prefetch_level.dart` (`PrefetchLevel.java`)
 31. [x] `lib/features/player/domain/commands/options/prepare_play_options.dart` (`PreparePlayOptions.java`, `AutoValue_PreparePlayOptions.java`)
-32: [x] `lib/features/player/domain/commands/options/restore_paused.dart` (`RestorePaused.java`)
+32. [x] `lib/features/player/domain/commands/options/restore_paused.dart` (`RestorePaused.java`)
 33. [x] `lib/features/player/domain/commands/options/skip_to_prev_track_options.dart` (`SkipToPrevTrackOptions.java`)
 34. [x] `lib/features/player/domain/commands/options/skip_to_track.dart` (`SkipToTrack.java`, `AutoValue_SkipToTrack.java`)
 35. [x] `lib/features/player/domain/commands/options/timer_type.dart` (`TimerType.java`, `AutoValue_TimerType_*.java`)
@@ -186,6 +190,97 @@
 105. [x] `lib/features/player/data/esperanto/native_esperanto_transport.dart` — Rewritten 983→321 lines, thin FFI bridge using `_engine.handle`
 106. [x] `android/app/src/main/cpp/CMakeLists.txt` — Updated build config for CPI + dart_api_dl
 
+#### Phase 12A: Forensics & Master Inventory — [COMPLETED]
+- Items scanned, verified, and mapped to exact source files, binary offsets, and target paths.
+
+#### Phase 12B: Protobuf Schemas & Wire Descriptors (`protos/spotify/connect/` & `protos/esperanto/`) — [ALL COMPLETED 1:1]
+107. [x] `protos/spotify/connect/cluster.proto` (`ClusterUpdate`, `Cluster`) — Sources: `liborbit-jni-spotify_memdump.so` offset `0x3fa5c2` (`connect.proto`), `0x3fdc96` (`connect-service.proto`).
+108. [x] `protos/spotify/connect/devices.proto` (`DeviceInfo`, `Capabilities`, `AudioOutputDeviceInfo`, `DodoDeviceInfo`, `DeviceAliases`) — Sources: `liborbit-jni-spotify_memdump.so` offset `0x3fe006` (`devices.proto`).
+109. [x] `protos/spotify/connect/player.proto` (`PlayerState`, `PlaybackQuality`, `ContextIndex`) — Sources: `liborbit-jni-spotify_memdump.so` offset `0x3fe6e6` (`player.proto`).
+110. [x] `protos/spotify/connect/connect.proto` (`PutStateRequest`, `PutStateRequestWrapper`, `PutStateReason`, `ConnectCommand`) — Sources: `liborbit-jni-spotify_memdump.so` offset `0x3fa5c2`.
+111. [x] `protos/spotify/connect/group.proto` (`GroupData`, `GroupDevice`, `GroupCapabilities`, `GroupDeviceIdentifiers`, `GroupDeviceCapabilities`, `GroupDeviceVolume`) — Sources: `ConnectMessages$GroupData.java`.
+112. [x] `protos/esperanto/connect_messages.proto` & `lib/features/connect/data/proto/es_connect_messages.pb.dart` (`ConnectMessages$StateRequest`, `StateResponse`, `Device`, `Hifi`, `Incarnation`, `OutputPeripheral`, `TransferRequest`, `PullRequest`, `LogoutRequest`, `NotifyAudioRouteChangedRequest`, `SetPreferredIncarnationRequest`, `AddDeviceToGroupRequest`/`Response`, `RemoveDeviceFromGroupRequest`/`Response`, `ClusterUpdateAfterBackendConnectionResponse`, `InstallSpotifyRequest`/`StatusUpdate`) — Sources: `com/spotify/connect/esperanto/proto/ConnectMessages.java`.
+113. [x] `protos/esperanto/volume_messages.proto` & `lib/features/connect/data/proto/es_volume_messages.pb.dart` (`VolumeResponse`, `VolumeSetRequest`, `VolumeUpRequest`, `VolumeDownRequest`) — Sources: `com/spotify/connect/esperanto/proto/VolumeMessages.java`.
+114. [x] `protos/esperanto/common_messages.proto` & `lib/features/connect/data/proto/es_common_messages.pb.dart` (`LoggingParams`, `StatusResponse`) — Sources: `com/spotify/connect/esperanto/proto/CommonMessages.java`.
+115. [x] `protos/esperanto/cast_messages.proto` & `lib/features/connect/data/proto/es_cast_messages.pb.dart` (`DeviceId`, `PutDeviceRequest`, `ConnectionErrorRequest`, `ConnectRequest`, `Response`) — Sources: `com/spotify/connect/discovery/cast/esperanto/proto/CastMessages.java`.
+
+#### Phase 12C: Native C++ Connect State Engine (`android/app/src/main/cpp/connect/`) — [ALL COMPLETED 1:1]
+116. [x] `android/app/src/main/cpp/connect/ConnectStateProtos.h` — Protobuf wire encoders/decoders for `spotify.connectstate.*` using `ProtobufWireHelper.h` (Sources: `liborbit-jni-spotify_memdump.so` string tables).
+117. [x] `android/app/src/main/cpp/connect/DealerWebSocketClient.h` & `.cpp` — Native WebSocket client to `wss://dealer.g2.spotify.com:443`, ping/pong (`hm://connect-state/v1/ping`), `X-Spotify-Connection-Id`, topic distribution for `hm://connect-state/v1/*` (Sources: `liborbit` strings `0x184e99`, `0x19cb5c`, `0x19ecd0`).
+118. [x] `android/app/src/main/cpp/connect/PutStateBackoff.h` & `.cpp` — Exponential backoff for WebGate PutState synchronization (Sources: `liborbit` `0x1522e9`, `ConnectStateClientImpl PutStateBackoff`).
+119. [x] `android/app/src/main/cpp/connect/VolumeThrottler.h` & `.cpp` — Rate-limits `VOLUME_CHANGED` PutState calls (Sources: `liborbit` `0x1a2c19` `"Not sending VOLUME_CHANGED PutState now..."` & `0x18a597` `"player_state_changed_putstate_throttling_window"`).
+120. [x] `android/app/src/main/cpp/connect/ConnectStateClientImpl.h` & `.cpp` — REST sync with WebGate (`PUT /connect-state/v1/devices/{id}`, `POST /connect-state/v1/connect/*`), gzip compression via zlib, PutStateRequest builder (Sources: `liborbit` `0x17c281`, `0x37bf6e`).
+121. [x] `android/app/src/main/cpp/connect/ConnectDevicesImpl.h` & `.cpp` — Cluster state holder, `acquireClusterUpdatePostponementBlock` / `releaseClusterUpdatePostponementBlock`, capability application, local discovery (Sources: `liborbit` `0x18e180`, `0x159fd8`, `0x13f62d`, `0x178393`).
+122. [x] `android/app/src/main/cpp/connect/TransferIntention.h` & `.cpp` — Transfer intention state machine, intention ID lifecycle, timeout handling (Sources: `liborbit` `0x14e9a1`, `0x171d08`).
+123. [x] `android/app/src/main/cpp/connect/TransferManager.h` & `.cpp` — 1:1 replication of `spotify::connect::TransferManager` (`transferToDevice`, `transferToConnectStateDevice`, `onClusterUpdate`, `onBecomeActiveTimeout`, `shouldIgnoreRepeatedTransferRequest`) (Sources: `liborbit` `0x1951e5`, `0x19f03d`, `0x15a30c`, `0x1a2f14`, `0x14abef`).
+124. [x] `android/app/src/main/cpp/connect/ConnectSubsystem.h` & `.cpp` — Coordinator integrating `ContextPlayerImpl` (state notification, remote command injection, playback handoff), `DealerWebSocketClient`, `ConnectStateClientImpl`, `ConnectDevicesImpl`, and `TransferManager`.
+125. [x] `android/app/src/main/cpp/network/NativeHttpClient.h` & `.cpp` — Refactor `executeOnce` to attach `CURLOPT_POSTFIELDS` on `PUT` and expose public `put()` method for WebGate `PUT connect-state/v1/devices/{device_id}`.
+
+#### Phase 12D: Native Esperanto Services & FFI Bridge — [ALL COMPLETED 1:1]
+126. [x] `android/app/src/main/cpp/connect/ConnectServiceImpl.h` & `.cpp` — Native C++ Esperanto RPC implementation for `spotify.connect.esperanto.proto.ConnectService` (12 RPC methods) (Sources: `liborbit` `0x1a2b68`, `p199p/s77.java`, `p199p/C2086nd.java`).
+127. [x] `android/app/src/main/cpp/connect/ConnectVolumeServiceImpl.h` & `.cpp` — Native C++ Esperanto RPC implementation for `spotify.connect.esperanto.proto.ConnectVolumeService` (5 RPC methods) (Sources: `liborbit` `0x1434d6`, `p199p/a0f1.java`, `p199p/lw51.java`).
+128. [x] `android/app/src/main/cpp/connect/DodoServiceImpl.h` & `.cpp` — Native C++ Esperanto RPC implementation for `spotify.connect.esperanto.proto.DodoService` (4 RPC methods) (Sources: `liborbit` `0x16a9c9`).
+129. [x] `android/app/src/main/cpp/ffi_bridge.cpp` — Export C-ABI FFI functions for Connect Subsystem (`musify_connect_create`, `musify_connect_destroy`, `musify_connect_service_call`, `musify_connect_volume_service_call`, `musify_connect_set_state_port`, `musify_connect_set_volume_port`, plus `musify_connect_set_local_volume_port`, `musify_connect_set_dodo_port`, `musify_connect_set_install_spotify_port`, `musify_connect_start`, `musify_connect_stop`, `musify_dodo_service_call`).
+130. [x] `android/app/src/main/cpp/CMakeLists.txt` — Append all `connect/*.cpp` files to `musify_audio` build target with C++20 flags.
+131. [x] `lib/core/audio/musify_ffi_bindings.dart` — Add Connect Subsystem FFI lookup bindings and public API methods.
+132. [x] `lib/features/player/data/esperanto/native_esperanto_transport.dart` — Implement service-based routing in `callSingle`, `callStream`, and `callSync` for `spotify.connect.esperanto.proto.*` services.
+
+#### Phase 12E: Dart Esperanto Clients, Domain Models & Proto Mappers (`lib/features/connect/data/` & `domain/`) — [ALL COMPLETED 1:1]
+133. [x] `lib/features/connect/data/esperanto/connect_service_client.dart` — Dart client for `spotify.connect.esperanto.proto.ConnectService` across `NativeEsperantoTransport` (Sources: `p199p/s77.java`, `p199p/C2086nd.java`).
+134. [x] `lib/features/connect/data/esperanto/connect_volume_service_client.dart` — Dart client for `spotify.connect.esperanto.proto.ConnectVolumeService` across `NativeEsperantoTransport` (Sources: `p199p/C2086nd.java`, `p199p/a0f1.java`, `p199p/lw51.java`).
+135. [x] `lib/features/connect/data/esperanto/dodo_service_client.dart` — Dart client for `spotify.connect.esperanto.proto.DodoService` across `NativeEsperantoTransport` (Sources: `liborbit` `0x16a9c9`).
+136. [x] `lib/features/connect/data/mappers/connect_proto_mappers.dart` — Master wire mapper converting Esperanto proto responses into immutable domain models (Sources: `p199p/n8d.java` lines 514–1050).
+137. [x] `lib/features/connect/data/mappers/cluster_mapper.dart` — 1:1 mapper for `ConnectMessages$StateResponse` to `ConnectCluster` (Sources: `p199p/n8d.java`).
+138. [x] `lib/features/connect/data/mappers/device_info_mapper.dart` — 1:1 mapper for `ConnectMessages$StateResponse$Device` to `ConnectDevice` (Sources: `p199p/n8d.java`).
+139. [x] `lib/features/connect/data/mappers/volume_mapper.dart` — 1:1 mapper for `VolumeMessages$VolumeState` to `ConnectVolumeState` (Sources: `p199p/a0f1.java`).
+140. [x] `lib/features/connect/data/mappers/group_mapper.dart` — 1:1 mapper for `ConnectMessages$GroupData` to `ConnectGroupData` (Sources: `p199p/n8d.java`).
+141. [x] `lib/features/connect/domain/models/connect_device.dart` — 1:1 domain entity (`p199p/w7k.java`) with 39 immutable fields, zero non-null assertions, zero fallbacks.
+142. [x] `lib/features/connect/domain/models/connect_cluster.dart` — 1:1 domain entity (`p199p/tck.java`) holding active device ID, cluster devices map, state flags.
+143. [x] `lib/features/connect/domain/models/connect_capabilities.dart` — 1:1 domain entity for device capabilities (volume steps, transfer support, group support, voice support).
+144. [x] `lib/features/connect/domain/models/connect_volume_state.dart` — 1:1 domain entity for volume (0.0 to 1.0, step size, is_muted).
+145. [x] `lib/features/connect/domain/models/connect_group_data.dart` — 1:1 domain entity (`p199p/of40.java`) for group audio session data.
+146. [x] `lib/features/connect/domain/models/connect_group_device.dart` — 1:1 domain entity (`p199p/ug40.java`) for speaker group member.
+147. [x] `lib/features/connect/domain/models/output_peripheral.dart` — 1:1 domain entity (`p199p/k7k.java`) for Bluetooth/AirPlay/Cast peripheral status.
+148. [x] `lib/features/connect/domain/models/incarnation.dart` — 1:1 domain entity (`p199p/r370.java`) for device incarnation.
+149. [x] `lib/features/connect/domain/models/hifi_status.dart` — 1:1 domain entity (`p199p/u450.java`) for HiFi eligibility and support.
+150. [x] `lib/features/connect/domain/models/device_type.dart` — 1:1 domain enum (`p199p/t3t.java`) with 17 variants.
+151. [x] `lib/features/connect/domain/models/grouping_status.dart` — 1:1 domain enum (`p199p/im40.java`) with 4 variants.
+152. [x] `lib/features/connect/domain/models/transfer_state.dart` — Sealed hierarchy for transfer intention state.
+
+#### Phase 12F: Connect Application Layer, Mobius Loops & Device Sorting (`lib/features/connect/application/`) — [ALL COMPLETED 1:1]
+153. [x] `lib/features/connect/application/mobius/connect_mobius_controller.dart` — Mobius loop controller managing subscriptions and state emissions (`p199p/yrq.java`).
+154. [x] `lib/features/connect/application/mobius/connect_event.dart` — Sealed event root with `DeviceSelected`, `VolumeChanged`, `RefreshRequested`, `ClusterUpdated` (`p199p/i6k.java`, `f6k`, `g6k`, `h6k`).
+155. [x] `lib/features/connect/application/mobius/connect_state.dart` — Immutable Mobius state holding available devices, cluster state, and active transfer (`p199p/v6k.java`, `w6k.java`).
+156. [x] `lib/features/connect/application/mobius/connect_effect.dart` — Sealed effect root (`TransferToDeviceEffect`, `SetVolumeEffect`, `RefreshClusterEffect`, `WakeSleepingDevicesEffect`).
+157. [x] `lib/features/connect/application/mobius/connect_effect_handler.dart` — Effect handler executing against ConnectServiceClient & ConnectVolumeServiceClient (`p199p/d6k.java`).
+158. [x] `lib/features/connect/application/mobius/connect_mobius_update.dart` — Pure deterministic state transition function (`p199p/vrq.java` & `p199p/lbv.java` `m59792d`).
+159. [x] `lib/features/connect/application/sorting/device_picker_sorting_database.dart` — 1:1 replication of `DevicePickerSortingDatabase` (Room SQLite table `DeviceLastConnection` with `deviceIdentifier` and `timestamp`) (`qr0.java`, `or0.java`, `wwj.java`, `p199p/azq.java`).
+160. [x] `lib/features/connect/application/sorting/device_sorting_comparator.dart` — 1:1 4-stage comparator (`p199p/wcs.java` lines 3–57 `m88644e`/`m88646g`, `p199p/iq6.java`, `p199p/tzs.java`, `p199p/oco.java`).
+161. [x] `lib/features/connect/application/volume/remote_volume_controller.dart` — Remote volume controller with step quantization and debounce (`p199p/a0f1.java`, `p199p/lw51.java`).
+
+#### Requirement R2: Code Modularity & Extraction of Existing Merged Files — [ALL COMPLETED 1:1]
+162. [x] `lib/features/player/presentation/widgets/player_seek_bar.dart` — Extracted `PlayerSeekBar` and `_SilverFlowingSliderTrackShape` from `player_controls.dart`.
+163. [x] `lib/features/player/presentation/widgets/player_playback_controls.dart` — Extracted `PlayerPlaybackControls` from `player_controls.dart`.
+164. [x] `lib/features/player/presentation/widgets/player_utility_row.dart` — Extracted `PlayerUtilityRow` (Connect Devices trigger) from `player_controls.dart`.
+165. [x] `lib/features/player/presentation/widgets/player_secondary_controls.dart` — Extracted `PlayerSecondaryControls` from `player_controls.dart`.
+166. [x] `lib/features/player/presentation/widgets/player_controls.dart` — Refactored to clean barrel export.
+167. [x] `lib/features/player/presentation/widgets/player_options_sheet.dart` — Extracted `PlayerOptionsSheet` from `player_sheets.dart`.
+168. [x] `lib/features/player/presentation/widgets/player_track_details_sheet.dart` — Extracted `PlayerTrackDetailsSheet` from `player_sheets.dart` (remediated `duration!` AST violation via pattern-matched `if (duration case final trackDuration?)`).
+169. [x] `lib/features/player/presentation/widgets/player_sheet_header.dart` — Extracted `PlayerSheetHeader` from `player_sheets.dart`.
+170. [x] `lib/features/player/presentation/widgets/player_sheet_detail_row.dart` — Extracted `PlayerSheetDetailRow` from `player_sheets.dart`.
+171. [x] `lib/features/player/presentation/widgets/player_sheets.dart` — Refactored to clean barrel export.
+
+#### Phase 12G: Presentation Layer & Output Switcher UI (`lib/features/connect/presentation/`) — [ALL COMPLETED 1:1]
+172. [x] `lib/features/connect/presentation/screens/device_picker_sheet.dart` — Output Switcher modal bottom sheet with device list, active device indicator, and volume slider (`com/spotify/connect/`).
+173. [x] `lib/features/connect/presentation/widgets/device_list_tile.dart` — Device entry tile with type icon, name, connection status (`p199p/bsq.java`, `p199p/dsq.java`).
+174. [x] `lib/features/connect/presentation/widgets/device_picker_header.dart` — Title bar with current listening device status and close button.
+175. [x] `lib/features/connect/presentation/widgets/active_device_banner.dart` — Green "Listening on <Device>" banner for `MiniPlayer` and `PlayerScreen`.
+176. [x] `lib/features/connect/presentation/widgets/connect_volume_slider.dart` — Remote volume slider widget.
+177. [x] `lib/features/connect/presentation/widgets/group_device_tile.dart` — Multi-speaker group sub-item with individual volume control.
+178. [x] Wire `ActiveDeviceBanner` into `lib/features/player/presentation/widgets/mini_player.dart` and `lib/features/player/presentation/screens/player_screen.dart`.
+179. [x] Wire Connect device trigger in `PlayerUtilityRow` (`onDevice`) to launch `DevicePickerSheet`.
+180. [x] Verification & Quality Gate: `flutter analyze` 0 errors/0 warnings, C++20 Clang compilation 0 errors/0 warnings, 100% test pass rate with zero regressions.
+
 ---
 
 ### Completed & Verified
@@ -200,3 +295,11 @@
 - [x] Items 92–94: Now Playing Scroll Controller & Pipeline (`application/scroll/*`)
 - [x] Items 95–98: Presentation Layer (Queue & Player Screens/Widgets)
 - [x] Items 99–106: Native Architecture Parity — C++ ContextPlayerImpl, RestrictionsEngine, StateEmitter, FFI Bridge, Dart Bindings, thin NativeEsperantoTransport
+- [x] Phase 12A: Exhaustive Master Inventory & Forensics Complete (Items 107–180 enumerated with exact source citations)
+- [x] Items 107–115: Phase 12B Protobuf Schemas & Wire Descriptors (`protos/spotify/connect/*`, `protos/esperanto/*`, `lib/features/connect/data/proto/*`)
+- [x] Items 162–171: Requirement R2 Code Modularity & Extraction (`player_controls.dart` and `player_sheets.dart` split into 8 dedicated files + 2 barrel exports with `duration!` AST fix)
+- [x] Items 116–125: Phase 12C Native C++ Connect State Engine (`android/app/src/main/cpp/connect/*`, `ContextPlayerImpl` hooks, and `NativeHttpClient` PUT support)
+- [x] Items 126–132: Phase 12D Native Esperanto Services & FFI Bridge (`ConnectServiceImpl`, `ConnectVolumeServiceImpl`, `DodoServiceImpl`, `ffi_bridge.cpp` C-ABI exports & atomic NativePorts, `CMakeLists.txt` C++20 NDK build, `musify_ffi_bindings.dart`, and `native_esperanto_transport.dart` service routing)
+- [x] Items 133–152: Phase 12E Dart Esperanto Clients, Domain Models & Proto Mappers (`ConnectServiceClient`, `ConnectVolumeServiceClient`, `DodoServiceClient`, `ConnectProtoMappers`, `ClusterMapper`, `DeviceInfoMapper`, `VolumeMapper`, `GroupMapper`, and 12 immutable domain models under `lib/features/connect/`)
+- [x] Items 153–161: Phase 12F Connect Application Layer, Mobius Loops & Device Sorting (`ConnectMobiusController`, `ConnectEvent`, `ConnectState`, `ConnectEffect`, `ConnectEffectHandler`, `connectMobiusUpdate`, `DevicePickerSortingDatabase`, `DeviceSortingComparator`, and `RemoteVolumeController`)
+- [x] Items 172–180: Phase 12G Presentation Layer, Output Switcher UI, Player/DI Wiring & Final Verification Gate (DevicePickerSheet, DeviceListTile, DevicePickerHeader, ActiveDeviceBanner, ConnectVolumeSlider, GroupDeviceTile, MiniPlayer/PlayerScreen/PlayerUtilityRow + DI/App wiring; C++20 NDK 0 errors/0 warnings, scoped Flutter analyze 0 issues, 348/348 Item 180 tests + 68/68 core unit tests pass)

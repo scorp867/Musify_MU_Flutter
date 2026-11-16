@@ -7,6 +7,12 @@ import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
+import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
+import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
+import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
+import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../data/logging/player_logging_params_factory.dart';
@@ -20,7 +26,9 @@ import 'player_artwork.dart';
 /// - `com.spotify.nowplayingmini.nowplayingmini.NowPlayingMiniMode`
 /// - `com.spotify.nowplayingmini.uicomponents.seekbar.FadingSeekBarView`
 /// - `com.spotify.nowplayingmini.uicomponents.trackinfo.TrackInfoView`
-/// - `p199p.edi0` (NowPlayingMini default view binder)
+/// - `p199p.edi0` (NowPlayingMini default view binder, line 207: `connect_entry_point_stub`)
+/// - `p199p/bdi0.java` (line 146: `connect_entry_point_stub`)
+/// - `p199p/hjn0.java` + `p199p/nfc0.java` (lines 93-109: `connect_destination_button` / `connect_label`)
 ///
 /// Driven directly by pure Mobius Loop Controller `PlayerQueueMobiusController`
 /// via [ValueListenableBuilder<PlayerQueueState>].
@@ -37,6 +45,7 @@ class MiniPlayer extends StatefulWidget {
   final ColorExtractionService? colorService;
   final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
+  final ConnectMobiusController? connectController;
 
   const MiniPlayer({
     super.key,
@@ -52,6 +61,7 @@ class MiniPlayer extends StatefulWidget {
     this.colorService,
     this.queueBloc,
     this.currentTrack,
+    this.connectController,
   });
 
   @override
@@ -301,6 +311,24 @@ class _MiniPlayerState extends State<MiniPlayer>
     return progress;
   }
 
+  static bool _shouldShowConnectBanner(ConnectState state) {
+    if (state.transferState is TransferInProgress) {
+      return true;
+    }
+    final ConnectDevice? currentActive = state.activeDevice;
+    if (currentActive != null && !currentActive.isSelf) {
+      return true;
+    }
+    final LocalAudioPeripheral? peripheral = state.activeSelfPeripheral;
+    if (peripheral != null &&
+        peripheral.id != kBuiltInSpeakerPeripheralId &&
+        peripheral.connectionType !=
+            OutputPeripheralConnectionType.builtInSpeaker) {
+      return true;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bloc = widget.queueBloc;
@@ -360,6 +388,7 @@ class _MiniPlayerState extends State<MiniPlayer>
             PlayerScreen.show(
               context,
               queueBloc: widget.queueBloc,
+              connectController: widget.connectController,
               currentTrack: switch (state?.currentTrack) {
                 final track? => track,
                 null => widget.currentTrack,
@@ -497,6 +526,27 @@ class _MiniPlayerState extends State<MiniPlayer>
                   ],
                 ),
               ),
+              if (widget.connectController case final controller?)
+                ValueListenableBuilder<ConnectState>(
+                  valueListenable: controller,
+                  builder: (context, connectState, _) {
+                    if (!_shouldShowConnectBanner(connectState)) {
+                      return const SizedBox.shrink();
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                      child: ActiveDeviceBanner(
+                        controller: controller,
+                        compact: true,
+                        showWhenLocalBuiltIn: false,
+                        onTap: () => DevicePickerSheet.show(
+                          context,
+                          controller: controller,
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ClipRRect(
                 borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(8),

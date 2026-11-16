@@ -1,3 +1,12 @@
+// ============================================================================
+// 1:1 Replicated Spotify Native HTTP Client (libcurl + mbedTLS + Android CA)
+// Sources:
+// - `liborbit-jni-spotify.so` offsets 0x35a175, 0x378272 ("connect-state/v1/devices/")
+// - `liborbit-jni-spotify.so` offsets 0x44b598 ("POST"), 0x44b5b0 ("DELETE"), 0x44b5c8 ("PUT")
+// - `liborbit-jni-spotify.so` offsets 0x3e1028 ("grpc-status"), 0x38bcd4 ("Retry-After")
+// - `liborbit-jni-spotify.so` offset 0x39c1c3 ("X-Spotify-Connection-Id")
+// ============================================================================
+
 #include "NativeHttpClient.h"
 
 #include <android/log.h>
@@ -291,6 +300,7 @@ struct ParsedHeaders {
     int64_t content_range_total{-1};
     int64_t content_length{-1};
     bool accepts_ranges{false};
+    std::vector<std::pair<std::string, std::string>> headers;
 };
 
 size_t headerCollectorCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
@@ -302,7 +312,18 @@ size_t headerCollectorCallback(char* buffer, size_t size, size_t nitems, void* u
         parsed->content_range_total = -1;
         parsed->content_length = -1;
         parsed->accepts_ranges = false;
+        parsed->headers.clear();
         return total;
+    }
+
+    const void* colon_ptr = std::memchr(buffer, ':', total);
+    if (colon_ptr != nullptr) {
+        const size_t colon_idx = static_cast<const char*>(colon_ptr) - buffer;
+        std::string name = trimAsciiWhitespace(buffer, colon_idx);
+        std::string val = trimAsciiWhitespace(buffer + colon_idx + 1, total - colon_idx - 1);
+        if (!name.empty()) {
+            parsed->headers.emplace_back(std::move(name), std::move(val));
+        }
     }
 
     if (equalsIgnoreCasePrefix(buffer, total, "content-range:")) {
@@ -612,6 +633,48 @@ HttpResponse NativeHttpClient::post(
         cancel_pred);
 }
 
+HttpResponse NativeHttpClient::put(
+    const std::string& url,
+    const std::vector<uint8_t>& body,
+    const std::string& content_type,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    int connect_timeout_ms,
+    int read_timeout_ms,
+    bool include_spotify_auth,
+    const CancelPredicate& cancel_pred) const {
+    std::vector<std::pair<std::string, std::string>> merged = extra_headers;
+    if (!content_type.empty() && !hasHeaderCaseInsensitive(merged, "Content-Type")) {
+        merged.emplace_back("Content-Type", content_type);
+    }
+    return executeWithAuthRetry(
+        "PUT",
+        url,
+        merged,
+        &body,
+        connect_timeout_ms,
+        read_timeout_ms,
+        include_spotify_auth,
+        cancel_pred);
+}
+
+HttpResponse NativeHttpClient::del(
+    const std::string& url,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    int connect_timeout_ms,
+    int read_timeout_ms,
+    bool include_spotify_auth,
+    const CancelPredicate& cancel_pred) const {
+    return executeWithAuthRetry(
+        "DELETE",
+        url,
+        extra_headers,
+        nullptr,
+        connect_timeout_ms,
+        read_timeout_ms,
+        include_spotify_auth,
+        cancel_pred);
+}
+
 HttpResponse NativeHttpClient::executeWithAuthRetry(
     const std::string& method,
     const std::string& url,
@@ -631,24 +694,38 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
 
         const AuthCredentials creds = auth_store_.snapshot();
         std::vector<std::pair<std::string, std::string>> headers;
-        headers.reserve(extra_headers.size() + 8);
+        headers.reserve(extra_headers.size() + 9);
 
         if (include_spotify_auth) {
-            if (!creds.access_token.empty()) {
+            if (!creds.access_token.empty() &&
+                !hasHeaderCaseInsensitive(extra_headers, "authorization")) {
                 headers.emplace_back("Authorization", "Bearer " + creds.access_token);
             }
-            if (!creds.client_token.empty()) {
+            if (!creds.client_token.empty() &&
+                !hasHeaderCaseInsensitive(extra_headers, "client-token")) {
                 headers.emplace_back("client-token", creds.client_token);
             }
-            if (!creds.sp_dc.empty()) {
+            if (!creds.sp_dc.empty() &&
+                !hasHeaderCaseInsensitive(extra_headers, "cookie")) {
                 headers.emplace_back("Cookie", "sp_dc=" + creds.sp_dc);
             }
-            headers.emplace_back("app-platform", "WebPlayer");
-            headers.emplace_back("spotify-app-version", kWebPlayerAppVersion);
-            headers.emplace_back("User-Agent", kWebPlayerUserAgent);
-            headers.emplace_back("Origin", "https://open.spotify.com");
-            headers.emplace_back("Referer", "https://open.spotify.com/");
-            if (!creds.accept_language.empty()) {
+            if (!hasHeaderCaseInsensitive(extra_headers, "app-platform")) {
+                headers.emplace_back("app-platform", "WebPlayer");
+            }
+            if (!hasHeaderCaseInsensitive(extra_headers, "spotify-app-version")) {
+                headers.emplace_back("spotify-app-version", kWebPlayerAppVersion);
+            }
+            if (!hasHeaderCaseInsensitive(extra_headers, "user-agent")) {
+                headers.emplace_back("User-Agent", kWebPlayerUserAgent);
+            }
+            if (!hasHeaderCaseInsensitive(extra_headers, "origin")) {
+                headers.emplace_back("Origin", "https://open.spotify.com");
+            }
+            if (!hasHeaderCaseInsensitive(extra_headers, "referer")) {
+                headers.emplace_back("Referer", "https://open.spotify.com/");
+            }
+            if (!creds.accept_language.empty() &&
+                !hasHeaderCaseInsensitive(extra_headers, "accept-language")) {
                 headers.emplace_back("accept-language", creds.accept_language);
             }
         }
@@ -716,8 +793,21 @@ HttpResponse NativeHttpClient::executeOnce(
             curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDS, "");
             curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(0));
         }
+    } else if (method == "PUT") {
+        curl_easy_setopt(easy.handle, CURLOPT_CUSTOMREQUEST, "PUT");
+        if (body && !body->empty()) {
+            curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDS, body->data());
+            curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body->size()));
+        } else {
+            curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDS, "");
+            curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(0));
+        }
     } else if (method != "GET") {
         curl_easy_setopt(easy.handle, CURLOPT_CUSTOMREQUEST, method.c_str());
+        if (body && !body->empty()) {
+            curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDS, body->data());
+            curl_easy_setopt(easy.handle, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body->size()));
+        }
     }
 
     CurlSlistGuard header_list;
@@ -725,6 +815,9 @@ HttpResponse NativeHttpClient::executeOnce(
         if (!equalsIgnoreCasePrefix(kv.first.c_str(), kv.first.size(), "accept-encoding")) {
             header_list.append(kv.first + ": " + kv.second);
         }
+    }
+    if ((method == "POST" || method == "PUT") && !hasHeaderCaseInsensitive(headers, "expect")) {
+        header_list.append("Expect:");
     }
     if (header_list.list) {
         curl_easy_setopt(easy.handle, CURLOPT_HTTPHEADER, header_list.list);
@@ -756,6 +849,7 @@ HttpResponse NativeHttpClient::executeOnce(
     out.status_code = static_cast<int32_t>(status_code);
     out.content_length = parsed_headers.content_length;
     out.accepts_ranges = parsed_headers.accepts_ranges || (status_code == 206);
+    out.headers = std::move(parsed_headers.headers);
     out.transport_ok = true;
     return out;
 }

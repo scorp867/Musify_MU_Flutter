@@ -14,6 +14,7 @@ import 'package:musify_mu/core/ubi/domain/models/bottom_tab_ubi_elements.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
 import 'package:musify_mu/features/browse/presentation/offline_browse_view.dart';
+import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/home/presentation/home_tab.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
@@ -54,6 +55,8 @@ class _MainTabScope extends InheritedWidget {
       iconVisible != oldWidget.iconVisible;
 }
 
+/// Main tab shell forwarding composition-root Connect state
+/// ([ConnectMobiusController], `p199p/yrq.java`) to [MiniPlayer].
 class MainScreen extends StatefulWidget {
   final VoidCallback onMenuPressed;
   final bool isDrawerOpen;
@@ -61,6 +64,7 @@ class MainScreen extends StatefulWidget {
   final HomeFeedBloc Function() createHomeFeedBloc;
   final BrowseBloc Function() createBrowseBloc;
   final LibraryBloc Function(String userId) createLibraryBloc;
+  final ConnectMobiusController? connectController;
 
   const MainScreen({
     super.key,
@@ -70,6 +74,7 @@ class MainScreen extends StatefulWidget {
     required this.createHomeFeedBloc,
     required this.createBrowseBloc,
     required this.createLibraryBloc,
+    this.connectController,
   });
 
   @override
@@ -290,6 +295,7 @@ class _MainScreenState extends State<MainScreen> {
                           queueBloc: controller,
                           currentTrack: track,
                           colorService: context.read<ColorExtractionService>(),
+                          connectController: widget.connectController,
                         );
                       },
                     ),

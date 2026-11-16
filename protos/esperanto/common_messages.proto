@@ -1,0 +1,33 @@
+// 1:1 Replicated Spotify Esperanto Common Messages Protobuf Schema
+// Sources:
+// - Decompiled Java: `com/spotify/connect/esperanto/proto/CommonMessages.java`
+// - Decompiled Java: `p199p/r1h.java`
+// - `liborbit-jni-spotify_memdump.so` offset `0x3a79bc` (`common_messages.proto`)
+
+syntax = "proto3";
+
+package spotify.connect.esperanto.proto;
+
+option java_package = "com.spotify.connect.esperanto.proto";
+option java_multiple_files = true;
+
+enum Status {
+  OK = 0;
+  NOT_FOUND = 1;
+  INVALID_ARGUMENTS = 2;
+  BACKEND_FAILURE = 3;
+  UNIMPLEMENTED = 4;
+}
+
+message LoggingParams {
+  optional int64 command_initiated_time = 1;
+  optional int64 command_received_time = 2;
+  repeated string page_instance_ids = 3;
+  repeated string interaction_ids = 4;
+  optional string command_id = 5;
+  optional string feature_identifier = 6;
+}
+
+message StatusResponse {
+  Status status = 1;
+}

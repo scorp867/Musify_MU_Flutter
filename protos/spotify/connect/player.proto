@@ -1,0 +1,197 @@
+// 1:1 Replicated Spotify Connect State Player Protobuf Schema
+// Sources:
+// - `liborbit-jni-spotify_memdump.so` offset `0x3fe6e4` (`player.proto`)
+// - ARM64 ELF `liborbit-jni-spotify.so` offset `0x635f80`
+// - Symbol exports: `spotify::connectstate::PlayerState`
+
+syntax = "proto3";
+
+package spotify.connectstate;
+
+option optimize_for = CODE_SIZE;
+
+enum FileOrigin {
+  FILE_ORIGIN_UNKNOWN = 0;
+  FILE_ORIGIN_INTERNAL = 1;
+  FILE_ORIGIN_EXTERNAL = 2;
+  FILE_ORIGIN_LOCAL = 3;
+  FILE_ORIGIN_GENERATED = 4;
+}
+
+enum BitrateLevel {
+  BITRATE_LEVEL_UNKNOWN = 0;
+  BITRATE_LEVEL_LOW = 1;
+  BITRATE_LEVEL_NORMAL = 2;
+  BITRATE_LEVEL_HIGH = 3;
+  BITRATE_LEVEL_VERY_HIGH = 4;
+  BITRATE_LEVEL_HIFI = 5;
+  BITRATE_LEVEL_HIFI24 = 6;
+  BITRATE_LEVEL_PETREL = 7;
+}
+
+enum BitrateStrategy {
+  BITRATE_STRATEGY_UNKNOWN = 0;
+  BITRATE_STRATEGY_BEST_MATCHING = 1;
+  BITRATE_STRATEGY_BACKEND_ADVISED = 2;
+  BITRATE_STRATEGY_OFFLINED_FILE = 3;
+  BITRATE_STRATEGY_CACHED_FILE = 4;
+  BITRATE_STRATEGY_LOCAL_FILE = 5;
+}
+
+enum HiFiStatus {
+  HIFI_STATUS_NONE = 0;
+  HIFI_STATUS_OFF = 1;
+  HIFI_STATUS_ON = 2;
+}
+
+message ContextIndex {
+  uint32 page = 1;
+  uint32 track = 2;
+}
+
+message PlaybackQuality {
+  BitrateLevel bitrate_level = 1;
+  BitrateStrategy strategy = 2;
+  BitrateLevel target_bitrate_level = 3;
+  bool target_bitrate_available = 4;
+  HiFiStatus hifi_status = 5;
+  BitrateLevel highest_available_quality = 6;
+  FileOrigin file_origin = 7;
+}
+
+message RestrictionReasons {
+  repeated string reasons = 1;
+}
+
+message ModeRestrictions {
+  map<string, RestrictionReasons> values = 1;
+}
+
+message Restrictions {
+  repeated string disallow_pausing_reasons = 1;
+  repeated string disallow_resuming_reasons = 2;
+  repeated string disallow_seeking_reasons = 3;
+  repeated string disallow_peeking_prev_reasons = 4;
+  repeated string disallow_peeking_next_reasons = 5;
+  repeated string disallow_skipping_prev_reasons = 6;
+  repeated string disallow_skipping_next_reasons = 7;
+  repeated string disallow_toggling_repeat_context_reasons = 8;
+  repeated string disallow_toggling_repeat_track_reasons = 9;
+  repeated string disallow_toggling_shuffle_reasons = 10;
+  repeated string disallow_set_queue_reasons = 11;
+  repeated string disallow_interrupting_playback_reasons = 12;
+  repeated string disallow_transferring_playback_reasons = 13;
+  repeated string disallow_remote_control_reasons = 14;
+  repeated string disallow_inserting_into_next_tracks_reasons = 15;
+  repeated string disallow_inserting_into_context_tracks_reasons = 16;
+  repeated string disallow_reordering_in_next_tracks_reasons = 17;
+  repeated string disallow_reordering_in_context_tracks_reasons = 18;
+  repeated string disallow_removing_from_next_tracks_reasons = 19;
+  repeated string disallow_removing_from_context_tracks_reasons = 20;
+  repeated string disallow_updating_context_reasons = 21;
+  repeated string disallow_playing_reasons = 22;
+  repeated string disallow_stopping_reasons = 23;
+  repeated string disallow_add_to_queue_reasons = 24;
+  repeated string disallow_setting_playback_speed_reasons = 25;
+  map<string, ModeRestrictions> disallow_setting_modes = 28;
+  map<string, RestrictionReasons> disallow_signals = 29;
+  repeated string disallow_play_as_next_in_queue_reasons = 30;
+  repeated string disallow_sleep_timer_clear_reasons = 31;
+  repeated string disallow_sleep_timer_duration_reasons = 32;
+  repeated string disallow_sleep_timer_end_of_track_reasons = 33;
+  repeated string disallow_add_to_queue_track_reasons = 34;
+  repeated string disallow_tap_to_play_track_in_next_tracks_reasons = 35;
+  repeated string disallow_reordering_track_in_next_tracks_reasons = 36;
+  repeated string disallow_reordering_episode_in_next_tracks_reasons = 37;
+  repeated string disallow_reordering_enqueued_track_in_next_tracks_reasons = 38;
+  repeated string disallow_reordering_enqueued_episode_in_next_tracks_reasons = 39;
+  repeated string disallow_viewing_queue_reasons = 40;
+  repeated string disallow_viewing_ordered_tracks_in_next_tracks_reasons = 41;
+}
+
+message ProvidedTrack {
+  string uri = 1;
+  string uid = 2;
+  map<string, string> metadata = 3;
+  repeated string removed = 4;
+  repeated string blocked = 5;
+  string provider = 6;
+  Restrictions restrictions = 7;
+  string album_uri = 8;
+  repeated string disallow_reasons = 9;
+  string artist_uri = 10;
+}
+
+message PlayOrigin {
+  string feature_identifier = 1;
+  string feature_version = 2;
+  string view_uri = 3;
+  string external_referrer = 4;
+  string referrer_identifier = 5;
+  string device_identifier = 6;
+  repeated string feature_classes = 7;
+  string restriction_identifier = 8;
+}
+
+message ContextPlayerOptions {
+  bool shuffling_context = 1;
+  bool repeating_context = 2;
+  bool repeating_track = 3;
+  float playback_speed = 4;
+  map<string, string> modes = 5;
+}
+
+message Suppressions {
+  repeated string providers = 1;
+}
+
+message AdBreakContext {
+  uint64 max_seconds_remaining = 1;
+  uint64 position_in_current_ad_break = 2;
+  uint64 total_ads_in_break_estimate = 3;
+}
+
+message SleepTimer {
+  message None {}
+  message Timestamp {
+    int64 timestamp = 1;
+  }
+  message EndOfTrack {}
+
+  None none = 1;
+  Timestamp timestamp = 2;
+  EndOfTrack end_of_track = 3;
+}
+
+message PlayerState {
+  int64 timestamp = 1;
+  string context_uri = 2;
+  string context_url = 3;
+  Restrictions context_restrictions = 4;
+  PlayOrigin play_origin = 5;
+  ContextIndex index = 6;
+  ProvidedTrack track = 7;
+  string playback_id = 8;
+  double playback_speed = 9;
+  int64 position_as_of_timestamp = 10;
+  int64 duration = 11;
+  bool is_playing = 12;
+  bool is_paused = 13;
+  bool is_buffering = 14;
+  bool is_system_initiated = 15;
+  ContextPlayerOptions options = 16;
+  Restrictions restrictions = 17;
+  Suppressions suppressions = 18;
+  repeated ProvidedTrack prev_tracks = 19;
+  repeated ProvidedTrack next_tracks = 20;
+  map<string, string> context_metadata = 21;
+  map<string, string> page_metadata = 22;
+  string session_id = 23;
+  string queue_revision = 24;
+  int64 position = 25;
+  PlaybackQuality playback_quality = 32;
+  repeated string signals = 33;
+  string session_command_id = 35;
+  AdBreakContext ad_break_context = 37;
+  SleepTimer sleep_timer = 38;
+}

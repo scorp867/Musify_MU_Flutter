@@ -1,0 +1,211 @@
+// 1:1 Replicated Spotify Connect State Protobuf Schema
+// Sources:
+// - `liborbit-jni-spotify_memdump.so` offset `0x3fe004` (`devices.proto`)
+// - `liborbit-jni-spotify_memdump.so` offset `0x3fa5c0` (`connect.proto`)
+// - ARM64 ELF `liborbit-jni-spotify.so` offset `0x6358a0`
+// - Symbol exports: `spotify::connectstate::devices`
+
+syntax = "proto3";
+
+package spotify.connectstate;
+
+option optimize_for = CODE_SIZE;
+
+enum DeviceType {
+  UNKNOWN = 0;
+  COMPUTER = 1;
+  TABLET = 2;
+  SMARTPHONE = 3;
+  SPEAKER = 4;
+  TV = 5;
+  AVR = 6;
+  STB = 7;
+  AUDIO_DONGLE = 8;
+  GAME_CONSOLE = 9;
+  CAST_VIDEO = 10;
+  CAST_AUDIO = 11;
+  AUTOMOBILE = 12;
+  SMARTWATCH = 13;
+  CHROMEBOOK = 14;
+  UNKNOWN_SPOTIFY = 100;
+  CAR_THING = 101;
+  OBSERVER = 102;
+  HOME_THING = 103;
+}
+
+enum AudioOutputDeviceType {
+  UNKNOWN_AUDIO_OUTPUT_DEVICE_TYPE = 0;
+  BUILT_IN_SPEAKER = 1;
+  LINE_OUT = 2;
+  BLUETOOTH = 3;
+  AIRPLAY = 4;
+  AUTOMOTIVE = 5;
+  CAR_PROJECTED = 6;
+}
+
+enum AudioOutputCategory {
+  AUDIO_OUTPUT_CATEGORY_UNKNOWN = 0;
+  AUDIO_OUTPUT_CATEGORY_CAR = 1;
+  AUDIO_OUTPUT_CATEGORY_HEADPHONES = 2;
+  AUDIO_OUTPUT_CATEGORY_SPEAKER = 3;
+  AUDIO_OUTPUT_CATEGORY_WEARABLE = 4;
+  AUDIO_OUTPUT_CATEGORY_GLASSES = 5;
+  AUDIO_OUTPUT_CATEGORY_APP = 6;
+}
+
+enum DodoDeviceType {
+  UNKNOWN_DODO_DEVICE_TYPE = 0;
+  DODO1 = 1;
+  DODO2 = 2;
+}
+
+enum AudioQuality {
+  AUDIO_QUALITY_DEFAULT = 0;
+  AUDIO_QUALITY_LOW = 1;
+  AUDIO_QUALITY_NORMAL = 2;
+  AUDIO_QUALITY_HIGH = 3;
+  AUDIO_QUALITY_VERY_HIGH = 4;
+  AUDIO_QUALITY_HIFI = 5;
+  AUDIO_QUALITY_HIFI_24 = 6;
+}
+
+message DeviceAlias {
+  uint32 id = 1;
+  string display_name = 2;
+  bool is_group = 3;
+  string group_instance = 5;
+}
+
+message AudioOutputDeviceInfo {
+  AudioOutputDeviceType audio_output_device_type = 1;
+  string device_name = 2;
+  string brand = 3;
+  string model = 4;
+  AudioOutputCategory category = 5;
+}
+
+message CapabilitySupportDetails {
+  bool fully_supported = 1;
+  bool user_eligible = 2;
+  bool device_supported = 3;
+}
+
+message Capabilities {
+  bool can_be_player = 2;
+  bool restrict_to_local = 3;
+  bool gaia_eq_connect_id = 5;
+  bool supports_logout = 6;
+  bool is_observable = 7;
+  int32 volume_steps = 8;
+  repeated string supported_types = 9;
+  bool command_acks = 10;
+  bool supports_rename = 11;
+  bool hidden = 12;
+  bool disable_volume = 13;
+  bool connect_disabled = 14;
+  bool supports_playlist_v2 = 15;
+  bool is_controllable = 16;
+  bool supports_external_episodes = 17;
+  bool supports_set_backend_metadata = 18;
+  bool supports_transfer_command = 19;
+  bool supports_command_request = 20;
+  bool is_voice_enabled = 21;
+  bool needs_full_player_state = 22;
+  bool supports_gzip_pushes = 23;
+  bool supports_set_options_command = 25;
+  CapabilitySupportDetails supports_hifi = 26;
+  string connect_capabilities = 27;
+  bool supports_rooms = 28;
+  bool supports_dj = 29;
+  AudioQuality supported_audio_quality = 30;
+  bool supports_smart_shuffle_mode = 33;
+  bool supports_remote_sleep_timer = 34;
+  bool supports_ping_request = 35;
+  bool supports_playlist_mixing = 36;
+  bool supports_remote_audio_quality_control = 37;
+  bool supports_zephyr = 38;
+  bool supports_gapless = 39;
+  bool supports_crossfade = 40;
+}
+
+message WakeOnLanInfo {
+  bytes mac_address = 1;
+  uint32 port = 2;
+  uint32 retries = 3;
+  uint32 delay_ms = 4;
+  bool broadcast_on_all_interfaces = 5;
+}
+
+message LocalDevice {
+  string device_id = 1;
+  string device_name = 2;
+  DeviceType device_type = 3;
+  string client_id = 4;
+  string product_id = 5;
+  string brand = 6;
+  string model = 7;
+  string local_ip = 8;
+  uint32 alias_id = 9;
+  repeated string supported_media_types = 11;
+  bool supports_dj = 12;
+  bool supports_on_demand = 13;
+  bool is_voice_enabled = 14;
+  string license = 15;
+  CapabilitySupportDetails supports_hifi = 16;
+  repeated string disallow_reasons = 17;
+  string connect_capabilities = 18;
+  bool supports_external_episodes = 19;
+  WakeOnLanInfo wol_info = 20;
+}
+
+message PrivateDeviceInfo {
+  string platform = 1;
+}
+
+message DodoDeviceInfo {
+  message PlayerStateSummary {
+    bool is_playing = 1;
+    bool is_paused = 2;
+    bool disallow_pausing = 3;
+    bool disallow_resuming = 4;
+    bool disallow_skipping_prev = 5;
+    bool disallow_skipping_next = 6;
+  }
+  string cs_id = 1;
+  DodoDeviceType dodo_device_type = 2;
+  PlayerStateSummary player_state_summary = 3;
+  uint64 started_playing_at_timestamp = 4;
+}
+
+message DeviceInfo {
+  bool can_play = 1;
+  uint32 volume = 2;
+  string name = 3;
+  Capabilities capabilities = 4;
+  string device_software_version = 6;
+  DeviceType device_type = 7;
+  string spirc_version = 9;
+  string device_id = 10;
+  bool is_private_session = 11;
+  bool is_social_connect = 12;
+  string client_id = 13;
+  string brand = 14;
+  string model = 15;
+  map<string, string> metadata_map = 16;
+  string product_id = 17;
+  string deduplication_id = 18;
+  uint32 selected_alias_id = 19;
+  map<uint32, DeviceAlias> device_aliases = 20;
+  bool is_offline = 21;
+  string public_ip = 22;
+  string license = 23;
+  AudioOutputDeviceInfo audio_output_device_info = 24;
+  bool is_group = 25;
+  bool is_dynamic_device = 26;
+  repeated string disallow_playback_reasons = 27;
+  repeated string disallow_transfer_reasons = 28;
+  bool is_locally_discovered = 29;
+  string group_instance = 31;
+  bool is_public = 32;
+  bool is_wol_capable = 34;
+}

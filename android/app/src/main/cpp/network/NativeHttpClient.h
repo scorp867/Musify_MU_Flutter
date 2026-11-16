@@ -1,8 +1,18 @@
+// ============================================================================
+// 1:1 Replicated Spotify Native HTTP Client (libcurl + mbedTLS + Android CA)
+// Sources:
+// - `liborbit-jni-spotify.so` offsets 0x35a175, 0x378272 ("connect-state/v1/devices/")
+// - `liborbit-jni-spotify.so` offsets 0x44b598 ("POST"), 0x44b5b0 ("DELETE"), 0x44b5c8 ("PUT")
+// - `liborbit-jni-spotify.so` offsets 0x3e1028 ("grpc-status"), 0x38bcd4 ("Retry-After")
+// - `liborbit-jni-spotify.so` offset 0x39c1c3 ("X-Spotify-Connection-Id")
+// ============================================================================
+
 #pragma once
 
 #include "AuthSessionStore.h"
 
 #include <atomic>
+#include <cctype>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -14,6 +24,7 @@ namespace spotify::network {
 struct HttpResponse {
     int32_t status_code{0};
     std::vector<uint8_t> body;
+    std::vector<std::pair<std::string, std::string>> headers;
     bool transport_ok{false};
     int64_t content_length{-1};
     bool accepts_ranges{false};
@@ -21,6 +32,22 @@ struct HttpResponse {
 
     [[nodiscard]] bool isSuccess() const noexcept {
         return transport_ok && status_code >= 200 && status_code < 300;
+    }
+
+    [[nodiscard]] std::string getHeader(const std::string& name) const noexcept {
+        for (const auto& kv : headers) {
+            if (kv.first.size() != name.size()) continue;
+            bool match = true;
+            for (size_t i = 0; i < name.size(); ++i) {
+                if (std::tolower(static_cast<unsigned char>(kv.first[i])) !=
+                    std::tolower(static_cast<unsigned char>(name[i]))) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return kv.second;
+        }
+        return {};
     }
 };
 
@@ -105,6 +132,27 @@ public:
         const std::string& url,
         const std::vector<uint8_t>& body,
         const std::string& content_type,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
+        int connect_timeout_ms = 8000,
+        int read_timeout_ms = 15000,
+        bool include_spotify_auth = true,
+        const CancelPredicate& cancel_pred = nullptr) const;
+
+    /// 1:1 Spotify WebGate PUT state synchronization support
+    /// Citations: liborbit-jni-spotify.so offsets 0x35a175, 0x378272 ("connect-state/v1/devices/")
+    [[nodiscard]] HttpResponse put(
+        const std::string& url,
+        const std::vector<uint8_t>& body,
+        const std::string& content_type,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
+        int connect_timeout_ms = 8000,
+        int read_timeout_ms = 15000,
+        bool include_spotify_auth = true,
+        const CancelPredicate& cancel_pred = nullptr) const;
+
+    /// 1:1 Spotify WebGate DELETE support (ConnectStateClientImpl::deleteDevice at 0xdc3788)
+    [[nodiscard]] HttpResponse del(
+        const std::string& url,
         const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 15000,

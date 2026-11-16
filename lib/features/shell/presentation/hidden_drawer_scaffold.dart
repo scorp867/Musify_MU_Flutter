@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
+import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/shell/presentation/main_screen.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/drawer_menu.dart';
 
+/// Root drawer container forwarding composition-root dependencies (including
+/// Spotify Connect `ConnectMobiusController`, `p199p/yrq.java`) to [MainScreen].
 class HiddenDrawerScaffold extends StatefulWidget {
   final ModePersistence modePersistence;
   final HomeFeedBloc Function() createHomeFeedBloc;
   final BrowseBloc Function() createBrowseBloc;
   final LibraryBloc Function(String userId) createLibraryBloc;
+  final ConnectMobiusController? connectController;
 
   const HiddenDrawerScaffold({
     super.key,
@@ -18,6 +22,7 @@ class HiddenDrawerScaffold extends StatefulWidget {
     required this.createHomeFeedBloc,
     required this.createBrowseBloc,
     required this.createLibraryBloc,
+    this.connectController,
   });
 
   @override
@@ -58,6 +63,7 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
         createHomeFeedBloc: widget.createHomeFeedBloc,
         createBrowseBloc: widget.createBrowseBloc,
         createLibraryBloc: widget.createLibraryBloc,
+        connectController: widget.connectController,
       ),
     );
   }
@@ -65,7 +71,8 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
   @override
   void didUpdateWidget(covariant HiddenDrawerScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.modePersistence != oldWidget.modePersistence) {
+    if (widget.modePersistence != oldWidget.modePersistence ||
+        widget.connectController != oldWidget.connectController) {
       _initMainScreen();
     }
   }

@@ -1,0 +1,90 @@
+// 1:1 Replicated Spotify Connect State Wire Protocol Schema
+// Sources:
+// - `liborbit-jni-spotify_memdump.so` offset `0x3fa5c4` (`connect.proto`)
+// - ARM64 ELF `liborbit-jni-spotify.so` offset `0x631e5c`
+// - Symbol exports: `spotify::connectstate::PutStateRequest`
+
+syntax = "proto3";
+
+package spotify.connectstate;
+
+import "protos/spotify/connect/devices.proto";
+import "protos/spotify/connect/cluster.proto";
+import "protos/spotify/connect/player.proto";
+
+option optimize_for = CODE_SIZE;
+
+enum PutStateReason {
+  UNKNOWN_PUT_STATE_REASON = 0;
+  SPIRC_HELLO = 1;
+  SPIRC_NOTIFY = 2;
+  NEW_DEVICE = 3;
+  PLAYER_STATE_CHANGED = 4;
+  VOLUME_CHANGED = 5;
+  PICKER_OPENED = 6;
+  BECAME_INACTIVE = 7;
+  ALIAS_CHANGED = 8;
+  NEW_CONNECTION = 9;
+  PULL_PLAYBACK = 10;
+  AUDIO_DRIVER_INFO_CHANGED = 11;
+  PUT_STATE_RATE_LIMITED = 12;
+  BACKEND_METADATA_APPLIED = 13;
+  LOCAL_DEVICES_CHANGED = 14;
+  GROUP_STATE_CHANGED = 15;
+  PRIVATE_SESSION_CHANGED = 16;
+}
+
+enum MemberType {
+  SPIRC_V2 = 0;
+  SPIRC_V3 = 1;
+  CONNECT_STATE = 2;
+  CONNECT_STATE_EXTENDED = 5;
+  ACTIVE_DEVICE_TRACKER = 6;
+  PLAY_TOKEN = 7;
+}
+
+message Device {
+  DeviceInfo device_info = 1;
+  PlayerState player_state = 2;
+  PrivateDeviceInfo private_device_info = 3;
+  bytes transfer_data = 4;
+}
+
+message PutStateRequest {
+  string callback_url = 1;
+  Device device = 2;
+  MemberType member_type = 3;
+  bool is_active = 4;
+  PutStateReason put_state_reason = 5;
+  uint32 message_id = 6;
+  string last_command_sent_by_device_id = 7;
+  uint32 last_command_message_id = 8;
+  uint64 started_playing_at = 9;
+  uint64 has_been_playing_for_ms = 11;
+  uint64 client_side_timestamp = 12;
+  bool only_write_player_state = 13;
+}
+
+message PutStateRequestWrapper {
+  string device_id = 1;
+  string connection_id = 2;
+  bool ignore_response = 3;
+  PutStateRequest put_state_request = 4;
+  bool wake_devices = 5;
+}
+
+message SetDeviceInactiveRequest {
+  string device_id = 1;
+  bool notify_others = 2;
+  uint64 client_side_timestamp = 3;
+}
+
+message SetDoDoRequest {
+  string dodo1 = 1;
+  string dodo2 = 2;
+}
+
+message ConnectCommand {
+  string command = 1;
+  string target_device_id = 2;
+}

@@ -1,0 +1,56 @@
+// 1:1 Replicated Spotify Esperanto Volume Messages Protobuf Schema
+// Sources:
+// - Decompiled Java: `com/spotify/connect/esperanto/proto/VolumeMessages.java`
+// - Decompiled Java: `p199p/a0f1.java`, `p199p/lw51.java`, `p199p/ush1.java`
+// - `liborbit-jni-spotify_memdump.so` offset `0x36a7bc` (`volume_messages.proto`)
+
+syntax = "proto3";
+
+package spotify.connect.esperanto.proto;
+
+import "google/protobuf/empty.proto";
+import "protos/esperanto/common_messages.proto";
+
+option java_package = "com.spotify.connect.esperanto.proto";
+option java_multiple_files = true;
+
+message VolumeResponse {
+  optional int32 volume = 1;
+  Status status = 2;
+  optional string active_device_connect_state_identifier = 3;
+  map<string, uint32> group_device_volumes = 4;
+}
+
+message VolumeSetRequest {
+  int32 volume = 1;
+  LoggingParams logging_params = 2;
+  optional string group_device_identifier = 3;
+}
+
+message VolumeUpRequest {
+  LoggingParams logging_params = 1;
+  optional string group_device_identifier = 2;
+}
+
+message VolumeDownRequest {
+  LoggingParams logging_params = 1;
+  optional string group_device_identifier = 2;
+}
+
+message LocalVolumeResponse {
+  enum Reason {
+    USER = 0;
+    SYSTEM = 1;
+  }
+
+  int32 volume = 1;
+  Reason reason = 2;
+}
+
+service ConnectVolumeService {
+  rpc Volume (google.protobuf.Empty) returns (stream VolumeResponse);
+  rpc LocalVolume (google.protobuf.Empty) returns (stream LocalVolumeResponse);
+  rpc VolumeSet (VolumeSetRequest) returns (StatusResponse);
+  rpc VolumeUp (VolumeUpRequest) returns (StatusResponse);
+  rpc VolumeDown (VolumeDownRequest) returns (StatusResponse);
+}

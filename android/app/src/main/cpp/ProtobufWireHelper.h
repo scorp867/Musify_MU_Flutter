@@ -25,11 +25,19 @@ inline void encode_varint(std::vector<uint8_t>& buf, uint64_t val) {
     buf.push_back(static_cast<uint8_t>(val & 0x7F));
 }
 
+inline bool has_bytes(const uint8_t* ptr, const uint8_t* end, uint64_t len) noexcept {
+    if (ptr == nullptr || end == nullptr || ptr > end) {
+        return false;
+    }
+    return len <= static_cast<uint64_t>(end - ptr);
+}
+
 inline bool decode_varint(const uint8_t*& ptr, const uint8_t* end, uint64_t& val) {
     val = 0;
     int shift = 0;
     while (ptr < end && shift < 64) {
         uint8_t byte = *ptr++;
+        if (shift == 63 && byte > 0x01) return false;
         val |= (static_cast<uint64_t>(byte & 0x7F) << shift);
         if ((byte & 0x80) == 0) return true;
         shift += 7;
@@ -44,19 +52,19 @@ inline bool skip_field(const uint8_t*& ptr, const uint8_t* end, uint32_t wire_ty
             return decode_varint(ptr, end, dummy);
         }
         case 1: { // 64-bit
-            if (ptr + 8 > end) return false;
+            if (!has_bytes(ptr, end, 8)) return false;
             ptr += 8;
             return true;
         }
         case 2: { // Length-delimited
             uint64_t len = 0;
             if (!decode_varint(ptr, end, len)) return false;
-            if (ptr + len > end) return false;
-            ptr += len;
+            if (!has_bytes(ptr, end, len)) return false;
+            ptr += static_cast<size_t>(len);
             return true;
         }
         case 5: { // 32-bit
-            if (ptr + 4 > end) return false;
+            if (!has_bytes(ptr, end, 4)) return false;
             ptr += 4;
             return true;
         }
@@ -124,6 +132,9 @@ inline std::vector<uint8_t> encode_context_track(const Entry& entry) {
 }
 
 inline bool decode_context_track(const uint8_t* data, size_t size, Entry& out_entry) {
+    if (data == nullptr) {
+        return size == 0;
+    }
     const uint8_t* ptr = data;
     const uint8_t* end = data + size;
     while (ptr < end) {
@@ -134,34 +145,38 @@ inline bool decode_context_track(const uint8_t* data, size_t size, Entry& out_en
 
         if (wire_type == 2) {
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) return false;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) return false;
+            const size_t sub_len = static_cast<size_t>(len);
             const uint8_t* sub_ptr = ptr;
-            ptr += len;
+            ptr += sub_len;
 
             if (field_num == 1) { // uri
-                out_entry.uri.assign(reinterpret_cast<const char*>(sub_ptr), len);
+                out_entry.uri.assign(reinterpret_cast<const char*>(sub_ptr), sub_len);
             } else if (field_num == 2) { // uid
-                out_entry.uid.assign(reinterpret_cast<const char*>(sub_ptr), len);
+                out_entry.uid.assign(reinterpret_cast<const char*>(sub_ptr), sub_len);
             } else if (field_num == 3) { // metadata
                 const uint8_t* m_ptr = sub_ptr;
-                const uint8_t* m_end = sub_ptr + len;
+                const uint8_t* m_end = sub_ptr + sub_len;
                 std::string key, val;
                 while (m_ptr < m_end) {
                     uint64_t m_tag = 0;
-                    if (!decode_varint(m_ptr, m_end, m_tag)) break;
+                    if (!decode_varint(m_ptr, m_end, m_tag)) return false;
                     uint32_t m_field = static_cast<uint32_t>(m_tag >> 3);
                     uint32_t m_wire = static_cast<uint32_t>(m_tag & 0x07);
                     if (m_wire == 2) {
                         uint64_t m_len = 0;
-                        if (!decode_varint(m_ptr, m_end, m_len) || m_ptr + m_len > m_end) break;
-                        if (m_field == 1) {
-                            key.assign(reinterpret_cast<const char*>(m_ptr), m_len);
-                        } else if (m_field == 2) {
-                            val.assign(reinterpret_cast<const char*>(m_ptr), m_len);
+                        if (!decode_varint(m_ptr, m_end, m_len) || !has_bytes(m_ptr, m_end, m_len)) {
+                            return false;
                         }
-                        m_ptr += m_len;
+                        const size_t map_len = static_cast<size_t>(m_len);
+                        if (m_field == 1) {
+                            key.assign(reinterpret_cast<const char*>(m_ptr), map_len);
+                        } else if (m_field == 2) {
+                            val.assign(reinterpret_cast<const char*>(m_ptr), map_len);
+                        }
+                        m_ptr += map_len;
                     } else {
-                        if (!skip_field(m_ptr, m_end, m_wire)) break;
+                        if (!skip_field(m_ptr, m_end, m_wire)) return false;
                     }
                 }
                 if (!key.empty()) {
@@ -262,6 +277,9 @@ inline bool decode_context_page(
         std::string& out_page_url,
         std::string& out_next_page_url,
         std::vector<Entry>& out_tracks) {
+    if (data == nullptr) {
+        return size == 0;
+    }
     const uint8_t* ptr = data;
     const uint8_t* end = data + size;
     while (ptr < end) {
@@ -272,19 +290,21 @@ inline bool decode_context_page(
 
         if (wire_type == 2) {
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) return false;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) return false;
+            const size_t sub_len = static_cast<size_t>(len);
             const uint8_t* sub_ptr = ptr;
-            ptr += len;
+            ptr += sub_len;
 
             if (field_num == 1) { // tracks: repeated ContextTrack
                 Entry entry;
-                if (decode_context_track(sub_ptr, len, entry)) {
-                    out_tracks.push_back(std::move(entry));
+                if (!decode_context_track(sub_ptr, sub_len, entry)) {
+                    return false;
                 }
+                out_tracks.push_back(std::move(entry));
             } else if (field_num == 3) { // page_url
-                out_page_url.assign(reinterpret_cast<const char*>(sub_ptr), len);
+                out_page_url.assign(reinterpret_cast<const char*>(sub_ptr), sub_len);
             } else if (field_num == 4) { // next_page_url
-                out_next_page_url.assign(reinterpret_cast<const char*>(sub_ptr), len);
+                out_next_page_url.assign(reinterpret_cast<const char*>(sub_ptr), sub_len);
             }
         } else {
             if (!skip_field(ptr, end, wire_type)) return false;

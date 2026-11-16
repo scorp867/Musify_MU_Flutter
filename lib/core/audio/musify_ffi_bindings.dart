@@ -1,19 +1,23 @@
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 /// FFI bindings for libmusify_audio.so.
 ///
-/// `isLeaf: true` is applied ONLY to functions performing atomic reads with no
-/// GC interaction, heap allocation, Dart callbacks, mutex acquisition, file I/O,
-/// or thread spawning (telemetry getters, port setters, simple create/destroy).
-/// Load, seek, attach, and prefetch functions intentionally omit `isLeaf` because
-/// they may block on I/O, mutexes, or background thread joins.
+/// `isLeaf: true` is applied ONLY to pre-existing Phase 6/11 bindings with no
+/// GC interaction, Dart callbacks, or blocking I/O. Connect port setters
+/// (`_connectSet*Port`) and RPC dispatch functions omit `isLeaf` (using
+/// `.asFunction()`) to remain safepoint-safe.
 class MusifyFfiBindings {
   factory MusifyFfiBindings._open() {
     final library = DynamicLibrary.open(_libName);
     return MusifyFfiBindings._fromLibrary(library);
   }
+
+  @visibleForTesting
+  factory MusifyFfiBindings.fromLibrary(DynamicLibrary lib) =>
+      MusifyFfiBindings._fromLibrary(lib);
 
   MusifyFfiBindings._fromLibrary(this.lib)
       : _create = lib
@@ -288,13 +292,89 @@ class MusifyFfiBindings {
         _cpiSetErrorPort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
                 'musify_cpi_set_error_port')
-            .asFunction(isLeaf: true);
+            .asFunction(isLeaf: true),
+        _connectCreate = lib
+            .lookup<NativeFunction<Pointer<Void> Function(Pointer<Void>)>>(
+                'musify_connect_create')
+            .asFunction(),
+        _connectDestroy = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
+                'musify_connect_destroy')
+            .asFunction(),
+        _connectStart = lib
+            .lookup<
+                NativeFunction<
+                    Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32)>>(
+                'musify_connect_start')
+            .asFunction(),
+        _connectStop = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
+                'musify_connect_stop')
+            .asFunction(),
+        _connectServiceCall = lib
+            .lookup<
+                NativeFunction<
+                    Pointer<Uint8> Function(
+                        Pointer<Void>,
+                        Pointer<Utf8>,
+                        Pointer<Uint8>,
+                        Int32,
+                        Pointer<Int32>,
+                        Pointer<Int32>)>>('musify_connect_service_call')
+            .asFunction(),
+        _connectVolumeServiceCall = lib
+            .lookup<
+                NativeFunction<
+                    Pointer<Uint8> Function(
+                        Pointer<Void>,
+                        Pointer<Utf8>,
+                        Pointer<Uint8>,
+                        Int32,
+                        Pointer<Int32>,
+                        Pointer<Int32>)>>('musify_connect_volume_service_call')
+            .asFunction(),
+        _dodoServiceCall = lib
+            .lookup<
+                NativeFunction<
+                    Pointer<Uint8> Function(
+                        Pointer<Void>,
+                        Pointer<Utf8>,
+                        Pointer<Uint8>,
+                        Int32,
+                        Pointer<Int32>,
+                        Pointer<Int32>)>>('musify_dodo_service_call')
+            .asFunction(),
+        _connectSetStatePort = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
+                'musify_connect_set_state_port')
+            .asFunction(),
+        _connectSetVolumePort = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
+                'musify_connect_set_volume_port')
+            .asFunction(),
+        _connectSetLocalVolumePort = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
+                'musify_connect_set_local_volume_port')
+            .asFunction(),
+        _connectSetDodoPort = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
+                'musify_connect_set_dodo_port')
+            .asFunction(),
+        _connectSetInstallSpotifyPort = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
+                'musify_connect_set_install_spotify_port')
+            .asFunction();
 
   static const String _libName = 'libmusify_audio.so';
 
   static MusifyFfiBindings? _instance;
-  static MusifyFfiBindings get instance =>
-      _instance ??= MusifyFfiBindings._open();
+  static MusifyFfiBindings get instance {
+    final current = _instance;
+    if (current != null) return current;
+    final created = MusifyFfiBindings._open();
+    _instance = created;
+    return created;
+  }
 
   final DynamicLibrary lib;
 
@@ -409,6 +489,40 @@ class MusifyFfiBindings {
   final void Function(Pointer<Void>, int) _cpiSetStateChangedPort;
   final void Function(Pointer<Void>, int) _cpiSetQueueChangedPort;
   final void Function(Pointer<Void>, int) _cpiSetErrorPort;
+
+  final Pointer<Void> Function(Pointer<Void>) _connectCreate;
+  final void Function(Pointer<Void>) _connectDestroy;
+  final int Function(Pointer<Void>, Pointer<Uint8>, int) _connectStart;
+  final void Function(Pointer<Void>) _connectStop;
+  final Pointer<Uint8> Function(
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Uint8>,
+    int,
+    Pointer<Int32>,
+    Pointer<Int32>,
+  ) _connectServiceCall;
+  final Pointer<Uint8> Function(
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Uint8>,
+    int,
+    Pointer<Int32>,
+    Pointer<Int32>,
+  ) _connectVolumeServiceCall;
+  final Pointer<Uint8> Function(
+    Pointer<Void>,
+    Pointer<Utf8>,
+    Pointer<Uint8>,
+    int,
+    Pointer<Int32>,
+    Pointer<Int32>,
+  ) _dodoServiceCall;
+  final void Function(Pointer<Void>, int) _connectSetStatePort;
+  final void Function(Pointer<Void>, int) _connectSetVolumePort;
+  final void Function(Pointer<Void>, int) _connectSetLocalVolumePort;
+  final void Function(Pointer<Void>, int) _connectSetDodoPort;
+  final void Function(Pointer<Void>, int) _connectSetInstallSpotifyPort;
 
   // --- Public API ---
 
@@ -605,4 +719,59 @@ class MusifyFfiBindings {
       _cpiSetQueueChangedPort(h, port);
   void cpiSetErrorPort(Pointer<Void> h, int port) =>
       _cpiSetErrorPort(h, port);
+
+  Pointer<Void> connectCreate(Pointer<Void> cpiHandle) =>
+      _connectCreate(cpiHandle);
+  void connectDestroy(Pointer<Void> h) => _connectDestroy(h);
+  int connectStart(
+    Pointer<Void> h,
+    Pointer<Uint8> deviceInfoBytes,
+    int len,
+  ) =>
+      _connectStart(h, deviceInfoBytes, len);
+  void connectStop(Pointer<Void> h) => _connectStop(h);
+  Pointer<Uint8> connectServiceCall(
+    Pointer<Void> h,
+    Pointer<Utf8> method,
+    Pointer<Uint8> payload,
+    int payloadLen,
+    Pointer<Int32> outLen,
+    Pointer<Int32> outStatus,
+  ) =>
+      _connectServiceCall(h, method, payload, payloadLen, outLen, outStatus);
+  Pointer<Uint8> connectVolumeServiceCall(
+    Pointer<Void> h,
+    Pointer<Utf8> method,
+    Pointer<Uint8> payload,
+    int payloadLen,
+    Pointer<Int32> outLen,
+    Pointer<Int32> outStatus,
+  ) =>
+      _connectVolumeServiceCall(
+        h,
+        method,
+        payload,
+        payloadLen,
+        outLen,
+        outStatus,
+      );
+  Pointer<Uint8> dodoServiceCall(
+    Pointer<Void> h,
+    Pointer<Utf8> method,
+    Pointer<Uint8> payload,
+    int payloadLen,
+    Pointer<Int32> outLen,
+    Pointer<Int32> outStatus,
+  ) =>
+      _dodoServiceCall(h, method, payload, payloadLen, outLen, outStatus);
+  void connectSetStatePort(Pointer<Void> h, int port) =>
+      _connectSetStatePort(h, port);
+  void connectSetVolumePort(Pointer<Void> h, int port) =>
+      _connectSetVolumePort(h, port);
+  void connectSetLocalVolumePort(Pointer<Void> h, int port) =>
+      _connectSetLocalVolumePort(h, port);
+  void connectSetDodoPort(Pointer<Void> h, int port) =>
+      _connectSetDodoPort(h, port);
+  void connectSetInstallSpotifyPort(Pointer<Void> h, int port) =>
+      _connectSetInstallSpotifyPort(h, port);
 }

@@ -1,15 +1,32 @@
+// ============================================================================
+// 1:1 Replicated Spotify ContextPlayerImpl & Connect Bidirectional Hooks
+// Sources:
+// - `liborbit-jni-spotify.so` ContextPlayerImpl command/state dispatcher & Connect state sync
+// - `liborbit-jni-spotify.so` ELF FileDescriptorProto `player.proto` (`0x635f80`)
+// ============================================================================
+
 #include "ContextPlayerImpl.h"
 
+#ifdef __ANDROID__
 #include <android/log.h>
-#include <algorithm>
-#include <chrono>
-#include <cstdlib>
-#include <cstring>
-
 #define LOG_TAG "ContextPlayer"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#else
+#define LOGI(...) ((void)0)
+#define LOGE(...) ((void)0)
+#define LOGW(...) ((void)0)
+#endif
+
+#include <algorithm>
+#include <chrono>
+#include <climits>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+
+#include "../connect/DealerWebSocketClient.h"
 
 namespace spotify::player {
 
@@ -23,6 +40,7 @@ inline int64_t get_current_timestamp_ms() noexcept {
 struct SkipToOptions {
     std::string track_uri;
     std::string track_uid;
+    std::optional<int64_t> page_index;
     int64_t track_index{-1};
 };
 
@@ -37,6 +55,7 @@ struct DecodedPreparePlay {
     std::string context_url;
     std::unordered_map<std::string, std::string> context_metadata;
     std::vector<context_view::Entry> tracks;
+    std::vector<size_t> page_track_offsets;
     std::string page_url;
     std::string next_page_url;
     SkipToOptions skip_to;
@@ -44,6 +63,172 @@ struct DecodedPreparePlay {
     std::string session_id;
     PlayOriginData play_origin;
 };
+
+inline bool is_valid_rfc3629_utf8(const uint8_t* bytes, size_t len) noexcept {
+    if (bytes == nullptr) {
+        return len == 0;
+    }
+    size_t i = 0;
+    while (i < len) {
+        const uint8_t b0 = bytes[i];
+        if (b0 <= 0x7F) {
+            ++i;
+            continue;
+        }
+        if (b0 >= 0xC2 && b0 <= 0xDF) {
+            if (i + 1 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            if (b1 < 0x80 || b1 > 0xBF) return false;
+            i += 2;
+            continue;
+        }
+        if (b0 == 0xE0) {
+            if (i + 2 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            const uint8_t b2 = bytes[i + 2];
+            if (b1 < 0xA0 || b1 > 0xBF || b2 < 0x80 || b2 > 0xBF) return false;
+            i += 3;
+            continue;
+        }
+        if ((b0 >= 0xE1 && b0 <= 0xEC) || (b0 >= 0xEE && b0 <= 0xEF)) {
+            if (i + 2 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            const uint8_t b2 = bytes[i + 2];
+            if (b1 < 0x80 || b1 > 0xBF || b2 < 0x80 || b2 > 0xBF) return false;
+            i += 3;
+            continue;
+        }
+        if (b0 == 0xED) {
+            if (i + 2 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            const uint8_t b2 = bytes[i + 2];
+            if (b1 < 0x80 || b1 > 0x9F || b2 < 0x80 || b2 > 0xBF) return false;
+            i += 3;
+            continue;
+        }
+        if (b0 == 0xF0) {
+            if (i + 3 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            const uint8_t b2 = bytes[i + 2];
+            const uint8_t b3 = bytes[i + 3];
+            if (b1 < 0x90 || b1 > 0xBF || b2 < 0x80 || b2 > 0xBF || b3 < 0x80 || b3 > 0xBF) return false;
+            i += 4;
+            continue;
+        }
+        if (b0 >= 0xF1 && b0 <= 0xF3) {
+            if (i + 3 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            const uint8_t b2 = bytes[i + 2];
+            const uint8_t b3 = bytes[i + 3];
+            if (b1 < 0x80 || b1 > 0xBF || b2 < 0x80 || b2 > 0xBF || b3 < 0x80 || b3 > 0xBF) return false;
+            i += 4;
+            continue;
+        }
+        if (b0 == 0xF4) {
+            if (i + 3 >= len) return false;
+            const uint8_t b1 = bytes[i + 1];
+            const uint8_t b2 = bytes[i + 2];
+            const uint8_t b3 = bytes[i + 3];
+            if (b1 < 0x80 || b1 > 0x8F || b2 < 0x80 || b2 > 0xBF || b3 < 0x80 || b3 > 0xBF) return false;
+            i += 4;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+inline bool is_valid_utf8_string(const std::string& s) noexcept {
+    for (unsigned char c : s) {
+        if (c == 0x00) {
+            return false;
+        }
+    }
+    return is_valid_rfc3629_utf8(reinterpret_cast<const uint8_t*>(s.data()), s.size());
+}
+
+inline bool is_valid_utf8_uri(const std::string& uri) noexcept {
+    if (uri.empty()) {
+        return false;
+    }
+    const auto* bytes = reinterpret_cast<const uint8_t*>(uri.data());
+    if (!is_valid_rfc3629_utf8(bytes, uri.size())) {
+        return false;
+    }
+    size_t i = 0;
+    while (i < uri.size()) {
+        const uint8_t b0 = bytes[i];
+        if (b0 < 0x20 || b0 == 0x7F) {
+            return false;
+        }
+        if (b0 <= 0x7F) {
+            ++i;
+        } else if (b0 <= 0xDF) {
+            if (b0 == 0xC2 && i + 1 < uri.size() &&
+                bytes[i + 1] >= 0x80 && bytes[i + 1] <= 0x9F) {
+                return false;
+            }
+            i += 2;
+        } else if (b0 <= 0xEF) {
+            i += 3;
+        } else {
+            i += 4;
+        }
+    }
+    return true;
+}
+
+inline int32_t resolve_initial_track_index(
+        const std::vector<context_view::Entry>& tracks,
+        const std::string& skip_to_uid,
+        const std::string& skip_to_uri,
+        std::optional<int64_t> skip_to_page_index,
+        int64_t skip_to_track_index,
+        const std::vector<size_t>& page_track_offsets) noexcept {
+    if (tracks.empty()) {
+        return 0;
+    }
+    if (!skip_to_uid.empty()) {
+        for (size_t i = 0; i < tracks.size(); ++i) {
+            if (tracks[i].uid == skip_to_uid) {
+                return static_cast<int32_t>(i);
+            }
+        }
+    }
+    if (!skip_to_uri.empty()) {
+        for (size_t i = 0; i < tracks.size(); ++i) {
+            if (tracks[i].uri == skip_to_uri) {
+                return static_cast<int32_t>(i);
+            }
+        }
+    }
+    if (skip_to_track_index >= 0) {
+        size_t base_offset = 0;
+        size_t page_end = tracks.size();
+        if (skip_to_page_index.has_value()) {
+            if (*skip_to_page_index < 0 ||
+                static_cast<size_t>(*skip_to_page_index) >= page_track_offsets.size()) {
+                return 0;
+            }
+            const size_t page_idx = static_cast<size_t>(*skip_to_page_index);
+            base_offset = page_track_offsets[page_idx];
+            if (page_idx + 1 < page_track_offsets.size()) {
+                page_end = page_track_offsets[page_idx + 1];
+            }
+        }
+        if (page_end >= base_offset) {
+            const uint64_t page_span = static_cast<uint64_t>(page_end - base_offset);
+            const uint64_t track_idx_u64 = static_cast<uint64_t>(skip_to_track_index);
+            if (track_idx_u64 < page_span) {
+                const uint64_t raw_idx = static_cast<uint64_t>(base_offset) + track_idx_u64;
+                if (raw_idx <= static_cast<uint64_t>(INT32_MAX)) {
+                    return static_cast<int32_t>(raw_idx);
+                }
+            }
+        }
+    }
+    return 0;
+}
 
 inline bool decode_bool_value(const uint8_t*& ptr, const uint8_t* end, uint32_t wire_type, bool& out) {
     if (wire_type == 0) {
@@ -54,28 +239,29 @@ inline bool decode_bool_value(const uint8_t*& ptr, const uint8_t* end, uint32_t 
     }
     if (wire_type == 2) {
         uint64_t len = 0;
-        if (!decode_varint(ptr, end, len) || ptr + len > end) return false;
+        if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) return false;
+        const size_t n = static_cast<size_t>(len);
         const uint8_t* sub_ptr = ptr;
-        const uint8_t* sub_end = ptr + len;
-        ptr += len;
+        const uint8_t* sub_end = ptr + n;
+        ptr += n;
+        out = false;
         while (sub_ptr < sub_end) {
             uint64_t tag = 0;
-            if (!decode_varint(sub_ptr, sub_end, tag)) break;
+            if (!decode_varint(sub_ptr, sub_end, tag)) return false;
             uint32_t f = static_cast<uint32_t>(tag >> 3);
             uint32_t w = static_cast<uint32_t>(tag & 0x07);
-            if (f == 1 && w == 0) {
+            if (f == 1) {
+                if (w != 0) return false;
                 uint64_t v = 0;
-                if (decode_varint(sub_ptr, sub_end, v)) {
-                    out = (v != 0);
-                    return true;
-                }
+                if (!decode_varint(sub_ptr, sub_end, v)) return false;
+                out = (v != 0);
             } else {
-                if (!skip_field(sub_ptr, sub_end, w)) break;
+                if (!skip_field(sub_ptr, sub_end, w)) return false;
             }
         }
         return true;
     }
-    return skip_field(ptr, end, wire_type);
+    return false;
 }
 
 inline bool decode_int64_value(const uint8_t*& ptr, const uint8_t* end, uint32_t wire_type, int64_t& out) {
@@ -87,129 +273,172 @@ inline bool decode_int64_value(const uint8_t*& ptr, const uint8_t* end, uint32_t
     }
     if (wire_type == 2) {
         uint64_t len = 0;
-        if (!decode_varint(ptr, end, len) || ptr + len > end) return false;
+        if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) return false;
+        const size_t n = static_cast<size_t>(len);
         const uint8_t* sub_ptr = ptr;
-        const uint8_t* sub_end = ptr + len;
-        ptr += len;
+        const uint8_t* sub_end = ptr + n;
+        ptr += n;
+        out = 0;
         while (sub_ptr < sub_end) {
             uint64_t tag = 0;
-            if (!decode_varint(sub_ptr, sub_end, tag)) break;
+            if (!decode_varint(sub_ptr, sub_end, tag)) return false;
             uint32_t f = static_cast<uint32_t>(tag >> 3);
             uint32_t w = static_cast<uint32_t>(tag & 0x07);
-            if (f == 1 && w == 0) {
+            if (f == 1) {
+                if (w != 0) return false;
                 uint64_t v = 0;
-                if (decode_varint(sub_ptr, sub_end, v)) {
-                    out = static_cast<int64_t>(v);
-                    return true;
-                }
+                if (!decode_varint(sub_ptr, sub_end, v)) return false;
+                out = static_cast<int64_t>(v);
             } else {
-                if (!skip_field(sub_ptr, sub_end, w)) break;
+                if (!skip_field(sub_ptr, sub_end, w)) return false;
             }
         }
         return true;
     }
-    return skip_field(ptr, end, wire_type);
+    return false;
 }
 
-inline void decode_map_entries(
+inline bool decode_map_entries(
         const uint8_t* ptr,
         size_t len,
         std::unordered_map<std::string, std::string>& out_map) {
+    if (ptr == nullptr) return len == 0;
     const uint8_t* p = ptr;
     const uint8_t* end = ptr + len;
     std::string key;
     std::string val;
     while (p < end) {
         uint64_t tag = 0;
-        if (!decode_varint(p, end, tag)) break;
+        if (!decode_varint(p, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (w == 2) {
+        if (f == 1 || f == 2) {
+            if (w != 2) return false;
             uint64_t entry_len = 0;
-            if (!decode_varint(p, end, entry_len) || p + entry_len > end) break;
+            if (!decode_varint(p, end, entry_len) || !has_bytes(p, end, entry_len)) return false;
+            const size_t n = static_cast<size_t>(entry_len);
             if (f == 1) {
-                key.assign(reinterpret_cast<const char*>(p), entry_len);
-            } else if (f == 2) {
-                val.assign(reinterpret_cast<const char*>(p), entry_len);
+                key.assign(reinterpret_cast<const char*>(p), n);
+            } else {
+                val.assign(reinterpret_cast<const char*>(p), n);
             }
-            p += entry_len;
+            p += n;
         } else {
-            if (!skip_field(p, end, w)) break;
+            if (!skip_field(p, end, w)) return false;
         }
+    }
+    if (!is_valid_utf8_string(key) || !is_valid_utf8_string(val)) {
+        return false;
     }
     if (!key.empty()) {
         out_map[key] = val;
     }
+    return true;
 }
 
 // Field numbers verified 1:1 against Spotify EsSkipToTrack$SkipToTrack.java:
 // Field 1: page_url, Field 2: page_index, Field 3: track_uid, Field 4: track_uri, Field 5: track_index
-inline void decode_skip_to(const uint8_t* ptr, size_t len, SkipToOptions& skip_to) {
+inline bool decode_skip_to(const uint8_t* ptr, size_t len, SkipToOptions& skip_to) {
+    if (ptr == nullptr) return len == 0;
     const uint8_t* p = ptr;
     const uint8_t* end = ptr + len;
     while (p < end) {
         uint64_t tag = 0;
-        if (!decode_varint(p, end, tag)) break;
+        if (!decode_varint(p, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (f == 3 && w == 2) {
+        if (f == 1) {
+            if (w != 2) return false;
             uint64_t l = 0;
-            if (!decode_varint(p, end, l) || p + l > end) break;
-            skip_to.track_uid.assign(reinterpret_cast<const char*>(p), l);
-            p += l;
-        } else if (f == 4 && w == 2) {
+            if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) return false;
+            const size_t n = static_cast<size_t>(l);
+            std::string page_url(reinterpret_cast<const char*>(p), n);
+            if (!is_valid_utf8_string(page_url)) return false;
+            p += n;
+        } else if (f == 2) {
+            int64_t pi = 0;
+            if (!decode_int64_value(p, end, w, pi)) return false;
+            skip_to.page_index = pi;
+        } else if (f == 3) {
+            if (w != 2) return false;
             uint64_t l = 0;
-            if (!decode_varint(p, end, l) || p + l > end) break;
-            skip_to.track_uri.assign(reinterpret_cast<const char*>(p), l);
-            p += l;
+            if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) return false;
+            const size_t n = static_cast<size_t>(l);
+            skip_to.track_uid.assign(reinterpret_cast<const char*>(p), n);
+            if (!is_valid_utf8_string(skip_to.track_uid)) return false;
+            p += n;
+        } else if (f == 4) {
+            if (w != 2) return false;
+            uint64_t l = 0;
+            if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) return false;
+            const size_t n = static_cast<size_t>(l);
+            skip_to.track_uri.assign(reinterpret_cast<const char*>(p), n);
+            if (!skip_to.track_uri.empty() && !is_valid_utf8_uri(skip_to.track_uri)) return false;
+            p += n;
         } else if (f == 5) {
-            decode_int64_value(p, end, w, skip_to.track_index);
+            if (!decode_int64_value(p, end, w, skip_to.track_index)) return false;
         } else {
-            if (!skip_field(p, end, w)) break;
+            if (!skip_field(p, end, w)) return false;
         }
     }
+    return true;
 }
 
 // Field numbers verified 1:1 against Spotify EsContextPlayerOptions$ContextPlayerOptionOverrides.java:
 // Field 1: shuffling_context, Field 2: repeating_context, Field 3: repeating_track, Field 4: playback_speed, Field 5: modes
-inline void decode_option_overrides(const uint8_t* ptr, size_t len, OptionOverrides& overrides) {
+inline bool decode_option_overrides(const uint8_t* ptr, size_t len, OptionOverrides& overrides) {
+    if (ptr == nullptr) return len == 0;
     const uint8_t* p = ptr;
     const uint8_t* end = ptr + len;
     while (p < end) {
         uint64_t tag = 0;
-        if (!decode_varint(p, end, tag)) break;
+        if (!decode_varint(p, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
         if (f == 1) {
             bool v = false;
-            if (decode_bool_value(p, end, w, v)) overrides.shuffling_context = v;
+            if (!decode_bool_value(p, end, w, v)) return false;
+            overrides.shuffling_context = v;
         } else if (f == 2) {
             bool v = false;
-            if (decode_bool_value(p, end, w, v)) overrides.repeating_context = v;
+            if (!decode_bool_value(p, end, w, v)) return false;
+            overrides.repeating_context = v;
         } else if (f == 3) {
             bool v = false;
-            if (decode_bool_value(p, end, w, v)) overrides.repeating_track = v;
+            if (!decode_bool_value(p, end, w, v)) return false;
+            overrides.repeating_track = v;
+        } else if (f == 4) {
+            if (w != 2 && w != 1) return false;
+            if (!skip_field(p, end, w)) return false;
+        } else if (f == 5) {
+            if (w != 2) return false;
+            if (!skip_field(p, end, w)) return false;
         } else {
-            if (!skip_field(p, end, w)) break;
+            if (!skip_field(p, end, w)) return false;
         }
     }
+    return true;
 }
 
 // Field numbers verified 1:1 against Spotify EsPlayOrigin$PlayOrigin.java:
 // Field 1: feature_identifier, Field 2: feature_version, Field 3: view_uri, Field 4: external_referrer,
 // Field 5: referrer_identifier, Field 6: device_identifier, Field 7: feature_classes, Field 8: restriction_identifier
-inline void decode_play_origin(const uint8_t* ptr, size_t len, PlayOriginData& out) {
+inline bool decode_play_origin(const uint8_t* ptr, size_t len, PlayOriginData& out) {
+    if (ptr == nullptr) return len == 0;
     const uint8_t* p = ptr;
     const uint8_t* end = ptr + len;
     while (p < end) {
         uint64_t tag = 0;
-        if (!decode_varint(p, end, tag)) break;
+        if (!decode_varint(p, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (w == 2) {
+        if (f >= 1 && f <= 8) {
+            if (w != 2) return false;
             uint64_t l = 0;
-            if (!decode_varint(p, end, l) || p + l > end) break;
-            std::string str(reinterpret_cast<const char*>(p), l);
+            if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) return false;
+            const size_t n = static_cast<size_t>(l);
+            std::string str(reinterpret_cast<const char*>(p), n);
+            if (!is_valid_utf8_string(str)) return false;
             if (f == 1) out.feature_identifier = std::move(str);
             else if (f == 2) out.feature_version = std::move(str);
             else if (f == 3) out.view_uri = std::move(str);
@@ -218,108 +447,220 @@ inline void decode_play_origin(const uint8_t* ptr, size_t len, PlayOriginData& o
             else if (f == 6) out.device_identifier = std::move(str);
             else if (f == 7) out.feature_classes.push_back(std::move(str));
             else if (f == 8) out.restriction_identifier = std::move(str);
-            p += l;
+            p += n;
         } else {
-            if (!skip_field(p, end, w)) break;
+            if (!skip_field(p, end, w)) return false;
         }
     }
+    return true;
 }
 
 // Field numbers verified 1:1 against Spotify EsPreparePlayOptions$PreparePlayOptions.java:
-// Field 3: skip_to (SkipToTrack), Field 7: player_options_override (ContextPlayerOptionOverrides), Field 11: session_id (string)
-inline void decode_prepare_play_options(const uint8_t* ptr, size_t len, DecodedPreparePlay& out) {
+// Field 1: playback_id, Field 2: always_play_something, Field 3: skip_to (SkipToTrack),
+// Field 4: seek_to, Field 5: initially_paused, Field 6: system_initiated,
+// Field 7: player_options_override (ContextPlayerOptionOverrides), Field 8: suppressions,
+// Field 9: prefetch_level, Field 10: audio_stream, Field 11: session_id (string),
+// Field 12: license, Field 13: configuration_override, Field 14: seek_to_creator_timestamp
+inline bool decode_prepare_play_options(const uint8_t* ptr, size_t len, DecodedPreparePlay& out) {
+    if (ptr == nullptr) return len == 0;
     const uint8_t* p = ptr;
     const uint8_t* end = ptr + len;
     while (p < end) {
         uint64_t tag = 0;
-        if (!decode_varint(p, end, tag)) break;
+        if (!decode_varint(p, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (f == 3 && w == 2) {
+        if (f == 1 || f == 3 || f == 4 || f == 7 || f == 8 ||
+            f == 11 || f == 12 || f == 13 || f == 14) {
+            if (w != 2) return false;
             uint64_t l = 0;
-            if (!decode_varint(p, end, l) || p + l > end) break;
-            decode_skip_to(p, l, out.skip_to);
-            p += l;
-        } else if (f == 7 && w == 2) {
-            uint64_t l = 0;
-            if (!decode_varint(p, end, l) || p + l > end) break;
-            decode_option_overrides(p, l, out.overrides);
-            p += l;
-        } else if (f == 11 && w == 2) {
-            uint64_t l = 0;
-            if (!decode_varint(p, end, l) || p + l > end) break;
-            out.session_id.assign(reinterpret_cast<const char*>(p), l);
-            p += l;
+            if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) return false;
+            const size_t n = static_cast<size_t>(l);
+            if (f == 3) {
+                if (!decode_skip_to(p, n, out.skip_to)) return false;
+            } else if (f == 7) {
+                if (!decode_option_overrides(p, n, out.overrides)) return false;
+            } else if (f == 11) {
+                out.session_id.assign(reinterpret_cast<const char*>(p), n);
+                if (!is_valid_utf8_string(out.session_id)) return false;
+            }
+            p += n;
+        } else if (f == 2 || f == 5 || f == 6 || f == 9 || f == 10) {
+            if (w != 0) return false;
+            uint64_t dummy = 0;
+            if (!decode_varint(p, end, dummy)) return false;
         } else {
-            if (!skip_field(p, end, w)) break;
+            if (!skip_field(p, end, w)) return false;
         }
     }
+    return true;
 }
 
 // Field numbers verified 1:1 against Spotify EsContext$Context.java:
-// Field 1: pages (repeated ContextPage), Field 2: metadata (map), Field 3: uri (string), Field 4: url (string)
-inline void decode_context_submessage(const uint8_t* ptr, size_t len, DecodedPreparePlay& out) {
+// Field 1: pages (repeated ContextPage), Field 2: metadata (map), Field 3: uri (string),
+// Field 4: url (string), Field 5: is_loading (bool), Field 6: restrictions (Restrictions)
+inline bool decode_context_submessage(const uint8_t* ptr, size_t len, DecodedPreparePlay& out) {
+    if (ptr == nullptr) return len == 0;
     const uint8_t* p = ptr;
     const uint8_t* end = ptr + len;
     while (p < end) {
         uint64_t tag = 0;
-        if (!decode_varint(p, end, tag)) break;
+        if (!decode_varint(p, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (w == 2) {
+        if (f == 1 || f == 2 || f == 3 || f == 4 || f == 6) {
+            if (w != 2) return false;
             uint64_t sub_len = 0;
-            if (!decode_varint(p, end, sub_len) || p + sub_len > end) break;
+            if (!decode_varint(p, end, sub_len) || !has_bytes(p, end, sub_len)) return false;
+            const size_t n = static_cast<size_t>(sub_len);
             if (f == 1) { // Field 1: pages (repeated ContextPage)
                 std::string page_url, next_page_url;
                 std::vector<context_view::Entry> page_tracks;
-                if (decode_context_page(p, sub_len, page_url, next_page_url, page_tracks)) {
-                    if (out.page_url.empty()) {
-                        out.page_url = std::move(page_url);
-                        out.next_page_url = std::move(next_page_url);
-                    }
-                    out.tracks.insert(out.tracks.end(), page_tracks.begin(), page_tracks.end());
+                if (!decode_context_page(p, n, page_url, next_page_url, page_tracks)) {
+                    return false;
                 }
+                if (!page_url.empty() && !is_valid_utf8_string(page_url)) {
+                    return false;
+                }
+                if (!next_page_url.empty() && !is_valid_utf8_string(next_page_url)) {
+                    return false;
+                }
+                std::vector<context_view::Entry> valid_tracks;
+                valid_tracks.reserve(page_tracks.size());
+                for (auto& entry : page_tracks) {
+                    if (!entry.uri.empty()) {
+                        if (!is_valid_utf8_uri(entry.uri)) {
+                            return false;
+                        }
+                        valid_tracks.push_back(std::move(entry));
+                    }
+                }
+                if (out.page_url.empty()) {
+                    out.page_url = std::move(page_url);
+                    out.next_page_url = std::move(next_page_url);
+                }
+                out.page_track_offsets.push_back(out.tracks.size());
+                out.tracks.insert(
+                    out.tracks.end(),
+                    std::make_move_iterator(valid_tracks.begin()),
+                    std::make_move_iterator(valid_tracks.end()));
             } else if (f == 2) { // Field 2: metadata (map<string,string>)
-                decode_map_entries(p, sub_len, out.context_metadata);
+                if (!decode_map_entries(p, n, out.context_metadata)) return false;
             } else if (f == 3) { // Field 3: uri (string)
-                out.context_uri.assign(reinterpret_cast<const char*>(p), sub_len);
+                out.context_uri.assign(reinterpret_cast<const char*>(p), n);
+                if (!out.context_uri.empty() && !is_valid_utf8_uri(out.context_uri)) {
+                    return false;
+                }
             } else if (f == 4) { // Field 4: url (string)
-                out.context_url.assign(reinterpret_cast<const char*>(p), sub_len);
+                out.context_url.assign(reinterpret_cast<const char*>(p), n);
+                if (!out.context_url.empty() && !is_valid_utf8_uri(out.context_url)) {
+                    return false;
+                }
             }
-            p += sub_len;
+            p += n;
+        } else if (f == 5) {
+            if (w != 0) return false;
+            uint64_t dummy = 0;
+            if (!decode_varint(p, end, dummy)) return false;
         } else {
-            if (!skip_field(p, end, w)) break;
+            if (!skip_field(p, end, w)) return false;
         }
     }
+    return true;
 }
 
 // Field numbers verified 1:1 against Spotify EsPreparePlay$PreparePlayRequest.java:
 // Field 1: context (Context), Field 2: options (PreparePlayOptions), Field 3: play_origin (PlayOrigin)
-inline bool decode_prepare_play_request_body(const uint8_t* data, size_t size, DecodedPreparePlay& out) {
+inline bool decode_prepare_play_request_body(
+        const uint8_t* data,
+        size_t size,
+        DecodedPreparePlay& out,
+        bool& has_extra_fields) {
+    has_extra_fields = false;
     if (!data || size == 0) return false;
     const uint8_t* ptr = data;
     const uint8_t* end = data + size;
     while (ptr < end) {
         uint64_t tag = 0;
-        if (!decode_varint(ptr, end, tag)) break;
+        if (!decode_varint(ptr, end, tag)) return false;
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (w == 2) {
+        if (f >= 1 && f <= 3) {
+            if (w != 2) return false;
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) return false;
+            const size_t n = static_cast<size_t>(len);
             if (f == 1) { // Field 1: Context
-                decode_context_submessage(ptr, static_cast<size_t>(len), out);
+                if (!decode_context_submessage(ptr, n, out)) return false;
             } else if (f == 2) { // Field 2: PreparePlayOptions
-                decode_prepare_play_options(ptr, static_cast<size_t>(len), out);
+                if (!decode_prepare_play_options(ptr, n, out)) return false;
             } else if (f == 3) { // Field 3: PlayOrigin
-                decode_play_origin(ptr, static_cast<size_t>(len), out.play_origin);
+                if (!decode_play_origin(ptr, n, out.play_origin)) return false;
             }
-            ptr += len;
+            ptr += n;
         } else {
-            if (!skip_field(ptr, end, w)) break;
+            has_extra_fields = true;
+            if (!skip_field(ptr, end, w)) return false;
         }
     }
-    return !out.context_uri.empty() || !out.tracks.empty();
+    return !out.tracks.empty() ||
+           is_valid_utf8_uri(out.context_uri) ||
+           is_valid_utf8_uri(out.context_url);
+}
+
+inline bool validate_play_options_submessage(const uint8_t* ptr, size_t len) noexcept {
+    if (ptr == nullptr) return len == 0;
+    const uint8_t* p = ptr;
+    const uint8_t* end = ptr + len;
+    while (p < end) {
+        uint64_t tag = 0;
+        if (!decode_varint(p, end, tag)) return false;
+        uint32_t f = static_cast<uint32_t>(tag >> 3);
+        uint32_t w = static_cast<uint32_t>(tag & 0x07);
+        if (f >= 1 && f <= 3) {
+            if (w != 0) return false;
+        } else if (f == 4) {
+            if (w != 5) return false;
+        }
+        if (!skip_field(p, end, w)) return false;
+    }
+    return true;
+}
+
+inline bool validate_command_options_submessage(const uint8_t* ptr, size_t len) noexcept {
+    if (ptr == nullptr) return len == 0;
+    const uint8_t* p = ptr;
+    const uint8_t* end = ptr + len;
+    while (p < end) {
+        uint64_t tag = 0;
+        if (!decode_varint(p, end, tag)) return false;
+        uint32_t f = static_cast<uint32_t>(tag >> 3);
+        uint32_t w = static_cast<uint32_t>(tag & 0x07);
+        if (f >= 1 && f <= 3) {
+            if (w != 0) return false;
+        } else if (f == 4) {
+            if (w != 2) return false;
+        }
+        if (!skip_field(p, end, w)) return false;
+    }
+    return true;
+}
+
+inline bool validate_logging_params_submessage(const uint8_t* ptr, size_t len) noexcept {
+    if (ptr == nullptr) return len == 0;
+    const uint8_t* p = ptr;
+    const uint8_t* end = ptr + len;
+    while (p < end) {
+        uint64_t tag = 0;
+        if (!decode_varint(p, end, tag)) return false;
+        uint32_t f = static_cast<uint32_t>(tag >> 3);
+        uint32_t w = static_cast<uint32_t>(tag & 0x07);
+        if (f >= 1 && f <= 6 && w != 2) {
+            return false;
+        }
+        if (!skip_field(p, end, w)) return false;
+    }
+    return true;
 }
 
 // Unwraps PlayRequest (Field 1 = PreparePlayRequest) or decodes PreparePlayRequest directly
@@ -330,42 +671,99 @@ inline bool parse_prepare_play_request(const uint8_t* data, size_t size, Decoded
     const uint8_t* end = data + size;
     const uint8_t* f1_ptr = nullptr;
     size_t f1_len = 0;
+    bool outer_valid_play_request = true;
+    bool has_play_request_logging_params = false;
 
     while (ptr < end) {
         uint64_t tag = 0;
-        if (!decode_varint(ptr, end, tag)) break;
+        if (!decode_varint(ptr, end, tag)) {
+            outer_valid_play_request = false;
+            break;
+        }
         uint32_t f = static_cast<uint32_t>(tag >> 3);
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (f == 1 && w == 2) {
-            uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
-            f1_ptr = ptr;
-            f1_len = static_cast<size_t>(len);
-            ptr += len;
-        } else {
-            if (!skip_field(ptr, end, w)) break;
-        }
-    }
-
-    if (f1_ptr && f1_len > 0) {
-        DecodedPreparePlay candidate;
-        if (decode_prepare_play_request_body(f1_ptr, f1_len, candidate)) {
-            if (!candidate.context_uri.empty() || !candidate.tracks.empty()) {
-                out = std::move(candidate);
-                return true;
+        if (f >= 1 && f <= 4) {
+            if (w != 2) {
+                outer_valid_play_request = false;
+                break;
             }
+            uint64_t len = 0;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) {
+                outer_valid_play_request = false;
+                break;
+            }
+            const size_t n = static_cast<size_t>(len);
+            if (f == 1) {
+                f1_ptr = ptr;
+                f1_len = n;
+            } else if (f == 2) {
+                if (!validate_play_options_submessage(ptr, n)) {
+                    outer_valid_play_request = false;
+                    break;
+                }
+            } else if (f == 3) {
+                if (!validate_command_options_submessage(ptr, n)) {
+                    outer_valid_play_request = false;
+                    break;
+                }
+            } else if (f == 4) {
+                if (validate_logging_params_submessage(ptr, n)) {
+                    has_play_request_logging_params = true;
+                } else {
+                    outer_valid_play_request = false;
+                    break;
+                }
+            }
+            ptr += n;
+        } else {
+            outer_valid_play_request = false;
+            break;
         }
     }
 
-    return decode_prepare_play_request_body(data, size, out);
-}
+    DecodedPreparePlay candidate;
+    bool cand_has_extra = false;
+    const bool ok_candidate =
+        outer_valid_play_request &&
+        f1_ptr != nullptr &&
+        f1_len > 0 &&
+        decode_prepare_play_request_body(f1_ptr, f1_len, candidate, cand_has_extra);
 
-inline bool is_ascii_printable_uri(const std::string& uri) {
-    if (uri.empty()) return false;
-    for (unsigned char c : uri) {
-        if (c < 32 || c >= 127) return false;
+    DecodedPreparePlay direct;
+    bool dir_has_extra = false;
+    const bool ok_direct = decode_prepare_play_request_body(data, size, direct, dir_has_extra);
+
+    if (ok_candidate && has_play_request_logging_params) {
+        out = std::move(candidate);
+        return true;
     }
-    return true;
+    if (ok_candidate && !ok_direct) {
+        out = std::move(candidate);
+        return true;
+    }
+    if (ok_direct && !ok_candidate) {
+        out = std::move(direct);
+        return true;
+    }
+    if (ok_candidate && ok_direct) {
+        if (!candidate.tracks.empty() != !direct.tracks.empty()) {
+            out = !candidate.tracks.empty() ? std::move(candidate) : std::move(direct);
+            return true;
+        }
+        if (cand_has_extra != dir_has_extra) {
+            out = !cand_has_extra ? std::move(candidate) : std::move(direct);
+            return true;
+        }
+        const bool cand_has_uri = is_valid_utf8_uri(candidate.context_uri);
+        const bool dir_has_uri = is_valid_utf8_uri(direct.context_uri);
+        if (cand_has_uri != dir_has_uri) {
+            out = cand_has_uri ? std::move(candidate) : std::move(direct);
+            return true;
+        }
+        out = std::move(direct);
+        return true;
+    }
+    return false;
 }
 
 inline bool decode_track_or_provided_track(const uint8_t* data, size_t size, context_view::Entry& out_entry) {
@@ -384,16 +782,18 @@ inline bool decode_track_or_provided_track(const uint8_t* data, size_t size, con
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
         if (f == 1 && w == 2) {
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
-            if (decode_context_track(ptr, static_cast<size_t>(len), inner) && is_ascii_printable_uri(inner.uri)) {
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) break;
+            const size_t n = static_cast<size_t>(len);
+            if (decode_context_track(ptr, n, inner) && is_valid_utf8_uri(inner.uri)) {
                 found_track = true;
             }
-            ptr += len;
+            ptr += n;
         } else if (f == 4 && w == 2) {
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
-            provider.assign(reinterpret_cast<const char*>(ptr), static_cast<size_t>(len));
-            ptr += len;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) break;
+            const size_t n = static_cast<size_t>(len);
+            provider.assign(reinterpret_cast<const char*>(ptr), n);
+            ptr += n;
         } else {
             if (!skip_field(ptr, end, w)) break;
         }
@@ -411,7 +811,7 @@ inline bool decode_track_or_provided_track(const uint8_t* data, size_t size, con
 
     // 2. Try decoding directly as bare ContextTrack
     context_view::Entry direct;
-    if (decode_context_track(data, size, direct) && is_ascii_printable_uri(direct.uri)) {
+    if (decode_context_track(data, size, direct) && is_valid_utf8_uri(direct.uri)) {
         if (!direct.metadata["provider"].empty()) {
             direct.provider = direct.metadata["provider"];
         }
@@ -429,6 +829,7 @@ inline bool decode_set_queue_request(
         size_t size,
         std::vector<context_view::Entry>& out_tracks,
         int64_t& out_rev) {
+    if (data == nullptr) return size == 0;
     const uint8_t* ptr = data;
     const uint8_t* end = data + size;
     while (ptr < end) {
@@ -438,12 +839,13 @@ inline bool decode_set_queue_request(
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
         if (f == 1 && w == 2) {
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) break;
+            const size_t n = static_cast<size_t>(len);
             context_view::Entry entry;
-            if (decode_track_or_provided_track(ptr, static_cast<size_t>(len), entry)) {
+            if (decode_track_or_provided_track(ptr, n, entry)) {
                 out_tracks.push_back(std::move(entry));
             }
-            ptr += len;
+            ptr += n;
         } else if (f == 3) {
             decode_int64_value(ptr, end, w, out_rev);
         } else {
@@ -474,6 +876,47 @@ inline bool decode_set_options_request(const uint8_t* data, size_t size, OptionO
             if (decode_bool_value(ptr, end, w, v)) out_opts.shuffling_context = v;
         } else {
             if (!skip_field(ptr, end, w)) break;
+        }
+    }
+    return true;
+}
+
+// Field numbers verified 1:1 against es_delete_session.pb.dart (DeleteSessionRequest):
+// Field 1: session_id (string)
+inline bool decode_delete_session_request(
+    const uint8_t* data, size_t size, std::string& out_session_id) {
+    if (data == nullptr) {
+        return size == 0;
+    }
+    const uint8_t* ptr = data;
+    const uint8_t* end = data + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!decode_varint(ptr, end, tag)) {
+            return false;
+        }
+        const uint64_t field_number_64 = tag >> 3;
+        if (field_number_64 == 0 || field_number_64 > 0x1FFFFFFFULL) {
+            return false;
+        }
+        const uint32_t field_number = static_cast<uint32_t>(field_number_64);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+
+        if (field_number == 1) {
+            if (wire_type != 2) {
+                return false;
+            }
+            uint64_t str_len = 0;
+            if (!decode_varint(ptr, end, str_len) || !has_bytes(ptr, end, str_len)) {
+                return false;
+            }
+            const size_t safe_len = static_cast<size_t>(str_len);
+            out_session_id.assign(reinterpret_cast<const char*>(ptr), safe_len);
+            ptr += safe_len;
+        } else {
+            if (!skip_field(ptr, end, wire_type)) {
+                return false;
+            }
         }
     }
     return true;
@@ -573,7 +1016,7 @@ inline bool decode_single_string(const uint8_t* data, size_t size, std::string& 
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
         if (f == 1 && w == 2) {
             uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || ptr + len > end) break;
+            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) break;
             out_str.assign(reinterpret_cast<const char*>(ptr), static_cast<size_t>(len));
             return true;
         }
@@ -631,6 +1074,7 @@ void ContextPlayerImpl::begin_track_transition_locked(
     SessionPlaybackPhase initial_phase) {
     current_track_ = track;
     playback_phase_ = initial_phase;
+    playback_id_ = generate_track_uid();
     position_ms_ = 0;
     duration_ms_ = 0;
 }
@@ -657,6 +1101,7 @@ void ContextPlayerImpl::set_track_player(std::shared_ptr<rendering::TrackPlayer>
         std::lock_guard<std::mutex> lock(mutex_);
         previous = std::move(track_player_);
         track_player_ = track_player;
+        pending_player_sync_token_ = 0;
     }
     if (previous) {
         previous->setCallbacks(rendering::TrackPlayerCallbacks{});
@@ -704,8 +1149,12 @@ void ContextPlayerImpl::bind_track_player_callbacks(
 void ContextPlayerImpl::on_track_player_state_changed(const rendering::TrackPlayerState& state) {
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (pending_player_sync_token_ != 0) {
+            return;
+        }
         playback_phase_ = map_track_player_state_to_phase(state);
         if (state.position_ms >= 0) {
             position_ms_ = state.position_ms;
@@ -716,8 +1165,10 @@ void ContextPlayerImpl::on_track_player_state_changed(const rendering::TrackPlay
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
 }
 
 void ContextPlayerImpl::apply_track_info_locked(
@@ -751,6 +1202,7 @@ void ContextPlayerImpl::on_track_metadata_resolved(
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes;
     std::vector<uint8_t> qc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (resolved_track_info_cache_.size() >= 128 &&
@@ -785,15 +1237,18 @@ void ContextPlayerImpl::on_track_metadata_resolved(
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
 }
 
 void ContextPlayerImpl::on_track_player_error(int32_t /*code*/, const std::string& message) {
     ErrorCallback err_cb;
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         playback_phase_ = SessionPlaybackPhase::Halted;
@@ -802,8 +1257,10 @@ void ContextPlayerImpl::on_track_player_error(int32_t /*code*/, const std::strin
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     if (err_cb) err_cb("LOAD_FAILED", message);
 }
 
@@ -887,7 +1344,10 @@ bool ContextPlayerImpl::handle_command(
     if (method_name == "GetError") return true;
 
     LOGW("ContextPlayer: unhandled command method=%s", method.c_str());
-    last_error_ = "UNHANDLED_METHOD";
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        last_error_ = "UNHANDLED_METHOD";
+    }
     return false;
 }
 
@@ -912,9 +1372,12 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
 
     std::shared_ptr<rendering::TrackPlayer> tp;
     context_view::Entry track_to_play;
+    bool should_stop_player = false;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
+    ConnectDispatchBundle connect_bundle;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -929,48 +1392,32 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
 
         if (parsed.overrides.shuffling_context.has_value()) {
             shuffling_ = *parsed.overrides.shuffling_context;
-            context_processor_.set_shuffling(shuffling_);
         }
         apply_repeat_overrides_locked(
             parsed.overrides.repeating_context,
             parsed.overrides.repeating_track);
 
-        int32_t initial_index = 0;
-        if (parsed.skip_to.track_index >= 0) {
-            initial_index = static_cast<int32_t>(parsed.skip_to.track_index);
-        } else if (!parsed.skip_to.track_uid.empty()) {
-            for (size_t i = 0; i < parsed.tracks.size(); ++i) {
-                if (parsed.tracks[i].uid == parsed.skip_to.track_uid) {
-                    initial_index = static_cast<int32_t>(i);
-                    break;
-                }
-            }
-        } else if (!parsed.skip_to.track_uri.empty()) {
-            for (size_t i = 0; i < parsed.tracks.size(); ++i) {
-                if (parsed.tracks[i].uri == parsed.skip_to.track_uri) {
-                    initial_index = static_cast<int32_t>(i);
-                    break;
-                }
-            }
-        }
+        const int32_t initial_index = resolve_initial_track_index(
+            parsed.tracks,
+            parsed.skip_to.track_uid,
+            parsed.skip_to.track_uri,
+            parsed.skip_to.page_index,
+            parsed.skip_to.track_index,
+            parsed.page_track_offsets);
 
+        if (!shuffling_) {
+            context_processor_.set_shuffling(false);
+        }
         context_processor_.set_context(
             parsed.context_uri,
             parsed.page_url,
             parsed.tracks,
             parsed.next_page_url,
             initial_index);
-
-        if (!parsed.skip_to.track_uid.empty()) {
-            context_processor_.skip_to_uid(parsed.skip_to.track_uid);
-        } else if (!parsed.skip_to.track_uri.empty()) {
-            context_processor_.skip_to_uri(parsed.skip_to.track_uri);
-        } else if (parsed.skip_to.track_index > 0) {
-            context_processor_.skip_to_index(static_cast<int32_t>(parsed.skip_to.track_index));
-        }
+        context_processor_.set_shuffling(shuffling_);
 
         if (const auto resolved_cur = context_processor_.get_current_track();
-            resolved_cur.has_value()) {
+            resolved_cur.has_value() && !resolved_cur->uri.empty()) {
             begin_track_transition_locked(*resolved_cur, SessionPlaybackPhase::BufferingPlay);
             LOGI("ContextPlayerImpl.play: context_uri=%s playing uri=%s uid=%s",
                  context_uri_.c_str(),
@@ -978,25 +1425,43 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
                  current_track_->uid.c_str());
             track_to_play = *current_track_;
             tp = track_player_;
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
         } else {
             current_track_.reset();
+            playback_id_.clear();
             playback_phase_ = SessionPlaybackPhase::Idle;
             position_ms_ = 0;
             duration_ms_ = 0;
+            tp = track_player_;
+            should_stop_player = true;
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
         }
 
-        emit_state_locked();
+        emit_state_locked(false);
         emit_queue_locked();
         sc_cb = state_changed_callback_;
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
 
+    if (tp && should_stop_player) {
+        tp->stop(rendering::StopReason::ContextEnded);
+        clear_pending_player_sync(sync_token);
+    }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (tp && !track_to_play.uri.empty()) {
+    dispatch_connect_listeners(connect_bundle);
+    if (tp && !should_stop_player && !track_to_play.uri.empty()) {
         tp->start(track_to_play, rendering::StartReason::PlayCommand, 0, false);
+        clear_pending_player_sync(sync_token);
     }
     return true;
 }
@@ -1013,18 +1478,24 @@ bool ContextPlayerImpl::pause() {
 
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         LOGI("ContextPlayer RoutingTrackPlayer: PauseOrAwaitPause active");
         playback_phase_ = SessionPlaybackPhase::Paused;
-        if (track_player_) {
-            position_ms_ = track_player_->getPosition();
+        if (track_player_ && pending_player_sync_token_ == 0) {
+            const int64_t pos = track_player_->getPosition();
+            if (pos >= 0) {
+                position_ms_ = pos;
+            }
         }
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     return true;
 }
 
@@ -1032,58 +1503,75 @@ bool ContextPlayerImpl::resume() {
     std::shared_ptr<rendering::TrackPlayer> tp;
     std::optional<context_view::Entry> fallback_track;
     int64_t resume_pos = 0;
+    uint64_t sync_token = 0;
+    StateChangedCallback sc_cb;
+    std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         tp = track_player_;
         fallback_track = current_track_;
+        if (position_ms_ < 0) {
+            position_ms_ = 0;
+        }
         resume_pos = position_ms_;
+        LOGI("ContextPlayer RoutingTrackPlayer: PauseOrAwaitPause not active");
+        playback_phase_ = (playback_phase_ == SessionPlaybackPhase::BufferingPaused)
+            ? SessionPlaybackPhase::BufferingPlay
+            : SessionPlaybackPhase::Playing;
+        if (tp) {
+            sync_token = ++next_player_sync_token_;
+            pending_player_sync_token_ = sync_token;
+        }
+        emit_state_locked(false);
+        sc_cb = state_changed_callback_;
+        sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
 
+    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     if (tp) {
         if (!tp->getCurrentTrack().has_value() && fallback_track.has_value()) {
             tp->start(*fallback_track, rendering::StartReason::PlayCommand, resume_pos, false);
         } else {
             tp->resume();
         }
+        clear_pending_player_sync(sync_token);
     }
-
-    StateChangedCallback sc_cb;
-    std::vector<uint8_t> sc_bytes;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        LOGI("ContextPlayer RoutingTrackPlayer: PauseOrAwaitPause not active");
-        playback_phase_ = (playback_phase_ == SessionPlaybackPhase::BufferingPaused)
-            ? SessionPlaybackPhase::BufferingPlay
-            : SessionPlaybackPhase::Playing;
-        emit_state_locked();
-        sc_cb = state_changed_callback_;
-        sc_bytes = cached_state_bytes_;
-    }
-    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     return true;
 }
 
 bool ContextPlayerImpl::seek_to(int64_t position_ms) {
+    if (position_ms < 0) {
+        position_ms = 0;
+    }
+
     std::shared_ptr<rendering::TrackPlayer> tp;
+    uint64_t sync_token = 0;
+    StateChangedCallback sc_cb;
+    std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         tp = track_player_;
-    }
-    if (tp) {
-        tp->seek(position_ms, rendering::SeekOrigin::User);
-    }
-
-    StateChangedCallback sc_cb;
-    std::vector<uint8_t> sc_bytes;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
         LOGI("ContextPlayer RoutingTrackPlayer: Seeking to %lld ms", static_cast<long long>(position_ms));
         position_ms_ = position_ms;
-        emit_state_locked();
+        if (tp) {
+            sync_token = ++next_player_sync_token_;
+            pending_player_sync_token_ = sync_token;
+        }
+        emit_state_locked(false);
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
+    if (tp) {
+        tp->seek(position_ms, rendering::SeekOrigin::User);
+        clear_pending_player_sync(sync_token);
+    }
     return true;
 }
 
@@ -1109,9 +1597,10 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
             uint32_t w = static_cast<uint32_t>(tag & 0x07);
             if (f == 1 && w == 2) {
                 uint64_t l = 0;
-                if (!decode_varint(p, end, l) || p + l > end) break;
+                if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) break;
+                const size_t n = static_cast<size_t>(l);
                 const uint8_t* opt_p = p;
-                const uint8_t* opt_end = p + l;
+                const uint8_t* opt_end = p + n;
                 while (opt_p < opt_end) {
                     uint64_t opt_tag = 0;
                     if (!decode_varint(opt_p, opt_end, opt_tag)) break;
@@ -1123,12 +1612,13 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                         if (!skip_field(opt_p, opt_end, opt_w)) break;
                     }
                 }
-                p += l;
+                p += n;
             } else if (f == 3 && w == 2) {
                 uint64_t l = 0;
-                if (!decode_varint(p, end, l) || p + l > end) break;
-                decode_context_track(p, static_cast<size_t>(l), target_track);
-                p += l;
+                if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) break;
+                const size_t n = static_cast<size_t>(l);
+                decode_context_track(p, n, target_track);
+                p += n;
             } else {
                 if (!skip_field(p, end, w)) break;
             }
@@ -1139,10 +1629,12 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
     context_view::Entry next_track;
     bool should_play = false;
     bool should_stop_context = false;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     ErrorCallback err_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
+    ConnectDispatchBundle connect_bundle;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -1218,8 +1710,7 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                 } else {
                     bool advanced = context_processor_.skip_next();
                     if (!advanced && repeat_mode_ != SessionRepeatMode::Off) {
-                        context_processor_.skip_to_index(0);
-                        advanced = true;
+                        advanced = context_processor_.skip_to_index(0);
                     }
                     if (advanced) {
                         auto track = context_processor_.get_current_track();
@@ -1230,6 +1721,11 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                             LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
                         }
                     } else {
+                        if (!context_processor_.get_current_track().has_value()) {
+                            current_track_.reset();
+                            playback_id_.clear();
+                            duration_ms_ = 0;
+                        }
                         playback_phase_ = SessionPlaybackPhase::Idle;
                         position_ms_ = 0;
                         should_stop_context = true;
@@ -1237,12 +1733,17 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
                 }
             }
 
-            emit_state_locked();
+            if (tp && (should_play || should_stop_context)) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
+            emit_state_locked(false);
             emit_queue_locked();
             sc_cb = state_changed_callback_;
             qc_cb = queue_changed_callback_;
             sc_bytes = cached_state_bytes_;
             qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
     }
 
@@ -1253,12 +1754,14 @@ bool ContextPlayerImpl::skip_next(const uint8_t* payload, size_t len) {
 
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     if (tp) {
         if (should_play) {
             tp->start(next_track, rendering::StartReason::SkipNext, 0, false);
         } else if (should_stop_context) {
             tp->stop(rendering::StopReason::ContextEnded);
         }
+        clear_pending_player_sync(sync_token);
     }
     return should_play;
 }
@@ -1278,9 +1781,10 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
             uint32_t w = static_cast<uint32_t>(tag & 0x07);
             if (f == 1 && w == 2) {
                 uint64_t l = 0;
-                if (!decode_varint(p, end, l) || p + l > end) break;
+                if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) break;
+                const size_t n = static_cast<size_t>(l);
                 const uint8_t* opt_p = p;
-                const uint8_t* opt_end = p + l;
+                const uint8_t* opt_end = p + n;
                 while (opt_p < opt_end) {
                     uint64_t opt_tag = 0;
                     if (!decode_varint(opt_p, opt_end, opt_tag)) break;
@@ -1292,14 +1796,15 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
                         if (!skip_field(opt_p, opt_end, opt_w)) break;
                     }
                 }
-                p += l;
+                p += n;
             } else if (f == 2) {
                 decode_bool_value(p, end, w, allow_seeking);
             } else if (f == 4 && w == 2) {
                 uint64_t l = 0;
-                if (!decode_varint(p, end, l) || p + l > end) break;
-                decode_context_track(p, static_cast<size_t>(l), target_track);
-                p += l;
+                if (!decode_varint(p, end, l) || !has_bytes(p, end, l)) break;
+                const size_t n = static_cast<size_t>(l);
+                decode_context_track(p, n, target_track);
+                p += n;
             } else {
                 if (!skip_field(p, end, w)) break;
             }
@@ -1310,11 +1815,14 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
     context_view::Entry prev_track;
     bool should_play = false;
     bool should_seek_zero = false;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     ErrorCallback err_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
+    ConnectDispatchBundle connect_bundle;
 
+    bool restart_track_only = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!override_restrictions && !restrictions_engine_.get_custom_disallow_skipping_prev().empty()) {
@@ -1323,15 +1831,13 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
             err_cb = error_callback_;
         } else {
             tp = track_player_;
-            const int64_t current_pos = tp ? tp->getPosition() : position_ms_;
-            if (allow_seeking && current_pos > 3000) {
+            const int64_t current_pos =
+                (tp && pending_player_sync_token_ == 0) ? tp->getPosition() : position_ms_;
+            if (allow_seeking && current_track_.has_value() && current_pos > 3000) {
                 LOGI("ContextPlayer RoutingTrackPlayer: Seeking to 0 ms (skip_prev restart pos=%lld)",
                      static_cast<long long>(current_pos));
-                position_ms_ = 0;
                 should_seek_zero = true;
-                emit_state_locked();
-                sc_cb = state_changed_callback_;
-                sc_bytes = cached_state_bytes_;
+                restart_track_only = true;
             } else {
                 bool advanced = false;
                 if (!target_track.uid.empty()) {
@@ -1350,18 +1856,27 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
                         should_play = true;
                         LOGI("did_advance_to_track: %s", prev_track.uri.c_str());
                     }
-                } else if (repeat_mode_ != SessionRepeatMode::Off) {
-                    position_ms_ = 0;
+                } else if (repeat_mode_ != SessionRepeatMode::Off && current_track_.has_value()) {
                     should_seek_zero = true;
                 }
+            }
 
-                emit_state_locked();
+            if (should_seek_zero) {
+                position_ms_ = 0;
+            }
+            if (tp && (should_seek_zero || should_play)) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
+            emit_state_locked(false);
+            if (!restart_track_only) {
                 emit_queue_locked();
-                sc_cb = state_changed_callback_;
                 qc_cb = queue_changed_callback_;
-                sc_bytes = cached_state_bytes_;
                 qc_bytes = cached_queue_bytes_;
             }
+            sc_cb = state_changed_callback_;
+            sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
     }
 
@@ -1370,13 +1885,17 @@ bool ContextPlayerImpl::skip_prev(const uint8_t* payload, size_t len) {
         return false;
     }
 
-    if (tp && should_seek_zero) {
-        tp->seek(0, rendering::SeekOrigin::User);
-    }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (tp && should_play) {
-        tp->start(prev_track, rendering::StartReason::SkipPrev, 0, false);
+    dispatch_connect_listeners(connect_bundle);
+    if (tp) {
+        if (should_seek_zero) {
+            tp->seek(0, rendering::SeekOrigin::User);
+            clear_pending_player_sync(sync_token);
+        } else if (should_play) {
+            tp->start(prev_track, rendering::StartReason::SkipPrev, 0, false);
+            clear_pending_player_sync(sync_token);
+        }
     }
     return should_play || should_seek_zero;
 }
@@ -1387,9 +1906,11 @@ void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
     bool should_play = false;
     bool should_repeat_current = false;
     bool should_stop_context = false;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
+    ConnectDispatchBundle connect_bundle;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -1403,9 +1924,14 @@ void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
             position_ms_ = 0;
             playback_phase_ = SessionPlaybackPhase::Playing;
             should_repeat_current = true;
-            emit_state_locked();
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
+            emit_state_locked(false);
             sc_cb = state_changed_callback_;
             sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         } else {
             if (current_track_.has_value()) {
                 LOGI("advanced_past_track: %s", current_track_->uri.c_str());
@@ -1422,8 +1948,7 @@ void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
             } else {
                 bool advanced = context_processor_.skip_next();
                 if (!advanced && repeat_mode_ != SessionRepeatMode::Off) {
-                    context_processor_.skip_to_index(0);
-                    advanced = true;
+                    advanced = context_processor_.skip_to_index(0);
                 }
                 if (advanced) {
                     auto track = context_processor_.get_current_track();
@@ -1434,33 +1959,45 @@ void ContextPlayerImpl::advance_to_next_track(rendering::AdvanceReason reason) {
                         LOGI("preroll_track_advance to context track: %s", next_track.uri.c_str());
                     }
                 } else {
+                    if (!context_processor_.get_current_track().has_value()) {
+                        current_track_.reset();
+                        playback_id_.clear();
+                        duration_ms_ = 0;
+                    }
                     playback_phase_ = SessionPlaybackPhase::Idle;
                     position_ms_ = 0;
                     should_stop_context = true;
                 }
             }
 
-            emit_state_locked();
+            if (tp && (should_play || should_stop_context)) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
+            emit_state_locked(false);
             emit_queue_locked();
             sc_cb = state_changed_callback_;
             qc_cb = queue_changed_callback_;
             sc_bytes = cached_state_bytes_;
             qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
     }
 
+    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     if (tp && should_repeat_current) {
         tp->seek(0, rendering::SeekOrigin::Internal);
         tp->resume();
-    }
-    if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
-    if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
-    if (tp) {
+        clear_pending_player_sync(sync_token);
+    } else if (tp && !should_repeat_current) {
         if (should_play) {
             tp->advance(next_track, 0);
         } else if (should_stop_context) {
             tp->stop(rendering::StopReason::ContextEnded);
         }
+        clear_pending_player_sync(sync_token);
     }
 }
 
@@ -1471,6 +2008,7 @@ bool ContextPlayerImpl::set_options(const uint8_t* payload, size_t len) {
         StateChangedCallback sc_cb;
         QueueChangedCallback qc_cb;
         std::vector<uint8_t> sc_bytes, qc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (overrides.shuffling_context.has_value()) {
@@ -1486,9 +2024,11 @@ bool ContextPlayerImpl::set_options(const uint8_t* payload, size_t len) {
             qc_cb = queue_changed_callback_;
             sc_bytes = cached_state_bytes_;
             qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -1507,6 +2047,7 @@ void ContextPlayerImpl::set_shuffling_context(bool shuffling) {
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         shuffling_ = shuffling;
@@ -1517,9 +2058,11 @@ void ContextPlayerImpl::set_shuffling_context(bool shuffling) {
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
 }
 
 bool ContextPlayerImpl::set_repeating_context(const uint8_t* payload, size_t len) {
@@ -1534,14 +2077,17 @@ bool ContextPlayerImpl::set_repeating_context(const uint8_t* payload, size_t len
 void ContextPlayerImpl::set_repeating_context(bool repeating) {
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         apply_repeat_overrides_locked(repeating, std::nullopt);
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
 }
 
 bool ContextPlayerImpl::set_repeating_track(const uint8_t* payload, size_t len) {
@@ -1556,14 +2102,17 @@ bool ContextPlayerImpl::set_repeating_track(const uint8_t* payload, size_t len) 
 void ContextPlayerImpl::set_repeating_track(bool repeating) {
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         apply_repeat_overrides_locked(std::nullopt, repeating);
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
 }
 
 bool ContextPlayerImpl::add_to_queue(const uint8_t* payload, size_t len) {
@@ -1574,6 +2123,7 @@ bool ContextPlayerImpl::add_to_queue(const uint8_t* payload, size_t len) {
         std::vector<uint8_t> qc_bytes;
         StateChangedCallback sc_cb;
         std::vector<uint8_t> sc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             entry.uid = generate_track_uid();
@@ -1588,9 +2138,11 @@ bool ContextPlayerImpl::add_to_queue(const uint8_t* payload, size_t len) {
             qc_bytes = cached_queue_bytes_;
             sc_cb = state_changed_callback_;
             sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -1605,6 +2157,7 @@ bool ContextPlayerImpl::set_queue(const uint8_t* payload, size_t len) {
         std::vector<uint8_t> qc_bytes;
         StateChangedCallback sc_cb;
         std::vector<uint8_t> sc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             user_queue_.clear();
@@ -1635,9 +2188,11 @@ bool ContextPlayerImpl::set_queue(const uint8_t* payload, size_t len) {
             qc_bytes = cached_queue_bytes_;
             sc_cb = state_changed_callback_;
             sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -1655,12 +2210,13 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
         uint32_t w = static_cast<uint32_t>(tag & 0x07);
         if (f == 1 && w == 2) {
             uint64_t l = 0;
-            if (!decode_varint(ptr, end, l) || ptr + l > end) break;
+            if (!decode_varint(ptr, end, l) || !has_bytes(ptr, end, l)) break;
+            const size_t n = static_cast<size_t>(l);
             context_view::Entry entry;
-            if (decode_track_or_provided_track(ptr, static_cast<size_t>(l), entry)) {
+            if (decode_track_or_provided_track(ptr, n, entry)) {
                 tracks.push_back(std::move(entry));
             }
-            ptr += l;
+            ptr += n;
         } else {
             if (!skip_field(ptr, end, w)) break;
         }
@@ -1676,6 +2232,7 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
         std::vector<uint8_t> qc_bytes;
         StateChangedCallback sc_cb;
         std::vector<uint8_t> sc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             for (auto& t : tracks) {
@@ -1692,9 +2249,11 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
             qc_bytes = cached_queue_bytes_;
             sc_cb = state_changed_callback_;
             sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -1702,19 +2261,29 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
 
 bool ContextPlayerImpl::stop() {
     std::shared_ptr<rendering::TrackPlayer> tp;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes;
     std::vector<uint8_t> qc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         tp = track_player_;
         playback_phase_ = SessionPlaybackPhase::Idle;
         position_ms_ = 0;
         duration_ms_ = 0;
+        playback_id_.clear();
         current_track_.reset();
         user_queue_.clear();
         context_processor_.clear();
+        context_processor_.set_shuffling(shuffling_);
+        if (tp) {
+            sync_token = ++next_player_sync_token_;
+            pending_player_sync_token_ = sync_token;
+        } else {
+            pending_player_sync_token_ = 0;
+        }
         context_uri_.clear();
         context_url_.clear();
         context_metadata_.clear();
@@ -1723,18 +2292,21 @@ bool ContextPlayerImpl::stop() {
         session_command_id_.clear();
         signals_.clear();
         queue_revision_++;
-        emit_state_locked();
+        emit_state_locked(false);
         emit_queue_locked();
         sc_cb = state_changed_callback_;
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (tp) {
         tp->stop(rendering::StopReason::ExplicitStop);
+        clear_pending_player_sync(sync_token);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     return true;
 }
 
@@ -1743,15 +2315,21 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
     DecodedPreparePlay parsed;
     if (!parse_prepare_play_request(payload, len, parsed)) {
         LOGE("ContextPlayerImpl.preparePlay: failed to parse wire format");
-        last_error_ = "INVALID_PREPARE_PLAY_REQUEST";
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            last_error_ = "INVALID_PREPARE_PLAY_REQUEST";
+        }
         return false;
     }
 
     std::shared_ptr<rendering::TrackPlayer> tp;
     std::optional<context_view::Entry> track_to_prepare;
+    bool should_stop_player = false;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes, qc_bytes;
+    ConnectDispatchBundle connect_bundle;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -1766,48 +2344,32 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
 
         if (parsed.overrides.shuffling_context.has_value()) {
             shuffling_ = *parsed.overrides.shuffling_context;
-            context_processor_.set_shuffling(shuffling_);
         }
         apply_repeat_overrides_locked(
             parsed.overrides.repeating_context,
             parsed.overrides.repeating_track);
 
-        int32_t initial_index = 0;
-        if (parsed.skip_to.track_index >= 0) {
-            initial_index = static_cast<int32_t>(parsed.skip_to.track_index);
-        } else if (!parsed.skip_to.track_uid.empty()) {
-            for (size_t i = 0; i < parsed.tracks.size(); ++i) {
-                if (parsed.tracks[i].uid == parsed.skip_to.track_uid) {
-                    initial_index = static_cast<int32_t>(i);
-                    break;
-                }
-            }
-        } else if (!parsed.skip_to.track_uri.empty()) {
-            for (size_t i = 0; i < parsed.tracks.size(); ++i) {
-                if (parsed.tracks[i].uri == parsed.skip_to.track_uri) {
-                    initial_index = static_cast<int32_t>(i);
-                    break;
-                }
-            }
-        }
+        const int32_t initial_index = resolve_initial_track_index(
+            parsed.tracks,
+            parsed.skip_to.track_uid,
+            parsed.skip_to.track_uri,
+            parsed.skip_to.page_index,
+            parsed.skip_to.track_index,
+            parsed.page_track_offsets);
 
+        if (!shuffling_) {
+            context_processor_.set_shuffling(false);
+        }
         context_processor_.set_context(
             parsed.context_uri,
             parsed.page_url,
             parsed.tracks,
             parsed.next_page_url,
             initial_index);
-
-        if (!parsed.skip_to.track_uid.empty()) {
-            context_processor_.skip_to_uid(parsed.skip_to.track_uid);
-        } else if (!parsed.skip_to.track_uri.empty()) {
-            context_processor_.skip_to_uri(parsed.skip_to.track_uri);
-        } else if (parsed.skip_to.track_index > 0) {
-            context_processor_.skip_to_index(static_cast<int32_t>(parsed.skip_to.track_index));
-        }
+        context_processor_.set_shuffling(shuffling_);
 
         if (const auto resolved_cur = context_processor_.get_current_track();
-            resolved_cur.has_value()) {
+            resolved_cur.has_value() && !resolved_cur->uri.empty()) {
             begin_track_transition_locked(*resolved_cur, SessionPlaybackPhase::Paused);
             track_to_prepare = current_track_;
             auto dur_it = current_track_->metadata.find("duration");
@@ -1816,29 +2378,47 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
                 int64_t d = std::strtoll(dur_it->second.c_str(), &end, 10);
                 if (end != dur_it->second.c_str() && d > 0) duration_ms_ = d;
             }
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
         } else {
             current_track_.reset();
+            playback_id_.clear();
             playback_phase_ = SessionPlaybackPhase::Idle;
             position_ms_ = 0;
             duration_ms_ = 0;
+            should_stop_player = true;
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
         }
 
         LOGI("ContextPlayerImpl.preparePlay: context_uri=%s (ready to play)", context_uri_.c_str());
 
-        emit_state_locked();
+        emit_state_locked(false);
         emit_queue_locked();
         sc_cb = state_changed_callback_;
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
 
-    if (tp && track_to_prepare.has_value()) {
-        tp->start(*track_to_prepare, rendering::StartReason::PreparePlay, 0, true);
+    if (tp && should_stop_player) {
+        tp->stop(rendering::StopReason::ContextEnded);
+        clear_pending_player_sync(sync_token);
     }
 
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
+
+    if (tp && track_to_prepare.has_value()) {
+        tp->start(*track_to_prepare, rendering::StartReason::PreparePlay, 0, true);
+        clear_pending_player_sync(sync_token);
+    }
     return true;
 }
 
@@ -1853,10 +2433,13 @@ bool ContextPlayerImpl::play_prepared(const uint8_t* payload, size_t len) {
 bool ContextPlayerImpl::update_context(const uint8_t* payload, size_t len) {
     if (!payload || len == 0) return false;
     DecodedPreparePlay parsed;
-    if (parse_prepare_play_request(payload, len, parsed)) {
+    if (decode_context_submessage(payload, len, parsed) &&
+        (!parsed.context_uri.empty() || !parsed.context_url.empty() ||
+         !parsed.tracks.empty() || !parsed.context_metadata.empty())) {
         StateChangedCallback sc_cb;
         QueueChangedCallback qc_cb;
         std::vector<uint8_t> sc_bytes, qc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             context_uri_ = parsed.context_uri;
@@ -1878,9 +2461,11 @@ bool ContextPlayerImpl::update_context(const uint8_t* payload, size_t len) {
             qc_cb = queue_changed_callback_;
             sc_bytes = cached_state_bytes_;
             qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -1894,6 +2479,7 @@ bool ContextPlayerImpl::update_track(const uint8_t* payload, size_t len) {
         QueueChangedCallback qc_cb;
         std::vector<uint8_t> sc_bytes;
         std::vector<uint8_t> qc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             const auto vault_it = entry.metadata.find("is_vault_track");
@@ -1955,10 +2541,12 @@ bool ContextPlayerImpl::update_track(const uint8_t* payload, size_t len) {
                 qc_cb = queue_changed_callback_;
                 sc_bytes = cached_state_bytes_;
                 qc_bytes = cached_queue_bytes_;
+                capture_connect_dispatch_locked(connect_bundle);
             }
         }
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
         if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -1991,14 +2579,17 @@ bool ContextPlayerImpl::update_view_uri(const uint8_t* payload, size_t len) {
     if (decode_single_string(payload, len, uri)) {
         StateChangedCallback sc_cb;
         std::vector<uint8_t> sc_bytes;
+        ConnectDispatchBundle connect_bundle;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             view_uri_ = uri;
             emit_state_locked();
             sc_cb = state_changed_callback_;
             sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
         if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
         return true;
     }
     return false;
@@ -2009,14 +2600,17 @@ bool ContextPlayerImpl::signal(const uint8_t* payload, size_t len) {
     std::string sig(reinterpret_cast<const char*>(payload), len);
     StateChangedCallback sc_cb;
     std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         signals_.push_back(std::move(sig));
         emit_state_locked();
         sc_cb = state_changed_callback_;
         sc_bytes = cached_state_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     return true;
 }
 
@@ -2031,51 +2625,18 @@ bool ContextPlayerImpl::set_sleep_timer(const uint8_t* payload, size_t len) {
 
 bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
     std::string target_session_id;
-    if (payload && len > 0) {
-        size_t offset = 0;
-        while (offset < len) {
-            uint32_t tag = 0;
-            size_t shift = 0;
-            while (offset < len && (payload[offset] & 0x80)) {
-                tag |= (static_cast<uint32_t>(payload[offset] & 0x7F) << shift);
-                shift += 7;
-                offset++;
-            }
-            if (offset < len) {
-                tag |= (static_cast<uint32_t>(payload[offset] & 0x7F) << shift);
-                offset++;
-            }
-            uint32_t field_number = tag >> 3;
-            uint32_t wire_type = tag & 0x07;
-
-            if (field_number == 1 && wire_type == 2) {
-                uint32_t str_len = 0;
-                shift = 0;
-                while (offset < len && (payload[offset] & 0x80)) {
-                    str_len |= (static_cast<uint32_t>(payload[offset] & 0x7F) << shift);
-                    shift += 7;
-                    offset++;
-                }
-                if (offset < len) {
-                    str_len |= (static_cast<uint32_t>(payload[offset] & 0x7F) << shift);
-                    offset++;
-                }
-                if (offset + str_len <= len) {
-                    target_session_id.assign(
-                        reinterpret_cast<const char*>(payload + offset), str_len);
-                    offset += str_len;
-                }
-            } else {
-                break;
-            }
-        }
+    if (!decode_delete_session_request(payload, len, target_session_id)) {
+        LOGW("ContextPlayerImpl.deleteSession rejected malformed payload len=%zu", len);
+        return false;
     }
 
     std::shared_ptr<rendering::TrackPlayer> tp;
+    uint64_t sync_token = 0;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes;
     std::vector<uint8_t> qc_bytes;
+    ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!target_session_id.empty()) {
@@ -2087,6 +2648,7 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
         tp = track_player_;
         session_id_.clear();
         session_command_id_.clear();
+        playback_id_.clear();
         signals_.clear();
         playback_phase_ = SessionPlaybackPhase::Idle;
         position_ms_ = 0;
@@ -2094,25 +2656,35 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
         current_track_.reset();
         user_queue_.clear();
         context_processor_.clear();
+        context_processor_.set_shuffling(shuffling_);
+        if (tp) {
+            sync_token = ++next_player_sync_token_;
+            pending_player_sync_token_ = sync_token;
+        } else {
+            pending_player_sync_token_ = 0;
+        }
         context_uri_.clear();
         context_url_.clear();
         context_metadata_.clear();
         page_metadata_.clear();
         resolved_track_info_cache_.clear();
         queue_revision_++;
-        emit_state_locked();
+        emit_state_locked(false);
         emit_queue_locked();
         sc_cb = state_changed_callback_;
         qc_cb = queue_changed_callback_;
         sc_bytes = cached_state_bytes_;
         qc_bytes = cached_queue_bytes_;
+        capture_connect_dispatch_locked(connect_bundle);
     }
 
     if (tp) {
         tp->stop(rendering::StopReason::SessionDeleted);
+        clear_pending_player_sync(sync_token);
     }
     if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
     if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+    dispatch_connect_listeners(connect_bundle);
     return true;
 }
 
@@ -2143,7 +2715,59 @@ std::string ContextPlayerImpl::get_error() const {
     return last_error_;
 }
 
-void ContextPlayerImpl::update_position_and_duration_locked() {
+void ContextPlayerImpl::clear_pending_player_sync(uint64_t sync_token) {
+    if (sync_token == 0) {
+        return;
+    }
+    StateChangedCallback sc_cb;
+    std::vector<uint8_t> sc_bytes;
+    ConnectDispatchBundle connect_bundle;
+    bool should_emit = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (pending_player_sync_token_ != sync_token) {
+            return;
+        }
+        pending_player_sync_token_ = 0;
+
+        if (track_player_ && current_track_.has_value()) {
+            const auto tp_track = track_player_->getCurrentTrack();
+            const bool player_matches_current =
+                tp_track.has_value() &&
+                tp_track->uri == current_track_->uri &&
+                (tp_track->uid.empty() || current_track_->uid.empty() ||
+                 tp_track->uid == current_track_->uid);
+            if (player_matches_current) {
+                const rendering::TrackPlayerState tp_state = track_player_->getState();
+                const bool should_reconcile =
+                    (is_phase_buffering(playback_phase_) &&
+                     tp_state.phase == rendering::TrackPlayerPhase::Playing) ||
+                    tp_state.phase == rendering::TrackPlayerPhase::Faulted;
+                if (should_reconcile) {
+                    const SessionPlaybackPhase mapped =
+                        map_track_player_state_to_phase(tp_state);
+                    if (tp_state.duration_ms > 0 && duration_ms_ <= 0) {
+                        duration_ms_ = tp_state.duration_ms;
+                    }
+                    if (mapped != playback_phase_) {
+                        playback_phase_ = mapped;
+                        emit_state_locked(false);
+                        sc_cb = state_changed_callback_;
+                        sc_bytes = cached_state_bytes_;
+                        capture_connect_dispatch_locked(connect_bundle);
+                        should_emit = true;
+                    }
+                }
+            }
+        }
+    }
+    if (should_emit) {
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
+    }
+}
+
+void ContextPlayerImpl::update_position_and_duration_locked(bool sync_position) {
     bool player_matches_current = false;
     if (track_player_ && current_track_.has_value()) {
         const auto tp_track = track_player_->getCurrentTrack();
@@ -2155,8 +2779,10 @@ void ContextPlayerImpl::update_position_and_duration_locked() {
     }
 
     if (player_matches_current) {
-        const int64_t player_pos = track_player_->getPosition();
-        if (player_pos >= 0) position_ms_ = player_pos;
+        if (sync_position && pending_player_sync_token_ == 0) {
+            const int64_t player_pos = track_player_->getPosition();
+            if (player_pos >= 0) position_ms_ = player_pos;
+        }
         const int64_t player_dur = track_player_->getDuration();
         if (player_dur > 0) duration_ms_ = player_dur;
     }
@@ -2176,8 +2802,8 @@ void ContextPlayerImpl::update_position_and_duration_locked() {
     }
 }
 
-void ContextPlayerImpl::emit_state_locked() {
-    update_position_and_duration_locked();
+void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
+    update_position_and_duration_locked(sync_player_position);
 
     const auto next_tracks = context_processor_.get_next_tracks(1);
     const bool has_next = !next_tracks.empty();
@@ -2233,6 +2859,569 @@ void ContextPlayerImpl::emit_state_locked() {
     data.queue_revision = queue_revision_;
 
     cached_state_bytes_ = StateEmitter::encode_player_state(data);
+
+    latest_connect_snapshot_.timestamp_ms = now_ms;
+    latest_connect_snapshot_.context_uri = context_uri_;
+    latest_connect_snapshot_.context_url = context_url_;
+    latest_connect_snapshot_.playback_id = playback_id_;
+    latest_connect_snapshot_.session_id = session_id_;
+    latest_connect_snapshot_.session_command_id = session_command_id_;
+    latest_connect_snapshot_.last_command_sent_by_device_id = last_command_sent_by_device_id_;
+    latest_connect_snapshot_.last_command_message_id = last_command_message_id_;
+    latest_connect_snapshot_.queue_revision = queue_revision_;
+    latest_connect_snapshot_.playback_phase = playback_phase_;
+    latest_connect_snapshot_.repeat_mode = repeat_mode_;
+    latest_connect_snapshot_.shuffling = shuffling_;
+    latest_connect_snapshot_.playback_speed = playback_speed_;
+    latest_connect_snapshot_.position_ms = position_ms_;
+    latest_connect_snapshot_.duration_ms = duration_ms_;
+    latest_connect_snapshot_.page_index = 0;
+    latest_connect_snapshot_.track_index = data.track_index;
+    latest_connect_snapshot_.current_track = current_track_;
+    latest_connect_snapshot_.prev_tracks = prev_tracks;
+    latest_connect_snapshot_.next_tracks.clear();
+    latest_connect_snapshot_.next_tracks.reserve(user_queue_.size() + 10);
+    latest_connect_snapshot_.next_tracks.insert(
+        latest_connect_snapshot_.next_tracks.end(),
+        user_queue_.begin(),
+        user_queue_.end());
+    const auto lookahead = context_processor_.get_next_tracks(10);
+    latest_connect_snapshot_.next_tracks.insert(
+        latest_connect_snapshot_.next_tracks.end(),
+        lookahead.begin(),
+        lookahead.end());
+    latest_connect_snapshot_.restrictions_bytes = restrictions_bytes;
+    latest_connect_snapshot_.play_origin = play_origin_;
+    latest_connect_snapshot_.context_metadata = context_metadata_;
+    latest_connect_snapshot_.page_metadata = page_metadata_;
+    latest_connect_snapshot_.signals = signals_;
+}
+
+void ContextPlayerImpl::add_player_state_listener(PlayerStateListener* listener) {
+    if (listener == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (std::find(player_state_listeners_.begin(), player_state_listeners_.end(), listener) ==
+        player_state_listeners_.end()) {
+        player_state_listeners_.push_back(listener);
+    }
+}
+
+void ContextPlayerImpl::remove_player_state_listener(PlayerStateListener* listener) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    player_state_listeners_.erase(
+        std::remove(player_state_listeners_.begin(), player_state_listeners_.end(), listener),
+        player_state_listeners_.end());
+}
+
+ContextPlayerImpl::ConnectPlayerSnapshot ContextPlayerImpl::snapshot_for_connect() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return latest_connect_snapshot_;
+}
+
+void ContextPlayerImpl::set_session_command_id(const std::string& command_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    session_command_id_ = command_id;
+}
+
+void ContextPlayerImpl::capture_connect_dispatch_locked(ConnectDispatchBundle& out) {
+    out.listeners = player_state_listeners_;
+    out.snapshot = latest_connect_snapshot_;
+    out.track_changed = (playback_id_ != last_emitted_playback_id_);
+    last_emitted_playback_id_ = playback_id_;
+}
+
+void ContextPlayerImpl::dispatch_connect_listeners(const ConnectDispatchBundle& bundle) {
+    for (auto* listener : bundle.listeners) {
+        if (listener != nullptr) {
+            listener->on_player_state_changed(bundle.snapshot, bundle.track_changed);
+        }
+    }
+}
+
+bool ContextPlayerImpl::apply_connect_remote_command(
+    const std::string& endpoint,
+    const std::string& command_json,
+    const std::string& sent_by_device_id,
+    uint32_t message_id) {
+    const auto parsed = connectstate::json::parse_json(command_json);
+    const std::string resolved_endpoint =
+        !endpoint.empty()
+            ? endpoint
+            : (parsed.has_value() ? parsed->get_string("endpoint").value_or(std::string{})
+                                  : std::string{});
+
+    auto record_command_meta_locked = [&]() {
+        last_command_sent_by_device_id_ = sent_by_device_id;
+        last_command_message_id_ = message_id;
+        if (parsed.has_value()) {
+            if (auto scid = parsed->get_string("session_command_id");
+                scid.has_value() && !scid->empty()) {
+                session_command_id_ = std::move(*scid);
+            } else if (message_id > 0) {
+                session_command_id_ = "connect-" + std::to_string(message_id);
+            }
+        }
+    };
+
+    auto record_command_meta = [&]() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        record_command_meta_locked();
+    };
+
+    if (resolved_endpoint == "pause") {
+        record_command_meta();
+        return pause();
+    }
+    if (resolved_endpoint == "resume") {
+        record_command_meta();
+        return resume();
+    }
+    if (resolved_endpoint == "stop") {
+        record_command_meta();
+        return stop();
+    }
+    if (resolved_endpoint == "skip_next") {
+        record_command_meta();
+        return skip_next(nullptr, 0);
+    }
+    if (resolved_endpoint == "skip_prev") {
+        record_command_meta();
+        return skip_prev(nullptr, 0);
+    }
+    if (resolved_endpoint == "seek_to") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        auto pos = parsed->get_int64("value");
+        if (!pos.has_value()) {
+            pos = parsed->get_int64("position");
+        }
+        if (!pos.has_value()) {
+            return false;
+        }
+        record_command_meta();
+        return seek_to(*pos);
+    }
+    if (resolved_endpoint == "set_shuffling_context") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        const auto val = parsed->get_bool("value");
+        if (!val.has_value()) {
+            return false;
+        }
+        record_command_meta();
+        set_shuffling_context(*val);
+        return true;
+    }
+    if (resolved_endpoint == "set_repeating_context") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        const auto val = parsed->get_bool("value");
+        if (!val.has_value()) {
+            return false;
+        }
+        record_command_meta();
+        set_repeating_context(*val);
+        return true;
+    }
+    if (resolved_endpoint == "set_repeating_track") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        const auto val = parsed->get_bool("value");
+        if (!val.has_value()) {
+            return false;
+        }
+        record_command_meta();
+        set_repeating_track(*val);
+        return true;
+    }
+    if (resolved_endpoint == "set_options") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        StateChangedCallback sc_cb;
+        QueueChangedCallback qc_cb;
+        std::vector<uint8_t> sc_bytes, qc_bytes;
+        ConnectDispatchBundle connect_bundle;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            record_command_meta_locked();
+            if (const auto sh = parsed->get_bool("shuffling_context")) {
+                shuffling_ = *sh;
+                context_processor_.set_shuffling(shuffling_);
+            }
+            apply_repeat_overrides_locked(
+                parsed->get_bool("repeating_context"),
+                parsed->get_bool("repeating_track"));
+            if (const auto spd = parsed->get_double("playback_speed");
+                spd.has_value() && *spd > 0.0) {
+                playback_speed_ = *spd;
+            }
+            emit_state_locked();
+            emit_queue_locked();
+            sc_cb = state_changed_callback_;
+            qc_cb = queue_changed_callback_;
+            sc_bytes = cached_state_bytes_;
+            qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
+        }
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
+        return true;
+    }
+    if (resolved_endpoint == "add_to_queue") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        const auto* track_obj = parsed->find("track");
+        if (track_obj == nullptr || !track_obj->is_object()) {
+            return false;
+        }
+        const auto uri = track_obj->get_string("uri");
+        if (!uri.has_value() || uri->empty()) {
+            return false;
+        }
+        context_view::Entry entry;
+        entry.uri = *uri;
+        const auto uid_opt = track_obj->get_string("uid");
+        entry.uid = (uid_opt.has_value() && !uid_opt->empty()) ? *uid_opt : generate_track_uid();
+        entry.provider = "queue";
+        if (const auto* md = track_obj->find("metadata");
+            md != nullptr && md->is_object()) {
+            for (const auto& [k, v] : md->object_value) {
+                if (v.is_string()) {
+                    entry.metadata[k] = v.string_value;
+                }
+            }
+        }
+        entry.metadata["is_queued"] = "true";
+        entry.metadata["provider"] = "queue";
+
+        QueueChangedCallback qc_cb;
+        StateChangedCallback sc_cb;
+        std::vector<uint8_t> qc_bytes, sc_bytes;
+        ConnectDispatchBundle connect_bundle;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            record_command_meta_locked();
+            user_queue_.push_back(std::move(entry));
+            queue_revision_++;
+            emit_queue_locked();
+            emit_state_locked();
+            qc_cb = queue_changed_callback_;
+            qc_bytes = cached_queue_bytes_;
+            sc_cb = state_changed_callback_;
+            sc_bytes = cached_state_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
+        }
+        if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
+        return true;
+    }
+    if (resolved_endpoint == "play") {
+        if (!parsed.has_value()) {
+            return false;
+        }
+        const auto* ctx_node = parsed->find("context");
+        if (ctx_node != nullptr && !ctx_node->is_object() && !ctx_node->is_null()) {
+            return false;
+        }
+        const bool has_context_obj = (ctx_node != nullptr && ctx_node->is_object());
+        std::string ctx_uri;
+        std::string ctx_url;
+        std::unordered_map<std::string, std::string> ctx_md;
+        std::vector<context_view::Entry> tracks;
+        std::vector<size_t> page_track_offsets;
+        std::string page_url;
+        std::string next_page_url;
+        if (has_context_obj) {
+            ctx_uri = ctx_node->get_string("uri").value_or(std::string{});
+            ctx_url = ctx_node->get_string("url").value_or(std::string{});
+            if (const auto* md = ctx_node->find("metadata");
+                md != nullptr && md->is_object()) {
+                for (const auto& [k, v] : md->object_value) {
+                    if (v.is_string()) {
+                        ctx_md[k] = v.string_value;
+                    }
+                }
+            }
+
+            if (const auto* pages = ctx_node->find("pages");
+                pages != nullptr && pages->is_array()) {
+                for (const auto& page : pages->array_value) {
+                    if (!page.is_object()) {
+                        continue;
+                    }
+                    page_track_offsets.push_back(tracks.size());
+                    if (page_url.empty()) {
+                        page_url = page.get_string("page_url").value_or(std::string{});
+                        next_page_url = page.get_string("next_page_url").value_or(std::string{});
+                    }
+                    if (const auto* trks = page.find("tracks");
+                        trks != nullptr && trks->is_array()) {
+                        for (const auto& tnode : trks->array_value) {
+                            if (!tnode.is_object()) {
+                                continue;
+                            }
+                            auto turi = tnode.get_string("uri");
+                            if (!turi.has_value() || turi->empty()) {
+                                continue;
+                            }
+                            context_view::Entry entry;
+                            entry.uri = *turi;
+                            const auto uid_opt = tnode.get_string("uid");
+                            entry.uid = (uid_opt.has_value() && !uid_opt->empty())
+                                            ? *uid_opt
+                                            : generate_track_uid();
+                            const auto prov_opt = tnode.get_string("provider");
+                            entry.provider = (prov_opt.has_value() && !prov_opt->empty())
+                                                 ? *prov_opt
+                                                 : "context";
+                            if (const auto* tmd = tnode.find("metadata");
+                                tmd != nullptr && tmd->is_object()) {
+                                for (const auto& [mk, mv] : tmd->object_value) {
+                                    if (mv.is_string()) {
+                                        entry.metadata[mk] = mv.string_value;
+                                    }
+                                }
+                            }
+                            tracks.push_back(std::move(entry));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (tracks.empty()) {
+            if (const auto* top_track = parsed->find("track");
+                top_track != nullptr && top_track->is_object()) {
+                if (const auto turi = top_track->get_string("uri");
+                    turi.has_value() && !turi->empty()) {
+                    context_view::Entry entry;
+                    entry.uri = *turi;
+                    const auto uid_opt = top_track->get_string("uid");
+                    entry.uid = (uid_opt.has_value() && !uid_opt->empty())
+                                    ? *uid_opt
+                                    : generate_track_uid();
+                    const auto prov_opt = top_track->get_string("provider");
+                    entry.provider = (prov_opt.has_value() && !prov_opt->empty())
+                                         ? *prov_opt
+                                         : "context";
+                    if (const auto* tmd = top_track->find("metadata");
+                        tmd != nullptr && tmd->is_object()) {
+                        for (const auto& [mk, mv] : tmd->object_value) {
+                            if (mv.is_string()) {
+                                entry.metadata[mk] = mv.string_value;
+                            }
+                        }
+                    }
+                    tracks.push_back(std::move(entry));
+                }
+            }
+        }
+
+        bool initially_paused = false;
+        int64_t seek_to_ms = parsed->get_int64("seek_to").value_or(0);
+        std::string skip_to_uri;
+        std::string skip_to_uid;
+        std::optional<int64_t> skip_to_page_index;
+        int64_t skip_to_index = -1;
+        std::optional<bool> shuf_override;
+        std::optional<bool> rep_ctx_override;
+        std::optional<bool> rep_trk_override;
+
+        if (const auto* opts = parsed->find("options");
+            opts != nullptr && opts->is_object()) {
+            initially_paused = opts->get_bool("initially_paused").value_or(false);
+            if (const auto opt_seek = opts->get_int64("seek_to"); opt_seek.has_value()) {
+                seek_to_ms = *opt_seek;
+            }
+            if (const auto* skip_to = opts->find("skip_to");
+                skip_to != nullptr && skip_to->is_object()) {
+                skip_to_uri = skip_to->get_string("track_uri").value_or(std::string{});
+                skip_to_uid = skip_to->get_string("track_uid").value_or(std::string{});
+                if (const auto pi = skip_to->get_int64("page_index"); pi.has_value()) {
+                    skip_to_page_index = *pi;
+                }
+                if (const auto ti = skip_to->get_int64("track_index"); ti.has_value()) {
+                    skip_to_index = *ti;
+                }
+            }
+            if (const auto* ov = opts->find("player_options_override");
+                ov != nullptr && ov->is_object()) {
+                shuf_override = ov->get_bool("shuffling_context");
+                rep_ctx_override = ov->get_bool("repeating_context");
+                rep_trk_override = ov->get_bool("repeating_track");
+            }
+        }
+        if (seek_to_ms < 0) {
+            seek_to_ms = 0;
+        }
+        if (tracks.empty() && !skip_to_uri.empty()) {
+            context_view::Entry entry;
+            entry.uri = skip_to_uri;
+            entry.uid = !skip_to_uid.empty() ? skip_to_uid : generate_track_uid();
+            entry.provider = "context";
+            tracks.push_back(std::move(entry));
+        }
+
+        if (tracks.empty() && !has_context_obj) {
+            const auto* top_track = parsed->find("track");
+            if (top_track != nullptr) {
+                return false;
+            }
+            record_command_meta();
+            return resume();
+        }
+        if (has_context_obj && tracks.empty() && ctx_uri.empty() && ctx_url.empty()) {
+            return false;
+        }
+
+        std::shared_ptr<rendering::TrackPlayer> tp;
+        context_view::Entry track_to_play;
+        bool should_stop_player = false;
+        uint64_t sync_token = 0;
+        StateChangedCallback sc_cb;
+        QueueChangedCallback qc_cb;
+        std::vector<uint8_t> sc_bytes, qc_bytes;
+        ConnectDispatchBundle connect_bundle;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            record_command_meta_locked();
+            const std::string prev_context_uri = context_uri_;
+            const std::string prev_context_url = context_url_;
+            const bool context_changed =
+                (ctx_uri != prev_context_uri) ||
+                ((ctx_uri.empty() || (!ctx_url.empty() && !prev_context_url.empty())) &&
+                 ctx_url != prev_context_url);
+            if (!tracks.empty() || context_changed) {
+                context_uri_ = std::move(ctx_uri);
+                context_url_ = std::move(ctx_url);
+                context_metadata_ = std::move(ctx_md);
+            } else {
+                if (!ctx_url.empty()) {
+                    context_url_ = std::move(ctx_url);
+                }
+                if (!ctx_md.empty()) {
+                    context_metadata_ = std::move(ctx_md);
+                }
+            }
+            if (const auto* po = parsed->find("play_origin");
+                po != nullptr && po->is_object()) {
+                play_origin_.feature_identifier =
+                    po->get_string("feature_identifier").value_or(std::string{});
+                play_origin_.feature_version =
+                    po->get_string("feature_version").value_or(std::string{});
+                play_origin_.view_uri =
+                    po->get_string("view_uri").value_or(std::string{});
+                play_origin_.external_referrer =
+                    po->get_string("external_referrer").value_or(std::string{});
+                play_origin_.referrer_identifier =
+                    po->get_string("referrer_identifier").value_or(std::string{});
+                play_origin_.device_identifier =
+                    po->get_string("device_identifier").value_or(std::string{});
+            }
+            apply_repeat_overrides_locked(rep_ctx_override, rep_trk_override);
+            if (!tracks.empty()) {
+                const int32_t init_idx = resolve_initial_track_index(
+                    tracks,
+                    skip_to_uid,
+                    skip_to_uri,
+                    skip_to_page_index,
+                    skip_to_index,
+                    page_track_offsets);
+                if (shuf_override.has_value()) {
+                    shuffling_ = *shuf_override;
+                }
+                if (!shuffling_) {
+                    context_processor_.set_shuffling(false);
+                }
+                context_processor_.set_context(
+                    context_uri_, page_url, tracks, next_page_url, init_idx);
+                context_processor_.set_shuffling(shuffling_);
+            } else if (has_context_obj) {
+                if (context_changed) {
+                    context_processor_.clear();
+                    if (shuf_override.has_value()) {
+                        shuffling_ = *shuf_override;
+                    }
+                    context_processor_.set_shuffling(shuffling_);
+                } else {
+                    if (shuf_override.has_value() && !*shuf_override) {
+                        shuffling_ = false;
+                        context_processor_.set_shuffling(false);
+                    }
+                    if (!skip_to_uid.empty()) {
+                        context_processor_.skip_to_uid(skip_to_uid);
+                    } else if (!skip_to_uri.empty()) {
+                        context_processor_.skip_to_uri(skip_to_uri);
+                    } else if (skip_to_index >= 0 &&
+                               skip_to_index <= static_cast<int64_t>(INT32_MAX) &&
+                               (!skip_to_page_index.has_value() || *skip_to_page_index == 0)) {
+                        context_processor_.skip_to_index(static_cast<int32_t>(skip_to_index));
+                    }
+                    if (shuf_override.has_value() && *shuf_override) {
+                        shuffling_ = true;
+                        context_processor_.set_shuffling(true);
+                    }
+                }
+            }
+            if (const auto resolved_cur = context_processor_.get_current_track();
+                resolved_cur.has_value() && !resolved_cur->uri.empty()) {
+                begin_track_transition_locked(
+                    *resolved_cur,
+                    initially_paused ? SessionPlaybackPhase::Paused
+                                     : SessionPlaybackPhase::BufferingPlay);
+                position_ms_ = seek_to_ms;
+                track_to_play = *current_track_;
+                tp = track_player_;
+                if (tp) {
+                    sync_token = ++next_player_sync_token_;
+                    pending_player_sync_token_ = sync_token;
+                }
+            } else {
+                current_track_.reset();
+                playback_id_.clear();
+                playback_phase_ = SessionPlaybackPhase::Idle;
+                position_ms_ = 0;
+                duration_ms_ = 0;
+                tp = track_player_;
+                should_stop_player = true;
+                if (tp) {
+                    sync_token = ++next_player_sync_token_;
+                    pending_player_sync_token_ = sync_token;
+                }
+            }
+            emit_state_locked(false);
+            emit_queue_locked();
+            sc_cb = state_changed_callback_;
+            qc_cb = queue_changed_callback_;
+            sc_bytes = cached_state_bytes_;
+            qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
+        }
+        if (tp && should_stop_player) {
+            tp->stop(rendering::StopReason::ContextEnded);
+            clear_pending_player_sync(sync_token);
+        }
+        if (sc_cb && !sc_bytes.empty()) sc_cb(sc_bytes.data(), sc_bytes.size());
+        if (qc_cb && !qc_bytes.empty()) qc_cb(qc_bytes.data(), qc_bytes.size());
+        dispatch_connect_listeners(connect_bundle);
+        if (tp && !should_stop_player && !track_to_play.uri.empty()) {
+            tp->start(track_to_play, rendering::StartReason::PlayCommand, seek_to_ms, initially_paused);
+            clear_pending_player_sync(sync_token);
+        }
+        return true;
+    }
+
+    return false;
 }
 
 void ContextPlayerImpl::emit_queue_locked() {

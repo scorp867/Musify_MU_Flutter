@@ -10,6 +10,12 @@ import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb
 import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
+import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
+import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
+import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
+import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../application/scroll/now_playing_scroll_bloc.dart';
@@ -33,6 +39,11 @@ import 'queue_sheet_screen.dart';
 
 /// Full-screen edge-to-edge Now Playing screen replicating Spotify NowPlaying
 /// 1:1 with pure Mobius loop state controller and reactive cards pipeline.
+///
+/// Citations:
+/// - Decompiled Java: `p199p/nhr.java` (lines 501-507: `connect_entry_point_stub`; lines 513-567: `accessory_row`)
+/// - Decompiled Java: `p199p/ac0.java` (lines 51-53: `device_picker_button` -> `devicepicker view`)
+/// - Decompiled Java: `p199p/es81.java` (lines 1678-1682: `spotify:connect-device-picker`, `spotify:internal:gaia-picker`)
 class PlayerScreen extends StatefulWidget {
   final String title;
   final String artist;
@@ -41,6 +52,7 @@ class PlayerScreen extends StatefulWidget {
   final String? imageUrl;
   final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
+  final ConnectMobiusController? connectController;
 
   const PlayerScreen({
     super.key,
@@ -51,6 +63,7 @@ class PlayerScreen extends StatefulWidget {
     this.imageUrl,
     this.queueBloc,
     this.currentTrack,
+    this.connectController,
   });
 
   static bool _isOpen = false;
@@ -66,6 +79,7 @@ class PlayerScreen extends StatefulWidget {
     String? imageUrl,
     PlayerQueueMobiusController? queueBloc,
     ContextTrack? currentTrack,
+    ConnectMobiusController? connectController,
   }) async {
     if (_isOpen) return;
     _isOpen = true;
@@ -94,6 +108,7 @@ class PlayerScreen extends StatefulWidget {
               imageUrl: imageUrl,
               queueBloc: effectiveBloc,
               currentTrack: currentTrack,
+              connectController: connectController,
             );
           },
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -156,6 +171,24 @@ class _PlayerScreenState extends State<PlayerScreen>
       bottomColor: const Color(0xFF121212),
     ),
   );
+
+  static bool _shouldShowConnectBanner(ConnectState state) {
+    if (state.transferState is TransferInProgress) {
+      return true;
+    }
+    final ConnectDevice? currentActive = state.activeDevice;
+    if (currentActive != null && !currentActive.isSelf) {
+      return true;
+    }
+    final LocalAudioPeripheral? peripheral = state.activeSelfPeripheral;
+    if (peripheral != null &&
+        peripheral.id != kBuiltInSpeakerPeripheralId &&
+        peripheral.connectionType !=
+            OutputPeripheralConnectionType.builtInSpeaker) {
+      return true;
+    }
+    return false;
+  }
 
   PlayerQueueMobiusController? get _effectiveBloc => switch (widget.queueBloc) {
     final b? => b,
@@ -556,6 +589,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ),
                     const SizedBox(height: 6),
                     PlayerUtilityRow(
+                      connectController: widget.connectController,
                       onQueue: () => _showQueue(
                         context,
                         activeTrack: track,
@@ -564,6 +598,27 @@ class _PlayerScreenState extends State<PlayerScreen>
                         repeatVal: repeatMode,
                       ),
                     ),
+                    if (widget.connectController case final controller?)
+                      ValueListenableBuilder<ConnectState>(
+                        valueListenable: controller,
+                        builder: (context, connectState, _) {
+                          if (!_shouldShowConnectBanner(connectState)) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: ActiveDeviceBanner(
+                              controller: controller,
+                              compact: false,
+                              showWhenLocalBuiltIn: false,
+                              onTap: () => DevicePickerSheet.show(
+                                context,
+                                controller: controller,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     const SizedBox(height: 8),
                   ],
                 ),

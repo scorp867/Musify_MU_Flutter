@@ -94,6 +94,17 @@ add_library(musify_audio SHARED
     rendering/UnplayableTrackPlayer.cpp
     rendering/RoutingTrackPlayer.cpp
     player/ContextPlayerImpl.cpp
+    connect/ConnectDevicesImpl.cpp
+    connect/ConnectStateClientImpl.cpp
+    connect/ConnectSubsystem.cpp
+    connect/DealerWebSocketClient.cpp
+    connect/PutStateBackoff.cpp
+    connect/TransferIntention.cpp
+    connect/TransferManager.cpp
+    connect/VolumeThrottler.cpp
+    connect/ConnectServiceImpl.cpp
+    connect/ConnectVolumeServiceImpl.cpp
+    connect/DodoServiceImpl.cpp
     ffi_bridge.cpp
     ${DART_SDK_INCLUDE}/dart_api_dl.c
 )

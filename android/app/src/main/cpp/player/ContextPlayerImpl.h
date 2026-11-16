@@ -1,3 +1,10 @@
+// ============================================================================
+// 1:1 Replicated Spotify ContextPlayerImpl & Connect Bidirectional Hooks
+// Sources:
+// - `liborbit-jni-spotify.so` ContextPlayerImpl command/state dispatcher & Connect state sync
+// - `liborbit-jni-spotify.so` ELF FileDescriptorProto `player.proto` (`0x635f80`)
+// ============================================================================
+
 #pragma once
 
 #include <cstdint>
@@ -52,6 +59,45 @@ public:
     /// Callback invoked when an error occurs
     using ErrorCallback = std::function<void(const std::string& error_code, const std::string& message)>;
 
+    /// Owning snapshot of local player state formatted for Connect PutState translation.
+    struct ConnectPlayerSnapshot {
+        int64_t timestamp_ms{0};
+        std::string context_uri;
+        std::string context_url;
+        std::string playback_id;
+        std::string session_id;
+        std::string session_command_id;
+        std::string last_command_sent_by_device_id;
+        uint32_t last_command_message_id{0};
+        int64_t queue_revision{1};
+
+        SessionPlaybackPhase playback_phase{SessionPlaybackPhase::Idle};
+        SessionRepeatMode repeat_mode{SessionRepeatMode::Off};
+        bool shuffling{false};
+        double playback_speed{1.0};
+        int64_t position_ms{0};
+        int64_t duration_ms{0};
+        uint32_t page_index{0};
+        int32_t track_index{0};
+
+        std::optional<context_view::Entry> current_track;
+        std::vector<context_view::Entry> prev_tracks;
+        std::vector<context_view::Entry> next_tracks;
+        std::vector<uint8_t> restrictions_bytes;
+        PlayOriginData play_origin;
+        std::unordered_map<std::string, std::string> context_metadata;
+        std::unordered_map<std::string, std::string> page_metadata;
+        std::vector<std::string> signals;
+    };
+
+    class PlayerStateListener {
+    public:
+        virtual ~PlayerStateListener() = default;
+        virtual void on_player_state_changed(
+            const ConnectPlayerSnapshot& snapshot,
+            bool track_changed) = 0;
+    };
+
     explicit ContextPlayerImpl(std::shared_ptr<rendering::TrackPlayer> track_player = nullptr);
     ~ContextPlayerImpl();
 
@@ -67,6 +113,17 @@ public:
     void set_state_changed_callback(StateChangedCallback cb);
     void set_queue_changed_callback(QueueChangedCallback cb);
     void set_error_callback(ErrorCallback cb);
+
+    /// Connect subsystem bidirectional hooks (listener must outlive registration or remove before destruction)
+    void add_player_state_listener(PlayerStateListener* listener);
+    void remove_player_state_listener(PlayerStateListener* listener);
+    [[nodiscard]] ConnectPlayerSnapshot snapshot_for_connect() const;
+    bool apply_connect_remote_command(
+        const std::string& endpoint,
+        const std::string& command_json,
+        const std::string& sent_by_device_id,
+        uint32_t message_id);
+    void set_session_command_id(const std::string& command_id);
 
     /// Main Esperanto RPC command dispatcher matching Spotify method routing
     bool handle_command(const std::string& method, const uint8_t* payload, size_t payload_len);
@@ -154,12 +211,22 @@ private:
     void on_track_metadata_resolved(const std::string& uri, const metadata::TrackInfo& info);
     void on_track_player_error(int32_t code, const std::string& message);
 
-    void emit_state_locked();
+    void emit_state_locked(bool sync_player_position = true);
     void emit_queue_locked();
-    void update_position_and_duration_locked();
+    void update_position_and_duration_locked(bool sync_position = true);
+    void clear_pending_player_sync(uint64_t sync_token);
     static void apply_track_info_locked(
         context_view::Entry& track,
         const metadata::TrackInfo& info);
+
+    struct ConnectDispatchBundle {
+        std::vector<PlayerStateListener*> listeners;
+        ConnectPlayerSnapshot snapshot;
+        bool track_changed{false};
+    };
+
+    void capture_connect_dispatch_locked(ConnectDispatchBundle& out);
+    static void dispatch_connect_listeners(const ConnectDispatchBundle& bundle);
 
     mutable std::mutex mutex_;
 
@@ -180,24 +247,32 @@ private:
 
     int64_t position_ms_{0};
     int64_t duration_ms_{0};
+    uint64_t next_player_sync_token_{0};
+    uint64_t pending_player_sync_token_{0};
 
     std::optional<context_view::Entry> current_track_;
     std::vector<context_view::Entry> user_queue_;
     int64_t queue_revision_{1};
 
+    std::string playback_id_;
+    std::string last_emitted_playback_id_;
     std::string session_id_;
     std::string session_command_id_;
+    std::string last_command_sent_by_device_id_;
+    uint32_t last_command_message_id_{0};
     std::string view_uri_;
     std::vector<std::string> signals_;
     std::string last_error_;
 
     std::vector<uint8_t> cached_state_bytes_;
     std::vector<uint8_t> cached_queue_bytes_;
+    ConnectPlayerSnapshot latest_connect_snapshot_;
     std::unordered_map<std::string, metadata::TrackInfo> resolved_track_info_cache_;
 
     StateChangedCallback state_changed_callback_;
     QueueChangedCallback queue_changed_callback_;
     ErrorCallback error_callback_;
+    std::vector<PlayerStateListener*> player_state_listeners_;
 };
 
 } // namespace spotify::player

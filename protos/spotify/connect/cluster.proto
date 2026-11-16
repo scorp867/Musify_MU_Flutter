@@ -1,0 +1,47 @@
+// 1:1 Replicated Spotify Connect State Cluster Protobuf Schema
+// Sources:
+// - `liborbit-jni-spotify_memdump.so` offset `0x3fa5c0` (`connect.proto`)
+// - `liborbit-jni-spotify_memdump.so` offset `0x3fdc94` (`connect-service.proto`)
+// - ARM64 ELF `liborbit-jni-spotify.so` offsets `0x631e5c`, `0x635530`
+// - Symbol exports: `spotify::connectstate::Cluster`
+
+syntax = "proto3";
+
+package spotify.connectstate;
+
+import "protos/spotify/connect/devices.proto";
+import "protos/spotify/connect/player.proto";
+
+option optimize_for = CODE_SIZE;
+
+enum ClusterUpdateReason {
+  UNKNOWN_CLUSTER_UPDATE_REASON = 0;
+  DEVICES_DISAPPEARED = 1;
+  DEVICE_STATE_CHANGED = 2;
+  NEW_DEVICE_APPEARED = 3;
+  DEVICE_VOLUME_CHANGED = 4;
+  DEVICE_ALIAS_CHANGED = 5;
+  DEVICE_NEW_CONNECTION = 6;
+}
+
+message Cluster {
+  int64 changed_timestamp_ms = 1;
+  string active_device_id = 2;
+  PlayerState player_state = 3;
+  map<string, DeviceInfo> device = 4;
+  bytes transfer_data = 5;
+  uint64 transfer_data_timestamp = 6;
+  bool need_full_player_state = 8;
+  int64 server_timestamp_ms = 9;
+  bool needs_state_updates = 10;
+  uint64 started_playing_at_timestamp = 11;
+  repeated DodoDeviceInfo dodo_devices = 12;
+  bool needs_local_devices = 13;
+}
+
+message ClusterUpdate {
+  Cluster cluster = 1;
+  ClusterUpdateReason update_reason = 2;
+  string ack_id = 3;
+  repeated string devices_that_changed = 4;
+}

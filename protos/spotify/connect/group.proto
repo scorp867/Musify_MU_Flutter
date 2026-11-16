@@ -1,0 +1,56 @@
+// 1:1 Replicated Spotify Connect Group Protobuf Schema
+// Sources:
+// - Decompiled Java: `com/spotify/connect/esperanto/proto/ConnectMessages$GroupData.java`
+// - Decompiled Java: `ConnectMessages$GroupDevice.java`
+// - Decompiled Java: `p199p/z9k.java`
+// - `liborbit-jni-spotify_memdump.so` offset `0x36de24` (`connect_group.proto`)
+
+syntax = "proto3";
+
+package spotify.connect;
+
+option java_package = "com.spotify.connect.esperanto.proto";
+option java_multiple_files = true;
+
+enum GroupingStatus {
+  UNKNOWN_GROUPING_STATUS = 0;
+  GROUPED = 1;
+  GROUPABLE = 2;
+  GROUPING = 3;
+}
+
+message GroupCapabilities {
+  uint32 max_devices = 1;
+}
+
+message GroupDeviceCapabilities {
+  bool removable = 1;
+  bool removal_dissolves_group = 2;
+}
+
+message GroupDeviceIdentifiers {
+  string group_device_identifier = 1;
+  optional string local_identifier = 2;
+  optional string deduplication_id = 3;
+  optional string connect_state_identifier = 4;
+}
+
+message GroupDeviceVolume {
+  uint32 volume = 1;
+  int32 volume_steps = 2;
+}
+
+message GroupDevice {
+  GroupDeviceIdentifiers identifiers = 1;
+  string name = 2;
+  string type = 3;
+  string model_display_name = 4;
+  GroupDeviceCapabilities capabilities = 5;
+  GroupingStatus grouping_status = 6;
+  GroupDeviceVolume volume = 7;
+}
+
+message GroupData {
+  repeated GroupDevice devices = 1;
+  GroupCapabilities capabilities = 2;
+}

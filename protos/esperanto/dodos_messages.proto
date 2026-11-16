@@ -1,0 +1,41 @@
+// 1:1 Replicated Spotify Esperanto Dodos Messages Protobuf Schema
+// Sources:
+// - `liborbit-jni-spotify.so` `.rodata` FileDescriptorProto offset `5714450` / `0x5a1dd0`
+// - `liborbit-jni-spotify_memdump.so` offset `0x36a536` (`dodos_messages.proto`)
+// - Native dispatcher: `spotify::connect::esperanto::proto::DodoService` @ `0xe3fdb4` (`0xe3de2e`, `0xe3def8`, `0xe3e0d2`)
+
+syntax = "proto3";
+
+package spotify.connect.esperanto.proto;
+
+import "google/protobuf/empty.proto";
+import "protos/esperanto/common_messages.proto";
+
+option java_package = "com.spotify.connect.esperanto.proto";
+option java_multiple_files = true;
+
+message SingleDodo {
+  string dodo_id = 1;
+  string cs_id = 2;
+  bool is_primary = 3;
+  bool is_being_observed = 4;
+}
+
+message SwitchToDodoRequest {
+  string cs_id = 1;
+}
+
+message CreateNewDodoRequest {}
+
+message EndDodoRequest {}
+
+message DodoSubResponse {
+  repeated SingleDodo dodos = 1;
+}
+
+service DodoService {
+  rpc DodoSub (google.protobuf.Empty) returns (stream DodoSubResponse);
+  rpc SwitchToDodo (SwitchToDodoRequest) returns (StatusResponse);
+  rpc CreateNewDodo (CreateNewDodoRequest) returns (StatusResponse);
+  rpc EndDodo (EndDodoRequest) returns (StatusResponse);
+}

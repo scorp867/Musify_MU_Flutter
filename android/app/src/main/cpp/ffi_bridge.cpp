@@ -2,6 +2,12 @@
 #include "ContextProcessor.h"
 #include "ProtobufWireHelper.h"
 #include "cache/DiskCache.h"
+#include "connect/ConnectEsperantoProtos.h"
+#include "connect/ConnectServiceImpl.h"
+#include "connect/ConnectStateProtos.h"
+#include "connect/ConnectSubsystem.h"
+#include "connect/ConnectVolumeServiceImpl.h"
+#include "connect/DodoServiceImpl.h"
 #include "content_delivery/HeadFileManager.h"
 #include "content_delivery/StorageResolveClient.h"
 #include "drm/WidevineLicenseClient.h"
@@ -17,10 +23,13 @@
 
 #include "dart_api_dl.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #define MUSIFY_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
@@ -621,4 +630,394 @@ MUSIFY_EXPORT void musify_cpi_set_error_port(void* handle, int64_t dart_port) {
         cobj.value.as_typed_data.values = reinterpret_cast<const uint8_t*>(err_str.data());
         Dart_PostCObject_DL(dart_port, &cobj);
     });
+}
+
+// ===========================================================================
+// ConnectSubsystem + Esperanto Services FFI Bridge (Items 126-130)
+// ===========================================================================
+
+namespace {
+
+struct NativeConnectBundle {
+    spotify::connectstate::ConnectSubsystem subsystem;
+    spotify::connectstate::esperanto::ConnectServiceImpl connect_service;
+    spotify::connectstate::esperanto::ConnectVolumeServiceImpl volume_service;
+    spotify::connectstate::esperanto::DodoServiceImpl dodo_service;
+
+    std::mutex state_request_mutex;
+    spotify::connectstate::esperanto::StateRequest state_request;
+
+    std::atomic<bool> destroyed{false};
+    std::atomic<int64_t> state_port{0};
+    std::atomic<int64_t> volume_port{0};
+    std::atomic<int64_t> local_volume_port{0};
+    std::atomic<int64_t> dodo_port{0};
+    std::atomic<int64_t> install_spotify_port{0};
+
+    uint64_t state_listener_id{0};
+    uint64_t volume_listener_id{0};
+    uint64_t local_volume_listener_id{0};
+    uint64_t dodo_listener_id{0};
+
+    explicit NativeConnectBundle(spotify::player::ContextPlayerImpl& player)
+        : subsystem(
+              player,
+              NativePlaybackServices::instance().auth_store,
+              NativePlaybackServices::instance().http_client),
+          connect_service(subsystem),
+          volume_service(subsystem),
+          dodo_service(subsystem) {}
+};
+
+void post_bytes_to_dart_port(int64_t port, const std::vector<uint8_t>& bytes) {
+    if (port == 0 || Dart_PostCObject_DL == nullptr) {
+        return;
+    }
+    static constexpr uint8_t kEmptyByte = 0;
+    Dart_CObject cobj;
+    cobj.type = Dart_CObject_kTypedData;
+    cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
+    cobj.value.as_typed_data.length = static_cast<intptr_t>(bytes.size());
+    cobj.value.as_typed_data.values = bytes.empty() ? &kEmptyByte : bytes.data();
+    (void)Dart_PostCObject_DL(port, &cobj);
+}
+
+void set_connect_port_atomic(
+    NativeConnectBundle* bundle,
+    std::atomic<int64_t>& target,
+    int64_t dart_port) {
+    if (!bundle) {
+        return;
+    }
+    if (bundle->destroyed.load(std::memory_order_seq_cst)) {
+        return;
+    }
+    target.store(dart_port, std::memory_order_seq_cst);
+    if (bundle->destroyed.load(std::memory_order_seq_cst)) {
+        target.store(0, std::memory_order_seq_cst);
+    }
+}
+
+uint8_t* marshal_esperanto_result(
+    const spotify::connectstate::esperanto::EsperantoCallResult& res,
+    int32_t* out_len,
+    int32_t* out_status) {
+    if (out_status != nullptr) {
+        *out_status = static_cast<int32_t>(res.status);
+    }
+    if (out_len == nullptr) {
+        return nullptr;
+    }
+    if (res.payload.empty()) {
+        *out_len = 0;
+        return nullptr;
+    }
+    auto* buf = static_cast<uint8_t*>(std::malloc(res.payload.size()));
+    if (buf == nullptr) {
+        *out_len = 0;
+        if (out_status != nullptr) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kBackendFailure);
+        }
+        return nullptr;
+    }
+    std::memcpy(buf, res.payload.data(), res.payload.size());
+    *out_len = static_cast<int32_t>(res.payload.size());
+    return buf;
+}
+
+}  // namespace
+
+MUSIFY_EXPORT void* musify_connect_create(void* cpi_handle) {
+    if (!cpi_handle) {
+        return nullptr;
+    }
+    auto* cpi = static_cast<spotify::player::ContextPlayerImpl*>(cpi_handle);
+    auto* bundle = new (std::nothrow) NativeConnectBundle(*cpi);
+    if (!bundle) {
+        return nullptr;
+    }
+
+    bundle->state_listener_id = bundle->subsystem.add_state_listener([bundle]() {
+        if (bundle->destroyed.load(std::memory_order_acquire)) {
+            return;
+        }
+        if (bundle->state_port.load(std::memory_order_acquire) == 0) {
+            return;
+        }
+        spotify::connectstate::esperanto::StateRequest req;
+        {
+            std::lock_guard<std::mutex> lock(bundle->state_request_mutex);
+            req = bundle->state_request;
+        }
+        const auto bytes = spotify::connectstate::esperanto::encode_state_response(
+            bundle->connect_service.build_state_response(req));
+        if (bundle->destroyed.load(std::memory_order_acquire)) {
+            return;
+        }
+        const int64_t port = bundle->state_port.load(std::memory_order_acquire);
+        if (port != 0) {
+            post_bytes_to_dart_port(port, bytes);
+        }
+    });
+
+    bundle->volume_listener_id = bundle->subsystem.add_volume_listener(
+        [bundle](const spotify::connectstate::ConnectVolumeSnapshot& snap) {
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            if (bundle->volume_port.load(std::memory_order_acquire) == 0) {
+                return;
+            }
+            const auto bytes = bundle->volume_service.encode_volume_snapshot(snap);
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            const int64_t port = bundle->volume_port.load(std::memory_order_acquire);
+            if (port != 0) {
+                post_bytes_to_dart_port(port, bytes);
+            }
+        });
+
+    bundle->local_volume_listener_id = bundle->subsystem.add_local_volume_listener(
+        [bundle](uint32_t vol, spotify::connectstate::LocalVolumeReason reason) {
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            if (bundle->local_volume_port.load(std::memory_order_acquire) == 0) {
+                return;
+            }
+            const auto bytes = bundle->volume_service.encode_local_volume(vol, reason);
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            const int64_t port = bundle->local_volume_port.load(std::memory_order_acquire);
+            if (port != 0) {
+                post_bytes_to_dart_port(port, bytes);
+            }
+        });
+
+    bundle->dodo_listener_id = bundle->subsystem.add_dodo_listener(
+        [bundle](const std::vector<spotify::connectstate::SingleDodo>& dodos) {
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            if (bundle->dodo_port.load(std::memory_order_acquire) == 0) {
+                return;
+            }
+            const auto bytes = bundle->dodo_service.encode_dodos(dodos);
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            const int64_t port = bundle->dodo_port.load(std::memory_order_acquire);
+            if (port != 0) {
+                post_bytes_to_dart_port(port, bytes);
+            }
+        });
+
+    return static_cast<void*>(bundle);
+}
+
+MUSIFY_EXPORT void musify_connect_destroy(void* handle) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    bundle->destroyed.store(true, std::memory_order_seq_cst);
+    bundle->state_port.store(0, std::memory_order_seq_cst);
+    bundle->volume_port.store(0, std::memory_order_seq_cst);
+    bundle->local_volume_port.store(0, std::memory_order_seq_cst);
+    bundle->dodo_port.store(0, std::memory_order_seq_cst);
+    bundle->install_spotify_port.store(0, std::memory_order_seq_cst);
+
+    if (bundle->state_listener_id != 0) {
+        bundle->subsystem.remove_state_listener(bundle->state_listener_id);
+        bundle->state_listener_id = 0;
+    }
+    if (bundle->volume_listener_id != 0) {
+        bundle->subsystem.remove_volume_listener(bundle->volume_listener_id);
+        bundle->volume_listener_id = 0;
+    }
+    if (bundle->local_volume_listener_id != 0) {
+        bundle->subsystem.remove_local_volume_listener(bundle->local_volume_listener_id);
+        bundle->local_volume_listener_id = 0;
+    }
+    if (bundle->dodo_listener_id != 0) {
+        bundle->subsystem.remove_dodo_listener(bundle->dodo_listener_id);
+        bundle->dodo_listener_id = 0;
+    }
+
+    bundle->subsystem.stop();
+    delete bundle;
+}
+
+MUSIFY_EXPORT int32_t musify_connect_start(
+    void* handle,
+    const uint8_t* device_info_bytes,
+    int32_t len) {
+    if (!handle || len < 0 || (len > 0 && !device_info_bytes)) {
+        return -1;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    spotify::connectstate::DeviceInfo initial_device;
+    if (device_info_bytes != nullptr && len > 0) {
+        if (!spotify::connectstate::decode_device_info(
+                device_info_bytes, static_cast<size_t>(len), initial_device)) {
+            return -2;
+        }
+    }
+    bundle->subsystem.start(initial_device);
+    return 0;
+}
+
+MUSIFY_EXPORT void musify_connect_stop(void* handle) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    bundle->subsystem.stop();
+}
+
+MUSIFY_EXPORT uint8_t* musify_connect_service_call(
+    void* handle,
+    const char* method,
+    const uint8_t* payload,
+    int32_t payload_len,
+    int32_t* out_len,
+    int32_t* out_status) {
+    if (!handle || !method || payload_len < 0 || (payload_len > 0 && !payload)) {
+        if (out_len) *out_len = 0;
+        if (out_status) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kInvalidArguments);
+        }
+        return nullptr;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        if (out_len) *out_len = 0;
+        if (out_status) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kBackendFailure);
+        }
+        return nullptr;
+    }
+
+    const std::string_view method_sv(method);
+    const size_t len = static_cast<size_t>(payload_len);
+    if (method_sv == "State") {
+        spotify::connectstate::esperanto::StateRequest req;
+        if (!spotify::connectstate::esperanto::decode_state_request(payload, len, req)) {
+            spotify::connectstate::esperanto::EsperantoCallResult err{
+                .status = spotify::connectstate::esperanto::EsperantoCallStatus::kDecodeError,
+                .payload = {},
+            };
+            return marshal_esperanto_result(err, out_len, out_status);
+        }
+        {
+            std::lock_guard<std::mutex> lock(bundle->state_request_mutex);
+            bundle->state_request = req;
+        }
+    }
+
+    const auto res = bundle->connect_service.dispatch(method_sv, payload, len);
+    return marshal_esperanto_result(res, out_len, out_status);
+}
+
+MUSIFY_EXPORT uint8_t* musify_connect_volume_service_call(
+    void* handle,
+    const char* method,
+    const uint8_t* payload,
+    int32_t payload_len,
+    int32_t* out_len,
+    int32_t* out_status) {
+    if (!handle || !method || payload_len < 0 || (payload_len > 0 && !payload)) {
+        if (out_len) *out_len = 0;
+        if (out_status) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kInvalidArguments);
+        }
+        return nullptr;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        if (out_len) *out_len = 0;
+        if (out_status) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kBackendFailure);
+        }
+        return nullptr;
+    }
+    const auto res = bundle->volume_service.dispatch(
+        method, payload, static_cast<size_t>(payload_len));
+    return marshal_esperanto_result(res, out_len, out_status);
+}
+
+MUSIFY_EXPORT uint8_t* musify_dodo_service_call(
+    void* handle,
+    const char* method,
+    const uint8_t* payload,
+    int32_t payload_len,
+    int32_t* out_len,
+    int32_t* out_status) {
+    if (!handle || !method || payload_len < 0 || (payload_len > 0 && !payload)) {
+        if (out_len) *out_len = 0;
+        if (out_status) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kInvalidArguments);
+        }
+        return nullptr;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        if (out_len) *out_len = 0;
+        if (out_status) {
+            *out_status = static_cast<int32_t>(
+                spotify::connectstate::esperanto::EsperantoCallStatus::kBackendFailure);
+        }
+        return nullptr;
+    }
+    const auto res = bundle->dodo_service.dispatch(
+        method, payload, static_cast<size_t>(payload_len));
+    return marshal_esperanto_result(res, out_len, out_status);
+}
+
+MUSIFY_EXPORT void musify_connect_set_state_port(void* handle, int64_t dart_port) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    set_connect_port_atomic(bundle, bundle->state_port, dart_port);
+}
+
+MUSIFY_EXPORT void musify_connect_set_volume_port(void* handle, int64_t dart_port) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    set_connect_port_atomic(bundle, bundle->volume_port, dart_port);
+}
+
+MUSIFY_EXPORT void musify_connect_set_local_volume_port(void* handle, int64_t dart_port) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    set_connect_port_atomic(bundle, bundle->local_volume_port, dart_port);
+}
+
+MUSIFY_EXPORT void musify_connect_set_dodo_port(void* handle, int64_t dart_port) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    set_connect_port_atomic(bundle, bundle->dodo_port, dart_port);
+}
+
+MUSIFY_EXPORT void musify_connect_set_install_spotify_port(void* handle, int64_t dart_port) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    set_connect_port_atomic(bundle, bundle->install_spotify_port, dart_port);
 }

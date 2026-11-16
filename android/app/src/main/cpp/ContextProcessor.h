@@ -1,3 +1,10 @@
+// ============================================================================
+// 1:1 Replicated Spotify ContextProcessor & ContextView State Machine
+// Sources:
+// - `liborbit-jni-spotify.so` `spotify.player.proto.ContextProcessor` (`0x3cea34`)
+// - `liborbit-jni-spotify.so` `ContextView` / `CyclicEntryKeyList` (`0x3cec10`, `0x16b81d4`, `0xf5529c`, `0x16a7530`)
+// ============================================================================
+
 #pragma once
 
 #include <cstdint>
@@ -85,6 +92,8 @@ public:
     [[nodiscard]] std::string get_context_uri() const;
 
 private:
+    [[nodiscard]] const std::vector<context_view::Entry>& active_list_locked() const noexcept;
+    void build_shuffled_order_locked();
     void rebuild_cyclic_list_locked();
 
     mutable std::mutex mutex_;

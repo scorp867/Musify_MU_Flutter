@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,10 +13,12 @@ import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/core/ui/scroll/app_scroll_behavior.dart';
 import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
+import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
+import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
 import 'package:musify_mu/features/vault/application/coordinator/vault_coordinator.dart';
 import 'package:musify_mu/features/vault/application/gesture/gesture_engine_cubit.dart';
@@ -32,14 +35,18 @@ import 'package:musify_mu/features/vault/domain/usecases/purge_vault_data_use_ca
 import 'package:musify_mu/features/vault/domain/usecases/rotate_pin_use_case.dart';
 import 'package:musify_mu/features/vault/domain/usecases/unlock_vault_use_case.dart';
 
+/// Root application composition root wiring Vault, Player Queue, and Spotify
+/// Connect (`ConnectSubsystem` / `p199p/yrq.java` / `p199p/edi0.java`).
 class MusifyApp extends StatefulWidget {
   final AuthBloc Function() createAuthBloc;
   final LocalMusicBloc Function()? createLocalMusicBloc;
+  final ConnectMobiusController? connectController;
 
   const MusifyApp({
     super.key,
     required this.createAuthBloc,
     this.createLocalMusicBloc,
+    this.connectController,
   });
 
   @override
@@ -48,13 +55,39 @@ class MusifyApp extends StatefulWidget {
 
 class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
   VaultCoordinator? _vaultCoordinator;
+  final GlobalKey _materialAppKey = GlobalKey();
+  final ValueNotifier<ConnectMobiusController?> _connectControllerNotifier =
+      ValueNotifier<ConnectMobiusController?>(null);
   StreamSubscription<VaultNavigationTarget>? _navSubscription;
   final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
+
+  ConnectMobiusController? _resolveConnectController() {
+    if (widget.connectController case final external?) {
+      return external;
+    }
+    if (!getIt.isRegistered<ConnectMobiusController>()) {
+      return null;
+    }
+    final resolved = getIt<ConnectMobiusController>();
+    if (Platform.isAndroid && !resolved.isClosed && !resolved.isStarted) {
+      startConnectSubsystemIfSupported(
+        controller: resolved,
+        transport: getIt.isRegistered<EsperantoTransport>()
+            ? getIt<EsperantoTransport>()
+            : null,
+      );
+    }
+    return resolved;
+  }
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final initialConnectController = _resolveConnectController();
+    if (!identical(_connectControllerNotifier.value, initialConnectController)) {
+      _connectControllerNotifier.value = initialConnectController;
+    }
     if (getIt.isRegistered<VaultCoordinator>()) {
       final coordinator = getIt<VaultCoordinator>()..initialize();
       _vaultCoordinator = coordinator;
@@ -101,8 +134,20 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
   }
 
   @override
+  void didUpdateWidget(covariant MusifyApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.connectController != oldWidget.connectController) {
+      final resolved = _resolveConnectController();
+      if (!identical(_connectControllerNotifier.value, resolved)) {
+        _connectControllerNotifier.value = resolved;
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _navSubscription?.cancel();
+    _connectControllerNotifier.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -123,7 +168,8 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
       );
     }
 
-    Widget app = MaterialApp(
+    final Widget themedApp = MaterialApp(
+      key: _materialAppKey,
       navigatorKey: _rootNavigatorKey,
       title: 'Musify MU',
       debugShowCheckedModeBanner: false,
@@ -131,13 +177,31 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
       scrollBehavior: const AppScrollBehavior(),
       navigatorObservers: navigatorObservers,
       onGenerateRoute: VaultRoutes.onGenerateRoute,
-      home: HiddenDrawerScaffold(
-        modePersistence: getIt<ModePersistence>(),
-        createHomeFeedBloc: () => getIt<HomeFeedBloc>(),
-        createBrowseBloc: () => getIt<BrowseBloc>(),
-        createLibraryBloc: (userId) => getIt<LibraryBloc>(param1: userId),
+      home: ValueListenableBuilder<ConnectMobiusController?>(
+        valueListenable: _connectControllerNotifier,
+        builder: (
+          BuildContext context,
+          ConnectMobiusController? activeConnectController,
+          Widget? child,
+        ) {
+          return HiddenDrawerScaffold(
+            modePersistence: getIt<ModePersistence>(),
+            createHomeFeedBloc: () => getIt<HomeFeedBloc>(),
+            createBrowseBloc: () => getIt<BrowseBloc>(),
+            createLibraryBloc: (userId) => getIt<LibraryBloc>(param1: userId),
+            connectController: activeConnectController,
+          );
+        },
       ),
     );
+
+    final Widget app = switch (_connectControllerNotifier.value) {
+      final activeConnect? => BlocProvider<ConnectMobiusController>.value(
+          value: activeConnect,
+          child: themedApp,
+        ),
+      null => themedApp,
+    };
 
     final createBloc = widget.createLocalMusicBloc;
 

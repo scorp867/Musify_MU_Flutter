@@ -1,7 +1,9 @@
 import 'package:get_it/get_it.dart';
+import 'package:musify_mu/app/di/connect_injection.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
 import 'package:musify_mu/app/di/vault_injection.dart';
 
+export 'package:musify_mu/app/di/connect_injection.dart';
 export 'package:musify_mu/app/di/vault_injection.dart';
 import 'package:musify_mu/core/audio/musify_native_audio_engine.dart';
 import 'package:musify_mu/core/audio/native_playback_session_bridge.dart';
@@ -434,6 +436,9 @@ Future<void> setupInjection() async {
     ),
     dispose: (bloc) => bloc.close(),
   );
+
+  // --- Spotify Connect Subsystem (1:1 ConnectSubsystem / Mobius Loop) ---
+  setupConnectInjection(getIt);
 
   // --- Spotify Playlist Esperanto Clients & Repository ---
   getIt.registerLazySingleton<PlaylistDataClient>(
