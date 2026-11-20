@@ -1,14 +1,17 @@
+// ============================================================================
 // Replicated from liborbit-jni-spotify.so (ConnectState PutState backoff state machine):
 // - Binary symbols / offsets:
 //   - ConnectStateClientImpl::putState response & backoff @ 0xdc5e8c..0xdc6310
 //   - Fixed 10000ms (0x2710) backoff literal @ 0x1595ab8 (liborbit-jni-spotify.so)
 //   - PutStateReason::PLAYER_STATE_CHANGED (4) + HTTP 429 / gRPC status "8" (0x3e1028, 0x3e1040)
+//   - connection_id_decorator missing X-Spotify-Connection-Id err=8 @ 0x12effc4..0x12f0040
 //   - std::error_code values: 9000 (0xdc6134/0xdc6228/0xdc03bc), 9001 (0xdc61e4/0xdc03dc),
 //     9002 (0xdc61b0/0xdc0f70), 10 system error (0xdc5e98)
 // - Java / Esperanto counterparts:
 //   - com/spotify/core/corefullimpl/NativeFullAuthenticatedScopeImpl.java
 //   - com/spotify/connectivity/NativeAuthenticatedScope.java
 //   - p199p/s77.java (ConnectService.State)
+// ============================================================================
 
 #ifndef MUSIFY_CONNECT_PUT_STATE_BACKOFF_H_
 #define MUSIFY_CONNECT_PUT_STATE_BACKOFF_H_
@@ -25,14 +28,16 @@
 
 namespace spotify::connectstate {
 
-// std::error_code numeric values observed in liborbit-jni-spotify.so @ 0xdc5e8c..0xdc6310.
-// Note: 9000, 9001, 9002, and 10 are error codes, NOT millisecond durations.
+// std::error_code numeric values observed in liborbit-jni-spotify.so @ 0xdc5e8c..0xdc6310
+// and connection_id_decorator @ 0x12effc4..0x12f0040.
+// Note: 8, 10, 9000, 9001, 9002 are error codes, NOT millisecond durations.
 enum class BackoffErrorCode : int32_t {
     kNone = 0,
-    kSystemError = 10,          // 0xdc5e98 (system/transport error, 0x361077)
-    kPutStateFailed = 9000,     // 0xdc6134 / 0xdc6228 / 0xdc03bc
-    kPutStateCanceled = 9001,   // 0xdc61e4 / 0xdc03dc (cluster parse / HTTP client error)
-    kPutStateRateLimited = 9002,// 0xdc61b0 / 0xdc0f70 (429 or grpc-status "8" on PLAYER_STATE_CHANGED)
+    kMissingConnectionId = 8,    // 0x12effc4 (connection_id_decorator: missing X-Spotify-Connection-Id)
+    kSystemError = 10,           // 0xdc5e98 (system/transport error, 0x361077)
+    kPutStateFailed = 9000,      // 0xdc6134 / 0xdc6228 / 0xdc03bc
+    kPutStateCanceled = 9001,    // 0xdc61e4 / 0xdc03dc (cluster parse / HTTP client error)
+    kPutStateRateLimited = 9002, // 0xdc61b0 / 0xdc0f70 (429 or grpc-status "8" on PLAYER_STATE_CHANGED)
 };
 
 struct PendingPutState {

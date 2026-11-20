@@ -5,11 +5,13 @@
 // - `liborbit-jni-spotify.so` offsets 0x44b598 ("POST"), 0x44b5b0 ("DELETE"), 0x44b5c8 ("PUT")
 // - `liborbit-jni-spotify.so` offsets 0x3e1028 ("grpc-status"), 0x38bcd4 ("Retry-After")
 // - `liborbit-jni-spotify.so` offset 0x39c1c3 ("X-Spotify-Connection-Id")
+// - `liborbit-jni-spotify.so` offset 0x446bed @ 0x12f31ac ("client-token-error")
 // ============================================================================
 
 #include "NativeHttpClient.h"
 
-#include <android/log.h>
+#include "NativeLog.h"
+
 #include <arpa/inet.h>
 #include <curl/curl.h>
 #include <dirent.h>
@@ -22,16 +24,13 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
-
-#define HTTP_LOG_TAG "MusifyNativeHttp"
-#define HTTP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, HTTP_LOG_TAG, __VA_ARGS__)
-#define HTTP_LOGW(...) __android_log_print(ANDROID_LOG_WARN, HTTP_LOG_TAG, __VA_ARGS__)
-#define HTTP_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, HTTP_LOG_TAG, __VA_ARGS__)
+#include <unordered_set>
 
 namespace spotify::network {
 
@@ -48,6 +47,7 @@ constexpr const char* kUserAddedCaDir = "/data/misc/user/0/cacerts-added";
 
 void extractPemCertificatesFromFile(const std::string& path,
                                     std::string& out_bundle,
+                                    std::unordered_set<std::string>& seen_blocks,
                                     size_t& out_cert_count) {
     const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return;
@@ -77,14 +77,19 @@ void extractPemCertificatesFromFile(const std::string& path,
         const size_t end = raw.find(kEndMarker, begin);
         if (end == std::string::npos) break;
         const size_t block_end = end + sizeof(kEndMarker) - 1;
-        out_bundle.append(raw, begin, block_end - begin);
-        out_bundle.push_back('\n');
-        out_cert_count++;
+        std::string pem_block(raw, begin, block_end - begin);
+        if (seen_blocks.insert(pem_block).second) {
+            out_bundle.append(pem_block);
+            out_bundle.push_back('\n');
+            out_cert_count++;
+        }
         search_pos = block_end;
     }
 }
 
-size_t loadCertificatesFromDirectory(const char* dir_path, std::string& out_bundle) {
+size_t loadCertificatesFromDirectory(const char* dir_path,
+                                     std::string& out_bundle,
+                                     std::unordered_set<std::string>& seen_blocks) {
     DIR* dir = ::opendir(dir_path);
     if (!dir) return 0;
 
@@ -94,7 +99,7 @@ size_t loadCertificatesFromDirectory(const char* dir_path, std::string& out_bund
         std::string full_path(dir_path);
         full_path.push_back('/');
         full_path.append(entry->d_name);
-        extractPemCertificatesFromFile(full_path, out_bundle, loaded);
+        extractPemCertificatesFromFile(full_path, out_bundle, seen_blocks, loaded);
     }
     ::closedir(dir);
     return loaded;
@@ -204,16 +209,20 @@ private:
         }
 
         ca_pem_bundle_.reserve(320 * 1024);
-        size_t system_count = loadCertificatesFromDirectory(kApexCaDir, ca_pem_bundle_);
+        std::unordered_set<std::string> seen_blocks;
+        seen_blocks.reserve(256);
+
+        size_t system_count = loadCertificatesFromDirectory(kApexCaDir, ca_pem_bundle_, seen_blocks);
         if (system_count > 0) {
             fallback_ca_dir_ = kApexCaDir;
         } else {
-            system_count = loadCertificatesFromDirectory(kSystemCaDir, ca_pem_bundle_);
+            system_count = loadCertificatesFromDirectory(kSystemCaDir, ca_pem_bundle_, seen_blocks);
             fallback_ca_dir_ = kSystemCaDir;
         }
-        const size_t user_count = loadCertificatesFromDirectory(kUserAddedCaDir, ca_pem_bundle_);
-        HTTP_LOGI("NativeHttpClient initialized: ca_certs=%zu (user=%zu, bundle_bytes=%zu, fallback_dir=%s)",
-                  system_count, user_count, ca_pem_bundle_.size(), fallback_ca_dir_);
+        const size_t user_count =
+            loadCertificatesFromDirectory(kUserAddedCaDir, ca_pem_bundle_, seen_blocks);
+        NET_LOGI("NativeHttpClient initialized: ca_certs=%zu (user=%zu, bundle_bytes=%zu, fallback_dir=%s)",
+                 system_count, user_count, ca_pem_bundle_.size(), fallback_ca_dir_);
     }
 
     ~CurlEnvironment() {
@@ -284,6 +293,19 @@ bool equalsIgnoreCasePrefix(const char* str, size_t len, const char* prefix) noe
     return true;
 }
 
+bool containsIgnoreCaseAscii(std::string_view haystack, std::string_view needle) noexcept {
+    if (needle.empty() || haystack.size() < needle.size()) {
+        return false;
+    }
+    const size_t limit = haystack.size() - needle.size();
+    for (size_t i = 0; i <= limit; ++i) {
+        if (ascii_iequals(haystack.substr(i, needle.size()), needle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string trimAsciiWhitespace(const char* data, size_t len) {
     size_t start = 0;
     while (start < len && std::isspace(static_cast<unsigned char>(data[start]))) {
@@ -294,6 +316,18 @@ std::string trimAsciiWhitespace(const char* data, size_t len) {
         end--;
     }
     return std::string(data + start, end - start);
+}
+
+std::string_view trimAsciiWhitespaceView(std::string_view sv) noexcept {
+    size_t start = 0;
+    while (start < sv.size() && std::isspace(static_cast<unsigned char>(sv[start]))) {
+        start++;
+    }
+    size_t end = sv.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(sv[end - 1]))) {
+        end--;
+    }
+    return sv.substr(start, end - start);
 }
 
 struct ParsedHeaders {
@@ -386,7 +420,7 @@ int cancelProgressCallback(void* clientp,
 struct VectorWriteContext {
     std::vector<uint8_t>* buffer{nullptr};
     const CancelContext* cancel_ctx{nullptr};
-    size_t max_bytes{0}; // 0 means unlimited
+    size_t max_bytes{0};  // 0 means unlimited
 };
 
 size_t vectorWriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
@@ -541,7 +575,7 @@ bool hasHeaderCaseInsensitive(const std::vector<std::pair<std::string, std::stri
     return false;
 }
 
-} // namespace
+}  // namespace
 
 NativeHttpClient::NativeHttpClient(AuthSessionStore& auth_store)
     : auth_store_(auth_store) {
@@ -553,6 +587,43 @@ NativeHttpClient& NativeHttpClient::defaultInstance() {
     return instance;
 }
 
+const std::string& NativeHttpClient::caPemBundle() noexcept {
+    return CurlEnvironment::instance().caPemBundle();
+}
+
+const char* NativeHttpClient::fallbackCaDir() noexcept {
+    return CurlEnvironment::instance().fallbackCaDir();
+}
+
+std::string NativeHttpClient::normalizeSpDcValue(std::string_view raw_sp_dc) {
+    std::string_view sv = trimAsciiWhitespaceView(raw_sp_dc);
+    while (ascii_istarts_with(sv, "cookie:")) {
+        sv = trimAsciiWhitespaceView(sv.substr(7));
+    }
+    while (ascii_istarts_with(sv, "sp_dc=")) {
+        sv = trimAsciiWhitespaceView(sv.substr(6));
+    }
+    const size_t semi = sv.find(';');
+    if (semi != std::string_view::npos) {
+        sv = trimAsciiWhitespaceView(sv.substr(0, semi));
+    }
+    while (ascii_istarts_with(sv, "sp_dc=")) {
+        sv = trimAsciiWhitespaceView(sv.substr(6));
+    }
+    return std::string(sv);
+}
+
+bool NativeHttpClient::isClientTokenErrorHeader(std::string_view header_value) noexcept {
+    const std::string_view trimmed = trimAsciiWhitespaceView(header_value);
+    if (trimmed.empty()) {
+        return false;
+    }
+    return containsIgnoreCaseAscii(trimmed, "EXPIRED_CLIENTTOKEN") ||
+           containsIgnoreCaseAscii(trimmed, "INVALID_CLIENTTOKEN") ||
+           containsIgnoreCaseAscii(trimmed, "MISSING_CLIENTTOKEN") ||
+           containsIgnoreCaseAscii(trimmed, "UNSUPPORTED_CLIENT");
+}
+
 bool NativeHttpClient::hasActiveNetworkRoute() noexcept {
     // Synchronous in-kernel FIB routing table lookup via UDP connect().
     // Calling connect() on a SOCK_DGRAM socket performs zero network I/O and sends zero packets;
@@ -562,7 +633,7 @@ bool NativeHttpClient::hasActiveNetworkRoute() noexcept {
         struct sockaddr_in addr4{};
         addr4.sin_family = AF_INET;
         addr4.sin_port = htons(53);
-        addr4.sin_addr.s_addr = htonl(0x08080808U); // 8.8.8.8
+        addr4.sin_addr.s_addr = htonl(0x08080808U);  // 8.8.8.8
         const int rc = ::connect(fd4, reinterpret_cast<const struct sockaddr*>(&addr4), sizeof(addr4));
         ::close(fd4);
         if (rc == 0) {
@@ -597,16 +668,22 @@ HttpResponse NativeHttpClient::get(
     int connect_timeout_ms,
     int read_timeout_ms,
     bool include_spotify_auth,
-    const CancelPredicate& cancel_pred) const {
-    return executeWithAuthRetry(
-        "GET",
-        url,
-        extra_headers,
-        nullptr,
-        connect_timeout_ms,
-        read_timeout_ms,
-        include_spotify_auth,
-        cancel_pred);
+    const CancelPredicate& cancel_pred,
+    bool include_cookie) const {
+    HttpRequestOptions opts;
+    opts.connect_timeout_ms = connect_timeout_ms;
+    opts.read_timeout_ms = read_timeout_ms;
+    opts.include_spotify_auth = include_spotify_auth;
+    opts.include_cookie = include_cookie;
+    opts.cancel_pred = cancel_pred;
+    return get(url, extra_headers, opts);
+}
+
+HttpResponse NativeHttpClient::get(
+    const std::string& url,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    const HttpRequestOptions& options) const {
+    return executeWithAuthRetry("GET", url, extra_headers, nullptr, options);
 }
 
 HttpResponse NativeHttpClient::post(
@@ -617,20 +694,28 @@ HttpResponse NativeHttpClient::post(
     int connect_timeout_ms,
     int read_timeout_ms,
     bool include_spotify_auth,
-    const CancelPredicate& cancel_pred) const {
+    const CancelPredicate& cancel_pred,
+    bool include_cookie) const {
+    HttpRequestOptions opts;
+    opts.connect_timeout_ms = connect_timeout_ms;
+    opts.read_timeout_ms = read_timeout_ms;
+    opts.include_spotify_auth = include_spotify_auth;
+    opts.include_cookie = include_cookie;
+    opts.cancel_pred = cancel_pred;
+    return post(url, body, content_type, extra_headers, opts);
+}
+
+HttpResponse NativeHttpClient::post(
+    const std::string& url,
+    const std::vector<uint8_t>& body,
+    const std::string& content_type,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    const HttpRequestOptions& options) const {
     std::vector<std::pair<std::string, std::string>> merged = extra_headers;
     if (!content_type.empty() && !hasHeaderCaseInsensitive(merged, "Content-Type")) {
         merged.emplace_back("Content-Type", content_type);
     }
-    return executeWithAuthRetry(
-        "POST",
-        url,
-        merged,
-        &body,
-        connect_timeout_ms,
-        read_timeout_ms,
-        include_spotify_auth,
-        cancel_pred);
+    return executeWithAuthRetry("POST", url, merged, &body, options);
 }
 
 HttpResponse NativeHttpClient::put(
@@ -641,20 +726,28 @@ HttpResponse NativeHttpClient::put(
     int connect_timeout_ms,
     int read_timeout_ms,
     bool include_spotify_auth,
-    const CancelPredicate& cancel_pred) const {
+    const CancelPredicate& cancel_pred,
+    bool include_cookie) const {
+    HttpRequestOptions opts;
+    opts.connect_timeout_ms = connect_timeout_ms;
+    opts.read_timeout_ms = read_timeout_ms;
+    opts.include_spotify_auth = include_spotify_auth;
+    opts.include_cookie = include_cookie;
+    opts.cancel_pred = cancel_pred;
+    return put(url, body, content_type, extra_headers, opts);
+}
+
+HttpResponse NativeHttpClient::put(
+    const std::string& url,
+    const std::vector<uint8_t>& body,
+    const std::string& content_type,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    const HttpRequestOptions& options) const {
     std::vector<std::pair<std::string, std::string>> merged = extra_headers;
     if (!content_type.empty() && !hasHeaderCaseInsensitive(merged, "Content-Type")) {
         merged.emplace_back("Content-Type", content_type);
     }
-    return executeWithAuthRetry(
-        "PUT",
-        url,
-        merged,
-        &body,
-        connect_timeout_ms,
-        read_timeout_ms,
-        include_spotify_auth,
-        cancel_pred);
+    return executeWithAuthRetry("PUT", url, merged, &body, options);
 }
 
 HttpResponse NativeHttpClient::del(
@@ -663,16 +756,22 @@ HttpResponse NativeHttpClient::del(
     int connect_timeout_ms,
     int read_timeout_ms,
     bool include_spotify_auth,
-    const CancelPredicate& cancel_pred) const {
-    return executeWithAuthRetry(
-        "DELETE",
-        url,
-        extra_headers,
-        nullptr,
-        connect_timeout_ms,
-        read_timeout_ms,
-        include_spotify_auth,
-        cancel_pred);
+    const CancelPredicate& cancel_pred,
+    bool include_cookie) const {
+    HttpRequestOptions opts;
+    opts.connect_timeout_ms = connect_timeout_ms;
+    opts.read_timeout_ms = read_timeout_ms;
+    opts.include_spotify_auth = include_spotify_auth;
+    opts.include_cookie = include_cookie;
+    opts.cancel_pred = cancel_pred;
+    return del(url, extra_headers, opts);
+}
+
+HttpResponse NativeHttpClient::del(
+    const std::string& url,
+    const std::vector<std::pair<std::string, std::string>>& extra_headers,
+    const HttpRequestOptions& options) const {
+    return executeWithAuthRetry("DELETE", url, extra_headers, nullptr, options);
 }
 
 HttpResponse NativeHttpClient::executeWithAuthRetry(
@@ -680,23 +779,23 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
     const std::string& url,
     const std::vector<std::pair<std::string, std::string>>& extra_headers,
     const std::vector<uint8_t>* body,
-    int connect_timeout_ms,
-    int read_timeout_ms,
-    bool include_spotify_auth,
-    const CancelPredicate& cancel_pred) const {
+    const HttpRequestOptions& options) const {
     for (int attempt = 0; attempt < 2; ++attempt) {
-        if (cancel_pred && cancel_pred()) {
+        if (options.cancel_pred && options.cancel_pred()) {
             return HttpResponse{};
         }
         if (!hasActiveNetworkRoute()) {
+            const std::string safe_url = sanitize_url_for_log(url);
+            NET_LOGW("%s %s aborted: no active network route", method.c_str(), safe_url.c_str());
             return HttpResponse{};
         }
 
         const AuthCredentials creds = auth_store_.snapshot();
+        const ClientHeaderProfile profile = auth_store_.client_profile();
         std::vector<std::pair<std::string, std::string>> headers;
         headers.reserve(extra_headers.size() + 9);
 
-        if (include_spotify_auth) {
+        if (options.include_spotify_auth) {
             if (!creds.access_token.empty() &&
                 !hasHeaderCaseInsensitive(extra_headers, "authorization")) {
                 headers.emplace_back("Authorization", "Bearer " + creds.access_token);
@@ -705,25 +804,54 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
                 !hasHeaderCaseInsensitive(extra_headers, "client-token")) {
                 headers.emplace_back("client-token", creds.client_token);
             }
-            if (!creds.sp_dc.empty() &&
+            if (options.include_cookie && !creds.sp_dc.empty() &&
                 !hasHeaderCaseInsensitive(extra_headers, "cookie")) {
-                headers.emplace_back("Cookie", "sp_dc=" + creds.sp_dc);
+                const std::string normalized_sp_dc = normalizeSpDcValue(creds.sp_dc);
+                if (!normalized_sp_dc.empty()) {
+                    headers.emplace_back("Cookie", "sp_dc=" + normalized_sp_dc);
+                }
             }
-            if (!hasHeaderCaseInsensitive(extra_headers, "app-platform")) {
-                headers.emplace_back("app-platform", "WebPlayer");
+
+            if (profile.send_origin_headers) {
+                if (!hasHeaderCaseInsensitive(extra_headers, "app-platform")) {
+                    headers.emplace_back(
+                        "app-platform",
+                        profile.app_platform.empty() ? "WebPlayer" : profile.app_platform);
+                }
+                if (!hasHeaderCaseInsensitive(extra_headers, "spotify-app-version")) {
+                    headers.emplace_back(
+                        "spotify-app-version",
+                        profile.app_version.empty() ? kWebPlayerAppVersion : profile.app_version);
+                }
+                if (!hasHeaderCaseInsensitive(extra_headers, "user-agent")) {
+                    headers.emplace_back(
+                        "User-Agent",
+                        profile.user_agent.empty() ? kWebPlayerUserAgent : profile.user_agent);
+                }
+                if (!hasHeaderCaseInsensitive(extra_headers, "origin")) {
+                    headers.emplace_back("Origin", "https://open.spotify.com");
+                }
+                if (!hasHeaderCaseInsensitive(extra_headers, "referer")) {
+                    headers.emplace_back("Referer", "https://open.spotify.com/");
+                }
+            } else {
+                if (!hasHeaderCaseInsensitive(extra_headers, "app-platform")) {
+                    headers.emplace_back(
+                        "App-Platform",
+                        profile.app_platform.empty() ? "Android" : profile.app_platform);
+                }
+                if (!hasHeaderCaseInsensitive(extra_headers, "spotify-app-version")) {
+                    headers.emplace_back(
+                        "Spotify-App-Version",
+                        profile.app_version.empty() ? "8.9.18" : profile.app_version);
+                }
+                if (!hasHeaderCaseInsensitive(extra_headers, "user-agent")) {
+                    headers.emplace_back(
+                        "User-Agent",
+                        profile.user_agent.empty() ? "Spotify/8.9.18 Android/34" : profile.user_agent);
+                }
             }
-            if (!hasHeaderCaseInsensitive(extra_headers, "spotify-app-version")) {
-                headers.emplace_back("spotify-app-version", kWebPlayerAppVersion);
-            }
-            if (!hasHeaderCaseInsensitive(extra_headers, "user-agent")) {
-                headers.emplace_back("User-Agent", kWebPlayerUserAgent);
-            }
-            if (!hasHeaderCaseInsensitive(extra_headers, "origin")) {
-                headers.emplace_back("Origin", "https://open.spotify.com");
-            }
-            if (!hasHeaderCaseInsensitive(extra_headers, "referer")) {
-                headers.emplace_back("Referer", "https://open.spotify.com/");
-            }
+
             if (!creds.accept_language.empty() &&
                 !hasHeaderCaseInsensitive(extra_headers, "accept-language")) {
                 headers.emplace_back("accept-language", creds.accept_language);
@@ -735,17 +863,44 @@ HttpResponse NativeHttpClient::executeWithAuthRetry(
         }
 
         HttpResponse resp = executeOnce(
-            method, url, headers, body, connect_timeout_ms, read_timeout_ms, cancel_pred);
+            method,
+            url,
+            headers,
+            body,
+            options.connect_timeout_ms,
+            options.read_timeout_ms,
+            options.cancel_pred);
 
-        if (cancel_pred && cancel_pred()) {
+        if (options.cancel_pred && options.cancel_pred()) {
             return HttpResponse{};
         }
 
-        if (include_spotify_auth && resp.transport_ok && resp.status_code == 401 && attempt == 0) {
-            HTTP_LOGW("HTTP 401 on %s %s; requesting token refresh from Dart",
-                      method.c_str(), url.c_str());
-            if (auth_store_.requestTokenRefreshAndWait(creds.generation, 8000)) {
-                continue;
+        if (options.include_spotify_auth && resp.transport_ok && attempt == 0) {
+            const std::string client_token_err = resp.getHeader("client-token-error");
+            if (isClientTokenErrorHeader(client_token_err)) {
+                const std::string safe_url = sanitize_url_for_log(url);
+                NET_LOGW("client-token-error (%s) on %s %s (status=%d); requesting kClientTokenError refresh",
+                         client_token_err.c_str(),
+                         method.c_str(),
+                         safe_url.c_str(),
+                         static_cast<int>(resp.status_code));
+                if (auth_store_.requestTokenRefreshAndWait(
+                        creds.generation,
+                        AuthRefreshReason::kClientTokenError,
+                        8000)) {
+                    continue;
+                }
+            } else if (resp.status_code == 401) {
+                const std::string safe_url = sanitize_url_for_log(url);
+                NET_LOGW("HTTP 401 on %s %s; requesting kAccessToken401 refresh",
+                         method.c_str(),
+                         safe_url.c_str());
+                if (auth_store_.requestTokenRefreshAndWait(
+                        creds.generation,
+                        AuthRefreshReason::kAccessToken401,
+                        8000)) {
+                    continue;
+                }
             }
         }
         return resp;
@@ -764,6 +919,10 @@ HttpResponse NativeHttpClient::executeOnce(
     const CancelPredicate& cancel_pred) const {
     HttpResponse out;
     if (url.empty() || (cancel_pred && cancel_pred()) || !hasActiveNetworkRoute()) return out;
+
+    const auto start_tp = std::chrono::steady_clock::now();
+    const std::string safe_url = sanitize_url_for_log(url);
+    const size_t req_bytes = body ? body->size() : 0;
 
     CurlEasyGuard easy;
     if (!easy.handle) return out;
@@ -832,9 +991,17 @@ HttpResponse NativeHttpClient::executeOnce(
 
     const CURLcode rc = curl_easy_perform(easy.handle);
     easy.reusable = true;
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start_tp).count();
+
     if (rc != CURLE_OK) {
-        HTTP_LOGW("libcurl %s %s failed: %s (%d)",
-                  method.c_str(), url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
+        NET_LOGW("%s %s -> transport_failed err=%s (%d) latency=%lldms req_bytes=%zu",
+                 method.c_str(),
+                 safe_url.c_str(),
+                 curl_easy_strerror(rc),
+                 static_cast<int>(rc),
+                 static_cast<long long>(elapsed_ms),
+                 req_bytes);
         out.body.clear();
         return out;
     }
@@ -851,6 +1018,29 @@ HttpResponse NativeHttpClient::executeOnce(
     out.accepts_ranges = parsed_headers.accepts_ranges || (status_code == 206);
     out.headers = std::move(parsed_headers.headers);
     out.transport_ok = true;
+
+    if (out.status_code >= 200 && out.status_code < 300) {
+        NET_LOGI("%s %s -> status=%d latency=%lldms req_bytes=%zu resp_bytes=%zu",
+                 method.c_str(),
+                 safe_url.c_str(),
+                 static_cast<int>(out.status_code),
+                 static_cast<long long>(elapsed_ms),
+                 req_bytes,
+                 out.body.size());
+    } else {
+        const std::string ct_err = out.getHeader("client-token-error");
+        const std::string grpc_st = out.getHeader("grpc-status");
+        NET_LOGW("%s %s -> status=%d latency=%lldms req_bytes=%zu resp_bytes=%zu grpc=%s ct_err=%s",
+                 method.c_str(),
+                 safe_url.c_str(),
+                 static_cast<int>(out.status_code),
+                 static_cast<long long>(elapsed_ms),
+                 req_bytes,
+                 out.body.size(),
+                 grpc_st.empty() ? "-" : grpc_st.c_str(),
+                 ct_err.empty() ? "-" : ct_err.c_str());
+    }
+
     return out;
 }
 
@@ -886,7 +1076,10 @@ HttpRangeProbe NativeHttpClient::probeRangeLength(
     CurlSlistGuard header_list;
     header_list.append("Accept-Encoding: identity");
     if (!hasHeaderCaseInsensitive(extra_headers, "User-Agent")) {
-        header_list.append(std::string("User-Agent: ") + kWebPlayerUserAgent);
+        const ClientHeaderProfile profile = auth_store_.client_profile();
+        header_list.append(
+            std::string("User-Agent: ") +
+            (profile.user_agent.empty() ? kWebPlayerUserAgent : profile.user_agent));
     }
     for (const auto& kv : extra_headers) {
         if (!equalsIgnoreCasePrefix(kv.first.c_str(), kv.first.size(), "accept-encoding") &&
@@ -917,8 +1110,9 @@ HttpRangeProbe NativeHttpClient::probeRangeLength(
         return probe;
     }
     if (rc != CURLE_OK) {
-        HTTP_LOGW("probeRangeLength %s failed: %s (%d)",
-                  url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
+        const std::string safe_url = sanitize_url_for_log(url);
+        NET_LOGW("probeRangeLength %s failed: %s (%d)",
+                 safe_url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
         return probe;
     }
 
@@ -1004,7 +1198,10 @@ HttpRangeResult NativeHttpClient::streamByteRange(
     CurlSlistGuard header_list;
     header_list.append("Accept-Encoding: identity");
     if (!hasHeaderCaseInsensitive(extra_headers, "User-Agent")) {
-        header_list.append(std::string("User-Agent: ") + kWebPlayerUserAgent);
+        const ClientHeaderProfile profile = auth_store_.client_profile();
+        header_list.append(
+            std::string("User-Agent: ") +
+            (profile.user_agent.empty() ? kWebPlayerUserAgent : profile.user_agent));
     }
     for (const auto& kv : extra_headers) {
         if (!equalsIgnoreCasePrefix(kv.first.c_str(), kv.first.size(), "accept-encoding") &&
@@ -1073,8 +1270,9 @@ HttpRangeResult NativeHttpClient::streamByteRange(
             out.status = RangeFetchStatus::Offline;
             return out;
         }
-        HTTP_LOGW("streamByteRange(%s, bytes=%s) failed: %s (%d)",
-                  url.c_str(), range_buf, curl_easy_strerror(rc), static_cast<int>(rc));
+        const std::string safe_url = sanitize_url_for_log(url);
+        NET_LOGW("streamByteRange(%s, bytes=%s) failed: %s (%d)",
+                 safe_url.c_str(), range_buf, curl_easy_strerror(rc), static_cast<int>(rc));
         out.status = RangeFetchStatus::NetworkError;
         return out;
     }
@@ -1182,8 +1380,9 @@ HttpStreamResult NativeHttpClient::downloadToStream(
         return out;
     }
     if (rc != CURLE_OK) {
-        HTTP_LOGW("downloadToStream %s failed: %s (%d)",
-                  url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
+        const std::string safe_url = sanitize_url_for_log(url);
+        NET_LOGW("downloadToStream %s failed: %s (%d)",
+                 safe_url.c_str(), curl_easy_strerror(rc), static_cast<int>(rc));
         return out;
     }
 
@@ -1191,4 +1390,4 @@ HttpStreamResult NativeHttpClient::downloadToStream(
     return out;
 }
 
-} // namespace spotify::network
+}  // namespace spotify::network

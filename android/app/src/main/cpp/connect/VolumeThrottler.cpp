@@ -1,16 +1,17 @@
-// Replicated from liborbit-jni-spotify.so (ConnectState VolumeThrottler & PutState rate windows):
+// ============================================================================
+// Replicated from liborbit-jni-spotify.so (Per-Target Connect VolumeThrottler
+// & PutState rate windows):
 // - Binary symbols / offsets:
 //   - VolumeThrottler::setVolume / 200ms throttle window @ 0xdca2d4..0xdca6fc
+//   - Per-group-device independent volume throttling @ 0xdca8fc..0xdcaec4
 //   - 2000ms (0x7d0 @ 0xdca4c4) wanted_volume expiry & >199ms check (0x15b5cec)
 //   - PutStateReason::VOLUME_CHANGED 200ms throttle @ 0xdb7750..0xdb7828
 //   - PutStateReason::PLAYER_STATE_CHANGED configurable throttle (default 0ms) @ 0xd8fef0..0xd8ff48
-// - Java / Esperanto counterparts:
-//   - p199p/C2086nd.java (ConnectVolumeService.Volume)
-//   - p199p/a0f1.java (ConnectVolumeService.VolumeSet)
-//   - p199p/lw51.java (ConnectVolumeService.VolumeUp / VolumeDown)
+// ============================================================================
 
 #include "VolumeThrottler.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace spotify::connectstate {
@@ -40,123 +41,189 @@ int64_t VolumeThrottler::player_state_changed_throttle_ms() const {
 
 VolumeCommandDecision VolumeThrottler::submit_volume_command(
     uint32_t volume,
-    std::string target_device_id) {
+    std::string target_device_id,
+    std::string target_key) {
     const auto current_time = now();
     std::lock_guard<std::mutex> lock(mutex_);
 
-    wanted_volume_ = volume;
-    wanted_volume_expires_at_ =
+    TargetBucket& bucket = target_buckets_[target_key];
+    bucket.wanted_volume = volume;
+    bucket.wanted_volume_expires_at =
         current_time + std::chrono::milliseconds(kWantedVolumeExpiryMs);
 
-    if (has_sent_volume_) {
+    if (bucket.has_sent_volume) {
         const auto elapsed_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(
-                current_time - last_volume_sent_at_)
+                current_time - bucket.last_volume_sent_at)
                 .count();
         // Exact liborbit comparison: elapsed <= 199ms is throttled; >= 200ms executes.
         if (elapsed_ms < kVolumeThrottleWindowMs) {
             const int64_t remaining_ms =
                 elapsed_ms >= 0 ? (kVolumeThrottleWindowMs - elapsed_ms)
                                 : kVolumeThrottleWindowMs;
-            pending_volume_ = PendingVolumeCommand{
+            bucket.pending_volume = PendingVolumeCommand{
                 .volume = volume,
                 .target_device_id = std::move(target_device_id),
+                .target_key = target_key,
             };
             return VolumeCommandDecision{
                 .action = ThrottleAction::kThrottled,
                 .volume = volume,
-                .target_device_id = pending_volume_->target_device_id,
+                .target_device_id = bucket.pending_volume->target_device_id,
+                .target_key = std::move(target_key),
                 .retry_after = std::chrono::milliseconds(remaining_ms),
             };
         }
     }
 
-    has_sent_volume_ = true;
-    last_volume_sent_at_ = current_time;
-    pending_volume_.reset();
+    bucket.has_sent_volume = true;
+    bucket.last_volume_sent_at = current_time;
+    bucket.pending_volume.reset();
     return VolumeCommandDecision{
         .action = ThrottleAction::kSendImmediate,
         .volume = volume,
         .target_device_id = std::move(target_device_id),
+        .target_key = std::move(target_key),
         .retry_after = std::chrono::milliseconds::zero(),
     };
 }
 
-std::optional<PendingVolumeCommand> VolumeThrottler::take_pending_volume_if_ready() {
+std::optional<PendingVolumeCommand> VolumeThrottler::take_pending_volume_if_ready(
+    std::string_view target_key) {
     const auto current_time = now();
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!pending_volume_.has_value()) {
+    const auto it = target_buckets_.find(std::string(target_key));
+    if (it == target_buckets_.end() || !it->second.pending_volume.has_value()) {
         return std::nullopt;
     }
-    if (has_sent_volume_) {
+    TargetBucket& bucket = it->second;
+    if (bucket.has_sent_volume) {
         const auto elapsed_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(
-                current_time - last_volume_sent_at_)
+                current_time - bucket.last_volume_sent_at)
                 .count();
         if (elapsed_ms < kVolumeThrottleWindowMs) {
             return std::nullopt;
         }
     }
-    has_sent_volume_ = true;
-    last_volume_sent_at_ = current_time;
-    auto ready = std::move(*pending_volume_);
-    pending_volume_.reset();
+    bucket.has_sent_volume = true;
+    bucket.last_volume_sent_at = current_time;
+    auto ready = std::move(*bucket.pending_volume);
+    bucket.pending_volume.reset();
     return ready;
+}
+
+std::vector<PendingVolumeCommand> VolumeThrottler::take_all_pending_volumes_if_ready() {
+    const auto current_time = now();
+    std::vector<PendingVolumeCommand> ready_list;
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (auto& [key, bucket] : target_buckets_) {
+        if (!bucket.pending_volume.has_value()) {
+            continue;
+        }
+        if (bucket.has_sent_volume) {
+            const auto elapsed_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    current_time - bucket.last_volume_sent_at)
+                    .count();
+            if (elapsed_ms < kVolumeThrottleWindowMs) {
+                continue;
+            }
+        }
+        bucket.has_sent_volume = true;
+        bucket.last_volume_sent_at = current_time;
+        ready_list.push_back(std::move(*bucket.pending_volume));
+        bucket.pending_volume.reset();
+    }
+    return ready_list;
 }
 
 std::optional<std::chrono::milliseconds> VolumeThrottler::pending_volume_delay() const {
     const auto current_time = now();
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!pending_volume_.has_value()) {
-        return std::nullopt;
+    std::optional<std::chrono::milliseconds> min_delay;
+    for (const auto& [key, bucket] : target_buckets_) {
+        if (!bucket.pending_volume.has_value()) {
+            continue;
+        }
+        std::chrono::milliseconds delay(0);
+        if (bucket.has_sent_volume) {
+            const auto elapsed_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    current_time - bucket.last_volume_sent_at)
+                    .count();
+            if (elapsed_ms < kVolumeThrottleWindowMs) {
+                const int64_t remaining_ms =
+                    elapsed_ms >= 0 ? (kVolumeThrottleWindowMs - elapsed_ms)
+                                    : kVolumeThrottleWindowMs;
+                delay = std::chrono::milliseconds(remaining_ms);
+            }
+        }
+        if (!min_delay.has_value() || delay < *min_delay) {
+            min_delay = delay;
+        }
     }
-    if (!has_sent_volume_) {
-        return std::chrono::milliseconds::zero();
-    }
-    const auto elapsed_ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            current_time - last_volume_sent_at_)
-            .count();
-    if (elapsed_ms >= kVolumeThrottleWindowMs) {
-        return std::chrono::milliseconds::zero();
-    }
-    const int64_t remaining_ms =
-        elapsed_ms >= 0 ? (kVolumeThrottleWindowMs - elapsed_ms) : kVolumeThrottleWindowMs;
-    return std::chrono::milliseconds(remaining_ms);
+    return min_delay;
 }
 
-std::optional<uint32_t> VolumeThrottler::active_wanted_volume() const {
+std::optional<uint32_t> VolumeThrottler::active_wanted_volume(
+    std::string_view target_key) const {
     const auto current_time = now();
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!wanted_volume_.has_value() || current_time >= wanted_volume_expires_at_) {
+    const auto it = target_buckets_.find(std::string(target_key));
+    if (it == target_buckets_.end()) {
         return std::nullopt;
     }
-    return wanted_volume_;
+    const TargetBucket& bucket = it->second;
+    if (!bucket.wanted_volume.has_value() || current_time >= bucket.wanted_volume_expires_at) {
+        return std::nullopt;
+    }
+    return bucket.wanted_volume;
 }
 
-bool VolumeThrottler::should_apply_remote_volume(uint32_t remote_volume) {
+bool VolumeThrottler::should_apply_remote_volume(
+    uint32_t remote_volume,
+    std::string_view target_key) {
     const auto current_time = now();
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!wanted_volume_.has_value()) {
+    const auto it = target_buckets_.find(std::string(target_key));
+    if (it == target_buckets_.end()) {
         return true;
     }
-    if (current_time >= wanted_volume_expires_at_) {
-        wanted_volume_.reset();
-        wanted_volume_expires_at_ = {};
+    TargetBucket& bucket = it->second;
+    if (!bucket.wanted_volume.has_value()) {
         return true;
     }
-    if (*wanted_volume_ == remote_volume) {
-        wanted_volume_.reset();
-        wanted_volume_expires_at_ = {};
+    if (current_time >= bucket.wanted_volume_expires_at) {
+        bucket.wanted_volume.reset();
+        bucket.wanted_volume_expires_at = {};
+        return true;
+    }
+    if (*bucket.wanted_volume == remote_volume) {
+        bucket.wanted_volume.reset();
+        bucket.wanted_volume_expires_at = {};
         return true;
     }
     return false;
 }
 
+void VolumeThrottler::clear_target(std::string_view target_key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    target_buckets_.erase(std::string(target_key));
+}
+
+void VolumeThrottler::clear_all() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    target_buckets_.clear();
+}
+
 void VolumeThrottler::clear_wanted_volume() {
     std::lock_guard<std::mutex> lock(mutex_);
-    wanted_volume_.reset();
-    wanted_volume_expires_at_ = {};
+    auto it = target_buckets_.find(std::string{});
+    if (it != target_buckets_.end()) {
+        it->second.wanted_volume.reset();
+        it->second.wanted_volume_expires_at = {};
+    }
 }
 
 PutStateThrottleDecision VolumeThrottler::evaluate_put_state_volume_changed() {
@@ -312,11 +379,7 @@ bool VolumeThrottler::take_pending_player_put_state_if_ready() {
 
 void VolumeThrottler::reset() {
     std::lock_guard<std::mutex> lock(mutex_);
-    has_sent_volume_ = false;
-    last_volume_sent_at_ = {};
-    pending_volume_.reset();
-    wanted_volume_.reset();
-    wanted_volume_expires_at_ = {};
+    target_buckets_.clear();
     has_sent_volume_put_state_ = false;
     last_volume_put_state_at_ = {};
     pending_volume_put_state_ = false;

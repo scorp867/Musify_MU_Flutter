@@ -81,6 +81,7 @@ add_library(musify_audio SHARED
     ContextProcessor.cpp
     network/AuthSessionStore.cpp
     network/NativeHttpClient.cpp
+    network/ApResolveClient.cpp
     network/NativeTrafficController.cpp
     network/HttpRangeStreamCache.cpp
     cache/DiskCache.cpp
@@ -93,11 +94,19 @@ add_library(musify_audio SHARED
     rendering/AudioTrackPlayer.cpp
     rendering/UnplayableTrackPlayer.cpp
     rendering/RoutingTrackPlayer.cpp
+    player/ContextResolveClient.cpp
     player/ContextPlayerImpl.cpp
+    connect/dealer/WsCodec.cpp
+    connect/dealer/DealerMessageParser.cpp
+    connect/dealer/WakeOnLanSender.cpp
     connect/ConnectDevicesImpl.cpp
     connect/ConnectStateClientImpl.cpp
     connect/ConnectSubsystem.cpp
     connect/DealerWebSocketClient.cpp
+    connect/GroupDataEnricher.cpp
+    connect/StateRestoreController.cpp
+    connect/LocalDeviceReporter.cpp
+    connect/ConnectRpcExecutor.cpp
     connect/PutStateBackoff.cpp
     connect/TransferIntention.cpp
     connect/TransferManager.cpp
@@ -118,6 +127,10 @@ set_target_properties(musify_audio PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
+)
+
+target_compile_options(musify_audio PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Werror>
 )
 
 target_link_libraries(musify_audio PRIVATE

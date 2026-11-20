@@ -1,8 +1,10 @@
 // 1:1 replica of p199p/yrq.java (lines 13-166), p199p/csq.java,
 // p199p/jtq.java, p199p/kg5.java (lines 1262-1271), p199p/gtg.java (lines 442-519),
-// p199p/in1.java (lines 35-37), p199p/c6k.java (line 27), and p199p/roi1.java (lines 121-124).
+// p199p/in1.java (lines 35-37), p199p/c6k.java (line 27), p199p/roi1.java (lines 121-124),
+// and p199p/d7g.java (lines 740-744).
 
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart' show StateStreamableSource;
@@ -17,6 +19,7 @@ import 'package:musify_mu/features/connect/data/esperanto/connect_service_client
 import 'package:musify_mu/features/connect/data/esperanto/connect_volume_service_client.dart';
 import 'package:musify_mu/features/connect/data/esperanto/dodo_service_client.dart';
 import 'package:musify_mu/features/connect/data/mappers/connect_proto_mappers.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/audio_route_port.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_loop.dart';
 
@@ -58,11 +61,11 @@ class ConnectMobiusController extends ChangeNotifier
   final DevicePickerSortingDatabase _sortingDatabase;
   final RemoteVolumeController _remoteVolumeController;
   final bool _ownsRemoteVolumeController;
+  final AudioRoutePort? _audioRoutePort;
   final Stream<List<LocalAudioPeripheral>>? _peripheralsStream;
   final Stream<List<String>>? _recommendedLocalDeviceIdsStream;
   final bool _showOfflineDevicesInCore;
   final bool _showOfflineAmazonDevicesAsOnline;
-  final bool _includeLocalDevice;
   final bool _excludeNonLocalDevices;
   final bool _includeUserMatchUnauthenticatedDevices;
 
@@ -79,6 +82,7 @@ class ConnectMobiusController extends ChangeNotifier
   ConnectInternalState? _cachedInternalState;
   ConnectState _exposedState = ConnectState.initial();
   ConnectDevice? _lastNotifiedActiveDevice;
+  LocalAudioPeripheral? _lastNotifiedAudioRoute;
   Future<void>? _closeFuture;
   int _lifecycleEpoch = 0;
   bool _isStarted = false;
@@ -92,11 +96,11 @@ class ConnectMobiusController extends ChangeNotifier
     required bool ownsRemoteVolumeController,
     required ConnectEffectHandler effectHandler,
     required _DynamicEventSinkRef intermediateSinkRef,
+    required AudioRoutePort? audioRoutePort,
     required Stream<List<LocalAudioPeripheral>>? peripheralsStream,
     required Stream<List<String>>? recommendedLocalDeviceIdsStream,
     required bool showOfflineDevicesInCore,
     required bool showOfflineAmazonDevicesAsOnline,
-    required bool includeLocalDevice,
     required bool excludeNonLocalDevices,
     required bool includeUserMatchUnauthenticatedDevices,
   })  : _connectServiceClient = connectServiceClient,
@@ -106,11 +110,11 @@ class ConnectMobiusController extends ChangeNotifier
         _ownsRemoteVolumeController = ownsRemoteVolumeController,
         _effectHandler = effectHandler,
         _intermediateSinkRef = intermediateSinkRef,
+        _audioRoutePort = audioRoutePort,
         _peripheralsStream = peripheralsStream,
         _recommendedLocalDeviceIdsStream = recommendedLocalDeviceIdsStream,
         _showOfflineDevicesInCore = showOfflineDevicesInCore,
         _showOfflineAmazonDevicesAsOnline = showOfflineAmazonDevicesAsOnline,
-        _includeLocalDevice = includeLocalDevice,
         _excludeNonLocalDevices = excludeNonLocalDevices,
         _includeUserMatchUnauthenticatedDevices =
             includeUserMatchUnauthenticatedDevices;
@@ -121,13 +125,14 @@ class ConnectMobiusController extends ChangeNotifier
     required DodoServiceClient dodoServiceClient,
     required DevicePickerSortingDatabase sortingDatabase,
     RemoteVolumeController? remoteVolumeController,
+    AudioRoutePort? audioRoutePort,
     Stream<List<LocalAudioPeripheral>>? peripheralsStream,
     Stream<List<String>>? recommendedLocalDeviceIdsStream,
     ConnectProtoMappers mappers = const ConnectProtoMappers(),
     String Function()? commandIdGenerator,
     bool showOfflineDevicesInCore = false,
     bool showOfflineAmazonDevicesAsOnline = false,
-    bool includeLocalDevice = false,
+    bool includeLocalDevice = true,
     bool excludeNonLocalDevices = false,
     bool includeUserMatchUnauthenticatedDevices = false,
     bool autoStart = false,
@@ -157,11 +162,11 @@ class ConnectMobiusController extends ChangeNotifier
       ownsRemoteVolumeController: ownsRemoteVolume,
       effectHandler: handler,
       intermediateSinkRef: intermediateSinkRef,
+      audioRoutePort: audioRoutePort,
       peripheralsStream: peripheralsStream,
       recommendedLocalDeviceIdsStream: recommendedLocalDeviceIdsStream,
       showOfflineDevicesInCore: showOfflineDevicesInCore,
       showOfflineAmazonDevicesAsOnline: showOfflineAmazonDevicesAsOnline,
-      includeLocalDevice: includeLocalDevice,
       excludeNonLocalDevices: excludeNonLocalDevices,
       includeUserMatchUnauthenticatedDevices:
           includeUserMatchUnauthenticatedDevices,
@@ -242,6 +247,11 @@ class ConnectMobiusController extends ChangeNotifier
   /// Effect handler executing Connect side effects.
   ConnectEffectHandler get effectHandler => _effectHandler;
 
+  /// Whether an [AudioRoutePort] or explicit peripherals stream is already
+  /// bound to this controller.
+  bool get hasAudioRouteBinding =>
+      _audioRoutePort != null || _peripheralsStream != null;
+
   /// Whether the Mobius loop is currently started.
   bool get isStarted => _isStarted;
 
@@ -274,6 +284,24 @@ class ConnectMobiusController extends ChangeNotifier
       initialModel: initialModel,
       update: connectMobiusUpdate,
       effectHandler: _effectHandler,
+      onError: (Object error, StackTrace stackTrace) {
+        dev.log(
+          'ConnectMobiusController: MobiusLoop error: $error',
+          name: 'CONNECT',
+          error: error,
+          stackTrace: stackTrace,
+        );
+        _dispatchInEpoch(
+          startEpoch,
+          ConnectStreamErrorEvent(
+            ConnectFailure(
+              kind: ConnectFailureKind.clusterStream,
+              message: error.toString(),
+              cause: error,
+            ),
+          ),
+        );
+      },
     );
 
     _loop = loop;
@@ -291,6 +319,7 @@ class ConnectMobiusController extends ChangeNotifier
       loop.models.listen(
         (state) => _onLoopStateForEpoch(startEpoch, state),
         onError: (Object error, StackTrace stackTrace) {
+          _logStreamFailure('loop.models', error, stackTrace);
           _dispatchInEpoch(
             startEpoch,
             ConnectStreamErrorEvent(
@@ -311,7 +340,7 @@ class ConnectMobiusController extends ChangeNotifier
           .state(
             showOfflineDevicesInCore: _showOfflineDevicesInCore,
             showOfflineAmazonDevicesAsOnline: _showOfflineAmazonDevicesAsOnline,
-            includeLocalDevice: _includeLocalDevice,
+            includeLocalDevice: true,
             excludeNonLocalDevices: _excludeNonLocalDevices,
             includeUserMatchUnauthenticatedDevices:
                 _includeUserMatchUnauthenticatedDevices,
@@ -323,6 +352,7 @@ class ConnectMobiusController extends ChangeNotifier
               ClusterStateUpdatedEvent(cluster),
             ),
             onError: (Object error, StackTrace stackTrace) {
+              _logStreamFailure('clusterStream', error, stackTrace);
               _dispatchInEpoch(
                 startEpoch,
                 ConnectStreamErrorEvent(
@@ -337,16 +367,20 @@ class ConnectMobiusController extends ChangeNotifier
           ),
     );
 
-    final peripheralsStream = _peripheralsStream;
-    if (peripheralsStream != null) {
+    final effectivePeripheralsStream = switch (_peripheralsStream) {
+      final explicitStream? => explicitStream,
+      null => switch (_audioRoutePort) {
+          final routePort? => routePort.watchPeripherals(),
+          null => null,
+        },
+    };
+    if (effectivePeripheralsStream != null) {
       _registerSubscriptionForEpoch(
         startEpoch,
-        peripheralsStream.listen(
-          (peripherals) => _dispatchInEpoch(
-            startEpoch,
-            PeripheralsUpdatedEvent(peripherals),
-          ),
+        effectivePeripheralsStream.listen(
+          (peripherals) => _onPeripheralsReceived(startEpoch, peripherals),
           onError: (Object error, StackTrace stackTrace) {
+            _logStreamFailure('peripheralStream', error, stackTrace);
             _dispatchInEpoch(
               startEpoch,
               ConnectStreamErrorEvent(
@@ -362,6 +396,12 @@ class ConnectMobiusController extends ChangeNotifier
       );
     }
 
+    if (_peripheralsStream == null) {
+      if (_audioRoutePort case final routePort?) {
+        unawaited(_fetchInitialPeripherals(startEpoch, routePort));
+      }
+    }
+
     final recommendedStream = _recommendedLocalDeviceIdsStream;
     if (recommendedStream != null) {
       _registerSubscriptionForEpoch(
@@ -372,6 +412,7 @@ class ConnectMobiusController extends ChangeNotifier
             RecommendedLocalDevicesUpdatedEvent(ids),
           ),
           onError: (Object error, StackTrace stackTrace) {
+            _logStreamFailure('recommendedDevicesStream', error, stackTrace);
             _dispatchInEpoch(
               startEpoch,
               ConnectStreamErrorEvent(
@@ -395,6 +436,7 @@ class ConnectMobiusController extends ChangeNotifier
               SortingTimestampsUpdatedEvent(timestamps),
             ),
             onError: (Object error, StackTrace stackTrace) {
+              _logStreamFailure('sortingStream', error, stackTrace);
               _dispatchInEpoch(
                 startEpoch,
                 ConnectStreamErrorEvent(
@@ -417,6 +459,7 @@ class ConnectMobiusController extends ChangeNotifier
           VolumeStateUpdatedEvent(volumeState),
         ),
         onError: (Object error, StackTrace stackTrace) {
+          _logStreamFailure('volumeStream', error, stackTrace);
           _dispatchInEpoch(
             startEpoch,
             ConnectStreamErrorEvent(
@@ -439,6 +482,7 @@ class ConnectMobiusController extends ChangeNotifier
               DodoSubUpdatedEvent(response.dodos),
             ),
             onError: (Object error, StackTrace stackTrace) {
+              _logStreamFailure('dodoStream', error, stackTrace);
               _dispatchInEpoch(
                 startEpoch,
                 ConnectStreamErrorEvent(
@@ -484,15 +528,26 @@ class ConnectMobiusController extends ChangeNotifier
 
   /// Stops the active Mobius loop (`yrq.mo28044a()`), canceling active effects
   /// and upstream subscriptions, clearing remote volume active device, and
-  /// resetting the exposed snapshot synchronously to [ConnectState.initial()]
-  /// while retaining the cached internal `v6k` snapshot for future [start()].
-  Future<void> stop() async {
-    if (_isClosed || !_isStarted) {
+  /// resetting the exposed snapshot synchronously to [ConnectState.initial()].
+  ///
+  /// When [clearCache] is `false` (default), retains the cached internal `v6k`
+  /// snapshot across restart cycles. Pass `clearCache: true` on user logout to
+  /// wipe cached session state cleanly.
+  Future<void> stop({bool clearCache = false}) async {
+    if (_isClosed) {
+      return;
+    }
+    if (clearCache) {
+      _cachedInternalState = null;
+      _pendingEvents.clear();
+    }
+    if (!_isStarted) {
       return;
     }
     _lifecycleEpoch += 1;
     _isStarted = false;
     _lastNotifiedActiveDevice = null;
+    _lastNotifiedAudioRoute = null;
     _intermediateSinkRef.unbind();
 
     final activeLoop = _loop;
@@ -540,6 +595,7 @@ class ConnectMobiusController extends ChangeNotifier
     _isClosed = true;
     _isStarted = false;
     _lastNotifiedActiveDevice = null;
+    _lastNotifiedAudioRoute = null;
     _pendingEvents.clear();
     _intermediateSinkRef.unbind();
 
@@ -575,6 +631,85 @@ class ConnectMobiusController extends ChangeNotifier
   void dispose() {
     unawaited(close());
     super.dispose();
+  }
+
+  Future<void> _fetchInitialPeripherals(
+    int epoch,
+    AudioRoutePort routePort,
+  ) async {
+    try {
+      final initialPeripherals = await routePort.getPeripherals();
+      if (_isClosed || !_isStarted || epoch != _lifecycleEpoch) {
+        return;
+      }
+      _onPeripheralsReceived(epoch, initialPeripherals);
+    } on Object catch (error, stackTrace) {
+      _logStreamFailure('audioRoutePort.getPeripherals', error, stackTrace);
+      _dispatchInEpoch(
+        epoch,
+        ConnectStreamErrorEvent(
+          ConnectFailure(
+            kind: ConnectFailureKind.peripheralStream,
+            message: error.toString(),
+            cause: error,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _onPeripheralsReceived(
+    int epoch,
+    List<LocalAudioPeripheral> peripherals,
+  ) {
+    if (_isClosed || !_isStarted || epoch != _lifecycleEpoch) {
+      return;
+    }
+    _dispatchInEpoch(epoch, PeripheralsUpdatedEvent(peripherals));
+
+    final activeRoute = _resolveActivePeripheral(peripherals);
+    if (activeRoute != null && activeRoute != _lastNotifiedAudioRoute) {
+      _lastNotifiedAudioRoute = activeRoute;
+      _dispatchInEpoch(
+        epoch,
+        NotifyAudioRouteChangedRequested(
+          audioOutputDeviceName: activeRoute.name,
+          connectionType: activeRoute.connectionType,
+          audioOutputDeviceBrand: activeRoute.brand,
+          audioOutputDeviceModel: activeRoute.model,
+          category: activeRoute.category,
+        ),
+      );
+    }
+  }
+
+  static LocalAudioPeripheral? _resolveActivePeripheral(
+    List<LocalAudioPeripheral> peripherals,
+  ) {
+    LocalAudioPeripheral? builtInFallback;
+    for (final peripheral in peripherals) {
+      if (peripheral.isActive) {
+        return peripheral;
+      }
+      if (builtInFallback == null &&
+          peripheral.id == kBuiltInSpeakerPeripheralId) {
+        builtInFallback = peripheral;
+      }
+    }
+    return builtInFallback;
+  }
+
+  void _logStreamFailure(
+    String streamName,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    dev.log(
+      'ConnectMobiusController.$streamName error: $error',
+      name: 'CONNECT',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   void _registerSubscriptionForEpoch(

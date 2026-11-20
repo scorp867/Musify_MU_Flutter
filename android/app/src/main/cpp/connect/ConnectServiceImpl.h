@@ -1,8 +1,11 @@
+// ============================================================================
 // 1:1 Replicated Spotify Esperanto ConnectService Native Adapter
 // Sources:
-// - `liborbit-jni-spotify.so`: `spotify::connect::esperanto::proto::ConnectService`
+// - `liborbit-jni-spotify.so` (arm64): `spotify::connect::esperanto::proto::ConnectService`
 //   dispatcher @ `0xe3e3dc`, vtable @ `0x18f48b0` (handlers `0xe397c0..0xe3b0e6`)
+// - Connect-Group v1 enrichment (`0xd9f810..0xda1818`) & incarnation dedup (`0xdad978..0xdae530`)
 // - Decompiled Java: `p199p/s77.java`, `p199p/C2086nd.java`, `p199p/c8k.java`, `p199p/n8d.java`
+// ============================================================================
 
 #ifndef MUSIFY_CONNECT_CONNECT_SERVICE_IMPL_H_
 #define MUSIFY_CONNECT_CONNECT_SERVICE_IMPL_H_
@@ -11,6 +14,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "ConnectEsperantoProtos.h"
@@ -99,7 +103,8 @@ private:
         bool is_self,
         const Cluster& cluster,
         const std::string& preferred_incarnation,
-        std::optional<uint32_t> preferred_login_type) const;
+        std::optional<uint32_t> preferred_login_type,
+        const std::unordered_map<std::string, ConnectGroupDeviceVolume>& group_volumes) const;
 
     ConnectSubsystem& subsystem_;
 };

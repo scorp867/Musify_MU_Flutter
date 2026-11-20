@@ -10,6 +10,7 @@ import 'package:musify_mu/core/audio/native_playback_session_bridge.dart';
 import 'package:musify_mu/core/cache/app_cache_manager.dart';
 import 'package:musify_mu/core/color/color_cache.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/config/device_identity_service.dart';
 import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool_impl.dart';
@@ -26,6 +27,7 @@ import 'package:musify_mu/core/network/auth/token_refresh_mutex.dart';
 import 'package:musify_mu/core/network/client/dio_network_client.dart';
 import 'package:musify_mu/core/network/client/network_client.dart';
 import 'package:musify_mu/core/network/client/queued_network_client.dart';
+import 'package:musify_mu/core/network/spotify/ap_resolve_service.dart';
 import 'package:musify_mu/core/network/spotify/auth/auth_session_provider.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_client_token.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_refresher.dart';
@@ -46,6 +48,7 @@ import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/data/browse_repository.dart';
 import 'package:musify_mu/features/browse/domain/repositories/browse_repository.dart';
 import 'package:musify_mu/features/browse/domain/usecases/load_browse.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/connect_native_gateway.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/home_feed/data/home_repository.dart';
 import 'package:musify_mu/features/home_feed/domain/repositories/home_repository.dart';
@@ -150,12 +153,21 @@ Future<void> setupInjection() async {
     () => LocalMusicBloc(repository: getIt()),
   );
 
-  // --- Spotify Auth Infrastructure ---
+  // --- Spotify Auth & Identity Infrastructure ---
+  getIt.registerLazySingleton<DeviceIdentityService>(
+    DeviceIdentityService.new,
+  );
+  getIt.registerLazySingleton<ApResolveService>(
+    ApResolveService.new,
+  );
   getIt.registerLazySingleton<SpotifyTokenRefresher>(
     () => SpotifyTokenRefresher(tokenStore: getIt<SpotifyTokenStore>()),
   );
   getIt.registerLazySingleton<SpotifyClientTokenFetcher>(
-    () => SpotifyClientTokenFetcher(getIt<SpotifyTokenStore>()),
+    () => SpotifyClientTokenFetcher(
+      getIt<SpotifyTokenStore>(),
+      deviceIdentityService: getIt<DeviceIdentityService>(),
+    ),
   );
   getIt.registerLazySingleton<AuthSessionProvider>(
     () => SpotifyAuthSessionProvider(
@@ -397,14 +409,17 @@ Future<void> setupInjection() async {
     dispose: (engine) => engine.dispose(),
   );
 
-  // --- Spotify Esperanto Transport & ContextPlayer Factory Component (p.t0m) ---
-  getIt.registerLazySingleton<EsperantoTransport>(
+  // --- Spotify Esperanto Transport, Connect Gateway & ContextPlayer Factory Component (p.t0m) ---
+  getIt.registerLazySingleton<NativeEsperantoTransport>(
     () => NativeEsperantoTransport(getIt<MusifyNativeAudioEngine>()),
-    dispose: (t) {
-      if (t is NativeEsperantoTransport) {
-        t.dispose();
-      }
-    },
+    dispose: (t) => t.dispose(),
+  );
+  getIt.registerLazySingleton<EsperantoTransport>(
+    () => getIt<NativeEsperantoTransport>(),
+  );
+  getIt.registerLazySingleton<ConnectNativeGateway>(
+    () => getIt<NativeEsperantoTransport>().createConnectGateway(),
+    dispose: (gateway) => gateway.dispose(),
   );
   getIt.registerLazySingleton<ContextPlayerComponent>(
     () => ContextPlayerComponent(getIt<EsperantoTransport>()),

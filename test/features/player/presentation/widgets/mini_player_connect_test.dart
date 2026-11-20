@@ -23,8 +23,10 @@ import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pb.dar
     as connect_pb;
 import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
 import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
 import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
@@ -240,6 +242,10 @@ void main() {
         await tester.pump();
 
         expect(find.byType(ActiveDeviceBanner), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_button')),
+          findsOneWidget,
+        );
         final baselineHeight = tester.getSize(find.byType(MiniPlayer)).height;
 
         await tester.pumpWidget(
@@ -422,6 +428,100 @@ void main() {
           find.descendant(
             of: find.byType(PlayerScreen),
             matching: find.text('Listening on Studio Monitor'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'always-visible mini_player_connect_button opens DevicePickerSheet and highlights in kSpotifyConnectGreen with mini_player_active_output_indicator when ConnectOutputStatusPolicy.isConnectOutputActive(state) is true',
+      (tester) async {
+        final harness = _MiniPlayerConnectHarness();
+        addTearDown(() => tester.runAsync(harness.dispose));
+
+        await tester.pumpWidget(
+          wrapHost(
+            MiniPlayer(
+              title: 'Midnight City',
+              artist: 'M83',
+              connectController: harness.controller,
+            ),
+          ),
+        );
+
+        // Local built-in speaker active -> isConnectOutputActive is false
+        harness.emitCluster(selfActive: true);
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          ConnectOutputStatusPolicy.instance.isConnectOutputActive(
+            harness.controller.currentState,
+          ),
+          isFalse,
+        );
+
+        final connectButtonFinder = find.byKey(
+          const ValueKey<String>('mini_player_connect_button'),
+        );
+        final activeIndicatorFinder = find.byKey(
+          const ValueKey<String>('mini_player_active_output_indicator'),
+        );
+
+        expect(connectButtonFinder, findsOneWidget);
+        expect(activeIndicatorFinder, findsNothing);
+
+        final inactiveButton = tester.widget<IconButton>(connectButtonFinder);
+        final inactiveIcon = inactiveButton.icon as Icon;
+        expect(inactiveIcon.color, isNot(equals(kSpotifyConnectGreen)));
+
+        // Tapping always-visible Connect button opens DevicePickerSheet even when local built-in is active
+        await tester.tap(connectButtonFinder);
+        await tester.pumpAndSettle();
+        expect(find.byType(DevicePickerSheet), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        expect(find.byType(DevicePickerSheet), findsNothing);
+
+        // Remote Connect device active -> isConnectOutputActive is true
+        harness.emitCluster(
+          selfActive: false,
+          remoteName: 'Studio Speaker',
+          remoteActive: true,
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          ConnectOutputStatusPolicy.instance.isConnectOutputActive(
+            harness.controller.currentState,
+          ),
+          isTrue,
+        );
+
+        expect(connectButtonFinder, findsOneWidget);
+        expect(activeIndicatorFinder, findsOneWidget);
+
+        final activeButton = tester.widget<IconButton>(connectButtonFinder);
+        final activeIcon = activeButton.icon as Icon;
+        expect(activeIcon.color, equals(kSpotifyConnectGreen));
+
+        final indicatorIcon = tester.widget<Icon>(activeIndicatorFinder);
+        expect(indicatorIcon.color, equals(kSpotifyConnectGreen));
+
+        final artistText = tester.widget<Text>(find.text('M83'));
+        expect(artistText.style?.color, equals(kSpotifyConnectGreen));
+
+        // Tapping highlighted Connect button opens DevicePickerSheet
+        await tester.tap(connectButtonFinder);
+        await tester.pumpAndSettle();
+        expect(find.byType(DevicePickerSheet), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DevicePickerSheet),
+            matching: find.text('Listening on Studio Speaker'),
           ),
           findsOneWidget,
         );

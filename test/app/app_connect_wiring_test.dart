@@ -23,6 +23,7 @@ import 'package:musify_mu/features/connect/data/proto/es_common_messages.pbenum.
     as common_pbenum;
 import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pb.dart'
     as connect_pb;
+import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/queue_event.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
@@ -696,6 +697,103 @@ void main() {
         );
         expectForwardedController(tester, diController);
         expect(find.text('Listening on DI Studio Speaker'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'MainScreen renders remote_active_connect_fallback_bar when local nowPlaying == null and a remote Connect device is active, and tapping remote_fallback_open_picker_button opens DevicePickerSheet',
+      (tester) async {
+        configureViewport(tester);
+        final harness = TestVaultHarness();
+        await tester.runAsync(harness.setup);
+        final bundle = _ConnectTestBundle(
+          commandId: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        );
+        addTearDown(() async {
+          await tester.runAsync(() async {
+            await bundle.dispose();
+            await harness.tearDown();
+          });
+        });
+
+        // Ensure local nowPlaying is null
+        expect(harness.mobiusController.state.nowPlaying, isNull);
+
+        await tester.pumpWidget(
+          buildMusifyApp(connectController: bundle.controller),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final fallbackBarFinder = find.byKey(
+          const ValueKey<String>('remote_active_connect_fallback_bar'),
+        );
+        final openPickerButtonFinder = find.byKey(
+          const ValueKey<String>('remote_fallback_open_picker_button'),
+        );
+
+        // When self device is active and nowPlaying == null, neither MiniPlayer nor fallback bar is shown
+        bundle.transport.emitCluster(selfActive: true);
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(MiniPlayer), findsNothing);
+        expect(fallbackBarFinder, findsNothing);
+
+        // When a remote Connect device becomes active while nowPlaying == null, fallback bar renders
+        bundle.transport.emitCluster(
+          selfActive: false,
+          remoteName: 'Living Room Sonos',
+          remoteActive: true,
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(MiniPlayer), findsNothing);
+        expect(fallbackBarFinder, findsOneWidget);
+        expect(openPickerButtonFinder, findsOneWidget);
+        expect(find.text('Listening on Living Room Sonos'), findsOneWidget);
+        expect(find.text('Connected to Living Room Sonos'), findsOneWidget);
+
+        // Tapping remote_fallback_open_picker_button opens DevicePickerSheet
+        await tester.tap(openPickerButtonFinder);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(DevicePickerSheet), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DevicePickerSheet),
+            matching: find.text('Listening on Living Room Sonos'),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        expect(find.byType(DevicePickerSheet), findsNothing);
+
+        // When local nowPlaying becomes non-null, MainScreen switches from fallback bar to MiniPlayer
+        harness.mobiusController.dispatch(
+          const QueueUpdatedEvent(
+            PlayerQueue(
+              track: ContextTrack(
+                uri: 'spotify:track:app-wiring-fallback-1',
+                metadata: <String, String>{
+                  'title': 'Mirrored Track',
+                  'artist_name': 'Mirrored Artist',
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.runAsync(() => pumpEventQueue());
+        await tester.pump();
+        await tester.pump();
+
+        expect(fallbackBarFinder, findsNothing);
+        expect(find.byType(MiniPlayer), findsOneWidget);
+        expect(find.text('Mirrored Track'), findsOneWidget);
+        expect(find.text('Listening on Living Room Sonos'), findsOneWidget);
       },
     );
   });

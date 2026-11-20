@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../../core/audio/musify_ffi_bindings.dart';
 import '../../../../core/audio/musify_native_audio_engine.dart';
+import '../../../connect/data/gateway/native_connect_gateway.dart';
+import '../../../connect/domain/interfaces/connect_native_gateway.dart';
 import 'esperanto_transport.dart';
 
 typedef _NativeServiceCallFn = Pointer<Uint8> Function(
@@ -25,8 +27,13 @@ typedef Int32Len = int;
 
 /// 1:1 replica of Spotify NativeTransport (com.spotify.esperanto.esperantoimpl.NativeTransport.java).
 ///
-/// Thin FFI bridge routing ContextPlayer, ConnectService, ConnectVolumeService, and DodoService
-/// binary protobuf RPCs and ReceivePort stream subscriptions to `libmusify_audio.so`.
+/// Thin FFI bridge routing ContextPlayer, ConnectService, ConnectVolumeService,
+/// and DodoService binary protobuf RPCs and ReceivePort stream subscriptions to
+/// `libmusify_audio.so`.
+///
+/// Connect `callSingle` RPCs are dispatched asynchronously through
+/// `musify_connect_call_async` via [NativeConnectRpcDispatcher] so `libcurl`
+/// HTTP requests never block the Flutter UI isolate.
 class NativeEsperantoTransport implements EsperantoTransport {
   static const String contextPlayerService =
       'spotify.player.esperanto.proto.ContextPlayer';
@@ -40,6 +47,11 @@ class NativeEsperantoTransport implements EsperantoTransport {
   final MusifyFfiBindings _ffi;
   final Pointer<Void> _nThis;
   final Pointer<Void> _connectHandle;
+  final NativeConnectRpcDispatcher _connectRpcDispatcher;
+  final Set<NativeConnectGateway> _attachedGateways = <NativeConnectGateway>{};
+  final List<StreamSubscription<Object?>> _portSubscriptions =
+      <StreamSubscription<Object?>>[];
+
   bool _isInvalidated = false;
   bool _isDestroyed = false;
 
@@ -51,7 +63,8 @@ class NativeEsperantoTransport implements EsperantoTransport {
   final ReceivePort _volumePort = ReceivePort('connect_volume');
   final ReceivePort _localVolumePort = ReceivePort('connect_local_volume');
   final ReceivePort _dodoPort = ReceivePort('connect_dodo');
-  final ReceivePort _installSpotifyPort = ReceivePort('connect_install_spotify');
+  final ReceivePort _installSpotifyPort =
+      ReceivePort('connect_install_spotify');
 
   final StreamController<Uint8List> _stateController =
       StreamController<Uint8List>.broadcast();
@@ -82,6 +95,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
   factory NativeEsperantoTransport(
     MusifyNativeAudioEngine engine, {
     MusifyFfiBindings? ffi,
+    Duration connectRpcTimeout = NativeConnectRpcDispatcher.defaultTimeout,
   }) {
     final resolvedFfi = switch (ffi) {
       final providedFfi? => providedFfi,
@@ -97,10 +111,24 @@ class NativeEsperantoTransport implements EsperantoTransport {
       resolvedFfi.cpiDestroy(handle);
       throw StateError('musify_connect_create returned nullptr');
     }
-    return NativeEsperantoTransport._(resolvedFfi, handle, connectHandle);
+    return NativeEsperantoTransport._(
+      resolvedFfi,
+      handle,
+      connectHandle,
+      connectRpcTimeout,
+    );
   }
 
-  NativeEsperantoTransport._(this._ffi, this._nThis, this._connectHandle) {
+  NativeEsperantoTransport._(
+    this._ffi,
+    this._nThis,
+    this._connectHandle,
+    Duration connectRpcTimeout,
+  ) : _connectRpcDispatcher = NativeConnectRpcDispatcher(
+          ffi: _ffi,
+          connectHandle: _connectHandle,
+          defaultTimeout: connectRpcTimeout,
+        ) {
     _ffi.cpiSetStateChangedPort(_nThis, _statePort.sendPort.nativePort);
     _ffi.cpiSetQueueChangedPort(_nThis, _queuePort.sendPort.nativePort);
     _ffi.cpiSetErrorPort(_nThis, _errorPort.sendPort.nativePort);
@@ -153,8 +181,49 @@ class NativeEsperantoTransport implements EsperantoTransport {
     _refreshCachedQueue();
   }
 
-  @visibleForTesting
+  /// Native `ConnectSubsystem` bundle pointer owned by this transport.
   Pointer<Void> get connectHandle => _connectHandle;
+
+  /// Active FFI bindings table used by this transport.
+  MusifyFfiBindings get ffiBindings => _ffi;
+
+  bool get isInvalidated => _isInvalidated;
+
+  bool get isDestroyed => _isDestroyed;
+
+  /// Broadcast stream of raw `LocalVolumeResponse` payloads delivered on the
+  /// transport's bound native `local_volume_port`.
+  Stream<Uint8List> get localVolumeStream => _localVolumeController.stream;
+
+  /// Creates a [NativeConnectGateway] sharing this transport's native Connect
+  /// handle and `local_volume_port` broadcast stream so both Esperanto
+  /// `ConnectVolumeService.LocalVolume` and `ConnectNativeGateway.localVolumeStream`
+  /// receive every native volume event without port collision.
+  ///
+  /// Any gateway created via this method is automatically disposed prior to
+  /// `musify_connect_destroy` if [destroy] runs before `gateway.dispose()`.
+  NativeConnectGateway createConnectGateway({
+    Duration rpcTimeout = NativeConnectGateway.defaultRpcTimeout,
+  }) {
+    if (_isInvalidated || _isDestroyed) {
+      throw StateError('createConnectGateway() called after invalidation');
+    }
+    NativeConnectGateway? created;
+    created = NativeConnectGateway.sharedLocalVolume(
+      connectHandle: _connectHandle,
+      localVolumeStream: _localVolumeController.stream,
+      ffi: _ffi,
+      isHandleAlive: () => !_isDestroyed,
+      onDispose: () {
+        if (created case final gw?) {
+          _attachedGateways.remove(gw);
+        }
+      },
+      rpcTimeout: rpcTimeout,
+    );
+    _attachedGateways.add(created);
+    return created;
+  }
 
   @visibleForTesting
   SendPort get cpiStateSendPort => _statePort.sendPort;
@@ -180,12 +249,15 @@ class NativeEsperantoTransport implements EsperantoTransport {
   @visibleForTesting
   SendPort get installSpotifySendPort => _installSpotifyPort.sendPort;
 
+  @visibleForTesting
+  SendPort get connectRpcReplySendPort => _connectRpcDispatcher.replySendPort;
+
   void _bindPort(
     ReceivePort port,
     StreamController<Uint8List> controller, [
     void Function(Uint8List bytes)? updateLatest,
   ]) {
-    port.listen((Object? data) {
+    final subscription = port.listen((Object? data) {
       if (_isDestroyed) return;
       if (data case final Uint8List bytes) {
         if (updateLatest != null) {
@@ -196,6 +268,7 @@ class NativeEsperantoTransport implements EsperantoTransport {
         }
       }
     });
+    _portSubscriptions.add(subscription);
   }
 
   int connectStart([Uint8List? deviceInfoBytes]) {
@@ -239,19 +312,19 @@ class NativeEsperantoTransport implements EsperantoTransport {
     if (_isContextPlayerService(service)) {
       return _dispatchCommand(method, payload);
     }
-    if (_isConnectService(service)) {
-      return _callConnectNative(_ffi.connectServiceCall, service, method, payload);
-    }
-    if (_isConnectVolumeService(service)) {
-      return _callConnectNative(
-        _ffi.connectVolumeServiceCall,
+    if (ConnectEsperantoServiceId.tryFromServiceName(service)
+        case final serviceId?) {
+      final result = await _connectRpcDispatcher.callAsync(
+        serviceId: serviceId,
+        method: method,
+        payload: payload,
+      );
+      return _unwrapConnectStatus(
         service,
         method,
-        payload,
+        result.statusCode,
+        result.payloadBytes,
       );
-    }
-    if (_isDodoService(service)) {
-      return _callConnectNative(_ffi.dodoServiceCall, service, method, payload);
     }
     throw UnsupportedError('Unknown Esperanto service: $service.$method');
   }
@@ -368,7 +441,9 @@ class NativeEsperantoTransport implements EsperantoTransport {
       }
       throw UnsupportedError('Unknown DodoService stream: $service.$method');
     }
-    throw UnsupportedError('Unknown Esperanto stream service: $service.$method');
+    throw UnsupportedError(
+      'Unknown Esperanto stream service: $service.$method',
+    );
   }
 
   @override
@@ -391,10 +466,17 @@ class NativeEsperantoTransport implements EsperantoTransport {
         }
         return Uint8List(0);
       }
-      throw UnsupportedError('Unknown ContextPlayer sync method: $service.$method');
+      throw UnsupportedError(
+        'Unknown ContextPlayer sync method: $service.$method',
+      );
     }
     if (_isConnectService(service)) {
-      return _callConnectNative(_ffi.connectServiceCall, service, method, payload);
+      return _callConnectNative(
+        _ffi.connectServiceCall,
+        service,
+        method,
+        payload,
+      );
     }
     if (_isConnectVolumeService(service)) {
       return _callConnectNative(
@@ -405,7 +487,12 @@ class NativeEsperantoTransport implements EsperantoTransport {
       );
     }
     if (_isDodoService(service)) {
-      return _callConnectNative(_ffi.dodoServiceCall, service, method, payload);
+      return _callConnectNative(
+        _ffi.dodoServiceCall,
+        service,
+        method,
+        payload,
+      );
     }
     throw UnsupportedError('Unknown Esperanto sync service: $service.$method');
   }
@@ -426,22 +513,51 @@ class NativeEsperantoTransport implements EsperantoTransport {
   // Command dispatch to C++ ContextPlayerImpl & ConnectServices via FFI
   // ---------------------------------------------------------------------------
 
+  Uint8List _unwrapConnectStatus(
+    String service,
+    String method,
+    int status,
+    Uint8List resultBytes,
+  ) {
+    if (status == 5) {
+      throw UnsupportedError('Unknown Esperanto method: $service.$method');
+    }
+    if (status == 6) {
+      throw FormatException(
+        'Malformed protobuf payload for $service.$method',
+      );
+    }
+    if (status != 0 && resultBytes.isEmpty) {
+      if (status == 2) {
+        throw ArgumentError('Invalid arguments for $service.$method');
+      }
+      throw StateError(
+        'Esperanto native call failed for $service.$method (status=$status)',
+      );
+    }
+    return resultBytes;
+  }
+
   Uint8List _callConnectNative(
     _NativeServiceCallFn fn,
     String service,
     String method,
     Uint8List payload,
   ) {
-    final methodPtr = method.toNativeUtf8();
-    final outLenPtr = calloc<Int32>();
-    final outStatusPtr = calloc<Int32>();
+    Pointer<Utf8> methodPtr = nullptr;
+    Pointer<Int32> outLenPtr = nullptr;
+    Pointer<Int32> outStatusPtr = nullptr;
     Pointer<Uint8> payloadPtr = nullptr;
-    if (payload.isNotEmpty) {
-      payloadPtr = calloc<Uint8>(payload.length);
-      payloadPtr.asTypedList(payload.length).setAll(0, payload);
-    }
 
     try {
+      methodPtr = method.toNativeUtf8();
+      outLenPtr = calloc<Int32>();
+      outStatusPtr = calloc<Int32>();
+      if (payload.isNotEmpty) {
+        payloadPtr = calloc<Uint8>(payload.length);
+        payloadPtr.asTypedList(payload.length).setAll(0, payload);
+      }
+
       final bytesPtr = fn(
         _connectHandle,
         methodPtr,
@@ -469,54 +585,35 @@ class NativeEsperantoTransport implements EsperantoTransport {
         resultBytes = Uint8List(0);
       }
 
-      if (status == 5) {
-        throw UnsupportedError('Unknown Esperanto method: $service.$method');
-      }
-      if (status == 6) {
-        throw FormatException(
-          'Malformed protobuf payload for $service.$method',
-        );
-      }
-      if (status != 0 && resultBytes.isEmpty) {
-        if (status == 2) {
-          throw ArgumentError('Invalid arguments for $service.$method');
-        }
-        throw StateError(
-          'Esperanto native call failed for $service.$method (status=$status)',
-        );
-      }
-      return resultBytes;
+      return _unwrapConnectStatus(service, method, status, resultBytes);
     } finally {
-      if (payloadPtr != nullptr) {
-        calloc.free(payloadPtr);
-      }
-      calloc.free(outStatusPtr);
-      calloc.free(outLenPtr);
-      calloc.free(methodPtr);
+      if (payloadPtr != nullptr) calloc.free(payloadPtr);
+      if (outStatusPtr != nullptr) calloc.free(outStatusPtr);
+      if (outLenPtr != nullptr) calloc.free(outLenPtr);
+      if (methodPtr != nullptr) calloc.free(methodPtr);
     }
   }
 
   Uint8List _dispatchCommand(String method, Uint8List payload) {
-    final methodPtr = method.toNativeUtf8();
+    Pointer<Utf8> methodPtr = nullptr;
+    Pointer<Uint8> payloadPtr = nullptr;
     try {
+      methodPtr = method.toNativeUtf8();
       if (payload.isEmpty) {
         _ffi.cpiHandleCommand(_nThis, methodPtr, nullptr, 0);
       } else {
-        final payloadPtr = calloc<Uint8>(payload.length);
+        payloadPtr = calloc<Uint8>(payload.length);
         payloadPtr.asTypedList(payload.length).setAll(0, payload);
-        try {
-          _ffi.cpiHandleCommand(
-            _nThis,
-            methodPtr,
-            payloadPtr,
-            payload.length,
-          );
-        } finally {
-          calloc.free(payloadPtr);
-        }
+        _ffi.cpiHandleCommand(
+          _nThis,
+          methodPtr,
+          payloadPtr,
+          payload.length,
+        );
       }
     } finally {
-      calloc.free(methodPtr);
+      if (payloadPtr != nullptr) calloc.free(payloadPtr);
+      if (methodPtr != nullptr) calloc.free(methodPtr);
     }
     return Uint8List(0);
   }
@@ -583,8 +680,19 @@ class NativeEsperantoTransport implements EsperantoTransport {
 
   void destroy() {
     if (_isDestroyed) return;
+
+    // Dispose any attached gateways while _connectHandle is still alive so they
+    // can cleanly unbind their diagnostic ports prior to connectDestroy().
+    final gateways = List<NativeConnectGateway>.of(_attachedGateways);
+    _attachedGateways.clear();
+    for (final gateway in gateways) {
+      gateway.dispose();
+    }
+
     _isDestroyed = true;
     invalidate();
+
+    _connectRpcDispatcher.dispose();
 
     _lastStateBytes = null;
     _lastQueueBytes = null;
@@ -593,6 +701,12 @@ class NativeEsperantoTransport implements EsperantoTransport {
     _lastLocalVolumeBytes = null;
     _lastDodoBytes = null;
     _lastInstallSpotifyBytes = null;
+
+    final subs = List<StreamSubscription<Object?>>.of(_portSubscriptions);
+    _portSubscriptions.clear();
+    for (final sub in subs) {
+      unawaited(sub.cancel());
+    }
 
     // Destroy ConnectSubsystem bundle strictly BEFORE ContextPlayerImpl (_nThis)
     // because ConnectSubsystem holds ContextPlayerImpl& and removes its listener on stop().
@@ -606,11 +720,11 @@ class NativeEsperantoTransport implements EsperantoTransport {
     _localVolumePort.close();
     _dodoPort.close();
     _installSpotifyPort.close();
-    _connectStateController.close();
-    _volumeController.close();
-    _localVolumeController.close();
-    _dodoController.close();
-    _installSpotifyController.close();
+    unawaited(_connectStateController.close());
+    unawaited(_volumeController.close());
+    unawaited(_localVolumeController.close());
+    unawaited(_dodoController.close());
+    unawaited(_installSpotifyController.close());
     _ffi.connectDestroy(_connectHandle);
 
     _ffi.cpiSetStateChangedPort(_nThis, 0);
@@ -619,9 +733,9 @@ class NativeEsperantoTransport implements EsperantoTransport {
     _statePort.close();
     _queuePort.close();
     _errorPort.close();
-    _stateController.close();
-    _queueController.close();
-    _errorController.close();
+    unawaited(_stateController.close());
+    unawaited(_queueController.close());
+    unawaited(_errorController.close());
     _ffi.cpiDestroy(_nThis);
   }
 
@@ -654,7 +768,7 @@ final class _ReplayingBroadcastStream extends Stream<Uint8List> {
 
     perSubController.onListen = () {
       if (_isDestroyed()) {
-        perSubController.close();
+        unawaited(perSubController.close());
         return;
       }
       if (_getLatest() case final latest?) {
@@ -666,7 +780,7 @@ final class _ReplayingBroadcastStream extends Stream<Uint8List> {
         onDone: () {
           sourceSub = null;
           if (!perSubController.isClosed) {
-            perSubController.close();
+            unawaited(perSubController.close());
           }
         },
       );

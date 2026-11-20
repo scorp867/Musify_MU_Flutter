@@ -160,6 +160,8 @@ enum ConnectFailureKind {
   pull,
   recordConnection,
   logout,
+  renameDevice,
+  sendPlayerCommand,
   volumeCommand,
   groupCommand,
   incarnation,

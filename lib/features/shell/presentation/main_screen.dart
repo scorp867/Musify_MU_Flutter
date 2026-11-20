@@ -1,20 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:musify_mu/app/di/injection.dart';
-import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
+import 'package:musify_mu/core/network/status/bloc/network_status_bloc.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
+import 'package:musify_mu/core/ubi/domain/models/bottom_tab_ubi_elements.dart';
 import 'package:musify_mu/core/ui/animations/mode_transition.dart';
 import 'package:musify_mu/core/ui/widgets/app_header.dart';
 import 'package:musify_mu/core/ui/widgets/auth_gated_bloc_provider.dart';
 import 'package:musify_mu/core/ui/widgets/connect_spotify_prompt.dart';
-import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
-import 'package:musify_mu/core/ubi/domain/models/bottom_tab_ubi_elements.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
 import 'package:musify_mu/features/browse/presentation/offline_browse_view.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
+import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
+import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
 import 'package:musify_mu/features/home/presentation/home_tab.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
@@ -44,8 +47,13 @@ class _MainTabScope extends InheritedWidget {
     required super.child,
   });
 
-  static _MainTabScope? of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<_MainTabScope>();
+  static _MainTabScope of(BuildContext context) {
+    final scope = context.dependOnInheritedWidgetOfExactType<_MainTabScope>();
+    if (scope == null) {
+      throw StateError('No _MainTabScope found in widget tree context');
+    }
+    return scope;
+  }
 
   @override
   bool updateShouldNotify(_MainTabScope oldWidget) =>
@@ -56,7 +64,9 @@ class _MainTabScope extends InheritedWidget {
 }
 
 /// Main tab shell forwarding composition-root Connect state
-/// ([ConnectMobiusController], `p199p/yrq.java`) to [MiniPlayer].
+/// ([ConnectMobiusController], `p199p/yrq.java`) to [MiniPlayer] and rendering
+/// the remote-active fallback Connect bar when remote playback is active while
+/// local `nowPlaying` is empty (`#47 §5`).
 class MainScreen extends StatefulWidget {
   final VoidCallback onMenuPressed;
   final bool isDrawerOpen;
@@ -65,6 +75,9 @@ class MainScreen extends StatefulWidget {
   final BrowseBloc Function() createBrowseBloc;
   final LibraryBloc Function(String userId) createLibraryBloc;
   final ConnectMobiusController? connectController;
+  final PlayerQueueMobiusController? queueBloc;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+  final UbiLogger? ubiLogger;
 
   const MainScreen({
     super.key,
@@ -75,6 +88,9 @@ class MainScreen extends StatefulWidget {
     required this.createBrowseBloc,
     required this.createLibraryBloc,
     this.connectController,
+    this.queueBloc,
+    this.outputStatusPolicy,
+    this.ubiLogger,
   });
 
   @override
@@ -99,7 +115,38 @@ class _MainScreenState extends State<MainScreen> {
 
   /// Tracks which tabs have been visited so we only build them on first visit.
   /// This prevents e.g. browsita from firing before casita.
-  final Set<int> _visitedTabs = {0}; // Home tab is always "visited"
+  final Set<int> _visitedTabs = {0};
+
+  PlayerQueueMobiusController? _resolveQueueBloc() {
+    if (widget.queueBloc case final explicit?) {
+      return explicit;
+    }
+    return context.read<PlayerQueueBloc?>();
+  }
+
+  ConnectMobiusController? _resolveConnectController() {
+    if (widget.connectController case final explicit?) {
+      return explicit;
+    }
+    return context.read<ConnectMobiusController?>();
+  }
+
+  ConnectOutputStatusPolicy _resolveOutputStatusPolicy() {
+    if (widget.outputStatusPolicy case final explicit?) {
+      return explicit;
+    }
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
+    }
+    return ConnectOutputStatusPolicy.instance;
+  }
+
+  UbiLogger? _resolveUbiLogger() {
+    if (widget.ubiLogger case final explicit?) {
+      return explicit;
+    }
+    return context.read<UbiLogger?>();
+  }
 
   @override
   void initState() {
@@ -123,11 +170,8 @@ class _MainScreenState extends State<MainScreen> {
     await widget.modePersistence.saveMode(isOnline);
   }
 
-  bool _isTransitioning = false;
-
   void _toggleMode() {
-    if (_isTransitioning) return;
-    _isTransitioning = true;
+    if (!_iconVisible) return;
 
     final targetMode = _isOnlineMode ? 'Offline' : 'Online';
 
@@ -140,7 +184,6 @@ class _MainScreenState extends State<MainScreen> {
         setState(() => _iconVisible = false);
       },
       onShowOriginal: () {
-        _isTransitioning = false;
         if (mounted) setState(() => _iconVisible = true);
       },
       onReady: () async {
@@ -155,7 +198,66 @@ class _MainScreenState extends State<MainScreen> {
             ..add(_currentIndex);
         });
         await _saveMode(_isOnlineMode);
-        await Future.delayed(const Duration(milliseconds: 100));
+      },
+    );
+  }
+
+  Widget _buildBottomPlayerOrRemoteFallback(BuildContext context) {
+    final queueController = _resolveQueueBloc();
+    final connectController = _resolveConnectController();
+    final policy = _resolveOutputStatusPolicy();
+    final colorService = context.read<ColorExtractionService?>();
+
+    if (queueController != null) {
+      return ValueListenableBuilder<QueueModel>(
+        valueListenable: queueController,
+        builder: (context, queueState, _) {
+          final track = queueState.nowPlaying;
+          if (track != null) {
+            return MiniPlayer(
+              title: track.title,
+              artist: track.artist,
+              imageUrl: track.imageUrl,
+              isPlaying: queueState.isPlaying,
+              queueBloc: queueController,
+              currentTrack: track,
+              colorService: colorService,
+              connectController: widget.connectController,
+              outputStatusPolicy: policy,
+            );
+          }
+          return _buildRemoteActiveFallbackIfNeeded(
+            connectController: connectController,
+            policy: policy,
+          );
+        },
+      );
+    }
+
+    return _buildRemoteActiveFallbackIfNeeded(
+      connectController: connectController,
+      policy: policy,
+    );
+  }
+
+  Widget _buildRemoteActiveFallbackIfNeeded({
+    required ConnectMobiusController? connectController,
+    required ConnectOutputStatusPolicy policy,
+  }) {
+    if (connectController == null) {
+      return const SizedBox.shrink();
+    }
+    return ValueListenableBuilder<ConnectState>(
+      valueListenable: connectController,
+      builder: (context, connectState, _) {
+        if (!policy.isRemoteOutputActive(connectState)) {
+          return const SizedBox.shrink();
+        }
+        return _RemoteActiveConnectFallbackBar(
+          connectState: connectState,
+          controller: connectController,
+          policy: policy,
+        );
       },
     );
   }
@@ -279,35 +381,14 @@ class _MainScreenState extends State<MainScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   RepaintBoundary(
-                    child: ValueListenableBuilder<QueueModel>(
-                      valueListenable: getIt<PlayerQueueMobiusController>(),
-                      builder: (context, queueState, _) {
-                        final track = queueState.nowPlaying;
-                        if (track == null) {
-                          return const SizedBox.shrink();
-                        }
-                        final controller = getIt<PlayerQueueMobiusController>();
-                        return MiniPlayer(
-                          title: track.title,
-                          artist: track.artist,
-                          imageUrl: track.imageUrl,
-                          isPlaying: queueState.isPlaying,
-                          queueBloc: controller,
-                          currentTrack: track,
-                          colorService: context.read<ColorExtractionService>(),
-                          connectController: widget.connectController,
-                        );
-                      },
-                    ),
+                    child: _buildBottomPlayerOrRemoteFallback(context),
                   ),
                   RepaintBoundary(
                     child: AppBottomNavigation(
                       currentIndex: _currentIndex,
                       isNetworkBarVisible: isNetworkVisible,
                       onTap: (index) {
-                        final ubiLogger = getIt.isRegistered<UbiLogger>()
-                            ? getIt<UbiLogger>()
-                            : null;
+                        final ubiLogger = _resolveUbiLogger();
                         if (_currentIndex == index) {
                           if (ubiLogger != null) {
                             final element = switch (index) {
@@ -350,6 +431,120 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
+class _RemoteActiveConnectFallbackBar extends StatelessWidget {
+  const _RemoteActiveConnectFallbackBar({
+    required this.connectState,
+    required this.controller,
+    required this.policy,
+  });
+
+  final ConnectState connectState;
+  final ConnectMobiusController controller;
+  final ConnectOutputStatusPolicy policy;
+
+  @override
+  Widget build(BuildContext context) {
+    final ConnectDevice? activeDevice = connectState.activeDevice;
+    final IconData leadingIcon = switch (activeDevice) {
+      final device? => resolveDeviceTypeIcon(device.type),
+      null => Icons.devices_rounded,
+    };
+    final String statusText = policy.resolveBannerStatusText(connectState);
+    final String targetLabel = policy.resolveTargetLabel(connectState);
+
+    void openPicker() {
+      DevicePickerSheet.show(
+        context,
+        controller: controller,
+      );
+    }
+
+    return Container(
+      key: const ValueKey<String>('remote_active_connect_fallback_bar'),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF242424),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: kSpotifyConnectGreen.withValues(alpha: 0.45),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: openPicker,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  leadingIcon,
+                  size: 22,
+                  color: kSpotifyConnectGreen,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        statusText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: kSpotifyConnectGreen,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Connected to $targetLabel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.70),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  key: const ValueKey<String>(
+                    'remote_fallback_open_picker_button',
+                  ),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(),
+                  tooltip: 'Devices',
+                  icon: const Icon(
+                    Icons.devices_rounded,
+                    color: kSpotifyConnectGreen,
+                    size: 20,
+                  ),
+                  onPressed: openPicker,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HomeTabWrapper extends StatelessWidget {
   final VoidCallback onMenuPressed;
   final VoidCallback onToggleMode;
@@ -364,16 +559,16 @@ class _HomeTabWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = _MainTabScope.of(context);
-    final isOnline = scope?.isOnlineMode ?? false;
-    final isActive = scope?.currentIndex == 0;
+    final isOnline = scope.isOnlineMode;
+    final isActive = scope.currentIndex == 0;
 
     return HomeTab(
       isOnlineMode: isOnline,
       isActive: isActive,
       onMenuPressed: onMenuPressed,
       onToggleMode: onToggleMode,
-      iconKey: scope?.iconKey ?? GlobalKey(),
-      iconVisible: scope?.iconVisible ?? true,
+      iconKey: scope.iconKey,
+      iconVisible: scope.iconVisible,
       createHomeFeedBloc: createHomeFeedBloc,
     );
   }
@@ -393,8 +588,8 @@ class _BrowseTabWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = _MainTabScope.of(context);
-    final isOnline = scope?.isOnlineMode ?? false;
-    final isActive = scope?.currentIndex == 1;
+    final isOnline = scope.isOnlineMode;
+    final isActive = scope.currentIndex == 1;
 
     return _BrowseTab(
       isOnlineMode: isOnline,
@@ -420,8 +615,8 @@ class _LibraryTabWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = _MainTabScope.of(context);
-    final isOnline = scope?.isOnlineMode ?? false;
-    final isActive = scope?.currentIndex == 2;
+    final isOnline = scope.isOnlineMode;
+    final isActive = scope.currentIndex == 2;
 
     return _LibraryTab(
       isOnlineMode: isOnline,

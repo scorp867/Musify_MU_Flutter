@@ -1,10 +1,11 @@
 // 1:1 replica of com.spotify.connect.entrypoint (p199p/qsq.java, p199p/isq.java, p199p/usq.java, p199p/ptn.java, p199p/na7.java, p199p/n2n.java, p199p/jgb.java, p199p/hjn0.java, p199p/bdi0.java, p199p/mg20.java)
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
-import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
 import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
 
 /// Spotify Connect green (`#1DB954`) active output banner for `MiniPlayer`,
@@ -12,7 +13,8 @@ import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile
 ///
 /// Supports either live reactive binding via [controller] or direct snapshot
 /// props ([activeDevice], [activeSelfPeripheral], [selfDevice], [devices],
-/// [transferState]).
+/// [transferState]), delegating all visibility and target-label calculation to
+/// [ConnectOutputStatusPolicy] SSOT (`#47 §5`).
 class ActiveDeviceBanner extends StatelessWidget {
   const ActiveDeviceBanner({
     super.key,
@@ -25,6 +27,7 @@ class ActiveDeviceBanner extends StatelessWidget {
     this.onTap,
     this.compact = false,
     this.showWhenLocalBuiltIn = false,
+    this.outputStatusPolicy,
   });
 
   final ConnectMobiusController? controller;
@@ -36,9 +39,21 @@ class ActiveDeviceBanner extends StatelessWidget {
   final VoidCallback? onTap;
   final bool compact;
   final bool showWhenLocalBuiltIn;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+
+  ConnectOutputStatusPolicy _resolvePolicy(BuildContext context) {
+    if (outputStatusPolicy case final explicit?) {
+      return explicit;
+    }
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
+    }
+    return ConnectOutputStatusPolicy.instance;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final policy = _resolvePolicy(context);
     final boundController = controller;
     if (boundController != null) {
       return ValueListenableBuilder<ConnectState>(
@@ -53,6 +68,7 @@ class ActiveDeviceBanner extends StatelessWidget {
             onTap: onTap,
             compact: compact,
             showWhenLocalBuiltIn: showWhenLocalBuiltIn,
+            policy: policy,
           );
         },
       );
@@ -67,6 +83,7 @@ class ActiveDeviceBanner extends StatelessWidget {
       onTap: onTap,
       compact: compact,
       showWhenLocalBuiltIn: showWhenLocalBuiltIn,
+      policy: policy,
     );
   }
 }
@@ -81,6 +98,7 @@ class _ActiveDeviceBannerView extends StatelessWidget {
     required this.onTap,
     required this.compact,
     required this.showWhenLocalBuiltIn,
+    required this.policy,
   });
 
   final ConnectDevice? activeDevice;
@@ -91,30 +109,20 @@ class _ActiveDeviceBannerView extends StatelessWidget {
   final VoidCallback? onTap;
   final bool compact;
   final bool showWhenLocalBuiltIn;
+  final ConnectOutputStatusPolicy policy;
 
   @override
   Widget build(BuildContext context) {
-    final bool isTransferring = transferState is TransferInProgress;
-    final ConnectDevice? currentActive = activeDevice;
-    final bool isRemoteActive = currentActive != null && !currentActive.isSelf;
-
-    final LocalAudioPeripheral? peripheral = activeSelfPeripheral;
-    final bool isLocalExternalPeripheral = !isRemoteActive &&
-        peripheral != null &&
-        peripheral.id != kBuiltInSpeakerPeripheralId &&
-        peripheral.connectionType !=
-            OutputPeripheralConnectionType.builtInSpeaker;
-
-    final bool isLocalBuiltIn = !isRemoteActive && !isLocalExternalPeripheral;
-    if (isLocalBuiltIn && !isTransferring && !showWhenLocalBuiltIn) {
+    if (!policy.shouldShowBannerForProps(
+      activeDevice: activeDevice,
+      activeSelfPeripheral: activeSelfPeripheral,
+      transferState: transferState,
+      showWhenLocalBuiltIn: showWhenLocalBuiltIn,
+    )) {
       return const SizedBox.shrink();
     }
 
-    final _BannerPresentation presentation = _resolvePresentation(
-      isTransferring: isTransferring,
-      isRemoteActive: isRemoteActive,
-      currentActive: currentActive,
-    );
+    final _BannerPresentation presentation = _resolvePresentation();
 
     final double radius = compact ? 4.0 : 8.0;
     final EdgeInsetsGeometry padding = compact
@@ -186,14 +194,16 @@ class _ActiveDeviceBannerView extends StatelessWidget {
     );
   }
 
-  _BannerPresentation _resolvePresentation({
-    required bool isTransferring,
-    required bool isRemoteActive,
-    required ConnectDevice? currentActive,
-  }) {
+  _BannerPresentation _resolvePresentation() {
     switch (transferState) {
       case TransferInProgress(:final targetDeviceId):
-        final String targetName = _resolveTargetLabel(targetDeviceId);
+        final String targetName = policy.resolveTransferTargetLabel(
+          targetDeviceId: targetDeviceId,
+          activeDevice: activeDevice,
+          selfDevice: selfDevice,
+          activeSelfPeripheral: activeSelfPeripheral,
+          devices: devices,
+        );
         return _BannerPresentation(
           label: 'Connecting to $targetName...',
           icon: Icons.sync_rounded,
@@ -205,9 +215,15 @@ class _ActiveDeviceBannerView extends StatelessWidget {
         break;
     }
 
-    if (isRemoteActive && currentActive != null) {
+    final currentActive = activeDevice;
+    if (currentActive != null && policy.isRemoteDeviceActive(currentActive)) {
+      final remoteLabel = policy.resolveActiveOutputLabel(
+        activeDevice: currentActive,
+        selfDevice: selfDevice,
+        activeSelfPeripheral: activeSelfPeripheral,
+      );
       return _BannerPresentation(
-        label: 'Listening on ${currentActive.name}',
+        label: 'Listening on $remoteLabel',
         icon: resolveDeviceTypeIcon(currentActive.type),
         showSpinner: false,
       );
@@ -217,7 +233,7 @@ class _ActiveDeviceBannerView extends StatelessWidget {
       final d? => d,
       null => currentActive,
     };
-    final String localLabel = resolveLocalOutputLabel(
+    final String localLabel = policy.resolveLocalOutputLabel(
       selfDevice: effectiveSelf,
       activeSelfPeripheral: activeSelfPeripheral,
     );
@@ -230,54 +246,6 @@ class _ActiveDeviceBannerView extends StatelessWidget {
       icon: localIcon,
       showSpinner: false,
     );
-  }
-
-  String _resolveTargetLabel(String targetDeviceId) {
-    if (targetDeviceId == kLocalDeviceIdentifier) {
-      return resolveLocalOutputLabel(
-        selfDevice: selfDevice,
-        activeSelfPeripheral: activeSelfPeripheral,
-      );
-    }
-    if (activeDevice case final d?
-        when _matchesTransferTarget(d, targetDeviceId)) {
-      return _resolveMatchedDeviceLabel(d);
-    }
-    if (selfDevice case final s?
-        when _matchesTransferTarget(s, targetDeviceId)) {
-      return resolveLocalOutputLabel(
-        selfDevice: s,
-        activeSelfPeripheral: activeSelfPeripheral,
-      );
-    }
-    for (final device in devices) {
-      if (_matchesTransferTarget(device, targetDeviceId)) {
-        return _resolveMatchedDeviceLabel(device);
-      }
-    }
-    return 'device';
-  }
-
-  bool _matchesTransferTarget(ConnectDevice device, String targetDeviceId) {
-    final normalizedTarget = targetDeviceId.trim();
-    if (normalizedTarget.isEmpty) {
-      return false;
-    }
-    return device.connectStateIdentifier.trim() == normalizedTarget ||
-        device.localIdentifier.trim() == normalizedTarget;
-  }
-
-  String _resolveMatchedDeviceLabel(ConnectDevice device) {
-    if (device.isSelf) {
-      return resolveLocalOutputLabel(
-        selfDevice: device,
-        activeSelfPeripheral: activeSelfPeripheral,
-      );
-    }
-    if (device.name.trim().isNotEmpty) {
-      return device.name;
-    }
-    return 'device';
   }
 }
 

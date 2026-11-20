@@ -9,15 +9,21 @@
 #include "ContextProcessor.h"
 
 #include <algorithm>
-#include <android/log.h>
 #include <iterator>
 #include <random>
 #include <unordered_set>
 
+#ifdef __ANDROID__
+#include <android/log.h>
 #define TAG "ContextProcessor"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, TAG, __VA_ARGS__)
+#else
+#define LOGD(...) do {} while (false)
+#define LOGI(...) do {} while (false)
+#define LOGW(...) do {} while (false)
+#endif
 
 namespace spotify::player {
 
@@ -419,6 +425,36 @@ void ContextProcessor::set_next_tracks_slice(const std::vector<context_view::Ent
     }
 
     rebuild_cyclic_list_locked();
+}
+
+bool ContextProcessor::apply_metadata_for_uri(
+        const std::string& uri,
+        const std::function<bool(context_view::Entry&)>& patcher) {
+    if (uri.empty() || !patcher) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    bool any_changed = false;
+    auto patch_list = [&](std::vector<context_view::Entry>& list) {
+        for (auto& entry : list) {
+            if (!entry.is_delimiter() && !entry.is_placeholder() && entry.uri == uri) {
+                if (patcher(entry)) {
+                    any_changed = true;
+                }
+            }
+        }
+    };
+    patch_list(loaded_tracks_);
+    patch_list(shuffled_order_);
+    patch_list(context_view_.cyclic_list.items);
+    for (auto& [key, entry] : context_view_.patch_map) {
+        if (!entry.is_delimiter() && !entry.is_placeholder() && entry.uri == uri) {
+            if (patcher(entry)) {
+                any_changed = true;
+            }
+        }
+    }
+    return any_changed;
 }
 
 bool ContextProcessor::skip_next() {

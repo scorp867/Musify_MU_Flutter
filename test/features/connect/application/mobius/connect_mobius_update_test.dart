@@ -935,6 +935,121 @@ void main() {
         ),
         throwsArgumentError,
       );
+      expect(
+        () => RenameDeviceRequested(deviceIdentifier: '  ', newName: 'Speaker'),
+        throwsArgumentError,
+      );
+      expect(
+        () => RenameDeviceRequested(deviceIdentifier: 'dev-1', newName: '  '),
+        throwsArgumentError,
+      );
+      expect(
+        () => SendPlayerCommandRequested(
+          deviceIdentifier: '',
+          commandJson: '{"endpoint":"pause"}',
+        ),
+        throwsArgumentError,
+      );
+      expect(
+        () => SendPlayerCommandRequested(
+          deviceIdentifier: 'dev-1',
+          commandJson: '   ',
+        ),
+        throwsArgumentError,
+      );
+    });
+
+    test('handles RenameDeviceRequested/Result and SendPlayerCommandRequested/Result deterministically', () {
+      final base = ConnectState.initial();
+
+      // RenameDeviceRequested -> RenameDeviceEffect
+      final renameNext = connectMobiusUpdate(
+        base,
+        RenameDeviceRequested(
+          deviceIdentifier: 'spk-1',
+          newName: 'Office Speaker',
+          interactionId: 'ren-1',
+        ),
+      );
+      expect(renameNext.hasModel, isFalse);
+      expect(
+        renameNext.effects,
+        <ConnectEffect>{
+          RenameDeviceEffect(
+            deviceIdentifier: 'spk-1',
+            newName: 'Office Speaker',
+            interactionId: 'ren-1',
+          ),
+        },
+      );
+
+      // RenameDeviceResultEvent OK -> noChange; failure -> ConnectFailureKind.renameDevice
+      expect(
+        connectMobiusUpdate(
+          base,
+          const RenameDeviceResultEvent(
+            deviceIdentifier: 'spk-1',
+            status: common_pb.Status.OK,
+          ),
+        ).hasModel,
+        isFalse,
+      );
+      final renameFail = connectMobiusUpdate(
+        base,
+        const RenameDeviceResultEvent(
+          deviceIdentifier: 'spk-1',
+          status: common_pb.Status.BACKEND_FAILURE,
+        ),
+      );
+      expect(renameFail.model?.lastError?.kind, ConnectFailureKind.renameDevice);
+      expect(renameFail.model?.lastError?.deviceIdentifier, equals('spk-1'));
+      expect(renameFail.model?.lastError?.status, common_pb.Status.BACKEND_FAILURE);
+
+      // SendPlayerCommandRequested -> SendPlayerCommandEffect
+      final cmdNext = connectMobiusUpdate(
+        base,
+        SendPlayerCommandRequested(
+          deviceIdentifier: 'spk-1',
+          commandJson: '{"endpoint":"pause"}',
+          interactionId: 'cmd-1',
+        ),
+      );
+      expect(cmdNext.hasModel, isFalse);
+      expect(
+        cmdNext.effects,
+        <ConnectEffect>{
+          SendPlayerCommandEffect(
+            deviceIdentifier: 'spk-1',
+            commandJson: '{"endpoint":"pause"}',
+            interactionId: 'cmd-1',
+          ),
+        },
+      );
+
+      // SendPlayerCommandResultEvent errorCode == 0 -> noChange; non-zero or error -> sendPlayerCommand failure
+      expect(
+        connectMobiusUpdate(
+          base,
+          const SendPlayerCommandResultEvent(
+            deviceIdentifier: 'spk-1',
+            contextPlayerError: 0,
+          ),
+        ).hasModel,
+        isFalse,
+      );
+      final cmdFail = connectMobiusUpdate(
+        base,
+        const SendPlayerCommandResultEvent(
+          deviceIdentifier: 'spk-1',
+          contextPlayerError: 7,
+        ),
+      );
+      expect(
+        cmdFail.model?.lastError?.kind,
+        ConnectFailureKind.sendPlayerCommand,
+      );
+      expect(cmdFail.model?.lastError?.deviceIdentifier, equals('spk-1'));
+      expect(cmdFail.model?.lastError?.message, contains('7'));
     });
   });
 }

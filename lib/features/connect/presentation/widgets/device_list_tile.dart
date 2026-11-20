@@ -1,20 +1,23 @@
 // 1:1 replica of com.spotify.connect.devicepicker.row (p199p/btl1.java, p199p/byl1.java, p199p/n8d.java, p199p/c0m1.java, p199p/c8k.java, p199p/tcz0.java, p199p/ol01.java, p199p/bsq.java, p199p/dsq.java)
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_state.dart';
 import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pbenum.dart'
     as connect_pb;
 import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
 import 'package:musify_mu/features/connect/domain/models/device_type.dart';
+import 'package:musify_mu/features/connect/domain/models/incarnation.dart';
 import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
 import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/player/presentation/widgets/player_theme.dart';
 
 /// Spotify Connect brand green (`resources/res/values/colors.xml:453`).
 const Color kSpotifyConnectGreen = Color(0xFF1DB954);
 
 /// Resolves the canonical target identifier used for Connect transfer, logout,
-/// and installation commands.
+/// rename, preferred incarnation, and installation commands.
 String resolveDeviceTargetIdentifier(ConnectDevice device) {
   final connectId = device.connectStateIdentifier.trim();
   if (connectId.isNotEmpty) {
@@ -32,99 +35,38 @@ String resolveDeviceRowKeyValue(ConnectDevice device) {
   return 'device_name_${device.name}';
 }
 
-/// Built-in speaker fallback label matching `p199p/g1m1.java:1300-1327` (`m45826l`)
-/// and `p199p/gtg.java:448-484`.
+/// Built-in speaker fallback label delegating to [ConnectOutputStatusPolicy] SSOT
+/// (`p199p/g1m1.java:1300-1327`, `p199p/gtg.java:448-484`).
 String resolveBuiltInSpeakerLabel(DeviceType? selfDeviceType) {
-  if (selfDeviceType == null) {
-    return 'This device';
-  }
-  switch (selfDeviceType) {
-    case DeviceType.chromebook:
-      return 'This Chromebook';
-    case DeviceType.computer:
-      return 'This computer';
-    case DeviceType.tablet:
-      return 'This tablet';
-    case DeviceType.unknown:
-    case DeviceType.smartphone:
-    case DeviceType.speaker:
-    case DeviceType.tv:
-    case DeviceType.avr:
-    case DeviceType.stb:
-    case DeviceType.audioDongle:
-    case DeviceType.gameConsole:
-    case DeviceType.castVideo:
-    case DeviceType.castAudio:
-    case DeviceType.automobile:
-    case DeviceType.smartwatch:
-    case DeviceType.unknownSpotifyHw:
-    case DeviceType.homeThing:
-      return 'This phone';
-  }
+  return ConnectOutputStatusPolicy.instance.resolveBuiltInSpeakerLabel(
+    selfDeviceType,
+  );
 }
 
-/// Resolves the active local output display label, treating
-/// `activeSelfPeripheral == null` or `kBuiltInSpeakerPeripheralId` as the
-/// built-in speaker fallback (`p199p/gtg.java:448-484`, `p199p/g1m1.java:1300-1327`).
+/// Resolves the active local output display label delegating to
+/// [ConnectOutputStatusPolicy] SSOT (`p199p/gtg.java:448-484`,
+/// `p199p/g1m1.java:1300-1327`).
 String resolveLocalOutputLabel({
   required ConnectDevice? selfDevice,
   required LocalAudioPeripheral? activeSelfPeripheral,
 }) {
-  final DeviceType? selfType = switch (selfDevice) {
-    final d? => d.type,
-    null => null,
-  };
-  return switch (activeSelfPeripheral) {
-    final peripheral? => _resolveNonNullPeripheralLabel(
-        peripheral: peripheral,
-        selfType: selfType,
-      ),
-    null => _resolveNullPeripheralLabel(
-        selfDevice: selfDevice,
-        selfType: selfType,
-      ),
-  };
+  return ConnectOutputStatusPolicy.instance.resolveLocalOutputLabel(
+    selfDevice: selfDevice,
+    activeSelfPeripheral: activeSelfPeripheral,
+  );
 }
 
-String _resolveNonNullPeripheralLabel({
-  required LocalAudioPeripheral peripheral,
-  required DeviceType? selfType,
-}) {
-  final trimmedName = peripheral.name.trim();
-  final isBuiltIn = peripheral.id == kBuiltInSpeakerPeripheralId ||
-      peripheral.connectionType ==
-          OutputPeripheralConnectionType.builtInSpeaker;
-  if (isBuiltIn) {
-    if (trimmedName.isNotEmpty && trimmedName != kBuiltInSpeakerPeripheralId) {
-      return trimmedName;
-    }
-    return resolveBuiltInSpeakerLabel(selfType);
+/// Human-readable display label for an [IncarnationLoginType] protocol option
+/// (`p199p/c8r.java:55-200`, `p199p/s13.java:472-493`).
+String resolveIncarnationLoginTypeLabel(IncarnationLoginType loginType) {
+  switch (loginType) {
+    case IncarnationLoginType.connect:
+      return 'Spotify Connect';
+    case IncarnationLoginType.cast:
+      return 'Google Cast';
+    case IncarnationLoginType.castJs:
+      return 'Google Cast (Web)';
   }
-  if (trimmedName.isNotEmpty) {
-    return trimmedName;
-  }
-  return resolveBuiltInSpeakerLabel(selfType);
-}
-
-String _resolveNullPeripheralLabel({
-  required ConnectDevice? selfDevice,
-  required DeviceType? selfType,
-}) {
-  final outputPeripheral = switch (selfDevice) {
-    final d? => d.outputPeripheral,
-    null => null,
-  };
-  if (outputPeripheral != null) {
-    final peripheralName = switch (outputPeripheral.name) {
-      final n? => n.trim(),
-      null => '',
-    };
-    if (peripheralName.isNotEmpty &&
-        peripheralName != kBuiltInSpeakerPeripheralId) {
-      return peripheralName;
-    }
-  }
-  return resolveBuiltInSpeakerLabel(selfType);
 }
 
 /// Exhaustive 17-variant [DeviceType] icon mapping matching `p199p/byl1.java:1879-1977`.
@@ -395,7 +337,7 @@ String _resolveDeviceStateLabel(ConnectDevice device) {
 }
 
 /// Connect device row widget matching `p199p/btl1.java`, `p199p/byl1.java`,
-/// and `p199p/c0m1.java`.
+/// `p199p/c0m1.java`, `p199p/cup.java:194-252`, and `p199p/c8r.java:55-200`.
 class DeviceListTile extends StatelessWidget {
   const DeviceListTile({
     super.key,
@@ -407,8 +349,11 @@ class DeviceListTile extends StatelessWidget {
     this.isRecommended = false,
     this.onTap,
     this.onLogout,
+    this.onRename,
+    this.onSelectPreferredIncarnation,
     this.onInstall,
     this.onAddToGroup,
+    this.outputStatusPolicy,
   });
 
   final ConnectDevice device;
@@ -419,11 +364,25 @@ class DeviceListTile extends StatelessWidget {
   final bool isRecommended;
   final VoidCallback? onTap;
   final VoidCallback? onLogout;
+  final VoidCallback? onRename;
+  final ValueChanged<IncarnationLoginType>? onSelectPreferredIncarnation;
   final VoidCallback? onInstall;
   final VoidCallback? onAddToGroup;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+
+  ConnectOutputStatusPolicy _resolvePolicy(BuildContext context) {
+    if (outputStatusPolicy case final explicit?) {
+      return explicit;
+    }
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
+    }
+    return ConnectOutputStatusPolicy.instance;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final policy = _resolvePolicy(context);
     final targetId = resolveDeviceTargetIdentifier(device);
     final bool isTransferTarget = switch (transferState) {
       TransferInProgress(:final targetDeviceId) =>
@@ -464,22 +423,35 @@ class DeviceListTile extends StatelessWidget {
     final String titleText = device.isSelf
         ? (device.name.trim().isNotEmpty
             ? device.name
-            : resolveBuiltInSpeakerLabel(device.type))
+            : policy.resolveBuiltInSpeakerLabel(device.type))
         : (device.name.trim().isNotEmpty
             ? device.name
             : (device.modelDisplayName.trim().isNotEmpty
                 ? device.modelDisplayName
                 : 'Connect device'));
 
-    final String subtitleText = _resolveSubtitle(targetId);
+    final String subtitleText = _resolveSubtitle(targetId, policy);
 
     final bool showInstallButton = !isDisabled &&
         onInstall != null &&
         (device.state == ConnectDeviceState.notInstalled ||
             device.state == ConnectDeviceState.installationAvailable);
 
-    final bool showLogoutMenu =
+    final bool showLogoutItem =
         device.supportsLogout && !device.isSelf && onLogout != null;
+    final bool showRenameItem =
+        device.supportsRename && !device.isSelf && onRename != null;
+    final List<Incarnation> selectableIncarnations =
+        (!device.isSelf &&
+                onSelectPreferredIncarnation != null &&
+                device.incarnations.length > 1)
+            ? device.incarnations
+                .where((inc) => inc.parsedLoginType != null)
+                .toList(growable: false)
+            : const <Incarnation>[];
+    final bool showIncarnationItems = selectableIncarnations.length > 1;
+    final bool showOverflowMenu =
+        showLogoutItem || showRenameItem || showIncarnationItems;
 
     final Color backgroundColor = isActive
         ? accentColor.withValues(alpha: 0.14)
@@ -624,11 +596,15 @@ class DeviceListTile extends StatelessWidget {
                       padding: const EdgeInsets.all(6),
                       onPressed: onAddToGroup,
                     ),
-                  if (showLogoutMenu)
+                  if (showOverflowMenu)
                     PopupMenuButton<String>(
                       key: ValueKey<String>('device_menu_$targetId'),
                       tooltip: 'Device options',
                       color: PlayerColors.surfaceHigh,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: PlayerColors.divider),
+                      ),
                       icon: const Icon(
                         Icons.more_vert_rounded,
                         size: 20,
@@ -637,32 +613,125 @@ class DeviceListTile extends StatelessWidget {
                       onSelected: (value) {
                         if (value == 'logout') {
                           onLogout?.call();
+                          return;
+                        }
+                        if (value == 'rename') {
+                          onRename?.call();
+                          return;
+                        }
+                        if (value.startsWith('incarnation:')) {
+                          final rawWire = value.substring('incarnation:'.length);
+                          if (IncarnationLoginType.tryFromWireName(rawWire)
+                              case final loginType?) {
+                            onSelectPreferredIncarnation?.call(loginType);
+                          }
                         }
                       },
-                      itemBuilder: (menuContext) => const <PopupMenuEntry<String>>[
-                        PopupMenuItem<String>(
-                          value: 'logout',
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.logout_rounded,
-                                size: 18,
-                                color: PlayerColors.textPrimary,
+                      itemBuilder: (menuContext) {
+                        final entries = <PopupMenuEntry<String>>[];
+                        if (showRenameItem) {
+                          entries.add(
+                            PopupMenuItem<String>(
+                              key: ValueKey<String>(
+                                'device_menu_rename_$targetId',
                               ),
-                              SizedBox(width: 8),
-                              Text(
-                                'Log out',
-                                style: TextStyle(
-                                  color: PlayerColors.textPrimary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
+                              value: 'rename',
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.edit_rounded,
+                                    size: 18,
+                                    color: PlayerColors.textPrimary,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Rename device',
+                                    style: TextStyle(
+                                      color: PlayerColors.textPrimary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                        if (showIncarnationItems) {
+                          for (final incarnation in selectableIncarnations) {
+                            if (incarnation.parsedLoginType
+                                case final loginType?) {
+                              final isPreferred = incarnation.preferred;
+                              entries.add(
+                                PopupMenuItem<String>(
+                                  key: ValueKey<String>(
+                                    'device_menu_incarnation_${targetId}_${loginType.wireName}',
+                                  ),
+                                  value: 'incarnation:${loginType.wireName}',
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        isPreferred
+                                            ? Icons.radio_button_checked_rounded
+                                            : Icons.radio_button_off_rounded,
+                                        size: 18,
+                                        color: isPreferred
+                                            ? kSpotifyConnectGreen
+                                            : PlayerColors.textSecondary,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Connect via ${resolveIncarnationLoginTypeLabel(loginType)}',
+                                        style: TextStyle(
+                                          color: isPreferred
+                                              ? kSpotifyConnectGreen
+                                              : PlayerColors.textPrimary,
+                                          fontSize: 13,
+                                          fontWeight: isPreferred
+                                              ? FontWeight.w600
+                                              : FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                              );
+                            }
+                          }
+                        }
+                        if (showLogoutItem) {
+                          entries.add(
+                            PopupMenuItem<String>(
+                              key: ValueKey<String>(
+                                'device_menu_logout_$targetId',
                               ),
-                            ],
-                          ),
-                        ),
-                      ],
+                              value: 'logout',
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.logout_rounded,
+                                    size: 18,
+                                    color: PlayerColors.textPrimary,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Log out',
+                                    style: TextStyle(
+                                      color: PlayerColors.textPrimary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+                        return entries;
+                      },
                     ),
                 ],
               ),
@@ -673,7 +742,7 @@ class DeviceListTile extends StatelessWidget {
     );
   }
 
-  String _resolveSubtitle(String targetId) {
+  String _resolveSubtitle(String targetId, ConnectOutputStatusPolicy policy) {
     switch (transferState) {
       case TransferInProgress(
           targetDeviceId: final pendingId,
@@ -712,7 +781,7 @@ class DeviceListTile extends StatelessWidget {
     }
 
     if (device.isSelf) {
-      return resolveLocalOutputLabel(
+      return policy.resolveLocalOutputLabel(
         selfDevice: device,
         activeSelfPeripheral: activeSelfPeripheral,
       );

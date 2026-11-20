@@ -1,17 +1,22 @@
 // 1:1 replica of com.spotify.player.model.command.PlayCommand
 
+import 'package:meta/meta.dart';
+
 import '../models/context.dart';
 import '../models/play_origin.dart';
 import 'command.dart';
+import 'options/command_options.dart';
 import 'options/logging_params.dart';
 import 'options/play_options.dart';
 import 'options/prepare_play_options.dart';
 
+@immutable
 class PlayCommand implements Command {
   final Context context;
   final PlayOrigin playOrigin;
   final PreparePlayOptions? options;
   final PlayOptions? playOptions;
+  final CommandOptions? commandOptions;
   final LoggingParams? loggingParams;
 
   const PlayCommand({
@@ -19,6 +24,7 @@ class PlayCommand implements Command {
     required this.playOrigin,
     this.options,
     this.playOptions,
+    this.commandOptions,
     this.loggingParams,
   });
 
@@ -42,6 +48,7 @@ class PlayCommand implements Command {
         playOrigin: playOrigin,
         options: options,
         playOptions: playOptions,
+        commandOptions: commandOptions,
         loggingParams: loggingParams,
       );
 
@@ -53,6 +60,7 @@ class PlayCommand implements Command {
           other.playOrigin == playOrigin &&
           other.options == options &&
           other.playOptions == playOptions &&
+          other.commandOptions == commandOptions &&
           other.loggingParams == loggingParams);
 
   @override
@@ -61,12 +69,13 @@ class PlayCommand implements Command {
         playOrigin,
         options,
         playOptions,
+        commandOptions,
         loggingParams,
       );
 
   @override
   String toString() =>
-      'PlayCommand{context=$context, playOrigin=$playOrigin, options=$options, playOptions=$playOptions, loggingParams=$loggingParams}';
+      'PlayCommand{context=$context, playOrigin=$playOrigin, options=$options, playOptions=$playOptions, commandOptions=$commandOptions, loggingParams=$loggingParams}';
 }
 
 class PlayCommandBuilder {
@@ -74,6 +83,7 @@ class PlayCommandBuilder {
   PlayOrigin _playOrigin;
   PreparePlayOptions? _options;
   PlayOptions? _playOptions;
+  CommandOptions? _commandOptions;
   LoggingParams? _loggingParams;
 
   PlayCommandBuilder({
@@ -81,11 +91,13 @@ class PlayCommandBuilder {
     required PlayOrigin playOrigin,
     PreparePlayOptions? options,
     PlayOptions? playOptions,
+    CommandOptions? commandOptions,
     LoggingParams? loggingParams,
   })  : _context = context,
         _playOrigin = playOrigin,
         _options = options,
         _playOptions = playOptions,
+        _commandOptions = commandOptions,
         _loggingParams = loggingParams;
 
   static PlayCommandBuilder builder() => PlayCommand.builder();
@@ -110,6 +122,11 @@ class PlayCommandBuilder {
     return this;
   }
 
+  PlayCommandBuilder commandOptions(CommandOptions val) {
+    _commandOptions = val;
+    return this;
+  }
+
   PlayCommandBuilder loggingParams(LoggingParams val) {
     _loggingParams = val;
     return this;
@@ -120,6 +137,7 @@ class PlayCommandBuilder {
         playOrigin: _playOrigin,
         options: _options,
         playOptions: _playOptions,
+        commandOptions: _commandOptions,
         loggingParams: _loggingParams,
       );
 }

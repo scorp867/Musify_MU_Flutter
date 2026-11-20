@@ -3,23 +3,73 @@
 #include "../ProtobufWireHelper.h"
 
 #include <algorithm>
-#include <android/log.h>
+#include <cctype>
 #include <cstring>
+#include <string_view>
 
+#ifdef __ANDROID__
+#include <android/log.h>
 #define TIP_LOG_TAG "MusifyTrackInfo"
 #define TIP_LOGI(...) __android_log_print(ANDROID_LOG_INFO, TIP_LOG_TAG, __VA_ARGS__)
 #define TIP_LOGW(...) __android_log_print(ANDROID_LOG_WARN, TIP_LOG_TAG, __VA_ARGS__)
+#else
+#define TIP_LOGI(...) do {} while (false)
+#define TIP_LOGW(...) do {} while (false)
+#endif
 
 namespace spotify::metadata {
 
 namespace {
-constexpr const char* kPrimarySpclient = "https://gae2-spclient.spotify.com";
-constexpr const char* kFallbackSpclient = "https://spclient.wg.spotify.com";
 constexpr const char* kExtendedMetadataPath = "/extended-metadata/v0/extended-metadata";
 
 constexpr int32_t kKindTrackV4 = 10;
 constexpr int32_t kKindEpisodeV4 = 12;
 constexpr int32_t kKindPlaybackTrait = 212;
+
+std::optional<std::string> normalizeSpclientBaseUrl(std::string_view raw) {
+    size_t start = 0;
+    while (start < raw.size() && std::isspace(static_cast<unsigned char>(raw[start]))) {
+        ++start;
+    }
+    size_t end = raw.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(raw[end - 1]))) {
+        --end;
+    }
+    const std::string_view trimmed = raw.substr(start, end - start);
+    if (trimmed.empty()) {
+        return std::nullopt;
+    }
+    for (char c : trimmed) {
+        if (static_cast<unsigned char>(c) <= 0x20U) {
+            return std::nullopt;
+        }
+    }
+    const auto starts_with_ci = [](std::string_view s, std::string_view prefix) -> bool {
+        if (s.size() < prefix.size()) return false;
+        for (size_t i = 0; i < prefix.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(s[i])) !=
+                std::tolower(static_cast<unsigned char>(prefix[i]))) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (!starts_with_ci(trimmed, "https://") && !starts_with_ci(trimmed, "http://")) {
+        return std::nullopt;
+    }
+    const size_t scheme_sep = trimmed.find("://");
+    if (scheme_sep == std::string_view::npos || scheme_sep + 3 >= trimmed.size()) {
+        return std::nullopt;
+    }
+    std::string out(trimmed);
+    while (out.size() > scheme_sep + 3 && out.back() == '/') {
+        out.pop_back();
+    }
+    if (out.size() <= scheme_sep + 3) {
+        return std::nullopt;
+    }
+    return out;
+}
 
 int32_t decodeZigZag32(uint64_t raw) noexcept {
     const auto n = static_cast<uint32_t>(raw);
@@ -213,7 +263,14 @@ std::vector<uint8_t> buildBatchedExtendedMetadataRequest(
 TrackInfoProvider::TrackInfoProvider(network::AuthSessionStore& auth_store,
                                      network::NativeHttpClient& http_client)
     : auth_store_(auth_store),
-      http_client_(http_client),
+      http_client_(&http_client),
+      worker_thread_(&TrackInfoProvider::workerLoop, this) {}
+
+TrackInfoProvider::TrackInfoProvider(network::AuthSessionStore& auth_store,
+                                     PostTransportFn post_transport_fn)
+    : auth_store_(auth_store),
+      http_client_(nullptr),
+      post_transport_fn_(std::move(post_transport_fn)),
       worker_thread_(&TrackInfoProvider::workerLoop, this) {}
 
 TrackInfoProvider::~TrackInfoProvider() {
@@ -223,6 +280,25 @@ TrackInfoProvider::~TrackInfoProvider() {
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
+}
+
+void TrackInfoProvider::set_spclient_base_url(const std::string& base_url) {
+    const auto normalized = normalizeSpclientBaseUrl(base_url);
+    if (!normalized.has_value()) {
+        TIP_LOGW("Ignoring invalid spclient base URL");
+        return;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (spclient_base_url_ == *normalized) {
+        return;
+    }
+    spclient_base_url_ = *normalized;
+    TIP_LOGI("TrackInfoProvider spclient base URL set to %s", spclient_base_url_.c_str());
+}
+
+std::string TrackInfoProvider::spclient_base_url() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return spclient_base_url_;
 }
 
 void TrackInfoProvider::seedExtensionPayload(int32_t extension_kind,
@@ -265,7 +341,9 @@ void TrackInfoProvider::requestResolution(const std::string& entity_uri,
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = store_.find(entity_uri);
-        if (it != store_.end() && it->second.hasPlayableSource()) {
+        if (it != store_.end() &&
+            it->second.hasPlayableSource() &&
+            it->second.hasDisplayMetadata()) {
             return;
         }
         if (queued_or_inflight_.find(entity_uri) != queued_or_inflight_.end()) {
@@ -369,7 +447,9 @@ void TrackInfoProvider::workerLoop() {
                 !stop_worker_.load(std::memory_order_acquire)) {
                 for (const auto& u : batch) {
                     auto it = store_.find(u);
-                    if (it != store_.end() && it->second.hasPlayableSource()) {
+                    if (it != store_.end() &&
+                        it->second.hasPlayableSource() &&
+                        it->second.hasDisplayMetadata()) {
                         queued_or_inflight_.erase(u);
                     } else {
                         pending_queue_.push_back(u);
@@ -389,6 +469,28 @@ void TrackInfoProvider::workerLoop() {
     }
 }
 
+network::HttpResponse TrackInfoProvider::executePost(
+    const std::string& url,
+    const std::vector<uint8_t>& body) const {
+    const std::vector<std::pair<std::string, std::string>> headers = {
+        {"Accept", "application/x-protobuf"},
+    };
+    if (post_transport_fn_) {
+        return post_transport_fn_(url, body, "application/x-protobuf", headers);
+    }
+    if (http_client_ != nullptr) {
+        return http_client_->post(
+            url,
+            body,
+            "application/x-protobuf",
+            headers,
+            8000,
+            12000,
+            true);
+    }
+    return network::HttpResponse{};
+}
+
 TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
     const std::vector<std::string>& uris,
     network::TrafficPermit& permit) {
@@ -396,21 +498,22 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
     const std::vector<uint8_t> req_bytes =
         buildBatchedExtendedMetadataRequest(creds.country, creds.catalogue, uris);
 
-    const char* hosts[2] = {kPrimarySpclient, kFallbackSpclient};
+    std::vector<std::string> hosts;
+    const std::string configured_base = spclient_base_url();
+    if (!configured_base.empty()) {
+        hosts.push_back(configured_base);
+    }
+    if (configured_base != kDefaultSpclientBaseUrl) {
+        hosts.emplace_back(kDefaultSpclientBaseUrl);
+    }
+
     network::HttpResponse resp;
-    for (const char* host : hosts) {
+    for (const auto& host : hosts) {
         if (stop_worker_.load(std::memory_order_acquire)) {
             permit.complete(network::TransferOutcome::TransportFailure);
             return BatchFetchResult::Completed;
         }
-        resp = http_client_.post(
-            std::string(host) + kExtendedMetadataPath,
-            req_bytes,
-            "application/x-protobuf",
-            {{"Accept", "application/x-protobuf"}},
-            8000,
-            12000,
-            true);
+        resp = executePost(host + kExtendedMetadataPath, req_bytes);
         if (resp.isSuccess() && !resp.body.empty()) break;
     }
 
@@ -580,14 +683,14 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
 
         const std::vector<uint8_t> alt_req =
             buildBatchedExtendedMetadataRequest(creds.country, creds.catalogue, alt_uris);
-        const auto alt_resp = http_client_.post(
-            std::string(kPrimarySpclient) + kExtendedMetadataPath,
-            alt_req,
-            "application/x-protobuf",
-            {{"Accept", "application/x-protobuf"}},
-            8000,
-            12000,
-            true);
+        network::HttpResponse alt_resp;
+        for (const auto& host : hosts) {
+            if (stop_worker_.load(std::memory_order_acquire)) {
+                break;
+            }
+            alt_resp = executePost(host + kExtendedMetadataPath, alt_req);
+            if (alt_resp.isSuccess() && !alt_resp.body.empty()) break;
+        }
 
         if (alt_resp.isSuccess() && !alt_resp.body.empty()) {
             const uint8_t* aptr = alt_resp.body.data();
@@ -682,7 +785,16 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
                             }
                         }
                         if (target.title.empty()) target.title = it_alt->second.title;
+                        if (target.artist_name.empty()) target.artist_name = it_alt->second.artist_name;
+                        if (target.artist_uri.empty()) target.artist_uri = it_alt->second.artist_uri;
+                        if (target.album_title.empty()) target.album_title = it_alt->second.album_title;
+                        if (target.album_uri.empty()) target.album_uri = it_alt->second.album_uri;
+                        if (target.image_small_url.empty()) target.image_small_url = it_alt->second.image_small_url;
+                        if (target.image_url.empty()) target.image_url = it_alt->second.image_url;
+                        if (target.image_large_url.empty()) target.image_large_url = it_alt->second.image_large_url;
+                        if (target.image_xlarge_url.empty()) target.image_xlarge_url = it_alt->second.image_xlarge_url;
                         if (target.duration_ms <= 0) target.duration_ms = it_alt->second.duration_ms;
+                        if (!target.track_v4_resolved) target.track_v4_resolved = it_alt->second.track_v4_resolved;
                         notifications.emplace_back(orig_uri, target);
                     }
                 }

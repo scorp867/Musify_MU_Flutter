@@ -1,15 +1,17 @@
 // 1:1 replica of com.spotify.connect.devicepicker.header (p199p/ohb1.java, p199p/bx40.java, p199p/frl1.java, p199p/C2255rx.java, p199p/u13.java, p199p/g1m1.java, p199p/gtg.java)
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_state.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
 import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
 import 'package:musify_mu/features/player/presentation/widgets/player_theme.dart';
 
 /// Header bar for [DevicePickerSheet] displaying the "Connect" title, active
-/// listening output status (with built-in speaker fallback when
-/// `activeSelfPeripheral == null`), refresh action, and close button.
+/// listening output status (delegating target-label resolution to
+/// [ConnectOutputStatusPolicy] SSOT), refresh action, and close button.
 class DevicePickerHeader extends StatelessWidget {
   const DevicePickerHeader({
     super.key,
@@ -21,6 +23,7 @@ class DevicePickerHeader extends StatelessWidget {
     this.isSyncedWithBackend = true,
     this.onClose,
     this.onRefresh,
+    this.outputStatusPolicy,
   });
 
   final ConnectDevice? activeDevice;
@@ -31,10 +34,22 @@ class DevicePickerHeader extends StatelessWidget {
   final bool isSyncedWithBackend;
   final VoidCallback? onClose;
   final VoidCallback? onRefresh;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+
+  ConnectOutputStatusPolicy _resolvePolicy(BuildContext context) {
+    if (outputStatusPolicy case final explicit?) {
+      return explicit;
+    }
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
+    }
+    return ConnectOutputStatusPolicy.instance;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final _HeaderStatus resolvedStatus = _resolveStatus();
+    final policy = _resolvePolicy(context);
+    final _HeaderStatus resolvedStatus = _resolveStatus(policy);
     final VoidCallback handleClose = switch (onClose) {
       final cb? => cb,
       null => () => Navigator.of(context).maybePop(),
@@ -133,10 +148,16 @@ class DevicePickerHeader extends StatelessWidget {
     );
   }
 
-  _HeaderStatus _resolveStatus() {
+  _HeaderStatus _resolveStatus(ConnectOutputStatusPolicy policy) {
     switch (transferState) {
       case TransferInProgress(:final targetDeviceId):
-        final resolvedName = _resolveTransferTargetName(targetDeviceId);
+        final resolvedName = policy.resolveTransferTargetLabel(
+          targetDeviceId: targetDeviceId,
+          activeDevice: activeDevice,
+          selfDevice: selfDevice,
+          activeSelfPeripheral: activeSelfPeripheral,
+          devices: devices,
+        );
         return _HeaderStatus(
           label: 'Connecting to $resolvedName...',
           icon: Icons.sync_rounded,
@@ -157,9 +178,14 @@ class DevicePickerHeader extends StatelessWidget {
     }
 
     final currentActive = activeDevice;
-    if (currentActive != null && !currentActive.isSelf) {
+    if (currentActive != null && policy.isRemoteDeviceActive(currentActive)) {
+      final remoteLabel = policy.resolveActiveOutputLabel(
+        activeDevice: currentActive,
+        selfDevice: selfDevice,
+        activeSelfPeripheral: activeSelfPeripheral,
+      );
       return _HeaderStatus(
-        label: 'Listening on ${currentActive.name}',
+        label: 'Listening on $remoteLabel',
         icon: resolveDeviceTypeIcon(currentActive.type),
         color: kSpotifyConnectGreen,
       );
@@ -169,7 +195,7 @@ class DevicePickerHeader extends StatelessWidget {
       final d? => d,
       null => currentActive,
     };
-    final localLabel = resolveLocalOutputLabel(
+    final localLabel = policy.resolveLocalOutputLabel(
       selfDevice: effectiveSelf,
       activeSelfPeripheral: activeSelfPeripheral,
     );
@@ -182,54 +208,6 @@ class DevicePickerHeader extends StatelessWidget {
       icon: localIcon,
       color: kSpotifyConnectGreen,
     );
-  }
-
-  String _resolveTransferTargetName(String targetDeviceId) {
-    if (targetDeviceId == kLocalDeviceIdentifier) {
-      return resolveLocalOutputLabel(
-        selfDevice: selfDevice,
-        activeSelfPeripheral: activeSelfPeripheral,
-      );
-    }
-    if (activeDevice case final d?
-        when _matchesTransferTarget(d, targetDeviceId)) {
-      return _resolveMatchedDeviceLabel(d);
-    }
-    if (selfDevice case final s?
-        when _matchesTransferTarget(s, targetDeviceId)) {
-      return resolveLocalOutputLabel(
-        selfDevice: s,
-        activeSelfPeripheral: activeSelfPeripheral,
-      );
-    }
-    for (final device in devices) {
-      if (_matchesTransferTarget(device, targetDeviceId)) {
-        return _resolveMatchedDeviceLabel(device);
-      }
-    }
-    return 'device';
-  }
-
-  bool _matchesTransferTarget(ConnectDevice device, String targetDeviceId) {
-    final normalizedTarget = targetDeviceId.trim();
-    if (normalizedTarget.isEmpty) {
-      return false;
-    }
-    return device.connectStateIdentifier.trim() == normalizedTarget ||
-        device.localIdentifier.trim() == normalizedTarget;
-  }
-
-  String _resolveMatchedDeviceLabel(ConnectDevice device) {
-    if (device.isSelf) {
-      return resolveLocalOutputLabel(
-        selfDevice: device,
-        activeSelfPeripheral: activeSelfPeripheral,
-      );
-    }
-    if (device.name.trim().isNotEmpty) {
-      return device.name;
-    }
-    return 'device';
   }
 }
 

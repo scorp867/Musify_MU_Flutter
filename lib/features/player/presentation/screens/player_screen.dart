@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:musify_mu/app/di/injection.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/color/eased_gradient.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
@@ -11,11 +11,11 @@ import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
-import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
-import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
-import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
+import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
+import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../application/scroll/now_playing_scroll_bloc.dart';
@@ -53,6 +53,12 @@ class PlayerScreen extends StatefulWidget {
   final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
   final ConnectMobiusController? connectController;
+  final NowPlayingScrollController? scrollController;
+  final DataPool? dataPool;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+  final UbiLogger? ubiLogger;
+  final PlayerLoggingParamsFactory? loggingParamsFactory;
+  final PageInstanceIdHolder? pageInstanceIdHolder;
 
   const PlayerScreen({
     super.key,
@@ -64,6 +70,12 @@ class PlayerScreen extends StatefulWidget {
     this.queueBloc,
     this.currentTrack,
     this.connectController,
+    this.scrollController,
+    this.dataPool,
+    this.outputStatusPolicy,
+    this.ubiLogger,
+    this.loggingParamsFactory,
+    this.pageInstanceIdHolder,
   });
 
   static bool _isOpen = false;
@@ -80,15 +92,47 @@ class PlayerScreen extends StatefulWidget {
     PlayerQueueMobiusController? queueBloc,
     ContextTrack? currentTrack,
     ConnectMobiusController? connectController,
+    NowPlayingScrollController? scrollController,
+    DataPool? dataPool,
+    ConnectOutputStatusPolicy? outputStatusPolicy,
+    UbiLogger? ubiLogger,
+    PlayerLoggingParamsFactory? loggingParamsFactory,
+    PageInstanceIdHolder? pageInstanceIdHolder,
   }) async {
     if (_isOpen) return;
     _isOpen = true;
 
     final effectiveBloc = switch (queueBloc) {
       final b? => b,
-      null => getIt.isRegistered<PlayerQueueMobiusController>()
-          ? getIt<PlayerQueueMobiusController>()
-          : null,
+      null => context.read<PlayerQueueBloc?>(),
+    };
+    final effectiveConnectController = switch (connectController) {
+      final c? => c,
+      null => context.read<ConnectMobiusController?>(),
+    };
+    final effectiveScrollController = switch (scrollController) {
+      final s? => s,
+      null => context.read<NowPlayingScrollController?>(),
+    };
+    final effectiveDataPool = switch (dataPool) {
+      final d? => d,
+      null => context.read<DataPool?>(),
+    };
+    final effectivePolicy = switch (outputStatusPolicy) {
+      final p? => p,
+      null => context.read<ConnectOutputStatusPolicy?>(),
+    };
+    final effectiveUbiLogger = switch (ubiLogger) {
+      final l? => l,
+      null => context.read<UbiLogger?>(),
+    };
+    final effectiveLoggingFactory = switch (loggingParamsFactory) {
+      final f? => f,
+      null => context.read<PlayerLoggingParamsFactory?>(),
+    };
+    final effectivePageHolder = switch (pageInstanceIdHolder) {
+      final h? => h,
+      null => context.read<PageInstanceIdHolder?>(),
     };
 
     try {
@@ -108,7 +152,13 @@ class PlayerScreen extends StatefulWidget {
               imageUrl: imageUrl,
               queueBloc: effectiveBloc,
               currentTrack: currentTrack,
-              connectController: connectController,
+              connectController: effectiveConnectController,
+              scrollController: effectiveScrollController,
+              dataPool: effectiveDataPool,
+              outputStatusPolicy: effectivePolicy,
+              ubiLogger: effectiveUbiLogger,
+              loggingParamsFactory: effectiveLoggingFactory,
+              pageInstanceIdHolder: effectivePageHolder,
             );
           },
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -145,21 +195,25 @@ class _PlayerScreenState extends State<PlayerScreen>
       GlobalKey<PeekScrollViewState>();
 
   final ValueNotifier<Duration?> _dragNotifier = ValueNotifier<Duration?>(null);
-  late final ValueNotifier<Duration> _positionNotifier;
-  late final Ticker _positionTicker;
+  final ValueNotifier<Duration> _positionNotifier =
+      ValueNotifier<Duration>(Duration.zero);
+  Ticker? _positionTicker;
   Duration _lastTick = Duration.zero;
 
-  late final NowPlayingScrollController _scrollBloc;
-  late final ScrollCardRegistry _cardRegistry;
+  PlayerQueueMobiusController? _boundQueueBloc;
+  NowPlayingScrollController? _scrollBloc;
+  NowPlayingScrollController? _ownedScrollBloc;
+  ScrollCardRegistry _cardRegistry = ScrollCardRegistry();
   DataPool? _dataPool;
   String _currentTrackId = '';
+  int _lastRegisteredActiveLineIndex = 0;
 
   NowPlayingTransportPhase _transportPhase = NowPlayingTransportPhase.paused;
   bool _isFavorite = false;
   QueueShuffleMode _shuffleMode = QueueShuffleMode.none;
   QueueRepeatMode _repeatMode = QueueRepeatMode.none;
 
-  late final PageInstanceId _pageInstanceId;
+  PageInstanceId _pageInstanceId = PageInstanceIdHolder.generateNew();
 
   PageInstanceId get pageInstanceId => _pageInstanceId;
 
@@ -172,45 +226,95 @@ class _PlayerScreenState extends State<PlayerScreen>
     ),
   );
 
-  static bool _shouldShowConnectBanner(ConnectState state) {
-    if (state.transferState is TransferInProgress) {
-      return true;
+  PlayerQueueMobiusController? _resolveQueueBloc() {
+    if (widget.queueBloc case final explicit?) {
+      return explicit;
     }
-    final ConnectDevice? currentActive = state.activeDevice;
-    if (currentActive != null && !currentActive.isSelf) {
-      return true;
-    }
-    final LocalAudioPeripheral? peripheral = state.activeSelfPeripheral;
-    if (peripheral != null &&
-        peripheral.id != kBuiltInSpeakerPeripheralId &&
-        peripheral.connectionType !=
-            OutputPeripheralConnectionType.builtInSpeaker) {
-      return true;
-    }
-    return false;
+    return context.read<PlayerQueueBloc?>();
   }
 
-  PlayerQueueMobiusController? get _effectiveBloc => switch (widget.queueBloc) {
-    final b? => b,
-    null => getIt.isRegistered<PlayerQueueMobiusController>()
-        ? getIt<PlayerQueueMobiusController>()
-        : null,
-  };
+  ConnectMobiusController? _resolveConnectController() {
+    if (widget.connectController case final explicit?) {
+      return explicit;
+    }
+    return context.read<ConnectMobiusController?>();
+  }
+
+  ConnectOutputStatusPolicy _resolveOutputStatusPolicy() {
+    if (widget.outputStatusPolicy case final explicit?) {
+      return explicit;
+    }
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
+    }
+    return ConnectOutputStatusPolicy.instance;
+  }
+
+  UbiLogger? _resolveUbiLogger() {
+    if (widget.ubiLogger case final explicit?) {
+      return explicit;
+    }
+    return context.read<UbiLogger?>();
+  }
+
+  PlayerLoggingParamsFactory? _resolveLoggingParamsFactory() {
+    if (widget.loggingParamsFactory case final explicit?) {
+      return explicit;
+    }
+    return context.read<PlayerLoggingParamsFactory?>();
+  }
+
+  PageInstanceIdHolder? _resolvePageInstanceIdHolder() {
+    if (widget.pageInstanceIdHolder case final explicit?) {
+      return explicit;
+    }
+    return context.read<PageInstanceIdHolder?>();
+  }
+
+  DataPool? _resolveDataPool() {
+    if (widget.dataPool case final explicit?) {
+      return explicit;
+    }
+    return context.read<DataPool?>();
+  }
+
+  NowPlayingScrollController _resolveOrAllocateScrollController() {
+    if (widget.scrollController case final explicit?) {
+      return explicit;
+    }
+    if (context.read<NowPlayingScrollController?>() case final provided?) {
+      return provided;
+    }
+    if (_ownedScrollBloc case final existingOwned?) {
+      return existingOwned;
+    }
+    final created = NowPlayingScrollController(
+      scrollSitaRepository: context.read<ScrollSitaRepository?>(),
+      lyricsRepository: context.read<LyricsRepository?>(),
+    );
+    _ownedScrollBloc = created;
+    return created;
+  }
+
+  NowPlayingScrollController get _requireScrollBloc {
+    if (_scrollBloc case final active?) {
+      return active;
+    }
+    throw StateError('PlayerScreen NowPlayingScrollController is not bound');
+  }
 
   LoggingParams? _logPlayerInteraction(
     String elementPath, [
     String actionName = 'hit',
   ]) {
-    if (getIt.isRegistered<UbiLogger>()) {
-      final ubiLogger = getIt<UbiLogger>();
+    if (_resolveUbiLogger() case final ubiLogger?) {
       final result = ubiLogger.logInteraction(
         UbiInteractionElement(
           elementPath: elementPath,
           actionName: actionName,
         ),
       );
-      if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
-        final factory = getIt<PlayerLoggingParamsFactory>();
+      if (_resolveLoggingParamsFactory() case final factory?) {
         return factory.createFromInteractionResult(result);
       }
     }
@@ -232,16 +336,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   @override
   void initState() {
     super.initState();
-    if (getIt.isRegistered<PageInstanceIdHolder>()) {
-      final holder = getIt<PageInstanceIdHolder>();
-      _pageInstanceId = PageInstanceIdHolder.generateNew();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    if (_resolvePageInstanceIdHolder() case final holder?) {
       holder.update(_pageInstanceId);
-    } else {
-      _pageInstanceId = PageInstanceIdHolder.generateNew();
     }
 
-    if (getIt.isRegistered<UbiLogger>()) {
-      final ubiLogger = getIt<UbiLogger>();
+    if (_resolveUbiLogger() case final ubiLogger?) {
       ubiLogger.logImpression(
         const UbiImpressionElement(
           elementPath: 'now_playing_screen',
@@ -249,46 +349,162 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
     }
 
-    final initialVm = _computeViewModel(_effectiveBloc?.state);
-    _positionNotifier = ValueNotifier<Duration>(initialVm.position);
+    final effectiveQueueBloc = _resolveQueueBloc();
+    _boundQueueBloc = effectiveQueueBloc;
+
+    final initialVm = _computeViewModel(effectiveQueueBloc?.state);
+    _positionNotifier.value = initialVm.position;
     _transportPhase = initialVm.transportPhase;
 
-    _scrollBloc = getIt<NowPlayingScrollController>();
-    _dataPool = getIt.isRegistered<DataPool>() ? getIt<DataPool>() : null;
+    _dataPool = _resolveDataPool();
     _cardRegistry = ScrollCardRegistry(dataPool: _dataPool);
 
-    _positionTicker = createTicker((elapsed) {
+    final scrollCtrl = _resolveOrAllocateScrollController();
+    _scrollBloc = scrollCtrl;
+    scrollCtrl.addListener(_onScrollStateChanged);
+    _positionNotifier.addListener(_onPositionChanged);
+
+    _syncCardRegistry();
+
+    final ticker = createTicker((elapsed) {
       if (elapsed - _lastTick > const Duration(milliseconds: 250)) {
         _lastTick = elapsed;
         if (_dragNotifier.value == null && mounted) {
-          if (_effectiveBloc case final activeBloc?) {
+          if (_boundQueueBloc case final activeBloc?) {
             _positionNotifier.value = activeBloc.state.currentPosition;
           }
         }
       }
     });
+    _positionTicker = ticker;
     _syncTickerForTransportPhase(_transportPhase);
 
     _currentTrackId = initialVm.trackId;
     if (_currentTrackId.isNotEmpty) {
-      _scrollBloc.add(FetchNowPlayingScroll(_currentTrackId));
+      scrollCtrl.add(FetchNowPlayingScroll(_currentTrackId));
     }
 
-    _effectiveBloc?.addListener(_onQueueStateChanged);
+    effectiveQueueBloc?.addListener(_onQueueStateChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextQueueBloc = _resolveQueueBloc();
+    if (!identical(_boundQueueBloc, nextQueueBloc)) {
+      _boundQueueBloc?.removeListener(_onQueueStateChanged);
+      _boundQueueBloc = nextQueueBloc;
+      nextQueueBloc?.addListener(_onQueueStateChanged);
+    }
+
+    final nextDataPool = _resolveDataPool();
+    if (!identical(_dataPool, nextDataPool)) {
+      _dataPool = nextDataPool;
+      _cardRegistry = ScrollCardRegistry(dataPool: _dataPool);
+    }
+
+    if (widget.scrollController != oldWidget.scrollController) {
+      _scrollBloc?.removeListener(_onScrollStateChanged);
+      if (widget.scrollController != null) {
+        if (_ownedScrollBloc case final owned?) {
+          unawaited(owned.close());
+          _ownedScrollBloc = null;
+        }
+      }
+      final nextScroll = _resolveOrAllocateScrollController();
+      _scrollBloc = nextScroll;
+      nextScroll.addListener(_onScrollStateChanged);
+    }
+
+    _syncCardRegistry();
   }
 
   @override
   void dispose() {
-    _effectiveBloc?.removeListener(_onQueueStateChanged);
-    _scrollBloc.close();
-    _positionTicker.dispose();
+    _boundQueueBloc?.removeListener(_onQueueStateChanged);
+    _boundQueueBloc = null;
+    _scrollBloc?.removeListener(_onScrollStateChanged);
+    _scrollBloc = null;
+    if (_ownedScrollBloc case final owned?) {
+      _ownedScrollBloc = null;
+      unawaited(owned.close());
+    }
+    _positionNotifier.removeListener(_onPositionChanged);
+    _positionTicker?.dispose();
+    _positionTicker = null;
     _positionNotifier.dispose();
     _dragNotifier.dispose();
     super.dispose();
   }
 
+  ColorLyricsResponse? _currentColorLyrics() {
+    final scrollState = _scrollBloc?.state;
+    if (scrollState is NowPlayingScrollLoaded) {
+      return scrollState.lyrics;
+    }
+    return null;
+  }
+
+  void _syncCardRegistry() {
+    final vm = _computeViewModel(_boundQueueBloc?.state);
+    final colorLyrics = _currentColorLyrics();
+    final activeLineIdx = _resolveActiveLyricsLine(
+      colorLyrics,
+      _positionNotifier.value,
+    );
+    _lastRegisteredActiveLineIndex = activeLineIdx;
+
+    _cardRegistry.registerDefaultCards(
+      defaultArtistName: vm.artist,
+      colorLyrics: colorLyrics,
+      activeLineIndex: activeLineIdx,
+      onTapLyrics: _onExpandLyrics,
+      onShowAllCredits: _onShowAllCreditsFromCard,
+      onShowAllEvents: _noopCallback,
+    );
+  }
+
+  static void _noopCallback() {}
+
+  void _onShowAllCreditsFromCard() {
+    if (!mounted) {
+      return;
+    }
+    final vm = _computeViewModel(_boundQueueBloc?.state);
+    _showCreditsDetailSheet(
+      context,
+      title: vm.title,
+      artist: vm.artist,
+      album: vm.album,
+      duration: vm.duration,
+    );
+  }
+
+  void _onScrollStateChanged() {
+    _syncCardRegistry();
+  }
+
+  void _onPositionChanged() {
+    final colorLyrics = _currentColorLyrics();
+    if (colorLyrics == null ||
+        !colorLyrics.hasLyrics() ||
+        colorLyrics.lyrics.lines.isEmpty) {
+      return;
+    }
+    final nextLineIndex = _resolveActiveLyricsLine(
+      colorLyrics,
+      _positionNotifier.value,
+    );
+    if (nextLineIndex != _lastRegisteredActiveLineIndex) {
+      _syncCardRegistry();
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+
   void _onQueueStateChanged() {
-    if (_effectiveBloc case final bloc?) {
+    if (_boundQueueBloc case final bloc?) {
       final vm = _computeViewModel(bloc.state);
       final previousPhase = _transportPhase;
       if (vm.transportPhase != _transportPhase) {
@@ -300,15 +516,20 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (_dragNotifier.value == null) {
         _positionNotifier.value = vm.position;
       }
-      if (vm.trackId.isNotEmpty && vm.trackId != _currentTrackId) {
-        _currentTrackId = vm.trackId;
-        _scrollBloc.add(FetchNowPlayingScroll(vm.trackId));
-      } else if (_currentTrackId.isNotEmpty &&
-          previousPhase == NowPlayingTransportPhase.bufferingUnplayedSegment &&
-          vm.transportPhase == NowPlayingTransportPhase.playing &&
-          _scrollBloc.state is! NowPlayingScrollLoaded) {
-        _scrollBloc.add(FetchNowPlayingScroll(_currentTrackId));
+      final scrollCtrl = _scrollBloc;
+      if (scrollCtrl != null) {
+        if (vm.trackId.isNotEmpty && vm.trackId != _currentTrackId) {
+          _currentTrackId = vm.trackId;
+          scrollCtrl.add(FetchNowPlayingScroll(vm.trackId));
+        } else if (_currentTrackId.isNotEmpty &&
+            previousPhase ==
+                NowPlayingTransportPhase.bufferingUnplayedSegment &&
+            vm.transportPhase == NowPlayingTransportPhase.playing &&
+            scrollCtrl.state is! NowPlayingScrollLoaded) {
+          scrollCtrl.add(FetchNowPlayingScroll(_currentTrackId));
+        }
       }
+      _syncCardRegistry();
     }
   }
 
@@ -335,22 +556,26 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _syncTickerForTransportPhase(NowPlayingTransportPhase phase) {
+    final ticker = _positionTicker;
+    if (ticker == null) {
+      return;
+    }
     switch (phase) {
       case NowPlayingTransportPhase.playing:
-        if (!_positionTicker.isActive) {
-          _positionTicker.start();
+        if (!ticker.isActive) {
+          ticker.start();
         }
       case NowPlayingTransportPhase.paused:
       case NowPlayingTransportPhase.bufferingUnplayedSegment:
-        if (_positionTicker.isActive) {
-          _positionTicker.stop();
+        if (ticker.isActive) {
+          ticker.stop();
         }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final bloc = _effectiveBloc;
+    final bloc = _boundQueueBloc;
     if (bloc != null) {
       return ValueListenableBuilder<PlayerQueueState>(
         valueListenable: bloc,
@@ -380,8 +605,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     final shuffleMode = vm.shuffleMode;
     final repeatMode = vm.repeatMode;
 
+    final effectiveConnectController = _resolveConnectController();
+    final policy = _resolveOutputStatusPolicy();
+
     return ValueListenableBuilder<NowPlayingScrollState>(
-      valueListenable: _scrollBloc,
+      valueListenable: _requireScrollBloc,
       builder: (context, scrollState, _) {
         final activeTrackUri = vm.trackUri.isNotEmpty
             ? vm.trackUri
@@ -414,26 +642,6 @@ class _PlayerScreenState extends State<PlayerScreen>
           ];
         }
 
-        final activeLineIdx = _resolveActiveLyricsLine(
-          colorLyrics,
-          _positionNotifier.value,
-        );
-
-        _cardRegistry.registerDefaultCards(
-          defaultArtistName: displayArtist,
-          colorLyrics: colorLyrics,
-          activeLineIndex: activeLineIdx,
-          onTapLyrics: _onExpandLyrics,
-          onShowAllCredits: () => _showCreditsDetailSheet(
-            context,
-            title: displayTitle,
-            artist: displayArtist,
-            album: displayAlbum,
-            duration: displayDuration,
-          ),
-          onShowAllEvents: () {},
-        );
-
         ScrollCardDescriptor peekingDesc;
         List<ScrollCardDescriptor> expandedDescs;
 
@@ -442,7 +650,8 @@ class _PlayerScreenState extends State<PlayerScreen>
             colorLyrics.lyrics.lines.isNotEmpty;
 
         final lyricsDesc = cards.whereType<LyricsCardDescriptor>().firstOrNull;
-        final creatorBioDesc = cards.whereType<CreatorBioCardDescriptor>().firstOrNull;
+        final creatorBioDesc =
+            cards.whereType<CreatorBioCardDescriptor>().firstOrNull;
 
         if (hasValidLyrics && lyricsDesc != null) {
           peekingDesc = lyricsDesc;
@@ -459,11 +668,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         final peekingWidget = switch (resolvedPeeking) {
           final w? => w,
           null => PlayerAboutArtistSection(
-            key: const ValueKey('bio_default'),
-            artistName: displayArtist,
-            dataPool: _dataPool,
-            artistUri: activeArtistUri,
-          ),
+              key: const ValueKey('bio_default'),
+              artistName: displayArtist,
+              dataPool: _dataPool,
+              artistUri: activeArtistUri,
+            ),
         };
 
         final expandedWidgets = expandedDescs
@@ -474,12 +683,12 @@ class _PlayerScreenState extends State<PlayerScreen>
         final artworkKeyString = switch (track?.uid) {
           final uid? when uid.isNotEmpty => uid,
           _ => switch (track?.uri) {
-            final uri? when uri.isNotEmpty => uri,
-            _ => switch (displayImageUrl) {
-              final url? => url,
-              null => 'default',
+              final uri? when uri.isNotEmpty => uri,
+              _ => switch (displayImageUrl) {
+                  final url? => url,
+                  null => 'default',
+                },
             },
-          },
         };
 
         return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -589,7 +798,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ),
                     const SizedBox(height: 6),
                     PlayerUtilityRow(
-                      connectController: widget.connectController,
+                      connectController: effectiveConnectController,
+                      outputStatusPolicy: policy,
                       onQueue: () => _showQueue(
                         context,
                         activeTrack: track,
@@ -598,17 +808,23 @@ class _PlayerScreenState extends State<PlayerScreen>
                         repeatVal: repeatMode,
                       ),
                     ),
-                    if (widget.connectController case final controller?)
+                    if (effectiveConnectController case final controller?)
                       ValueListenableBuilder<ConnectState>(
                         valueListenable: controller,
                         builder: (context, connectState, _) {
-                          if (!_shouldShowConnectBanner(connectState)) {
+                          if (!policy.shouldShowBanner(connectState)) {
                             return const SizedBox.shrink();
                           }
                           return Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: ActiveDeviceBanner(
-                              controller: controller,
+                              activeDevice: connectState.activeDevice,
+                              activeSelfPeripheral:
+                                  connectState.activeSelfPeripheral,
+                              selfDevice: connectState.selfDevice,
+                              devices: connectState.devices,
+                              transferState: connectState.transferState,
+                              outputStatusPolicy: policy,
                               compact: false,
                               showWhenLocalBuiltIn: false,
                               onTap: () => DevicePickerSheet.show(
@@ -635,7 +851,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _handleSeek(Duration pos) {
     _dragNotifier.value = null;
     final lp = _logPlayerInteraction('seek_bar', 'drag');
-    if (_effectiveBloc case final bloc?) {
+    if (_boundQueueBloc case final bloc?) {
       bloc.dispatch(SeekToPositionEvent(pos, loggingParams: lp));
     } else {
       _positionNotifier.value = pos;
@@ -644,7 +860,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _handlePlayPause() {
     final lp = _logPlayerInteraction('play_pause_button');
-    if (_effectiveBloc case final bloc?) {
+    if (_boundQueueBloc case final bloc?) {
       bloc.dispatch(TogglePlayPauseEvent(loggingParams: lp));
     } else {
       setState(() {
@@ -661,7 +877,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _handleShuffle() {
     final lp = _logPlayerInteraction('shuffle_button');
-    if (_effectiveBloc case final bloc?) {
+    if (_boundQueueBloc case final bloc?) {
       bloc.dispatch(ToggleShuffleEvent(loggingParams: lp));
     } else {
       setState(() {
@@ -674,7 +890,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _handleRepeat() {
     final lp = _logPlayerInteraction('repeat_button');
-    if (_effectiveBloc case final bloc?) {
+    if (_boundQueueBloc case final bloc?) {
       bloc.dispatch(ToggleRepeatEvent(loggingParams: lp));
     } else {
       setState(() {
@@ -690,19 +906,20 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _handleNext() {
-    if (_effectiveBloc?.state case final qState? when !qState.canSkipNext) {
+    if (_boundQueueBloc?.state case final qState? when !qState.canSkipNext) {
       return;
     }
     final lp = _logPlayerInteraction('skip_next_button');
-    _effectiveBloc?.dispatch(SkipToNextTrackEvent(loggingParams: lp));
+    _boundQueueBloc?.dispatch(SkipToNextTrackEvent(loggingParams: lp));
   }
 
   void _handlePrevious() {
-    if (_effectiveBloc?.state case final qState? when !qState.canSkipPrevious) {
+    if (_boundQueueBloc?.state case final qState?
+        when !qState.canSkipPrevious) {
       return;
     }
     final lp = _logPlayerInteraction('skip_previous_button');
-    _effectiveBloc?.dispatch(SkipToPrevTrackEvent(loggingParams: lp));
+    _boundQueueBloc?.dispatch(SkipToPrevTrackEvent(loggingParams: lp));
   }
 
   void _onExpandLyrics() {
@@ -741,7 +958,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     };
     QueueSheetScreen.show(
       context,
-      bloc: _effectiveBloc,
+      bloc: _boundQueueBloc,
       nowPlayingContextTrack: resolvedTrack,
       isPlaying: resolvedIsPlaying,
       shuffleMode: resolvedShuffle,

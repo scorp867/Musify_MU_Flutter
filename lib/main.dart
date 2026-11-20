@@ -1,9 +1,11 @@
-import "dart:developer";
-import "package:flutter/foundation.dart";
+import 'dart:developer';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:musify_mu/app/app.dart';
 import 'package:musify_mu/app/di/injection.dart';
+import 'package:musify_mu/features/auth/application/auth_bloc.dart';
 import 'package:musify_mu/features/auth/application/auth_event.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_event.dart';
@@ -25,30 +27,19 @@ Future<void> main() async {
   await setupInjection();
 
   if (kDebugMode) {
-    void logVmService([int attempts = 0]) {
-      Service.getInfo().then((info) {
-        if (info.serverUri != null) {
-          debugPrint('VIVO_PORT: ${info.serverUri!.port}');
-          debugPrint('VIVO_PATH: ${info.serverUri!.path}');
-        } else if (attempts < 10) {
-          Future<void>.delayed(
-            const Duration(milliseconds: 200),
-            () => logVmService(attempts + 1),
-          );
-        }
-      });
+    final serviceInfo = await Service.getInfo();
+    if (serviceInfo.serverUri case final uri?) {
+      debugPrint('VIVO_PORT: ${uri.port}');
+      debugPrint('VIVO_PATH: ${uri.path}');
     }
-
-    logVmService();
   }
 
   runApp(
     MusifyApp(
       createAuthBloc: () =>
-          getIt()..add(const AuthSessionRestored()),
+          getIt<AuthBloc>()..add(const AuthSessionRestored()),
       createLocalMusicBloc: () =>
           getIt<LocalMusicBloc>()..add(const LoadLocalTracks()),
     ),
   );
 }
-

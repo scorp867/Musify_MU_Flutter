@@ -1,5 +1,6 @@
 // 1:1 DI & bootstrap verification tests for lib/app/di/connect_injection.dart
-// (ConnectSubsystem.cpp:74, ffi_bridge.cpp:854, qr0.java, p199p/azq.java).
+// (ConnectNativeGateway, ConnectSessionCoordinator, ConnectOutputStatusPolicy,
+// DeviceInfoPayloadBuilder, Android platform adapters, qr0.java, p199p/azq.java).
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -8,14 +9,30 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:musify_mu/app/di/connect_injection.dart';
+import 'package:musify_mu/core/audio/native_playback_session_bridge.dart';
+import 'package:musify_mu/core/config/device_identity_service.dart';
+import 'package:musify_mu/core/config/runtime_context.dart';
+import 'package:musify_mu/core/network/spotify/ap_resolve_service.dart';
+import 'package:musify_mu/core/network/spotify/auth/auth_session_provider.dart';
+import 'package:musify_mu/features/connect/application/lifecycle/connect_session_coordinator.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/connect/application/sorting/device_picker_sorting_database.dart';
 import 'package:musify_mu/features/connect/application/volume/remote_volume_controller.dart';
 import 'package:musify_mu/features/connect/data/esperanto/connect_service_client.dart';
 import 'package:musify_mu/features/connect/data/esperanto/connect_volume_service_client.dart';
 import 'package:musify_mu/features/connect/data/esperanto/dodo_service_client.dart';
+import 'package:musify_mu/features/connect/data/platform/android_audio_route_adapter.dart';
+import 'package:musify_mu/features/connect/data/platform/android_device_environment_adapter.dart';
+import 'package:musify_mu/features/connect/data/platform/android_local_discovery_adapter.dart';
+import 'package:musify_mu/features/connect/data/platform/android_system_volume_adapter.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/audio_route_port.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/connect_native_gateway.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/device_environment_port.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/local_discovery_port.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/system_volume_port.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
+import 'package:musify_mu/features/connect/domain/services/device_info_payload_builder.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
-import 'package:musify_mu/features/player/data/esperanto/native_esperanto_transport.dart';
 
 final class _FakeConnectTransport implements EsperantoTransport {
   final StreamController<Uint8List> stateStreamController =
@@ -81,72 +98,96 @@ final class _FakeConnectTransport implements EsperantoTransport {
   }
 }
 
-final class _SpyNativeConnectTransport extends Fake
-    implements NativeEsperantoTransport {
-  final StreamController<Uint8List> stateStreamController =
+final class _FakeConnectNativeGateway implements ConnectNativeGateway {
+  final StreamController<Uint8List> _localVolumeController =
       StreamController<Uint8List>.broadcast();
-  final StreamController<Uint8List> volumeStreamController =
-      StreamController<Uint8List>.broadcast();
-  final StreamController<Uint8List> localVolumeStreamController =
-      StreamController<Uint8List>.broadcast();
-  final StreamController<Uint8List> dodoStreamController =
-      StreamController<Uint8List>.broadcast();
-
-  int connectStartCalls = 0;
-  bool throwOnConnectStart = false;
+  final StreamController<String> _diagnosticController =
+      StreamController<String>.broadcast();
 
   @override
-  int connectStart([Uint8List? deviceInfoBytes]) {
-    if (throwOnConnectStart) {
-      throw StateError('connectStart() called after invalidation');
-    }
-    connectStartCalls += 1;
-    return 0;
-  }
+  int start(Uint8List deviceInfoBytes) => 0;
 
   @override
-  Future<Uint8List> callSingle(
-    String service,
-    String method,
-    Uint8List payload,
-  ) async {
-    return Uint8List(0);
-  }
+  void stop() {}
 
   @override
-  Stream<Uint8List> callStream(
-    String service,
-    String method,
-    Uint8List payload,
-  ) {
-    if (service == ConnectServiceClient.serviceName && method == 'State') {
-      return stateStreamController.stream;
-    }
-    if (service == ConnectVolumeServiceClient.serviceName &&
-        method == 'Volume') {
-      return volumeStreamController.stream;
-    }
-    if (service == ConnectVolumeServiceClient.serviceName &&
-        method == 'LocalVolume') {
-      return localVolumeStreamController.stream;
-    }
-    if (service == DodoServiceClient.serviceName && method == 'DodoSub') {
-      return dodoStreamController.stream;
-    }
-    return const Stream<Uint8List>.empty();
-  }
+  int setEndpoints({
+    required String spclientBaseUrl,
+    required String dealerWsUrl,
+  }) =>
+      0;
 
   @override
-  Uint8List callSync(String service, String method, Uint8List payload) {
-    return Uint8List(0);
-  }
+  int reconnect(ConnectReconnectReason reason) => 0;
 
-  Future<void> close() async {
-    await stateStreamController.close();
-    await volumeStreamController.close();
-    await localVolumeStreamController.close();
-    await dodoStreamController.close();
+  @override
+  void setNetworkAvailable(bool isAvailable) {}
+
+  @override
+  int updateNsdServices(String servicesJsonUtf8) => 0;
+
+  @override
+  int setLocalVolume({
+    required int volume0To65535,
+    required int volumeSteps,
+    required ConnectLocalVolumeReason reason,
+  }) =>
+      0;
+
+  @override
+  Future<ConnectAsyncCallResult> callServiceAsync({
+    required ConnectEsperantoServiceId serviceId,
+    required String method,
+    required Uint8List payload,
+  }) async =>
+      ConnectAsyncCallResult(statusCode: 0, payloadBytes: Uint8List(0));
+
+  @override
+  Stream<Uint8List> get localVolumeStream => _localVolumeController.stream;
+
+  @override
+  Stream<String> get diagnosticStream => _diagnosticController.stream;
+
+  @override
+  void dispose() {
+    unawaited(_localVolumeController.close());
+    unawaited(_diagnosticController.close());
   }
+}
+
+final class _FakeAuthSessionProvider implements AuthSessionProvider {
+  @override
+  Future<String?> getAccessToken() async => 'token';
+
+  @override
+  Future<String?> getClientToken() async => 'client_token';
+
+  @override
+  Future<String?> refreshAccessToken() async => 'token';
+
+  @override
+  Future<String?> forceRefreshClientToken() async => 'client_token';
+
+  @override
+  Future<String> getActiveClientId() async =>
+      AuthClientProfileConfig.webPlayerClientId;
+
+  @override
+  Future<AuthClientProfile> getActiveClientProfile() async =>
+      AuthClientProfile.webPlayer;
+
+  @override
+  Future<AuthClientProfileConfig> getActiveClientProfileConfig() async =>
+      AuthClientProfileConfig.webPlayerDefault;
+}
+
+final class _FakePlaybackSessionBridge extends Fake
+    implements NativePlaybackSessionBridge {
+  @override
+  Future<void> syncSessionToNative() async {}
+
+  @override
+  Future<void> clearNativeAuthSession() async {}
 }
 
 void main() {
@@ -154,7 +195,7 @@ void main() {
 
   group('setupConnectInjection', () {
     test(
-      'registers all 6 Connect singletons lazily without opening DB or streams',
+      'registers all Connect domain services, platform adapters, and application singletons lazily without opening DB or streams',
       () async {
         final sl = GetIt.asNewInstance();
         final transport = _FakeConnectTransport();
@@ -162,12 +203,22 @@ void main() {
 
         setupConnectInjection(sl);
 
+        expect(sl.isRegistered<DeviceIdentityService>(), isTrue);
+        expect(sl.isRegistered<ApResolveService>(), isTrue);
+        expect(sl.isRegistered<DeviceInfoPayloadBuilder>(), isTrue);
+        expect(sl.isRegistered<ConnectOutputStatusPolicy>(), isTrue);
+        expect(sl.isRegistered<DeviceEnvironmentPort>(), isTrue);
+        expect(sl.isRegistered<AudioRoutePort>(), isTrue);
+        expect(sl.isRegistered<SystemVolumePort>(), isTrue);
+        expect(sl.isRegistered<LocalDiscoveryPort>(), isTrue);
         expect(sl.isRegistered<ConnectServiceClient>(), isTrue);
         expect(sl.isRegistered<ConnectVolumeServiceClient>(), isTrue);
         expect(sl.isRegistered<DodoServiceClient>(), isTrue);
         expect(sl.isRegistered<DevicePickerSortingDatabase>(), isTrue);
         expect(sl.isRegistered<RemoteVolumeController>(), isTrue);
         expect(sl.isRegistered<ConnectMobiusController>(), isTrue);
+        // ConnectSessionCoordinator requires ConnectNativeGateway + AuthSessionProvider + NativePlaybackSessionBridge
+        expect(sl.isRegistered<ConnectSessionCoordinator>(), isFalse);
 
         // Lazy registration must not subscribe to streams before resolution.
         expect(transport.stateSubscribed, isFalse);
@@ -181,13 +232,20 @@ void main() {
     );
 
     test(
-      'resolves all 6 singletons with identity parity and disposes cleanly on reset',
+      'resolves domain services, platform adapters, and application singletons with identity parity and disposes cleanly on reset',
       () async {
         final sl = GetIt.asNewInstance();
         final transport = _FakeConnectTransport();
         sl.registerSingleton<EsperantoTransport>(transport);
 
         setupConnectInjection(sl);
+
+        expect(sl<DeviceInfoPayloadBuilder>(), same(DeviceInfoPayloadBuilder.instance));
+        expect(sl<ConnectOutputStatusPolicy>(), same(ConnectOutputStatusPolicy.instance));
+        expect(sl<DeviceEnvironmentPort>(), isA<AndroidDeviceEnvironmentAdapter>());
+        expect(sl<AudioRoutePort>(), isA<AndroidAudioRouteAdapter>());
+        expect(sl<SystemVolumePort>(), isA<AndroidSystemVolumeAdapter>());
+        expect(sl<LocalDiscoveryPort>(), isA<AndroidLocalDiscoveryAdapter>());
 
         final connectClient = sl<ConnectServiceClient>();
         final volumeClient = sl<ConnectVolumeServiceClient>();
@@ -218,12 +276,14 @@ void main() {
         // autoStart: false keeps Mobius loop idle until explicit start.
         expect(mobiusController.isStarted, isFalse);
         expect(mobiusController.isClosed, isFalse);
+        expect(mobiusController.hasAudioRouteBinding, isFalse);
         expect(
           identical(mobiusController.remoteVolumeController, volumeController),
           isTrue,
         );
 
-        // Volume controller subscribes on construction; Connect loop does not.
+        // Without ConnectNativeGateway, RemoteVolumeController auto-starts for standalone tests.
+        expect(volumeController.isStarted, isTrue);
         expect(transport.volumeSubscribed, isTrue);
         expect(transport.localVolumeSubscribed, isTrue);
         expect(transport.stateSubscribed, isFalse);
@@ -231,6 +291,7 @@ void main() {
         await sl.reset();
 
         expect(mobiusController.isClosed, isTrue);
+        expect(volumeController.isDisposed, isTrue);
         await expectLater(
           () => sortingDb.recordConnection(deviceIdentifier: 'dev-1'),
           throwsStateError,
@@ -245,14 +306,26 @@ void main() {
     );
 
     test(
-      'startConnectSubsystemIfSupported guards non-Android hosts and starts on Android',
+      'wires ConnectNativeGateway, AudioRoutePort, SystemVolumePort, and ConnectSessionCoordinator when native gateway and auth dependencies are registered',
       () async {
         final sl = GetIt.asNewInstance();
         final transport = _FakeConnectTransport();
+        final gateway = _FakeConnectNativeGateway();
         final memoryDb = DevicePickerSortingDatabase.forTesting(
           NativeDatabase.memory(),
         );
         sl.registerSingleton<EsperantoTransport>(transport);
+        sl.registerSingleton<ConnectNativeGateway>(
+          gateway,
+          dispose: (gw) => gw.dispose(),
+        );
+        sl.registerSingleton<AuthSessionProvider>(_FakeAuthSessionProvider());
+        sl.registerSingleton<NativePlaybackSessionBridge>(
+          _FakePlaybackSessionBridge(),
+        );
+        sl.registerSingleton<RuntimeContext>(
+          RuntimeContext(country: 'US', catalogue: 'premium'),
+        );
         sl.registerSingleton<DevicePickerSortingDatabase>(
           memoryDb,
           dispose: (db) => db.close(),
@@ -260,104 +333,28 @@ void main() {
 
         setupConnectInjection(sl);
 
-        final controller = sl<ConnectMobiusController>();
-        expect(controller.isStarted, isFalse);
+        expect(sl.isRegistered<ConnectSessionCoordinator>(), isTrue);
 
-        // Non-Android host does not start Connect loop.
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: transport,
-          isAndroidOverride: false,
-        );
-        expect(controller.isStarted, isFalse);
-        expect(transport.stateSubscribed, isFalse);
+        final volumeController = sl<RemoteVolumeController>();
+        final mobiusController = sl<ConnectMobiusController>();
+        final coordinator = sl<ConnectSessionCoordinator>();
 
-        // Android host starts ConnectMobiusController idempotently.
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: transport,
-          isAndroidOverride: true,
-        );
-        expect(controller.isStarted, isTrue);
-        expect(transport.stateSubscribed, isTrue);
-        expect(transport.dodoSubscribed, isTrue);
-
-        // Second call is safe and idempotent.
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: transport,
-          isAndroidOverride: true,
-        );
-        expect(controller.isStarted, isTrue);
+        // When ConnectNativeGateway is registered, both controllers defer start()
+        // to ConnectSessionCoordinator (auth-gated boot) and bind platform ports.
+        expect(volumeController.isStarted, isFalse);
+        expect(mobiusController.isStarted, isFalse);
+        expect(mobiusController.hasAudioRouteBinding, isTrue);
+        expect(coordinator.state, equals(const ConnectSessionIdle()));
+        expect(coordinator.isDisposed, isFalse);
 
         await sl.reset();
-        expect(controller.isClosed, isTrue);
 
-        // Calling after close is a safe no-op (never throws StateError).
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: transport,
-          isAndroidOverride: true,
-        );
+        expect(coordinator.isDisposed, isTrue);
+        expect(coordinator.state, equals(const ConnectSessionDisposed()));
+        expect(mobiusController.isClosed, isTrue);
+        expect(volumeController.isDisposed, isTrue);
 
         await transport.close();
-      },
-    );
-
-    test(
-      'startConnectSubsystemIfSupported skips native connectStart when already started or closed',
-      () async {
-        final sl = GetIt.asNewInstance();
-        final nativeTransport = _SpyNativeConnectTransport();
-        final memoryDb = DevicePickerSortingDatabase.forTesting(
-          NativeDatabase.memory(),
-        );
-        sl.registerSingleton<EsperantoTransport>(nativeTransport);
-        sl.registerSingleton<DevicePickerSortingDatabase>(
-          memoryDb,
-          dispose: (db) => db.close(),
-        );
-
-        setupConnectInjection(sl);
-        final controller = sl<ConnectMobiusController>();
-
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: nativeTransport,
-          isAndroidOverride: false,
-        );
-        expect(nativeTransport.connectStartCalls, 0);
-        expect(controller.isStarted, isFalse);
-
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: nativeTransport,
-          isAndroidOverride: true,
-        );
-        expect(nativeTransport.connectStartCalls, 1);
-        expect(controller.isStarted, isTrue);
-
-        // Already started -> must not invoke native connectStart() again.
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: nativeTransport,
-          isAndroidOverride: true,
-        );
-        expect(nativeTransport.connectStartCalls, 1);
-
-        await sl.reset();
-        expect(controller.isClosed, isTrue);
-        nativeTransport.throwOnConnectStart = true;
-
-        // Closed controller -> must not invoke connectStart() on invalidated transport.
-        startConnectSubsystemIfSupported(
-          controller: controller,
-          transport: nativeTransport,
-          isAndroidOverride: true,
-        );
-        expect(nativeTransport.connectStartCalls, 1);
-
-        await nativeTransport.close();
       },
     );
   });

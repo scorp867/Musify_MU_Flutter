@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/app/di/mode_persistence.dart';
+import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
+import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:musify_mu/features/shell/presentation/main_screen.dart';
 import 'package:musify_mu/features/shell/presentation/widgets/drawer_menu.dart';
 
@@ -15,6 +18,9 @@ class HiddenDrawerScaffold extends StatefulWidget {
   final BrowseBloc Function() createBrowseBloc;
   final LibraryBloc Function(String userId) createLibraryBloc;
   final ConnectMobiusController? connectController;
+  final PlayerQueueMobiusController? queueBloc;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+  final UbiLogger? ubiLogger;
 
   const HiddenDrawerScaffold({
     super.key,
@@ -23,6 +29,9 @@ class HiddenDrawerScaffold extends StatefulWidget {
     required this.createBrowseBloc,
     required this.createLibraryBloc,
     this.connectController,
+    this.queueBloc,
+    this.outputStatusPolicy,
+    this.ubiLogger,
   });
 
   @override
@@ -31,21 +40,52 @@ class HiddenDrawerScaffold extends StatefulWidget {
 
 class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
     with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _curvedAnimation;
+  AnimationController? _animationController;
+  Animation<double>? _curvedAnimation;
+  Widget? _mainScreen;
 
-  late Widget _mainScreen;
+  AnimationController get _requireAnimationController {
+    if (_animationController case final ctrl?) {
+      return ctrl;
+    }
+    throw StateError('HiddenDrawerScaffold AnimationController not initialized');
+  }
+
+  Animation<double> get _requireCurvedAnimation {
+    if (_curvedAnimation case final anim?) {
+      return anim;
+    }
+    throw StateError('HiddenDrawerScaffold CurvedAnimation not initialized');
+  }
+
+  Widget get _requireMainScreen {
+    if (_mainScreen case final screen?) {
+      return screen;
+    }
+    throw StateError('HiddenDrawerScaffold MainScreen not initialized');
+  }
+
+  static double _boundUnitInterval(double value) {
+    if (!value.isFinite || value <= 0.0) {
+      return 0.0;
+    }
+    if (value >= 1.0) {
+      return 1.0;
+    }
+    return value;
+  }
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
+    final ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
+    _animationController = ctrl;
 
     _curvedAnimation = CurvedAnimation(
-      parent: _animationController,
+      parent: ctrl,
       curve: Curves.easeOutCubic,
       reverseCurve: Curves.easeInCubic,
     );
@@ -64,6 +104,9 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
         createBrowseBloc: widget.createBrowseBloc,
         createLibraryBloc: widget.createLibraryBloc,
         connectController: widget.connectController,
+        queueBloc: widget.queueBloc,
+        outputStatusPolicy: widget.outputStatusPolicy,
+        ubiLogger: widget.ubiLogger,
       ),
     );
   }
@@ -72,23 +115,29 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
   void didUpdateWidget(covariant HiddenDrawerScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.modePersistence != oldWidget.modePersistence ||
-        widget.connectController != oldWidget.connectController) {
+        widget.connectController != oldWidget.connectController ||
+        widget.queueBloc != oldWidget.queueBloc ||
+        widget.outputStatusPolicy != oldWidget.outputStatusPolicy ||
+        widget.ubiLogger != oldWidget.ubiLogger) {
       _initMainScreen();
     }
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    _animationController?.dispose();
+    _animationController = null;
+    _curvedAnimation = null;
     super.dispose();
   }
 
   void _toggleDrawer() {
-    if (_animationController.status == AnimationStatus.forward ||
-        _animationController.status == AnimationStatus.completed) {
-      _animationController.reverse();
+    final ctrl = _requireAnimationController;
+    if (ctrl.status == AnimationStatus.forward ||
+        ctrl.status == AnimationStatus.completed) {
+      ctrl.reverse();
     } else {
-      _animationController.forward();
+      ctrl.forward();
     }
   }
 
@@ -106,10 +155,13 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
       ),
     );
 
+    final curvedAnimation = _requireCurvedAnimation;
+    final mainScreen = _requireMainScreen;
+
     return AnimatedBuilder(
-      animation: _curvedAnimation,
+      animation: curvedAnimation,
       builder: (context, _) {
-        final progress = _curvedAnimation.value;
+        final progress = _boundUnitInterval(curvedAnimation.value);
         final isDrawerOpen = progress > 0.0;
         final drawerOffset = -drawerWidth * (1.0 - progress);
         final mainOffset = drawerWidth * progress;
@@ -137,9 +189,9 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      // Child 0 is ALWAYS _mainScreen: position never changes,
+                      // Child 0 is ALWAYS mainScreen: position never changes,
                       // ensuring Flutter NEVER deactivates or unmounts the element tree.
-                      _mainScreen,
+                      mainScreen,
 
                       // Child 1 is ALWAYS the edge drop-shadow along the left border
                       Positioned(
@@ -149,7 +201,7 @@ class _HiddenDrawerScaffoldState extends State<HiddenDrawerScaffold>
                         width: 24,
                         child: IgnorePointer(
                           child: Opacity(
-                            opacity: progress.clamp(0.0, 1.0),
+                            opacity: progress,
                             child: const DecoratedBox(
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(

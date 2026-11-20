@@ -11,6 +11,9 @@ import 'package:musify_mu/features/library/data/cache/playlist_detail_cache.dart
 import 'package:musify_mu/features/library/data/sources/playlist_remote_source.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_play_client.dart';
 import 'package:musify_mu/features/player/domain/commands/options/logging_params.dart';
+import 'package:musify_mu/features/player/domain/commands/options/play_operation.dart';
+import 'package:musify_mu/features/player/domain/commands/options/play_options.dart';
+import 'package:musify_mu/features/player/domain/commands/options/play_trigger.dart';
 import 'package:musify_mu/features/player/domain/commands/options/player_option_overrides.dart';
 import 'package:musify_mu/features/player/domain/commands/options/prepare_play_options.dart';
 import 'package:musify_mu/features/player/domain/commands/options/skip_to_track.dart';
@@ -589,6 +592,10 @@ class PlaylistRepositoryImpl implements PlaylistRepository {
         playerOptionsOverride: shuffle
             ? PlayerOptionOverrides.builder().shufflingContext(true).build()
             : null,
+      ),
+      playOptions: const PlayOptions(
+        operation: PlayOperation.replace,
+        trigger: PlayTrigger.immediately,
       ),
       loggingParams: loggingParams,
     );

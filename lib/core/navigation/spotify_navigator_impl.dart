@@ -5,6 +5,9 @@ import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
 import '../../app/di/injection.dart';
 import '../../features/player/data/esperanto/context_player_play_client.dart';
+import '../../features/player/domain/commands/options/play_operation.dart';
+import '../../features/player/domain/commands/options/play_options.dart';
+import '../../features/player/domain/commands/options/play_trigger.dart';
 import '../../features/player/domain/commands/options/prepare_play_options.dart';
 import '../../features/player/domain/commands/options/skip_to_track.dart';
 import '../../features/player/domain/commands/play_command.dart';
@@ -12,6 +15,7 @@ import '../../features/player/domain/models/context.dart';
 import '../../features/player/domain/models/context_page.dart';
 import '../../features/player/domain/models/context_track.dart';
 import '../../features/player/domain/models/play_origin.dart';
+import '../../features/player/domain/models/player_response.dart';
 import '../../features/playlist/domain/repositories/playlist_repository.dart';
 import '../../features/playlist/presentation/playlist_screen.dart';
 import '../ubi/data/lifecycle/page_instance_id_holder.dart';
@@ -82,6 +86,10 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
     ContextTrack? track,
   }) async {
     if (!getIt.isRegistered<ContextPlayerPlayClient>()) {
+      dev.log(
+        '[PLAYBACK][CONNECT] ContextPlayerPlayClient not registered; cannot play standalone URI $uri',
+        name: 'SpotifyNavigatorImpl',
+      );
       return false;
     }
     final effectiveTrack = switch (track) {
@@ -89,12 +97,11 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
       null => ContextTrack.builder(uri).build(),
     };
     final page = ContextPage.builder()
-        .pageUrl('context://$uri?page=0')
-        .tracks([effectiveTrack])
+        .tracks(<ContextTrack>[effectiveTrack])
         .build();
-    final playbackContext = Context.builder(uri)
-        .url('context://$uri')
-        .pages([page])
+    final playbackContext = Context.fromUri(uri)
+        .toBuilder()
+        .pages(<ContextPage>[page])
         .build();
     final skipToBuilder = SkipToTrack.builder().trackUri(uri);
     if (effectiveTrack.uid.isNotEmpty) {
@@ -104,13 +111,26 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
         .skipTo(skipToBuilder.build())
         .initiallyPaused(false)
         .build();
+    const playOptions = PlayOptions(
+      operation: PlayOperation.replace,
+      trigger: PlayTrigger.immediately,
+    );
     final command = PlayCommand.builder(
       playbackContext,
       PlayOrigin.create('link_dispatcher'),
-    ).options(options).build();
+    ).options(options).playOptions(playOptions).build();
 
-    await getIt<ContextPlayerPlayClient>().play(command);
-    return true;
+    final response = await getIt<ContextPlayerPlayClient>().play(command);
+    switch (response) {
+      case PlayerResponseSuccess():
+        return true;
+      case PlayerResponseFailure(:final reasons):
+        dev.log(
+          '[PLAYBACK][CONNECT] Standalone PlayCommand failed for $uri: $reasons',
+          name: 'SpotifyNavigatorImpl',
+        );
+        return false;
+    }
   }
 
   /// Single authoritative implementation for direct URI playback (tracks, episodes, playlists).
@@ -210,7 +230,19 @@ class SpotifyNavigatorImpl implements SpotifyNavigator {
     if (uri.startsWith('spotify:track:') ||
         uri.startsWith('spotify:episode:')) {
       if (getIt.isRegistered<ContextPlayerPlayClient>()) {
-        unawaited(_playStandaloneItem(uri, track: track));
+        unawaited(
+          _playStandaloneItem(uri, track: track).then(
+            (_) {},
+            onError: (Object error, StackTrace stackTrace) {
+              dev.log(
+                '[PLAYBACK][CONNECT] Standalone play threw for $uri: $error',
+                name: 'SpotifyNavigatorImpl',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            },
+          ),
+        );
         return true;
       }
     }

@@ -17,8 +17,8 @@ import 'package:musify_mu/features/connect/data/proto/es_dodos_messages.pb.dart'
     as dodos_pb;
 import 'package:musify_mu/features/connect/data/proto/es_volume_messages.pb.dart'
     as volume_pb;
+import 'package:musify_mu/features/connect/domain/interfaces/audio_route_port.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_volume_state.dart';
-import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
 import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 
@@ -35,6 +35,7 @@ final class _ControllerFakeTransport implements EsperantoTransport {
       StreamController<Uint8List>.broadcast();
 
   final List<String> singleMethods = <String>[];
+  connect_pb.StateRequest? lastStateRequest;
   Future<Uint8List> Function(String service, String method, Uint8List payload)?
       onCallSingle;
   Stream<Uint8List> Function(Uint8List payload)? onInstallSpotify;
@@ -60,6 +61,7 @@ final class _ControllerFakeTransport implements EsperantoTransport {
     Uint8List payload,
   ) {
     if (service == ConnectServiceClient.serviceName && method == 'State') {
+      lastStateRequest = connect_pb.StateRequest.fromBuffer(payload);
       return stateStreamController.stream;
     }
     if (service == ConnectServiceClient.serviceName &&
@@ -919,5 +921,119 @@ void main() {
         fail('Unexpected uncaught error in volume/sorting test: $error');
       });
     });
+
+    test('unconditionally subscribes with includeLocalDevice: true, auto-syncs AudioRoutePort peripherals to NotifyAudioRouteChanged, and clears cache on stop(clearCache: true)', () async {
+      final transport = _ControllerFakeTransport();
+      final routeEvents = StreamController<List<LocalAudioPeripheral>>.broadcast();
+      final audioRoutePort = _FakeControllerAudioRoutePort(
+        initialPeripherals: <LocalAudioPeripheral>[
+          LocalAudioPeripheral(
+            id: kBuiltInSpeakerPeripheralId,
+            name: 'This phone',
+            isActive: true,
+            connectionType: OutputPeripheralConnectionType.builtInSpeaker,
+          ),
+        ],
+        stream: routeEvents.stream,
+      );
+      final sortingDb = DevicePickerSortingDatabase.forTesting(
+        NativeDatabase.memory(),
+      );
+      final routeNotifications = <connect_pb.NotifyAudioRouteChangedRequest>[];
+      transport.onCallSingle = (service, method, payload) async {
+        if (method == 'NotifyAudioRouteChanged') {
+          routeNotifications.add(
+            connect_pb.NotifyAudioRouteChangedRequest.fromBuffer(payload),
+          );
+        }
+        return Uint8List(0);
+      };
+
+      final controller = ConnectMobiusController(
+        connectServiceClient: ConnectServiceClient(transport),
+        volumeServiceClient: ConnectVolumeServiceClient(transport),
+        dodoServiceClient: DodoServiceClient(transport),
+        sortingDatabase: sortingDb,
+        audioRoutePort: audioRoutePort,
+      );
+      addTearDown(() async {
+        await controller.close();
+        await routeEvents.close();
+        await sortingDb.close();
+        await transport.close();
+      });
+
+      expect(controller.hasAudioRouteBinding, isTrue);
+
+      controller.start();
+      await pumpEventQueue();
+
+      // Verify StateRequest unconditionally enables includeLocalDevice: true
+      expect(transport.lastStateRequest, isNotNull);
+      expect(transport.lastStateRequest?.includeLocalDevice, isTrue);
+
+      // Seed cluster devices so selfDevice is present for selfPeripherals projection
+      transport.stateStreamController.add(
+        _encodeCluster(
+          isSyncedWithBackend: true,
+          devices: <connect_pb.StateResponse_Device>[
+            _protoDevice(id: 'self-id', name: 'Phone', isSelf: true),
+            _protoDevice(id: 'remote-1', name: 'Sonos', isActive: true),
+          ],
+        ),
+      );
+      await pumpEventQueue();
+      expect(controller.devices, hasLength(2));
+
+      // Verify initial getPeripherals() triggered NotifyAudioRouteChanged
+      expect(routeNotifications, hasLength(1));
+      expect(routeNotifications.single.audioOutputDeviceName, equals('This phone'));
+
+      // Switching active peripheral to Bluetooth dispatches another NotifyAudioRouteChanged
+      routeEvents.add(<LocalAudioPeripheral>[
+        LocalAudioPeripheral(
+          id: 'bt-1',
+          name: 'Pixel Buds Pro',
+          isActive: true,
+          connectionType: OutputPeripheralConnectionType.bluetooth,
+          brand: 'Google',
+          model: 'Pixel Buds Pro',
+          category: OutputPeripheralCategory.headphones,
+        ),
+      ]);
+      await pumpEventQueue();
+
+      expect(routeNotifications, hasLength(2));
+      expect(
+        routeNotifications.last.audioOutputDeviceName,
+        equals('Pixel Buds Pro'),
+      );
+      expect(controller.state.activeSelfPeripheral?.name, equals('Pixel Buds Pro'));
+
+      await controller.stop(clearCache: true);
+      controller.start();
+      expect(controller.devices, isEmpty);
+      expect(controller.isSyncedWithBackend, isFalse);
+    });
   });
+}
+
+final class _FakeControllerAudioRoutePort implements AudioRoutePort {
+  final List<LocalAudioPeripheral> initialPeripherals;
+  final Stream<List<LocalAudioPeripheral>> stream;
+
+  const _FakeControllerAudioRoutePort({
+    required this.initialPeripherals,
+    required this.stream,
+  });
+
+  @override
+  Future<List<LocalAudioPeripheral>> getPeripherals() async =>
+      initialPeripherals;
+
+  @override
+  Stream<List<LocalAudioPeripheral>> watchPeripherals() => stream;
+
+  @override
+  Future<bool> openSystemOutputSwitcher() async => true;
 }

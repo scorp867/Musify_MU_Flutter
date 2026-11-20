@@ -43,19 +43,23 @@ final class ConnectServiceClient extends EsperantoClientBase {
 
   /// 1:1 with `p199p/s77.java:3743` (`ConnectService.State` `callStream`).
   ///
+  /// Spotify unconditionally sets `includeLocalDevice = true`
+  /// (`p199p/ewm.java:108-116`, `p199p/v8k.java:110-120`, `p199p/lak.java:55-61`)
+  /// so the local self device is always present in `StateResponse.devices`.
+  ///
   /// Accepts valid 0-byte proto3 `StateResponse` payloads (when all bools are
   /// `false` and `devices` is empty) via [ConnectProtoMappers.clusterFromBuffer].
   Stream<ConnectCluster> state({
     bool showOfflineDevicesInCore = false,
     bool showOfflineAmazonDevicesAsOnline = false,
-    bool includeLocalDevice = false,
+    bool includeLocalDevice = true,
     bool excludeNonLocalDevices = false,
     bool includeUserMatchUnauthenticatedDevices = false,
   }) {
     final request = mappers.buildStateRequest(
       showOfflineDevicesInCore: showOfflineDevicesInCore,
       showOfflineAmazonDevicesAsOnline: showOfflineAmazonDevicesAsOnline,
-      includeLocalDevice: includeLocalDevice,
+      includeLocalDevice: true,
       excludeNonLocalDevices: excludeNonLocalDevices,
       includeUserMatchUnauthenticatedDevices:
           includeUserMatchUnauthenticatedDevices,

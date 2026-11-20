@@ -8,6 +8,8 @@ import 'package:musify_mu/features/connect/data/proto/es_common_messages.pb.dart
     as common_pb;
 import 'package:musify_mu/features/connect/data/proto/es_volume_messages.pb.dart'
     as volume_pb;
+import 'package:musify_mu/features/connect/domain/interfaces/connect_native_gateway.dart';
+import 'package:musify_mu/features/connect/domain/interfaces/system_volume_port.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_capabilities.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
 import 'package:musify_mu/features/connect/domain/models/connect_group_data.dart';
@@ -592,5 +594,249 @@ void main() {
         throwsStateError,
       );
     });
+
+    testWidgets('cancels pending active and group throttle slots on active device switch and clears activeDeviceConnectStateIdentifier when device is null', (tester) async {
+      final transport = _FakeVolumeTransport();
+      final client = ConnectVolumeServiceClient(transport);
+      final controller = RemoteVolumeController(volumeClient: client);
+      addTearDown(controller.dispose);
+      addTearDown(transport.close);
+
+      final speaker1 = _makeDevice(id: 'spk-1', volumeSteps: 100);
+      controller.updateActiveDevice(speaker1);
+      expect(controller.state.activeDeviceConnectStateIdentifier, equals('spk-1'));
+
+      // Leading call (0.2) fires immediately; trailing call (0.9) is queued in throttle slot.
+      final fLeading = controller.setVolume(0.2);
+      final fTrailing = controller.setVolume(0.9);
+      await tester.pump();
+      expect(transport.singleCalls, hasLength(1));
+
+      // Before the 200ms cooldown expires, switch active device to null.
+      // Must cancel the queued trailing command for spk-1 and clear activeDeviceConnectStateIdentifier.
+      controller.updateActiveDevice(null);
+      expect(controller.state.activeDevice, isNull);
+      expect(controller.state.activeDeviceConnectStateIdentifier, isNull);
+      expect(controller.state.outputMode, equals(VolumeOutputMode.local));
+      expect(controller.state.isChangingVolume, isFalse);
+
+      // Advance past 800ms -> cancelled trailing call for spk-1 must never fire.
+      await tester.pump(const Duration(milliseconds: 850));
+      expect(transport.singleCalls, hasLength(1));
+      expect(await fLeading, equals(ConnectVolumeStatus.ok));
+      expect(await fTrailing, equals(ConnectVolumeStatus.ok));
+    });
+
+    test('routes bidirectional hardware volume events across SystemVolumePort and ConnectNativeGateway', () async {
+      final transport = _FakeVolumeTransport();
+      final client = ConnectVolumeServiceClient(transport);
+      final systemEvents = StreamController<SystemVolumeEvent>.broadcast();
+      final gatewayLocalVol = StreamController<Uint8List>.broadcast();
+      addTearDown(systemEvents.close);
+      addTearDown(gatewayLocalVol.close);
+
+      final configuredCalls = <Map<String, Object>>[];
+      final updatedRemoteWireVols = <int>[];
+      final setLocalSysVols = <int>[];
+      final setLocalGatewayCalls = <Map<String, Object>>[];
+
+      final sysPort = _FakeSystemVolumePort(
+        events: systemEvents.stream,
+        onConfigureRemote: ({
+          required bool enabled,
+          required bool supportsVolume,
+          required int volumeSteps,
+          required int currentVolume,
+        }) {
+          configuredCalls.add(<String, Object>{
+            'enabled': enabled,
+            'supportsVolume': supportsVolume,
+            'volumeSteps': volumeSteps,
+            'currentVolume': currentVolume,
+          });
+        },
+        onUpdateRemote: (currentVolume) {
+          updatedRemoteWireVols.add(currentVolume);
+        },
+        onSetLocal: (volume) {
+          setLocalSysVols.add(volume);
+        },
+      );
+
+      final nativeGateway = _FakeVolumeNativeGateway(
+        localVolumeStream: gatewayLocalVol.stream,
+        onSetLocalVolume: ({
+          required int volume0To65535,
+          required int volumeSteps,
+          required ConnectLocalVolumeReason reason,
+        }) {
+          setLocalGatewayCalls.add(<String, Object>{
+            'volume': volume0To65535,
+            'steps': volumeSteps,
+            'reason': reason,
+          });
+        },
+      );
+
+      final controller = RemoteVolumeController(
+        volumeClient: client,
+        systemVolumePort: sysPort,
+        nativeGateway: nativeGateway,
+        throttleWindow: Duration.zero,
+        suppressionWindow: Duration.zero,
+        localDebounceWindow: Duration.zero,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(transport.close);
+      await pumpEventQueue();
+
+      // 1) Local active: OS LocalVolumeChanged pushes to nativeGateway.setLocalVolume(..., user)
+      systemEvents.add(
+        LocalVolumeChanged(volume: 20000, steps: 25, currentStep: 8),
+      );
+      await pumpEventQueue();
+      expect(setLocalGatewayCalls, hasLength(1));
+      expect(setLocalGatewayCalls.single['volume'], equals(20000));
+      expect(setLocalGatewayCalls.single['steps'], equals(25));
+      expect(
+        setLocalGatewayCalls.single['reason'],
+        equals(ConnectLocalVolumeReason.user),
+      );
+
+      // 2) Local active: nativeGateway.localVolumeStream pushes to systemVolumePort.setLocalVolume
+      final remoteToLocalPb = volume_pb.LocalVolumeResponse(
+        volume: 45000,
+        reason: volume_pb.LocalVolumeResponse_Reason.USER,
+      );
+      gatewayLocalVol.add(Uint8List.fromList(remoteToLocalPb.writeToBuffer()));
+      await pumpEventQueue();
+      expect(setLocalSysVols, equals(<int>[45000]));
+
+      // 3) Remote active: configures VolumeProviderCompat (enabled: true) and updates on volume change
+      controller.updateActiveDevice(
+        _makeDevice(
+          id: 'remote-sonos',
+          isLocal: false,
+          supportsVolume: true,
+          volumeSteps: 64,
+          initialVolume: 0.5,
+        ),
+      );
+      await pumpEventQueue();
+      expect(configuredCalls, isNotEmpty);
+      expect(configuredCalls.last['enabled'], isTrue);
+      expect(configuredCalls.last['supportsVolume'], isTrue);
+      expect(configuredCalls.last['volumeSteps'], equals(64));
+
+      // Hardware volume up/down and slider events route to ConnectVolumeServiceClient
+      transport.singleCalls.clear();
+      systemEvents.add(RemoteVolumeAdjust(direction: 1));
+      await pumpEventQueue();
+      expect(transport.singleCalls, hasLength(1));
+      expect(transport.singleCalls.last.method, equals('VolumeSet'));
+      expect(updatedRemoteWireVols, isNotEmpty);
+
+      systemEvents.add(RemoteVolumeSet(volume: 65535));
+      await pumpEventQueue();
+      expect(transport.singleCalls, hasLength(2));
+      expect(
+        volume_pb.VolumeSetRequest.fromBuffer(
+          transport.singleCalls.last.payload,
+        ).volume,
+        equals(65535),
+      );
+
+      // 4) Switching back to local or stopping controller restores local hardware volume routing (enabled: false)
+      await controller.stop();
+      expect(controller.isStarted, isFalse);
+      expect(configuredCalls.last['enabled'], isFalse);
+    });
   });
+}
+
+final class _FakeSystemVolumePort implements SystemVolumePort {
+  final Stream<SystemVolumeEvent> events;
+  final void Function({
+    required bool enabled,
+    required bool supportsVolume,
+    required int volumeSteps,
+    required int currentVolume,
+  }) onConfigureRemote;
+  final void Function(int currentVolume) onUpdateRemote;
+  final void Function(int volume) onSetLocal;
+
+  _FakeSystemVolumePort({
+    required this.events,
+    required this.onConfigureRemote,
+    required this.onUpdateRemote,
+    required this.onSetLocal,
+  });
+
+  @override
+  Future<SystemVolumeSnapshot> getLocalVolume() async =>
+      SystemVolumeSnapshot(volume: 32768, steps: 25, currentStep: 12);
+
+  @override
+  Future<bool> setLocalVolume({
+    required int volume,
+    bool showUi = false,
+  }) async {
+    onSetLocal(volume);
+    return true;
+  }
+
+  @override
+  Future<bool> configureRemoteHardwareVolume({
+    required bool enabled,
+    required bool supportsVolume,
+    required int volumeSteps,
+    required int currentVolume,
+  }) async {
+    onConfigureRemote(
+      enabled: enabled,
+      supportsVolume: supportsVolume,
+      volumeSteps: volumeSteps,
+      currentVolume: currentVolume,
+    );
+    return true;
+  }
+
+  @override
+  Future<bool> updateRemoteHardwareVolume({required int currentVolume}) async {
+    onUpdateRemote(currentVolume);
+    return true;
+  }
+
+  @override
+  Stream<SystemVolumeEvent> watchEvents() => events;
+}
+
+final class _FakeVolumeNativeGateway extends Fake
+    implements ConnectNativeGateway {
+  @override
+  final Stream<Uint8List> localVolumeStream;
+  final void Function({
+    required int volume0To65535,
+    required int volumeSteps,
+    required ConnectLocalVolumeReason reason,
+  }) onSetLocalVolume;
+
+  _FakeVolumeNativeGateway({
+    required this.localVolumeStream,
+    required this.onSetLocalVolume,
+  });
+
+  @override
+  int setLocalVolume({
+    required int volume0To65535,
+    required int volumeSteps,
+    required ConnectLocalVolumeReason reason,
+  }) {
+    onSetLocalVolume(
+      volume0To65535: volume0To65535,
+      volumeSteps: volumeSteps,
+      reason: reason,
+    );
+    return 0;
+  }
 }

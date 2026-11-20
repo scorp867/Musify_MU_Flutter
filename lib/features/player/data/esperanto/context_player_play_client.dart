@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart';
 
+import '../../domain/commands/options/command_options.dart';
 import '../../domain/commands/options/logging_params.dart';
 import '../../domain/commands/options/play_operation.dart';
 import '../../domain/commands/options/play_options.dart';
@@ -25,6 +26,7 @@ import '../../domain/models/player_response.dart';
 import '../../domain/models/restrictions.dart';
 import 'context_player_play_prepared_client.dart';
 import 'esperanto_transport.dart';
+import 'proto/es_command_options.pb.dart' as proto_cmd;
 import 'proto/es_context.pb.dart' as proto_ctx;
 import 'proto/es_context_page.pb.dart' as proto_page;
 import 'proto/es_context_player_options.pb.dart' as proto_cpo;
@@ -383,6 +385,30 @@ class ContextPlayerPlayClient extends EsperantoClientBase {
     return p;
   }
 
+  static bool _hasCommandOptions(CommandOptions options) =>
+      options.overrideRestrictions != null ||
+      options.onlyForLocalDevice != null ||
+      options.systemInitiated != null ||
+      options.onlyForPlaybackId != null;
+
+  static proto_cmd.CommandOptions _commandOptionsToProto(
+      CommandOptions options) {
+    final p = proto_cmd.CommandOptions();
+    if (options.overrideRestrictions case final overrideRestrictions?) {
+      p.overrideRestrictions = overrideRestrictions;
+    }
+    if (options.onlyForLocalDevice case final onlyForLocalDevice?) {
+      p.onlyForLocalDevice = onlyForLocalDevice;
+    }
+    if (options.systemInitiated case final systemInitiated?) {
+      p.systemInitiated = systemInitiated;
+    }
+    if (options.onlyForPlaybackId case final onlyForPlaybackId?) {
+      p.onlyForPlaybackId = utf8.encode(onlyForPlaybackId);
+    }
+    return p;
+  }
+
   // 1:1 with dsl1.m39189n
   static PlayerResponse _parseResponseWithReasons(
       proto_resp.ResponseWithReasons resp) {
@@ -409,6 +435,13 @@ class ContextPlayerPlayClient extends EsperantoClientBase {
     final playOptions = command.playOptions;
     if (playOptions != null) {
       playReq.playOptions = _playOptionsToProto(playOptions);
+    }
+
+    if (command.commandOptions case final commandOptions?) {
+      playReq.options = _commandOptionsToProto(commandOptions);
+    } else if (playOptions != null &&
+        _hasCommandOptions(playOptions.commandOptions)) {
+      playReq.options = _commandOptionsToProto(playOptions.commandOptions);
     }
 
     final decoratedParams = _decorateLoggingParams(command.loggingParams);

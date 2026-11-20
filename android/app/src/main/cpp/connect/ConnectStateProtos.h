@@ -1,5 +1,5 @@
 // ============================================================================
-// 1:1 Replicated Spotify Connect State Protobuf Wire Encoders & Decoders
+// 1:1 Replicated Spotify Connect State, Group & Transfer Protobuf Wire Codecs
 // Sources:
 // - `liborbit-jni-spotify_memdump.so` offsets:
 //   - 0x3fa5c4 (`connect.proto`)
@@ -11,10 +11,15 @@
 // - ARM64 ELF `liborbit-jni-spotify.so` FileDescriptorProto offsets:
 //   - 0x631e5c (`connect.proto`), 0x635530 (`connect-service.proto`),
 //     0x6358a0 (`devices.proto`), 0x635f80 (`player.proto`),
-//     0x5a56c0 (`connect_group.proto`), 0x5a1dd0 (`dodos_messages.proto`)
-// - Embedded proto messages (`connect.proto` @ ELF 0x631e5c / memdump 0x3fa5c4):
-//   `spotify.connectstate.PutStateRequest`, `spotify.connectstate.Cluster`,
-//   `spotify.connectstate.ClusterUpdate`
+//     0x5a5220 / 0x5766a0 (`connect_group_event.proto`),
+//     0x5a56c0 / 0x576b50 (`connect_group.proto`),
+//     0x5a1dd0 (`dodos_messages.proto`),
+//     0x60c1c4 / 0x5dea70 (`transfer_state.proto`),
+//     0x60a6c0 / 0x5dcf10 (`playback.proto`),
+//     0x60ba78 / 0x5de2f0 (`session.proto`),
+//     0x60a8d4 / 0x5dd130 (`queue.proto`),
+//     0x6094fc (`context.proto`), 0x609700 (`context_page.proto`),
+//     0x609c74 (`context_track.proto`), 0x609924 (`context_player_options.proto`)
 // ============================================================================
 
 #pragma once
@@ -211,6 +216,22 @@ enum class ResyncGroupDataError : uint32_t {
     CONNECT_ERROR = 4,
 };
 
+enum class IncarnationType : uint32_t {
+    CONNECT = 0,
+    CAST = 1,
+    ZEROCONF = 2,
+    DIAL = 3,
+};
+
+struct Incarnation {
+    IncarnationType type{IncarnationType::CONNECT};
+    std::string identifier;
+    std::string connect_state_identifier;
+    std::string local_ip;
+    uint16_t port{0};
+    bool preferred{false};
+};
+
 struct CapabilitySupportDetails {
     bool fully_supported{false};
     bool user_eligible{false};
@@ -237,7 +258,8 @@ struct Capabilities {
     bool supports_transfer_command{true};
     bool supports_command_request{true};
     bool is_voice_enabled{false};
-    bool needs_full_player_state{false};
+    bool needs_full_player_state{true};
+    bool has_needs_full_player_state{true};
     bool supports_gzip_pushes{true};
     bool supports_set_options_command{true};
     std::optional<CapabilitySupportDetails> supports_hifi;
@@ -263,6 +285,16 @@ struct AudioOutputDeviceInfo {
     AudioOutputCategory category{AudioOutputCategory::AUDIO_OUTPUT_CATEGORY_UNKNOWN};
 };
 
+[[nodiscard]] inline bool is_audio_output_device_info_populated(
+    const AudioOutputDeviceInfo& info) noexcept {
+    return info.audio_output_device_type !=
+               AudioOutputDeviceType::UNKNOWN_AUDIO_OUTPUT_DEVICE_TYPE ||
+           !info.device_name.empty() ||
+           !info.brand.empty() ||
+           !info.model.empty() ||
+           info.category != AudioOutputCategory::AUDIO_OUTPUT_CATEGORY_UNKNOWN;
+}
+
 struct DeviceAlias {
     uint32_t id{0};
     std::string display_name;
@@ -273,9 +305,10 @@ struct DeviceAlias {
 struct DeviceInfo {
     bool can_play{true};
     uint32_t volume{65535};
+    bool has_volume{true};
     std::string name;
     Capabilities capabilities;
-    std::string device_software_version{"1.2.87.215"};
+    std::string device_software_version{"1.0.0"};
     DeviceType device_type{DeviceType::SMARTPHONE};
     std::string spirc_version{"3.2.0"};
     std::string device_id;
@@ -285,21 +318,21 @@ struct DeviceInfo {
     std::string brand{"Musify"};
     std::string model{"Musify Mobile"};
     std::unordered_map<std::string, std::string> metadata_map;
-    std::string product_id{"musify-client"};
+    std::string product_id{"musify-android"};
     std::string deduplication_id;
     uint32_t selected_alias_id{0};
     std::unordered_map<uint32_t, DeviceAlias> device_aliases;
     bool is_offline{false};
     std::string public_ip;
     std::string license{"premium"};
-    AudioOutputDeviceInfo audio_output_device_info;
+    std::optional<AudioOutputDeviceInfo> audio_output_device_info;
     bool is_group{false};
     bool is_dynamic_device{false};
     std::vector<std::string> disallow_playback_reasons;
     std::vector<std::string> disallow_transfer_reasons;
     bool is_locally_discovered{false};
     std::string group_instance;
-    bool is_public{true};
+    bool is_public{false};
     bool is_wol_capable{false};
 };
 
@@ -359,6 +392,8 @@ struct SingleDodo {
 struct ContextIndex {
     uint32_t page{0};
     uint32_t track{0};
+    bool has_page{true};
+    bool has_track{true};
 };
 
 struct PlaybackQuality {
@@ -521,9 +556,13 @@ struct ProvidedTrack {
 
 struct ContextPlayerOptions {
     bool shuffling_context{false};
+    bool has_shuffling_context{false};
     bool repeating_context{false};
+    bool has_repeating_context{false};
     bool repeating_track{false};
+    bool has_repeating_track{false};
     float playback_speed{1.0f};
+    bool has_playback_speed{false};
     std::unordered_map<std::string, std::string> modes;
 };
 
@@ -537,12 +576,19 @@ struct PlayerState {
     ProvidedTrack track;
     std::string playback_id;
     double playback_speed{1.0};
+    bool has_playback_speed{false};
     int64_t position_as_of_timestamp{0};
+    bool has_position_as_of_timestamp{false};
     int64_t duration{0};
+    bool has_duration{false};
     bool is_playing{false};
+    bool has_is_playing{false};
     bool is_paused{false};
+    bool has_is_paused{false};
     bool is_buffering{false};
+    bool has_is_buffering{false};
     bool is_system_initiated{false};
+    bool has_is_system_initiated{false};
     ContextPlayerOptions options;
     std::optional<Restrictions> restrictions;
     std::optional<Suppressions> suppressions;
@@ -564,7 +610,7 @@ struct Device {
     DeviceInfo device_info;
     PlayerState player_state;
     bool has_player_state{false};
-    std::string platform{"Android"};
+    std::optional<std::string> platform;
     std::vector<uint8_t> transfer_data;
 };
 
@@ -573,6 +619,7 @@ struct PutStateRequest {
     Device device;
     MemberType member_type{MemberType::CONNECT_STATE};
     bool is_active{false};
+    bool has_is_active{true};
     PutStateReason put_state_reason{PutStateReason::NEW_DEVICE};
     uint32_t message_id{1};
     std::string last_command_sent_by_device_id;
@@ -634,6 +681,141 @@ struct ClusterUpdate {
     std::vector<std::string> devices_that_changed;
 };
 
+// ============================================================================
+// Transfer State Protos (`transfer_state.proto`, `playback.proto`,
+// `session.proto`, `queue.proto`, `context.proto`, `context_page.proto`,
+// `context_track.proto` — liborbit-jni-spotify.so 0x5dcf10..0x60c1c4)
+// ============================================================================
+
+struct TransferContextTrack {
+    std::string uri;
+    std::string uid;
+    std::vector<uint8_t> gid;
+    std::unordered_map<std::string, std::string> metadata;
+};
+
+struct TransferContextPage {
+    std::string page_url;
+    std::string next_page_url;
+    std::unordered_map<std::string, std::string> metadata;
+    std::vector<TransferContextTrack> tracks;
+    bool loading{false};
+};
+
+struct TransferContext {
+    std::string uri;
+    std::string url;
+    std::unordered_map<std::string, std::string> metadata;
+    std::optional<Restrictions> restrictions;
+    std::vector<TransferContextPage> pages;
+    bool loading{false};
+};
+
+struct TransferPlayback {
+    int64_t timestamp{0};
+    bool has_timestamp{false};
+    int32_t position_as_of_timestamp{0};
+    bool has_position_as_of_timestamp{false};
+    double playback_speed{1.0};
+    bool has_playback_speed{false};
+    bool is_paused{false};
+    bool has_is_paused{false};
+    std::optional<TransferContextTrack> current_track;
+    std::optional<TransferContextTrack> associated_current_track;
+    std::optional<int32_t> associated_position_as_of_timestamp;
+};
+
+struct TransferSession {
+    std::optional<PlayOrigin> play_origin;
+    std::optional<TransferContext> context;
+    std::string current_uid;
+    std::optional<ContextPlayerOptions> option_overrides;
+    std::optional<Suppressions> suppressions;
+    std::string shuffle_seed;
+    std::optional<TransferContext> main_context;
+    std::string original_session_id;
+};
+
+struct TransferQueue {
+    std::vector<TransferContextTrack> tracks;
+    bool is_playing_queue{false};
+    bool has_is_playing_queue{false};
+};
+
+struct TransferState {
+    std::optional<ContextPlayerOptions> options;
+    std::optional<TransferPlayback> playback;
+    std::optional<TransferSession> current_session;
+    std::optional<TransferQueue> queue;
+    std::optional<SleepTimer> sleep_timer;
+};
+
+// ============================================================================
+// Connect-Group v1 Protos (`connect_group.proto` @ 0x576b50,
+// `connect_group_event.proto` @ 0x5766a0 in liborbit-jni-spotify.so)
+// ============================================================================
+
+struct ConnectGroupedDevice {
+    std::string group_device_identifier;
+    std::string display_name;
+    DeviceType device_type{DeviceType::UNKNOWN};
+    std::string spotify_connect_device_id;
+    std::string model_display_name;
+    bool removable{false};
+    bool removal_dissolves_group{false};
+};
+
+struct ConnectGroupableDevice {
+    std::string group_device_identifier;
+    std::string display_name;
+    DeviceType device_type{DeviceType::UNKNOWN};
+    std::string spotify_connect_device_id;
+    std::string model_display_name;
+};
+
+struct ConnectGroupData {
+    std::string spotify_device_id;
+    std::string group_identifier;
+    std::string group_instance;
+    std::vector<ConnectGroupedDevice> grouped_devices;
+    std::vector<ConnectGroupableDevice> groupable_devices;
+    std::optional<uint32_t> max_group_size;
+    int64_t timestamp_ms{0};
+};
+
+struct ConnectGroupDeviceVolume {
+    std::string spotify_device_id;
+    std::string group_instance;
+    std::string group_device_identifier;
+    uint32_t volume{0};
+    bool has_volume{false};
+    int32_t volume_steps{0};
+    int64_t timestamp_ms{0};
+};
+
+struct GroupDataEvent {
+    std::vector<ConnectGroupData> group_data;
+};
+
+struct GroupDeviceVolumeEvent {
+    std::vector<ConnectGroupDeviceVolume> volumes;
+};
+
+struct GetAllGroupDataResponse {
+    std::vector<ConnectGroupData> group_data;
+    std::vector<ConnectGroupDeviceVolume> group_device_volumes;
+};
+
+struct KnownGroupInstance {
+    std::string spotify_device_id;
+    std::string group_instance;
+    int64_t timestamp_ms{0};
+};
+
+struct RefreshGroupDataRequest {
+    std::vector<KnownGroupInstance> known_instances;
+};
+
 // Dealer Command Protos (`connect.proto` ELF 0x631e5c)
 struct ConnectCommandOptions {
     int32_t message_id{0};
@@ -651,6 +833,7 @@ struct LogoutCommand {
 
 struct SetVolumeCommand {
     int32_t volume{0};
+    bool has_volume{true};
     ConnectCommandOptions command_options;
     ConnectLoggingParams logging_params;
     std::string connection_type;
@@ -731,29 +914,25 @@ struct ResyncGroupDataCommandResponse {
 };
 
 // ============================================================================
-// Wire Format Helpers
+// Wire Format Helpers (Proto2 Explicit Presence + Default-Omit Helpers)
 // ============================================================================
 
-inline void encode_uint64_field(std::vector<uint8_t>& buf, uint32_t field_num, uint64_t val) {
-    if (val == 0) return;
+inline void encode_uint64_field_always(std::vector<uint8_t>& buf, uint32_t field_num, uint64_t val) {
     spotify::player::encode_varint(buf, (field_num << 3) | 0);
     spotify::player::encode_varint(buf, val);
 }
 
-inline void encode_int64_field(std::vector<uint8_t>& buf, uint32_t field_num, int64_t val) {
-    if (val == 0) return;
+inline void encode_int64_field_always(std::vector<uint8_t>& buf, uint32_t field_num, int64_t val) {
     spotify::player::encode_varint(buf, (field_num << 3) | 0);
     spotify::player::encode_varint(buf, static_cast<uint64_t>(val));
 }
 
-inline void encode_bool_field(std::vector<uint8_t>& buf, uint32_t field_num, bool val) {
-    if (!val) return;
+inline void encode_bool_field_always(std::vector<uint8_t>& buf, uint32_t field_num, bool val) {
     spotify::player::encode_varint(buf, (field_num << 3) | 0);
-    spotify::player::encode_varint(buf, 1);
+    spotify::player::encode_varint(buf, val ? 1ULL : 0ULL);
 }
 
-inline void encode_double_field(std::vector<uint8_t>& buf, uint32_t field_num, double val) {
-    if (val == 0.0) return;
+inline void encode_double_field_always(std::vector<uint8_t>& buf, uint32_t field_num, double val) {
     spotify::player::encode_varint(buf, (field_num << 3) | 1);
     uint64_t raw = 0;
     std::memcpy(&raw, &val, sizeof(double));
@@ -762,14 +941,38 @@ inline void encode_double_field(std::vector<uint8_t>& buf, uint32_t field_num, d
     }
 }
 
-inline void encode_float_field(std::vector<uint8_t>& buf, uint32_t field_num, float val) {
-    if (val == 0.0f) return;
+inline void encode_float_field_always(std::vector<uint8_t>& buf, uint32_t field_num, float val) {
     spotify::player::encode_varint(buf, (field_num << 3) | 5);
     uint32_t raw = 0;
     std::memcpy(&raw, &val, sizeof(float));
     for (size_t i = 0; i < 4; ++i) {
         buf.push_back(static_cast<uint8_t>((raw >> (i * 8)) & 0xFF));
     }
+}
+
+inline void encode_uint64_field(std::vector<uint8_t>& buf, uint32_t field_num, uint64_t val) {
+    if (val == 0) return;
+    encode_uint64_field_always(buf, field_num, val);
+}
+
+inline void encode_int64_field(std::vector<uint8_t>& buf, uint32_t field_num, int64_t val) {
+    if (val == 0) return;
+    encode_int64_field_always(buf, field_num, val);
+}
+
+inline void encode_bool_field(std::vector<uint8_t>& buf, uint32_t field_num, bool val) {
+    if (!val) return;
+    encode_bool_field_always(buf, field_num, true);
+}
+
+inline void encode_double_field(std::vector<uint8_t>& buf, uint32_t field_num, double val) {
+    if (val == 0.0) return;
+    encode_double_field_always(buf, field_num, val);
+}
+
+inline void encode_float_field(std::vector<uint8_t>& buf, uint32_t field_num, float val) {
+    if (val == 0.0f) return;
+    encode_float_field_always(buf, field_num, val);
 }
 
 inline void encode_bytes_field(std::vector<uint8_t>& buf, uint32_t field_num, const std::vector<uint8_t>& data) {
@@ -929,7 +1132,9 @@ inline std::vector<uint8_t> encode_capabilities(const Capabilities& caps) {
     encode_bool_field(buf, 19, caps.supports_transfer_command);
     encode_bool_field(buf, 20, caps.supports_command_request);
     encode_bool_field(buf, 21, caps.is_voice_enabled);
-    encode_bool_field(buf, 22, caps.needs_full_player_state);
+    if (caps.has_needs_full_player_state || caps.needs_full_player_state) {
+        encode_bool_field_always(buf, 22, caps.needs_full_player_state);
+    }
     encode_bool_field(buf, 23, caps.supports_gzip_pushes);
     encode_bool_field(buf, 25, caps.supports_set_options_command);
     if (caps.supports_hifi.has_value()) {
@@ -973,7 +1178,9 @@ inline std::vector<uint8_t> encode_device_alias(const DeviceAlias& alias) {
 inline std::vector<uint8_t> encode_device_info(const DeviceInfo& info) {
     std::vector<uint8_t> buf;
     encode_bool_field(buf, 1, info.can_play);
-    encode_uint64_field(buf, 2, info.volume);
+    if (info.has_volume || info.volume != 0) {
+        encode_uint64_field_always(buf, 2, info.volume);
+    }
     spotify::player::encode_string_field(buf, 3, info.name);
     spotify::player::encode_submessage_field(buf, 4, encode_capabilities(info.capabilities));
     spotify::player::encode_string_field(buf, 6, info.device_software_version);
@@ -1000,7 +1207,11 @@ inline std::vector<uint8_t> encode_device_info(const DeviceInfo& info) {
     encode_bool_field(buf, 21, info.is_offline);
     spotify::player::encode_string_field(buf, 22, info.public_ip);
     spotify::player::encode_string_field(buf, 23, info.license);
-    spotify::player::encode_submessage_field(buf, 24, encode_audio_output_device_info(info.audio_output_device_info));
+    if (info.audio_output_device_info.has_value() &&
+        is_audio_output_device_info_populated(*info.audio_output_device_info)) {
+        spotify::player::encode_submessage_field(
+            buf, 24, encode_audio_output_device_info(*info.audio_output_device_info));
+    }
     encode_bool_field(buf, 25, info.is_group);
     encode_bool_field(buf, 26, info.is_dynamic_device);
     for (const auto& r : info.disallow_playback_reasons) {
@@ -1172,8 +1383,12 @@ inline std::vector<uint8_t> encode_play_origin(const PlayOrigin& po) {
 
 inline std::vector<uint8_t> encode_context_index(const ContextIndex& idx) {
     std::vector<uint8_t> buf;
-    encode_uint64_field(buf, 1, idx.page);
-    encode_uint64_field(buf, 2, idx.track);
+    if (idx.has_page || idx.page != 0) {
+        encode_uint64_field_always(buf, 1, idx.page);
+    }
+    if (idx.has_track || idx.track != 0) {
+        encode_uint64_field_always(buf, 2, idx.track);
+    }
     return buf;
 }
 
@@ -1246,10 +1461,18 @@ inline std::vector<uint8_t> encode_provided_track(const ProvidedTrack& track) {
 
 inline std::vector<uint8_t> encode_context_player_options(const ContextPlayerOptions& opts) {
     std::vector<uint8_t> buf;
-    encode_bool_field(buf, 1, opts.shuffling_context);
-    encode_bool_field(buf, 2, opts.repeating_context);
-    encode_bool_field(buf, 3, opts.repeating_track);
-    encode_float_field(buf, 4, opts.playback_speed);
+    if (opts.has_shuffling_context || opts.shuffling_context) {
+        encode_bool_field_always(buf, 1, opts.shuffling_context);
+    }
+    if (opts.has_repeating_context || opts.repeating_context) {
+        encode_bool_field_always(buf, 2, opts.repeating_context);
+    }
+    if (opts.has_repeating_track || opts.repeating_track) {
+        encode_bool_field_always(buf, 3, opts.repeating_track);
+    }
+    if (opts.has_playback_speed || opts.playback_speed != 0.0f) {
+        encode_float_field_always(buf, 4, opts.playback_speed);
+    }
     for (const auto& [k, v] : opts.modes) {
         encode_string_map_entry(buf, 5, k, v);
     }
@@ -1274,13 +1497,27 @@ inline std::vector<uint8_t> encode_player_state(const PlayerState& ps) {
         spotify::player::encode_submessage_field(buf, 7, encode_provided_track(ps.track));
     }
     spotify::player::encode_string_field(buf, 8, ps.playback_id);
-    encode_double_field(buf, 9, ps.playback_speed);
-    encode_int64_field(buf, 10, ps.position_as_of_timestamp);
-    encode_int64_field(buf, 11, ps.duration);
-    encode_bool_field(buf, 12, ps.is_playing);
-    encode_bool_field(buf, 13, ps.is_paused);
-    encode_bool_field(buf, 14, ps.is_buffering);
-    encode_bool_field(buf, 15, ps.is_system_initiated);
+    if (ps.has_playback_speed || ps.playback_speed != 0.0) {
+        encode_double_field_always(buf, 9, ps.playback_speed);
+    }
+    if (ps.has_position_as_of_timestamp || ps.position_as_of_timestamp != 0) {
+        encode_int64_field_always(buf, 10, ps.position_as_of_timestamp);
+    }
+    if (ps.has_duration || ps.duration != 0) {
+        encode_int64_field_always(buf, 11, ps.duration);
+    }
+    if (ps.has_is_playing || ps.is_playing) {
+        encode_bool_field_always(buf, 12, ps.is_playing);
+    }
+    if (ps.has_is_paused || ps.is_paused) {
+        encode_bool_field_always(buf, 13, ps.is_paused);
+    }
+    if (ps.has_is_buffering || ps.is_buffering) {
+        encode_bool_field_always(buf, 14, ps.is_buffering);
+    }
+    if (ps.has_is_system_initiated || ps.is_system_initiated) {
+        encode_bool_field_always(buf, 15, ps.is_system_initiated);
+    }
     spotify::player::encode_submessage_field(buf, 16, encode_context_player_options(ps.options));
     if (ps.restrictions.has_value()) {
         spotify::player::encode_submessage_field(buf, 17, encode_restrictions(*ps.restrictions));
@@ -1333,12 +1570,14 @@ inline std::vector<uint8_t> encode_player_state(const PlayerState& ps) {
 inline std::vector<uint8_t> encode_device(const Device& dev) {
     std::vector<uint8_t> buf;
     spotify::player::encode_submessage_field(buf, 1, encode_device_info(dev.device_info));
-    if (dev.has_player_state || is_player_state_populated(dev.player_state)) {
+    // Strictly guard PlayerState on dev.has_player_state so inactive/mirrored snapshots
+    // can never echo stale PlayerState bytes back to Spotify Connect.
+    if (dev.has_player_state) {
         spotify::player::encode_submessage_field(buf, 2, encode_player_state(dev.player_state));
     }
-    if (!dev.platform.empty()) {
+    if (dev.platform.has_value() && !dev.platform->empty()) {
         std::vector<uint8_t> p_buf;
-        spotify::player::encode_string_field(p_buf, 1, dev.platform);
+        spotify::player::encode_string_field(p_buf, 1, *dev.platform);
         spotify::player::encode_submessage_field(buf, 3, p_buf);
     }
     encode_bytes_field(buf, 4, dev.transfer_data);
@@ -1350,7 +1589,9 @@ inline std::vector<uint8_t> encode_put_state_request(const PutStateRequest& req)
     spotify::player::encode_string_field(buf, 1, req.callback_url);
     spotify::player::encode_submessage_field(buf, 2, encode_device(req.device));
     encode_uint64_field(buf, 3, static_cast<uint64_t>(req.member_type));
-    encode_bool_field(buf, 4, req.is_active);
+    if (req.has_is_active || req.is_active) {
+        encode_bool_field_always(buf, 4, req.is_active);
+    }
     encode_uint64_field(buf, 5, static_cast<uint64_t>(req.put_state_reason));
     encode_uint64_field(buf, 6, req.message_id);
     spotify::player::encode_string_field(buf, 7, req.last_command_sent_by_device_id);
@@ -1454,7 +1695,9 @@ inline std::vector<uint8_t> encode_connect_logging_params(const ConnectLoggingPa
 
 inline std::vector<uint8_t> encode_set_volume_command(const SetVolumeCommand& cmd) {
     std::vector<uint8_t> buf;
-    encode_int64_field(buf, 1, cmd.volume);
+    if (cmd.has_volume || cmd.volume != 0) {
+        encode_int64_field_always(buf, 1, cmd.volume);
+    }
     spotify::player::encode_submessage_field(buf, 2, encode_connect_command_options(cmd.command_options));
     spotify::player::encode_submessage_field(buf, 3, encode_connect_logging_params(cmd.logging_params));
     spotify::player::encode_string_field(buf, 4, cmd.connection_type);
@@ -1507,6 +1750,221 @@ inline std::vector<uint8_t> encode_delete_group_command(const DeleteGroupCommand
 }
 
 // ============================================================================
+// TransferState Encoders
+// ============================================================================
+
+inline std::vector<uint8_t> encode_transfer_context_track(const TransferContextTrack& track) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, track.uri);
+    spotify::player::encode_string_field(buf, 2, track.uid);
+    encode_bytes_field(buf, 3, track.gid);
+    for (const auto& [k, v] : track.metadata) {
+        encode_string_map_entry(buf, 4, k, v);
+    }
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_transfer_context_page(const TransferContextPage& page) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, page.page_url);
+    spotify::player::encode_string_field(buf, 2, page.next_page_url);
+    for (const auto& [k, v] : page.metadata) {
+        encode_string_map_entry(buf, 3, k, v);
+    }
+    for (const auto& t : page.tracks) {
+        spotify::player::encode_submessage_field(buf, 4, encode_transfer_context_track(t));
+    }
+    encode_bool_field(buf, 5, page.loading);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_transfer_context(const TransferContext& ctx) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, ctx.uri);
+    spotify::player::encode_string_field(buf, 2, ctx.url);
+    for (const auto& [k, v] : ctx.metadata) {
+        encode_string_map_entry(buf, 3, k, v);
+    }
+    if (ctx.restrictions.has_value()) {
+        spotify::player::encode_submessage_field(buf, 4, encode_restrictions(*ctx.restrictions));
+    }
+    for (const auto& page : ctx.pages) {
+        spotify::player::encode_submessage_field(buf, 5, encode_transfer_context_page(page));
+    }
+    encode_bool_field(buf, 6, ctx.loading);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_transfer_playback(const TransferPlayback& pb) {
+    std::vector<uint8_t> buf;
+    if (pb.has_timestamp || pb.timestamp != 0) {
+        encode_int64_field_always(buf, 1, pb.timestamp);
+    }
+    if (pb.has_position_as_of_timestamp || pb.position_as_of_timestamp != 0) {
+        encode_int64_field_always(buf, 2, pb.position_as_of_timestamp);
+    }
+    if (pb.has_playback_speed || pb.playback_speed != 0.0) {
+        encode_double_field_always(buf, 3, pb.playback_speed);
+    }
+    if (pb.has_is_paused || pb.is_paused) {
+        encode_bool_field_always(buf, 4, pb.is_paused);
+    }
+    if (pb.current_track.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 5, encode_transfer_context_track(*pb.current_track));
+    }
+    if (pb.associated_current_track.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 6, encode_transfer_context_track(*pb.associated_current_track));
+    }
+    if (pb.associated_position_as_of_timestamp.has_value()) {
+        encode_int64_field_always(buf, 7, *pb.associated_position_as_of_timestamp);
+    }
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_transfer_session(const TransferSession& sess) {
+    std::vector<uint8_t> buf;
+    if (sess.play_origin.has_value()) {
+        spotify::player::encode_submessage_field(buf, 1, encode_play_origin(*sess.play_origin));
+    }
+    if (sess.context.has_value()) {
+        spotify::player::encode_submessage_field(buf, 2, encode_transfer_context(*sess.context));
+    }
+    spotify::player::encode_string_field(buf, 3, sess.current_uid);
+    if (sess.option_overrides.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 4, encode_context_player_options(*sess.option_overrides));
+    }
+    if (sess.suppressions.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 5, encode_suppressions(*sess.suppressions));
+    }
+    spotify::player::encode_string_field(buf, 7, sess.shuffle_seed);
+    if (sess.main_context.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 8, encode_transfer_context(*sess.main_context));
+    }
+    spotify::player::encode_string_field(buf, 9, sess.original_session_id);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_transfer_queue(const TransferQueue& q) {
+    std::vector<uint8_t> buf;
+    for (const auto& t : q.tracks) {
+        spotify::player::encode_submessage_field(buf, 1, encode_transfer_context_track(t));
+    }
+    if (q.has_is_playing_queue || q.is_playing_queue) {
+        encode_bool_field_always(buf, 2, q.is_playing_queue);
+    }
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_transfer_state(const TransferState& ts) {
+    std::vector<uint8_t> buf;
+    if (ts.options.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 1, encode_context_player_options(*ts.options));
+    }
+    if (ts.playback.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 2, encode_transfer_playback(*ts.playback));
+    }
+    if (ts.current_session.has_value()) {
+        spotify::player::encode_submessage_field(
+            buf, 3, encode_transfer_session(*ts.current_session));
+    }
+    if (ts.queue.has_value()) {
+        spotify::player::encode_submessage_field(buf, 4, encode_transfer_queue(*ts.queue));
+    }
+    if (ts.sleep_timer.has_value() && ts.sleep_timer->kind != SleepTimer::Kind::Unset) {
+        spotify::player::encode_submessage_field(buf, 7, encode_sleep_timer(*ts.sleep_timer));
+    }
+    return buf;
+}
+
+// ============================================================================
+// Connect-Group v1 Encoders
+// ============================================================================
+
+inline std::vector<uint8_t> encode_connect_grouped_device(const ConnectGroupedDevice& dev) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, dev.group_device_identifier);
+    spotify::player::encode_string_field(buf, 2, dev.display_name);
+    encode_uint64_field(buf, 3, static_cast<uint64_t>(dev.device_type));
+    spotify::player::encode_string_field(buf, 4, dev.spotify_connect_device_id);
+    spotify::player::encode_string_field(buf, 5, dev.model_display_name);
+    if (dev.removable || dev.removal_dissolves_group) {
+        std::vector<uint8_t> caps;
+        encode_bool_field(caps, 1, dev.removable);
+        encode_bool_field(caps, 2, dev.removal_dissolves_group);
+        spotify::player::encode_submessage_field(buf, 6, caps);
+    }
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_connect_groupable_device(const ConnectGroupableDevice& dev) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, dev.group_device_identifier);
+    spotify::player::encode_string_field(buf, 2, dev.display_name);
+    encode_uint64_field(buf, 3, static_cast<uint64_t>(dev.device_type));
+    spotify::player::encode_string_field(buf, 4, dev.spotify_connect_device_id);
+    spotify::player::encode_string_field(buf, 5, dev.model_display_name);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_connect_group_data(const ConnectGroupData& gd) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, gd.spotify_device_id);
+    spotify::player::encode_string_field(buf, 2, gd.group_identifier);
+    spotify::player::encode_string_field(buf, 3, gd.group_instance);
+    for (const auto& d : gd.grouped_devices) {
+        spotify::player::encode_submessage_field(buf, 4, encode_connect_grouped_device(d));
+    }
+    for (const auto& d : gd.groupable_devices) {
+        spotify::player::encode_submessage_field(buf, 5, encode_connect_groupable_device(d));
+    }
+    if (gd.max_group_size.has_value()) {
+        std::vector<uint8_t> caps;
+        encode_uint64_field_always(caps, 1, *gd.max_group_size);
+        spotify::player::encode_submessage_field(buf, 6, caps);
+    }
+    encode_int64_field(buf, 7, gd.timestamp_ms);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_connect_group_device_volume(
+    const ConnectGroupDeviceVolume& vol) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, vol.spotify_device_id);
+    spotify::player::encode_string_field(buf, 2, vol.group_instance);
+    spotify::player::encode_string_field(buf, 3, vol.group_device_identifier);
+    if (vol.has_volume || vol.volume != 0) {
+        encode_uint64_field_always(buf, 4, vol.volume);
+    }
+    encode_int64_field(buf, 5, vol.volume_steps);
+    encode_int64_field(buf, 6, vol.timestamp_ms);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_known_group_instance(const KnownGroupInstance& inst) {
+    std::vector<uint8_t> buf;
+    spotify::player::encode_string_field(buf, 1, inst.spotify_device_id);
+    spotify::player::encode_string_field(buf, 2, inst.group_instance);
+    encode_int64_field(buf, 3, inst.timestamp_ms);
+    return buf;
+}
+
+inline std::vector<uint8_t> encode_refresh_group_data_request(
+    const RefreshGroupDataRequest& req) {
+    std::vector<uint8_t> buf;
+    for (const auto& inst : req.known_instances) {
+        spotify::player::encode_submessage_field(buf, 1, encode_known_group_instance(inst));
+    }
+    return buf;
+}
+
+// ============================================================================
 // Decoders (Every switch case validates wire_type before parsing)
 // ============================================================================
 
@@ -1544,6 +2002,7 @@ inline bool decode_capability_support_details(const uint8_t* ptr, size_t size, C
 inline bool decode_capabilities(const uint8_t* ptr, size_t size, Capabilities& out) {
     if (ptr == nullptr) return size == 0;
     const uint8_t* end = ptr + size;
+    bool cleared_default_types = false;
     while (ptr < end) {
         uint64_t tag = 0;
         if (!spotify::player::decode_varint(ptr, end, tag)) return false;
@@ -1578,6 +2037,10 @@ inline bool decode_capabilities(const uint8_t* ptr, size_t size, Capabilities& o
                 if (ok) out.volume_steps = static_cast<int32_t>(val);
                 break;
             case 9:
+                if (!cleared_default_types) {
+                    out.supported_types.clear();
+                    cleared_default_types = true;
+                }
                 if (!decode_repeated_string_checked(ptr, end, wire_type, out.supported_types)) return false;
                 break;
             case 10:
@@ -1630,7 +2093,10 @@ inline bool decode_capabilities(const uint8_t* ptr, size_t size, Capabilities& o
                 break;
             case 22:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.needs_full_player_state = (val != 0);
+                if (ok) {
+                    out.needs_full_player_state = (val != 0);
+                    out.has_needs_full_player_state = true;
+                }
                 break;
             case 23:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
@@ -1797,7 +2263,10 @@ inline bool decode_device_info(const uint8_t* ptr, size_t size, DeviceInfo& out)
                 break;
             case 2:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.volume = static_cast<uint32_t>(val);
+                if (ok) {
+                    out.volume = static_cast<uint32_t>(val);
+                    out.has_volume = true;
+                }
                 break;
             case 3:
                 if (!decode_string_field_checked(ptr, end, wire_type, out.name)) return false;
@@ -1880,7 +2349,7 @@ inline bool decode_device_info(const uint8_t* ptr, size_t size, DeviceInfo& out)
                     } else if (m_field == 2 && m_wire == 2) {
                         uint64_t v_len = 0;
                         if (!spotify::player::decode_varint(ptr, m_end, v_len) || !spotify::player::has_bytes(ptr, m_end, v_len)) return false;
-                        if (!decode_device_alias(ptr, v_len, alias_val)) return false;
+                        if (!decode_device_alias(ptr, static_cast<size_t>(v_len), alias_val)) return false;
                         ptr += static_cast<size_t>(v_len);
                     } else {
                         if (!spotify::player::skip_field(ptr, m_end, m_wire)) return false;
@@ -1910,7 +2379,11 @@ inline bool decode_device_info(const uint8_t* ptr, size_t size, DeviceInfo& out)
                 }
                 uint64_t len = 0;
                 if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
-                if (!decode_audio_output_device_info(ptr, static_cast<size_t>(len), out.audio_output_device_info)) return false;
+                AudioOutputDeviceInfo ao;
+                if (!decode_audio_output_device_info(ptr, static_cast<size_t>(len), ao)) return false;
+                if (is_audio_output_device_info_populated(ao)) {
+                    out.audio_output_device_info = std::move(ao);
+                }
                 ptr += static_cast<size_t>(len);
                 break;
             }
@@ -1982,6 +2455,123 @@ inline bool decode_wol_info(const uint8_t* ptr, size_t size, WakeOnLanInfo& out)
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
                 if (ok) out.broadcast_on_all_interfaces = (val != 0);
                 break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_local_device(const uint8_t* ptr, size_t size, LocalDevice& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.device_id)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.device_name)) return false; break;
+            case 3:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.device_type = static_cast<DeviceType>(val);
+                break;
+            case 4: if (!decode_string_field_checked(ptr, end, wire_type, out.client_id)) return false; break;
+            case 5: if (!decode_string_field_checked(ptr, end, wire_type, out.product_id)) return false; break;
+            case 6: if (!decode_string_field_checked(ptr, end, wire_type, out.brand)) return false; break;
+            case 7: if (!decode_string_field_checked(ptr, end, wire_type, out.model)) return false; break;
+            case 8: if (!decode_string_field_checked(ptr, end, wire_type, out.local_ip)) return false; break;
+            case 9:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.alias_id = static_cast<uint32_t>(val);
+                break;
+            case 11: if (!decode_repeated_string_checked(ptr, end, wire_type, out.supported_media_types)) return false; break;
+            case 12:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.supports_dj = (val != 0);
+                break;
+            case 13:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.supports_on_demand = (val != 0);
+                break;
+            case 14:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.is_voice_enabled = (val != 0);
+                break;
+            case 15: if (!decode_string_field_checked(ptr, end, wire_type, out.license)) return false; break;
+            case 16: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                CapabilitySupportDetails details;
+                if (!decode_capability_support_details(ptr, static_cast<size_t>(len), details)) return false;
+                out.supports_hifi = details;
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 17: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reasons)) return false; break;
+            case 18: if (!decode_string_field_checked(ptr, end, wire_type, out.connect_capabilities)) return false; break;
+            case 19:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.supports_external_episodes = (val != 0);
+                break;
+            case 20: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                WakeOnLanInfo wol;
+                if (!decode_wol_info(ptr, static_cast<size_t>(len), wol)) return false;
+                out.wol_info = std::move(wol);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_update_local_devices_request(
+    const uint8_t* ptr,
+    size_t size,
+    UpdateLocalDevicesRequest& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        switch (field_num) {
+            case 1:
+                if (!decode_string_field_checked(ptr, end, wire_type, out.reporting_device_id)) return false;
+                break;
+            case 2: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                LocalDevice ld;
+                if (!decode_local_device(ptr, static_cast<size_t>(len), ld)) return false;
+                out.local_devices.push_back(std::move(ld));
+                ptr += static_cast<size_t>(len);
+                break;
+            }
             default:
                 if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
                 break;
@@ -2109,7 +2699,7 @@ inline bool decode_mode_restrictions(const uint8_t* ptr, size_t size, ModeRestri
                 } else if (mf == 2 && mw == 2) {
                     uint64_t vlen = 0;
                     if (!spotify::player::decode_varint(ptr, m_end, vlen) || !spotify::player::has_bytes(ptr, m_end, vlen)) return false;
-                    if (!decode_restriction_reasons(ptr, vlen, rr)) return false;
+                    if (!decode_restriction_reasons(ptr, static_cast<size_t>(vlen), rr)) return false;
                     ptr += static_cast<size_t>(vlen);
                 } else {
                     if (!spotify::player::skip_field(ptr, m_end, mw)) return false;
@@ -2178,7 +2768,7 @@ inline bool decode_restrictions(const uint8_t* ptr, size_t size, Restrictions& o
                     } else if (mf == 2 && mw == 2) {
                         uint64_t vlen = 0;
                         if (!spotify::player::decode_varint(ptr, m_end, vlen) || !spotify::player::has_bytes(ptr, m_end, vlen)) return false;
-                        if (!decode_mode_restrictions(ptr, vlen, mr)) return false;
+                        if (!decode_mode_restrictions(ptr, static_cast<size_t>(vlen), mr)) return false;
                         ptr += static_cast<size_t>(vlen);
                     } else {
                         if (!spotify::player::skip_field(ptr, m_end, mw)) return false;
@@ -2207,7 +2797,7 @@ inline bool decode_restrictions(const uint8_t* ptr, size_t size, Restrictions& o
                     } else if (mf == 2 && mw == 2) {
                         uint64_t vlen = 0;
                         if (!spotify::player::decode_varint(ptr, m_end, vlen) || !spotify::player::has_bytes(ptr, m_end, vlen)) return false;
-                        if (!decode_restriction_reasons(ptr, vlen, rr)) return false;
+                        if (!decode_restriction_reasons(ptr, static_cast<size_t>(vlen), rr)) return false;
                         ptr += static_cast<size_t>(vlen);
                     } else {
                         if (!spotify::player::skip_field(ptr, m_end, mw)) return false;
@@ -2263,6 +2853,8 @@ inline bool decode_play_origin(const uint8_t* ptr, size_t size, PlayOrigin& out)
 
 inline bool decode_context_index(const uint8_t* ptr, size_t size, ContextIndex& out) {
     if (ptr == nullptr) return size == 0;
+    out.has_page = false;
+    out.has_track = false;
     const uint8_t* end = ptr + size;
     while (ptr < end) {
         uint64_t tag = 0;
@@ -2274,11 +2866,17 @@ inline bool decode_context_index(const uint8_t* ptr, size_t size, ContextIndex& 
         switch (field_num) {
             case 1:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.page = static_cast<uint32_t>(val);
+                if (ok) {
+                    out.page = static_cast<uint32_t>(val);
+                    out.has_page = true;
+                }
                 break;
             case 2:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.track = static_cast<uint32_t>(val);
+                if (ok) {
+                    out.track = static_cast<uint32_t>(val);
+                    out.has_track = true;
+                }
                 break;
             default:
                 if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
@@ -2499,15 +3097,24 @@ inline bool decode_context_player_options(const uint8_t* ptr, size_t size, Conte
         switch (o_field) {
             case 1:
                 if (!decode_varint_checked(ptr, end, o_wire, v, ok)) return false;
-                if (ok) out.shuffling_context = (v != 0);
+                if (ok) {
+                    out.shuffling_context = (v != 0);
+                    out.has_shuffling_context = true;
+                }
                 break;
             case 2:
                 if (!decode_varint_checked(ptr, end, o_wire, v, ok)) return false;
-                if (ok) out.repeating_context = (v != 0);
+                if (ok) {
+                    out.repeating_context = (v != 0);
+                    out.has_repeating_context = true;
+                }
                 break;
             case 3:
                 if (!decode_varint_checked(ptr, end, o_wire, v, ok)) return false;
-                if (ok) out.repeating_track = (v != 0);
+                if (ok) {
+                    out.repeating_track = (v != 0);
+                    out.has_repeating_track = true;
+                }
                 break;
             case 4:
                 if (o_wire == 5) {
@@ -2517,6 +3124,7 @@ inline bool decode_context_player_options(const uint8_t* ptr, size_t size, Conte
                         raw |= (static_cast<uint32_t>(*ptr++) << (i * 8));
                     }
                     std::memcpy(&out.playback_speed, &raw, sizeof(float));
+                    out.has_playback_speed = true;
                 } else {
                     if (!spotify::player::skip_field(ptr, end, o_wire)) return false;
                 }
@@ -2615,6 +3223,7 @@ inline bool decode_player_state(const uint8_t* ptr, size_t size, PlayerState& ou
                         raw |= (static_cast<uint64_t>(*ptr++) << (i * 8));
                     }
                     std::memcpy(&out.playback_speed, &raw, sizeof(double));
+                    out.has_playback_speed = true;
                 } else if (wire_type == 5) {
                     if (!spotify::player::has_bytes(ptr, end, 4)) return false;
                     float f_val = 0.0f;
@@ -2624,33 +3233,52 @@ inline bool decode_player_state(const uint8_t* ptr, size_t size, PlayerState& ou
                     }
                     std::memcpy(&f_val, &raw, sizeof(float));
                     out.playback_speed = static_cast<double>(f_val);
+                    out.has_playback_speed = true;
                 } else {
                     if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
                 }
                 break;
             case 10:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.position_as_of_timestamp = static_cast<int64_t>(val);
+                if (ok) {
+                    out.position_as_of_timestamp = static_cast<int64_t>(val);
+                    out.has_position_as_of_timestamp = true;
+                }
                 break;
             case 11:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.duration = static_cast<int64_t>(val);
+                if (ok) {
+                    out.duration = static_cast<int64_t>(val);
+                    out.has_duration = true;
+                }
                 break;
             case 12:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.is_playing = (val != 0);
+                if (ok) {
+                    out.is_playing = (val != 0);
+                    out.has_is_playing = true;
+                }
                 break;
             case 13:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.is_paused = (val != 0);
+                if (ok) {
+                    out.is_paused = (val != 0);
+                    out.has_is_paused = true;
+                }
                 break;
             case 14:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.is_buffering = (val != 0);
+                if (ok) {
+                    out.is_buffering = (val != 0);
+                    out.has_is_buffering = true;
+                }
                 break;
             case 15:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.is_system_initiated = (val != 0);
+                if (ok) {
+                    out.is_system_initiated = (val != 0);
+                    out.has_is_system_initiated = true;
+                }
                 break;
             case 16: {
                 if (wire_type != 2) {
@@ -2831,7 +3459,9 @@ inline bool decode_device(const uint8_t* ptr, size_t size, Device& out) {
                     const uint32_t pf = static_cast<uint32_t>(pt >> 3);
                     const uint32_t pw = static_cast<uint32_t>(pt & 0x07);
                     if (pf == 1) {
-                        if (!decode_string_field_checked(ptr, p_end, pw, out.platform)) return false;
+                        std::string plat;
+                        if (!decode_string_field_checked(ptr, p_end, pw, plat)) return false;
+                        out.platform = std::move(plat);
                     } else {
                         if (!spotify::player::skip_field(ptr, p_end, pw)) return false;
                     }
@@ -2881,7 +3511,10 @@ inline bool decode_put_state_request(const uint8_t* ptr, size_t size, PutStateRe
                 break;
             case 4:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.is_active = (val != 0);
+                if (ok) {
+                    out.is_active = (val != 0);
+                    out.has_is_active = true;
+                }
                 break;
             case 5:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
@@ -3007,6 +3640,8 @@ inline bool decode_cluster(const uint8_t* ptr, size_t size, Cluster& out) {
                 const uint8_t* map_end = ptr + static_cast<size_t>(len);
                 std::string dev_id;
                 DeviceInfo dev_info;
+                dev_info.volume = 0;
+                dev_info.has_volume = false;
                 while (ptr < map_end) {
                     uint64_t m_tag = 0;
                     if (!spotify::player::decode_varint(ptr, map_end, m_tag)) return false;
@@ -3020,7 +3655,7 @@ inline bool decode_cluster(const uint8_t* ptr, size_t size, Cluster& out) {
                     } else if (m_field == 2 && m_wire == 2) {
                         uint64_t v_len = 0;
                         if (!spotify::player::decode_varint(ptr, map_end, v_len) || !spotify::player::has_bytes(ptr, map_end, v_len)) return false;
-                        if (!decode_device_info(ptr, v_len, dev_info)) return false;
+                        if (!decode_device_info(ptr, static_cast<size_t>(v_len), dev_info)) return false;
                         ptr += static_cast<size_t>(v_len);
                     } else {
                         if (!spotify::player::skip_field(ptr, map_end, m_wire)) return false;
@@ -3122,6 +3757,721 @@ inline bool decode_cluster_update(const uint8_t* ptr, size_t size, ClusterUpdate
 }
 
 // ============================================================================
+// TransferState Decoders (`transfer_state.proto`, `playback.proto`,
+// `session.proto`, `queue.proto`, `context.proto`, `context_page.proto`,
+// `context_track.proto`)
+// ============================================================================
+
+inline bool decode_transfer_context_track(
+    const uint8_t* ptr,
+    size_t size,
+    TransferContextTrack& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.uri)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.uid)) return false; break;
+            case 3: if (!decode_bytes_field_checked(ptr, end, wire_type, out.gid)) return false; break;
+            case 4: if (!decode_string_map_entry(ptr, end, wire_type, out.metadata)) return false; break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_transfer_context_page(
+    const uint8_t* ptr,
+    size_t size,
+    TransferContextPage& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.page_url)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.next_page_url)) return false; break;
+            case 3: if (!decode_string_map_entry(ptr, end, wire_type, out.metadata)) return false; break;
+            case 4: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContextTrack t;
+                if (!decode_transfer_context_track(ptr, static_cast<size_t>(len), t)) return false;
+                out.tracks.push_back(std::move(t));
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 5:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.loading = (val != 0);
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_transfer_context(const uint8_t* ptr, size_t size, TransferContext& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.uri)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.url)) return false; break;
+            case 3: if (!decode_string_map_entry(ptr, end, wire_type, out.metadata)) return false; break;
+            case 4: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                Restrictions r;
+                if (!decode_restrictions(ptr, static_cast<size_t>(len), r)) return false;
+                out.restrictions = std::move(r);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 5: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContextPage page;
+                if (!decode_transfer_context_page(ptr, static_cast<size_t>(len), page)) return false;
+                out.pages.push_back(std::move(page));
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 6:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.loading = (val != 0);
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_transfer_playback(const uint8_t* ptr, size_t size, TransferPlayback& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) {
+                    out.timestamp = static_cast<int64_t>(val);
+                    out.has_timestamp = true;
+                }
+                break;
+            case 2:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) {
+                    out.position_as_of_timestamp = static_cast<int32_t>(val);
+                    out.has_position_as_of_timestamp = true;
+                }
+                break;
+            case 3:
+                if (wire_type == 1) {
+                    if (!spotify::player::has_bytes(ptr, end, 8)) return false;
+                    uint64_t raw = 0;
+                    for (size_t i = 0; i < 8; ++i) {
+                        raw |= (static_cast<uint64_t>(*ptr++) << (i * 8));
+                    }
+                    std::memcpy(&out.playback_speed, &raw, sizeof(double));
+                    out.has_playback_speed = true;
+                } else if (wire_type == 5) {
+                    if (!spotify::player::has_bytes(ptr, end, 4)) return false;
+                    uint32_t raw = 0;
+                    for (size_t i = 0; i < 4; ++i) {
+                        raw |= (static_cast<uint32_t>(*ptr++) << (i * 8));
+                    }
+                    float fv = 0.0f;
+                    std::memcpy(&fv, &raw, sizeof(float));
+                    out.playback_speed = static_cast<double>(fv);
+                    out.has_playback_speed = true;
+                } else {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                }
+                break;
+            case 4:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) {
+                    out.is_paused = (val != 0);
+                    out.has_is_paused = true;
+                }
+                break;
+            case 5: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContextTrack t;
+                if (!decode_transfer_context_track(ptr, static_cast<size_t>(len), t)) return false;
+                out.current_track = std::move(t);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 6: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContextTrack t;
+                if (!decode_transfer_context_track(ptr, static_cast<size_t>(len), t)) return false;
+                out.associated_current_track = std::move(t);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 7:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.associated_position_as_of_timestamp = static_cast<int32_t>(val);
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_transfer_session(const uint8_t* ptr, size_t size, TransferSession& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        switch (field_num) {
+            case 1: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                PlayOrigin po;
+                if (!decode_play_origin(ptr, static_cast<size_t>(len), po)) return false;
+                out.play_origin = std::move(po);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 2: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContext ctx;
+                if (!decode_transfer_context(ptr, static_cast<size_t>(len), ctx)) return false;
+                out.context = std::move(ctx);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 3:
+                if (!decode_string_field_checked(ptr, end, wire_type, out.current_uid)) return false;
+                break;
+            case 4: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                ContextPlayerOptions opts;
+                if (!decode_context_player_options(ptr, static_cast<size_t>(len), opts)) return false;
+                out.option_overrides = std::move(opts);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 5: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                Suppressions sup;
+                if (!decode_suppressions(ptr, static_cast<size_t>(len), sup)) return false;
+                out.suppressions = std::move(sup);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 7:
+                if (!decode_string_field_checked(ptr, end, wire_type, out.shuffle_seed)) return false;
+                break;
+            case 8: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContext ctx;
+                if (!decode_transfer_context(ptr, static_cast<size_t>(len), ctx)) return false;
+                out.main_context = std::move(ctx);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 9:
+                if (!decode_string_field_checked(ptr, end, wire_type, out.original_session_id)) return false;
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_transfer_queue(const uint8_t* ptr, size_t size, TransferQueue& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferContextTrack t;
+                if (!decode_transfer_context_track(ptr, static_cast<size_t>(len), t)) return false;
+                out.tracks.push_back(std::move(t));
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 2:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) {
+                    out.is_playing_queue = (val != 0);
+                    out.has_is_playing_queue = true;
+                }
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_transfer_state(const uint8_t* ptr, size_t size, TransferState& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        switch (field_num) {
+            case 1: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                ContextPlayerOptions opts;
+                if (!decode_context_player_options(ptr, static_cast<size_t>(len), opts)) return false;
+                out.options = std::move(opts);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 2: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferPlayback pb;
+                if (!decode_transfer_playback(ptr, static_cast<size_t>(len), pb)) return false;
+                out.playback = std::move(pb);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 3: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferSession sess;
+                if (!decode_transfer_session(ptr, static_cast<size_t>(len), sess)) return false;
+                out.current_session = std::move(sess);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 4: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                TransferQueue q;
+                if (!decode_transfer_queue(ptr, static_cast<size_t>(len), q)) return false;
+                out.queue = std::move(q);
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 7: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                SleepTimer st;
+                if (!decode_sleep_timer(ptr, static_cast<size_t>(len), st)) return false;
+                out.sleep_timer = st;
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+// ============================================================================
+// Connect-Group v1 Decoders (`connect_group.proto`, `connect_group_event.proto`)
+// ============================================================================
+
+inline bool decode_connect_grouped_device(
+    const uint8_t* ptr,
+    size_t size,
+    ConnectGroupedDevice& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.group_device_identifier)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.display_name)) return false; break;
+            case 3:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.device_type = static_cast<DeviceType>(val);
+                break;
+            case 4: if (!decode_string_field_checked(ptr, end, wire_type, out.spotify_connect_device_id)) return false; break;
+            case 5: if (!decode_string_field_checked(ptr, end, wire_type, out.model_display_name)) return false; break;
+            case 6: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                const uint8_t* c_end = ptr + static_cast<size_t>(len);
+                while (ptr < c_end) {
+                    uint64_t ct = 0;
+                    if (!spotify::player::decode_varint(ptr, c_end, ct)) return false;
+                    const uint32_t cf = static_cast<uint32_t>(ct >> 3);
+                    const uint32_t cw = static_cast<uint32_t>(ct & 0x07);
+                    uint64_t cv = 0;
+                    bool cok = false;
+                    if (cf == 1) {
+                        if (!decode_varint_checked(ptr, c_end, cw, cv, cok)) return false;
+                        if (cok) out.removable = (cv != 0);
+                    } else if (cf == 2) {
+                        if (!decode_varint_checked(ptr, c_end, cw, cv, cok)) return false;
+                        if (cok) out.removal_dissolves_group = (cv != 0);
+                    } else {
+                        if (!spotify::player::skip_field(ptr, c_end, cw)) return false;
+                    }
+                }
+                break;
+            }
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_connect_groupable_device(
+    const uint8_t* ptr,
+    size_t size,
+    ConnectGroupableDevice& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.group_device_identifier)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.display_name)) return false; break;
+            case 3:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.device_type = static_cast<DeviceType>(val);
+                break;
+            case 4: if (!decode_string_field_checked(ptr, end, wire_type, out.spotify_connect_device_id)) return false; break;
+            case 5: if (!decode_string_field_checked(ptr, end, wire_type, out.model_display_name)) return false; break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_connect_group_data(const uint8_t* ptr, size_t size, ConnectGroupData& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.spotify_device_id)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.group_identifier)) return false; break;
+            case 3: if (!decode_string_field_checked(ptr, end, wire_type, out.group_instance)) return false; break;
+            case 4: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                ConnectGroupedDevice dev;
+                if (!decode_connect_grouped_device(ptr, static_cast<size_t>(len), dev)) return false;
+                out.grouped_devices.push_back(std::move(dev));
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 5: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                ConnectGroupableDevice dev;
+                if (!decode_connect_groupable_device(ptr, static_cast<size_t>(len), dev)) return false;
+                out.groupable_devices.push_back(std::move(dev));
+                ptr += static_cast<size_t>(len);
+                break;
+            }
+            case 6: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                const uint8_t* c_end = ptr + static_cast<size_t>(len);
+                while (ptr < c_end) {
+                    uint64_t ct = 0;
+                    if (!spotify::player::decode_varint(ptr, c_end, ct)) return false;
+                    const uint32_t cf = static_cast<uint32_t>(ct >> 3);
+                    const uint32_t cw = static_cast<uint32_t>(ct & 0x07);
+                    uint64_t cv = 0;
+                    bool cok = false;
+                    if (cf == 1) {
+                        if (!decode_varint_checked(ptr, c_end, cw, cv, cok)) return false;
+                        if (cok) out.max_group_size = static_cast<uint32_t>(cv);
+                    } else {
+                        if (!spotify::player::skip_field(ptr, c_end, cw)) return false;
+                    }
+                }
+                break;
+            }
+            case 7:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.timestamp_ms = static_cast<int64_t>(val);
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_connect_group_device_volume(
+    const uint8_t* ptr,
+    size_t size,
+    ConnectGroupDeviceVolume& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        uint64_t val = 0;
+        bool ok = false;
+        switch (field_num) {
+            case 1: if (!decode_string_field_checked(ptr, end, wire_type, out.spotify_device_id)) return false; break;
+            case 2: if (!decode_string_field_checked(ptr, end, wire_type, out.group_instance)) return false; break;
+            case 3: if (!decode_string_field_checked(ptr, end, wire_type, out.group_device_identifier)) return false; break;
+            case 4:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) {
+                    out.volume = static_cast<uint32_t>(val);
+                    out.has_volume = true;
+                }
+                break;
+            case 5:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.volume_steps = static_cast<int32_t>(val);
+                break;
+            case 6:
+                if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
+                if (ok) out.timestamp_ms = static_cast<int64_t>(val);
+                break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+inline bool decode_group_data_event(const uint8_t* ptr, size_t size, GroupDataEvent& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        if (field_num == 1 && wire_type == 2) {
+            uint64_t len = 0;
+            if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+            ConnectGroupData gd;
+            if (!decode_connect_group_data(ptr, static_cast<size_t>(len), gd)) return false;
+            out.group_data.push_back(std::move(gd));
+            ptr += static_cast<size_t>(len);
+        } else {
+            if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+        }
+    }
+    return true;
+}
+
+inline bool decode_group_device_volume_event(
+    const uint8_t* ptr,
+    size_t size,
+    GroupDeviceVolumeEvent& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        if (field_num == 1 && wire_type == 2) {
+            uint64_t len = 0;
+            if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+            ConnectGroupDeviceVolume vol;
+            if (!decode_connect_group_device_volume(ptr, static_cast<size_t>(len), vol)) return false;
+            out.volumes.push_back(std::move(vol));
+            ptr += static_cast<size_t>(len);
+        } else {
+            if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+        }
+    }
+    return true;
+}
+
+inline bool decode_get_all_group_data_response(
+    const uint8_t* ptr,
+    size_t size,
+    GetAllGroupDataResponse& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+        if (field_num == 1 && wire_type == 2) {
+            uint64_t len = 0;
+            if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+            ConnectGroupData gd;
+            if (!decode_connect_group_data(ptr, static_cast<size_t>(len), gd)) return false;
+            out.group_data.push_back(std::move(gd));
+            ptr += static_cast<size_t>(len);
+        } else if (field_num == 2 && wire_type == 2) {
+            uint64_t len = 0;
+            if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+            ConnectGroupDeviceVolume vol;
+            if (!decode_connect_group_device_volume(ptr, static_cast<size_t>(len), vol)) return false;
+            out.group_device_volumes.push_back(std::move(vol));
+            ptr += static_cast<size_t>(len);
+        } else {
+            if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+        }
+    }
+    return true;
+}
+
+// ============================================================================
 // Dealer Command Decoders (`connect.proto` ELF 0x631e5c)
 // ============================================================================
 
@@ -3204,7 +4554,10 @@ inline bool decode_set_volume_command(const uint8_t* ptr, size_t size, SetVolume
         switch (field_num) {
             case 1:
                 if (!decode_varint_checked(ptr, end, wire_type, val, ok)) return false;
-                if (ok) out.volume = static_cast<int32_t>(val);
+                if (ok) {
+                    out.volume = static_cast<int32_t>(val);
+                    out.has_volume = true;
+                }
                 break;
             case 2: {
                 if (wire_type != 2) {
@@ -3511,8 +4864,10 @@ inline bool decode_delete_group_command(const uint8_t* ptr, size_t size, DeleteG
     return true;
 }
 
-inline bool decode_resync_group_data_command(const uint8_t* ptr, size_t size, ResyncGroupDataCommand& out) {
-    (void)out;
+inline bool decode_resync_group_data_command(
+    const uint8_t* ptr,
+    size_t size,
+    ResyncGroupDataCommand& /*out*/) {
     if (ptr == nullptr) return size == 0;
     const uint8_t* end = ptr + size;
     while (ptr < end) {
@@ -3524,4 +4879,4 @@ inline bool decode_resync_group_data_command(const uint8_t* ptr, size_t size, Re
     return true;
 }
 
-} // namespace spotify::connectstate
+}  // namespace spotify::connectstate

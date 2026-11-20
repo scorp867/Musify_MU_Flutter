@@ -7,6 +7,7 @@
 // and p199p/lw51.java (lines 295-333).
 
 import 'dart:async';
+import 'dart:developer' as dev;
 import 'dart:math' as math;
 
 import 'package:musify_mu/features/connect/application/mobius/connect_effect.dart';
@@ -113,6 +114,8 @@ final class ConnectEffectHandler
       PullPlaybackEffect() => _handlePullPlayback(effect),
       RecordDeviceConnectionEffect() => _handleRecordDeviceConnection(effect),
       LogoutDeviceEffect() => _handleLogoutDevice(effect),
+      RenameDeviceEffect() => _handleRenameDevice(effect),
+      SendPlayerCommandEffect() => _handleSendPlayerCommand(effect),
       SetVolumeEffect() => _handleSetVolume(effect),
       StepVolumeEffect() => _handleStepVolume(effect),
       SetGroupVolumeEffect() => _handleSetGroupVolume(effect),
@@ -158,7 +161,8 @@ final class ConnectEffectHandler
             reason: failureReason,
           ),
         );
-      } on Object catch (error) {
+      } on Object catch (error, stackTrace) {
+        _logEffectFailure('Transfer(localPull)', error, stackTrace);
         return TransferResultEvent(
           TransferFailed(
             targetDeviceId: localDeviceIdentifier,
@@ -186,7 +190,8 @@ final class ConnectEffectHandler
         dodo: effect.dodo,
       );
       return TransferResultEvent(transferState);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('Transfer(${effect.deviceIdentifier})', error, stackTrace);
       return TransferResultEvent(
         TransferFailed(
           targetDeviceId: effect.deviceIdentifier,
@@ -206,7 +211,8 @@ final class ConnectEffectHandler
       );
       final failureReason = _mappers.mapStatusToTransferFailureReason(status);
       return PullResultEvent(status: status, failureReason: failureReason);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('PullPlayback', error, stackTrace);
       return PullResultEvent(
         failureReason: TransferFailureReason.transportError,
         error: error,
@@ -250,8 +256,54 @@ final class ConnectEffectHandler
         deviceIdentifier: effect.deviceIdentifier,
         status: status,
       );
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('LogoutDevice', error, stackTrace);
       return LogoutResultEvent(
+        deviceIdentifier: effect.deviceIdentifier,
+        error: error,
+      );
+    }
+  }
+
+  Future<ConnectEvent> _handleRenameDevice(RenameDeviceEffect effect) async {
+    try {
+      final status = await _connectServiceClient.rename(
+        deviceId: effect.deviceIdentifier,
+        newName: effect.newName,
+      );
+      return RenameDeviceResultEvent(
+        deviceIdentifier: effect.deviceIdentifier,
+        status: status,
+      );
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('RenameDevice', error, stackTrace);
+      return RenameDeviceResultEvent(
+        deviceIdentifier: effect.deviceIdentifier,
+        error: error,
+      );
+    }
+  }
+
+  Future<ConnectEvent> _handleSendPlayerCommand(
+    SendPlayerCommandEffect effect,
+  ) async {
+    try {
+      final commandId = _commandIdGenerator();
+      final response = await _connectServiceClient.sendCommand(
+        connectDeviceIdentifier: effect.deviceIdentifier,
+        commandJson: effect.commandJson,
+        loggingParams: _buildLoggingParams(
+          interactionId: effect.interactionId,
+          commandId: commandId,
+        ),
+      );
+      return SendPlayerCommandResultEvent(
+        deviceIdentifier: effect.deviceIdentifier,
+        contextPlayerError: response.contextPlayerError,
+      );
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('SendPlayerCommand', error, stackTrace);
+      return SendPlayerCommandResultEvent(
         deviceIdentifier: effect.deviceIdentifier,
         error: error,
       );
@@ -339,7 +391,8 @@ final class ConnectEffectHandler
     try {
       await _connectServiceClient.refreshCluster();
       return const RefreshClusterResultEvent(succeeded: true);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('RefreshCluster', error, stackTrace);
       return RefreshClusterResultEvent(succeeded: false, error: error);
     }
   }
@@ -348,7 +401,8 @@ final class ConnectEffectHandler
     try {
       await _connectServiceClient.wakeSleepingClusterDevices();
       return const WakeSleepingDevicesResultEvent(succeeded: true);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('WakeSleepingDevices', error, stackTrace);
       return WakeSleepingDevicesResultEvent(succeeded: false, error: error);
     }
   }
@@ -357,7 +411,8 @@ final class ConnectEffectHandler
     try {
       await _connectServiceClient.performDiscovery();
       return const PerformDiscoveryResultEvent(succeeded: true);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('PerformDiscovery', error, stackTrace);
       return PerformDiscoveryResultEvent(succeeded: false, error: error);
     }
   }
@@ -445,7 +500,8 @@ final class ConnectEffectHandler
         deviceId: effect.deviceId,
         status: status,
       );
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('SetPreferredIncarnation', error, stackTrace);
       return SetPreferredIncarnationResultEvent(
         deviceId: effect.deviceId,
         error: error,
@@ -465,7 +521,8 @@ final class ConnectEffectHandler
         category: effect.category,
       );
       return const NotifyAudioRouteChangedResultEvent(succeeded: true);
-    } on Object catch (error) {
+    } on Object catch (error, stackTrace) {
+      _logEffectFailure('NotifyAudioRouteChanged', error, stackTrace);
       return NotifyAudioRouteChangedResultEvent(
         succeeded: false,
         error: error,
@@ -672,6 +729,19 @@ final class ConnectEffectHandler
     } on Object catch (error) {
       return ClusterUpdateAfterBackendConnectionResultEvent(error: error);
     }
+  }
+
+  void _logEffectFailure(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    dev.log(
+      'ConnectEffectHandler.$operation failed: $error',
+      name: 'CONNECT',
+      error: error,
+      stackTrace: stackTrace,
+    );
   }
 
   common_pb.LoggingParams? _buildLoggingParams({

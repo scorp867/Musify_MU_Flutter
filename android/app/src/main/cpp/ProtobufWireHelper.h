@@ -230,7 +230,7 @@ inline std::vector<uint8_t> encode_provided_track(const Entry& entry) {
 
 // ----------------------------------------------------------------------------
 // Queue:
-// tag 1 (int64): queue_revision
+// tag 1 (uint64): queue_revision
 // tag 2 (ProvidedTrack): track
 // tag 3 (repeated ProvidedTrack): next_tracks
 // tag 4 (repeated ProvidedTrack): prev_tracks
@@ -240,12 +240,12 @@ inline std::vector<uint8_t> encode_queue(
         const Entry* current_track,
         const std::vector<Entry>& next_tracks,
         const std::vector<Entry>& prev_tracks,
-        int64_t queue_revision) {
+        uint64_t queue_revision) {
     std::vector<uint8_t> buf;
 
     if (queue_revision != 0) {
         encode_varint(buf, (1 << 3) | 0);
-        encode_varint(buf, static_cast<uint64_t>(queue_revision));
+        encode_varint(buf, queue_revision);
     }
     if (current_track) {
         auto cur_buf = encode_provided_track(*current_track);

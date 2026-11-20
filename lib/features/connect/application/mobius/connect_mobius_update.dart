@@ -147,6 +147,36 @@ Next<ConnectState, ConnectEffect> connectMobiusUpdate(
         },
       ),
 
+    RenameDeviceRequested(
+      :final deviceIdentifier,
+      :final newName,
+      :final interactionId,
+    ) =>
+      _dispatch(
+        <ConnectEffect>{
+          RenameDeviceEffect(
+            deviceIdentifier: deviceIdentifier,
+            newName: newName,
+            interactionId: interactionId,
+          ),
+        },
+      ),
+
+    SendPlayerCommandRequested(
+      :final deviceIdentifier,
+      :final commandJson,
+      :final interactionId,
+    ) =>
+      _dispatch(
+        <ConnectEffect>{
+          SendPlayerCommandEffect(
+            deviceIdentifier: deviceIdentifier,
+            commandJson: commandJson,
+            interactionId: interactionId,
+          ),
+        },
+      ),
+
     SetVolumeRequested(:final volume, :final interactionId) => _dispatch(
         <ConnectEffect>{
           SetVolumeEffect(volume: volume, interactionId: interactionId),
@@ -434,6 +464,64 @@ Next<ConnectState, ConnectEffect> connectMobiusUpdate(
               cause: error,
               deviceIdentifier: deviceIdentifier,
               status: status,
+            ),
+          ),
+        );
+      }(),
+
+    RenameDeviceResultEvent(
+      :final deviceIdentifier,
+      :final status,
+      :final error,
+    ) =>
+      () {
+        final hasFailure = error != null || status != common_pb.Status.OK;
+        if (!hasFailure) {
+          return _noChange();
+        }
+        final message = switch (error) {
+          final err? => err.toString(),
+          null => switch (status) {
+              final st? => 'Rename failed with status ${st.name}',
+              null => 'Rename failed',
+            },
+        };
+        return _next(
+          model.copyWith(
+            lastError: ConnectFailure(
+              kind: ConnectFailureKind.renameDevice,
+              message: message,
+              cause: error,
+              deviceIdentifier: deviceIdentifier,
+              status: status,
+            ),
+          ),
+        );
+      }(),
+
+    SendPlayerCommandResultEvent(
+      :final deviceIdentifier,
+      :final contextPlayerError,
+      :final error,
+    ) =>
+      () {
+        final hasErrorCode =
+            contextPlayerError != null && contextPlayerError != 0;
+        final hasFailure = error != null || hasErrorCode;
+        if (!hasFailure) {
+          return _noChange();
+        }
+        final message = switch (error) {
+          final err? => err.toString(),
+          null => 'SendCommand failed with error code $contextPlayerError',
+        };
+        return _next(
+          model.copyWith(
+            lastError: ConnectFailure(
+              kind: ConnectFailureKind.sendPlayerCommand,
+              message: message,
+              cause: error,
+              deviceIdentifier: deviceIdentifier,
             ),
           ),
         );

@@ -3,6 +3,7 @@
 #include "ProtobufWireHelper.h"
 #include "cache/DiskCache.h"
 #include "connect/ConnectEsperantoProtos.h"
+#include "connect/ConnectRpcExecutor.h"
 #include "connect/ConnectServiceImpl.h"
 #include "connect/ConnectStateProtos.h"
 #include "connect/ConnectSubsystem.h"
@@ -14,6 +15,7 @@
 #include "metadata/TrackInfoProvider.h"
 #include "network/AuthSessionStore.h"
 #include "network/NativeHttpClient.h"
+#include "network/NativeLog.h"
 #include "player/ContextPlayerImpl.h"
 #include "rendering/AudioTrackPlayer.h"
 #include "rendering/CoreAudioTrackPlayer.h"
@@ -30,11 +32,14 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #define MUSIFY_EXPORT extern "C" __attribute__((visibility("default"))) __attribute__((used))
 
 namespace {
+
+std::atomic<int64_t> g_auth_refresh_port{0};
 
 /// Process-wide singleton holding native liborbit Layer 4 playback services so Kodiak
 /// metadata seeding, Tier 2 DiskCache, and auth session updates work deterministically
@@ -268,7 +273,7 @@ MUSIFY_EXPORT void musify_free_bytes(uint8_t* bytes) {
 }
 
 // ===========================================================================
-// Native Auth Session & Kodiak Binary Extension Seeding
+// Native Auth Session, Client Header Profile & Kodiak Binary Extension Seeding
 // ===========================================================================
 
 MUSIFY_EXPORT void musify_set_auth_session(
@@ -294,7 +299,42 @@ MUSIFY_EXPORT void musify_set_auth_session(
 }
 
 MUSIFY_EXPORT void musify_set_auth_refresh_port(int64_t dart_port) {
-    NativePlaybackServices::instance().auth_store.setAuthRefreshPort(dart_port);
+    g_auth_refresh_port.store(dart_port, std::memory_order_release);
+    auto& auth_store = NativePlaybackServices::instance().auth_store;
+    auth_store.setAuthRefreshPort(dart_port);
+    if (dart_port == 0) {
+        auth_store.set_refresh_request_callback(nullptr);
+        return;
+    }
+    auth_store.set_refresh_request_callback([](int64_t reason_code) {
+        const int64_t port = g_auth_refresh_port.load(std::memory_order_acquire);
+        if (port == 0 || Dart_PostCObject_DL == nullptr) {
+            return;
+        }
+        Dart_CObject msg;
+        msg.type = Dart_CObject_kInt64;
+        msg.value.as_int64 = reason_code;
+        if (!Dart_PostCObject_DL(port, &msg)) {
+            NET_LOGD(
+                "Dart_PostCObject_DL(auth_refresh) returned false for port=%lld reason=%lld",
+                static_cast<long long>(port),
+                static_cast<long long>(reason_code));
+        }
+    });
+}
+
+MUSIFY_EXPORT void musify_set_client_profile(
+        const char* client_id,
+        const char* app_platform,
+        const char* app_version,
+        const char* user_agent,
+        int32_t send_origin_headers) {
+    NativePlaybackServices::instance().auth_store.set_client_profile(
+        client_id,
+        app_platform,
+        app_version,
+        user_agent,
+        send_origin_headers != 0);
 }
 
 MUSIFY_EXPORT void musify_metadata_seed_extension(
@@ -398,7 +438,9 @@ MUSIFY_EXPORT uint8_t* musify_context_processor_get_queue_proto(
     auto prev = cp->get_prev_tracks();
 
     const spotify::player::context_view::Entry* cur_ptr = current.has_value() ? &current.value() : nullptr;
-    auto proto_bytes = spotify::player::encode_queue(cur_ptr, next, prev, cp->get_current_iteration());
+    const int32_t iteration = cp->get_current_iteration();
+    const uint64_t queue_rev = iteration > 0 ? static_cast<uint64_t>(iteration) : 0ULL;
+    auto proto_bytes = spotify::player::encode_queue(cur_ptr, next, prev, queue_rev);
 
     *out_len = static_cast<int32_t>(proto_bytes.size());
     if (proto_bytes.empty()) return nullptr;
@@ -494,7 +536,9 @@ MUSIFY_EXPORT intptr_t musify_init_dart_api_dl(void* data) {
 MUSIFY_EXPORT void* musify_cpi_create(void* engine_handle) {
     auto* engine = static_cast<AudioEngine*>(engine_handle);
     auto routing_player = buildRoutingTrackPlayer(engine);
-    auto* cpi = new spotify::player::ContextPlayerImpl(std::move(routing_player));
+    auto* cpi = new spotify::player::ContextPlayerImpl(
+        std::move(routing_player),
+        &NativePlaybackServices::instance().track_info_provider);
     return static_cast<void*>(cpi);
 }
 
@@ -580,13 +624,17 @@ MUSIFY_EXPORT void musify_cpi_set_state_changed_port(void* handle, int64_t dart_
         return;
     }
     cpi->set_state_changed_callback([dart_port](const uint8_t* data, size_t len) {
-        if (!data || len == 0) return;
+        if (!data || len == 0 || Dart_PostCObject_DL == nullptr) return;
         Dart_CObject cobj;
         cobj.type = Dart_CObject_kTypedData;
         cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
         cobj.value.as_typed_data.length = static_cast<intptr_t>(len);
         cobj.value.as_typed_data.values = data;
-        Dart_PostCObject_DL(dart_port, &cobj);
+        if (!Dart_PostCObject_DL(dart_port, &cobj)) {
+            PLAYER_REMOTE_LOGD(
+                "Dart_PostCObject_DL(state_changed) returned false for port=%lld",
+                static_cast<long long>(dart_port));
+        }
     });
 }
 
@@ -598,13 +646,17 @@ MUSIFY_EXPORT void musify_cpi_set_queue_changed_port(void* handle, int64_t dart_
         return;
     }
     cpi->set_queue_changed_callback([dart_port](const uint8_t* data, size_t len) {
-        if (!data || len == 0) return;
+        if (!data || len == 0 || Dart_PostCObject_DL == nullptr) return;
         Dart_CObject cobj;
         cobj.type = Dart_CObject_kTypedData;
         cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
         cobj.value.as_typed_data.length = static_cast<intptr_t>(len);
         cobj.value.as_typed_data.values = data;
-        Dart_PostCObject_DL(dart_port, &cobj);
+        if (!Dart_PostCObject_DL(dart_port, &cobj)) {
+            PLAYER_REMOTE_LOGD(
+                "Dart_PostCObject_DL(queue_changed) returned false for port=%lld",
+                static_cast<long long>(dart_port));
+        }
     });
 }
 
@@ -616,6 +668,7 @@ MUSIFY_EXPORT void musify_cpi_set_error_port(void* handle, int64_t dart_port) {
         return;
     }
     cpi->set_error_callback([dart_port](const std::string& error_code, const std::string& message) {
+        if (Dart_PostCObject_DL == nullptr) return;
         std::string err_str = error_code;
         if (!message.empty()) {
             if (!err_str.empty()) err_str += ": ";
@@ -628,12 +681,16 @@ MUSIFY_EXPORT void musify_cpi_set_error_port(void* handle, int64_t dart_port) {
         cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
         cobj.value.as_typed_data.length = static_cast<intptr_t>(err_str.size());
         cobj.value.as_typed_data.values = reinterpret_cast<const uint8_t*>(err_str.data());
-        Dart_PostCObject_DL(dart_port, &cobj);
+        if (!Dart_PostCObject_DL(dart_port, &cobj)) {
+            PLAYER_REMOTE_LOGD(
+                "Dart_PostCObject_DL(player_error) returned false for port=%lld",
+                static_cast<long long>(dart_port));
+        }
     });
 }
 
 // ===========================================================================
-// ConnectSubsystem + Esperanto Services FFI Bridge (Items 126-130)
+// ConnectSubsystem + Esperanto Services FFI Bridge (Items 126-130 + #47 §2)
 // ===========================================================================
 
 namespace {
@@ -643,6 +700,7 @@ struct NativeConnectBundle {
     spotify::connectstate::esperanto::ConnectServiceImpl connect_service;
     spotify::connectstate::esperanto::ConnectVolumeServiceImpl volume_service;
     spotify::connectstate::esperanto::DodoServiceImpl dodo_service;
+    spotify::connectstate::esperanto::ConnectRpcExecutor rpc_executor;
 
     std::mutex state_request_mutex;
     spotify::connectstate::esperanto::StateRequest state_request;
@@ -653,6 +711,7 @@ struct NativeConnectBundle {
     std::atomic<int64_t> local_volume_port{0};
     std::atomic<int64_t> dodo_port{0};
     std::atomic<int64_t> install_spotify_port{0};
+    std::atomic<int64_t> diagnostic_port{0};
 
     uint64_t state_listener_id{0};
     uint64_t volume_listener_id{0};
@@ -666,7 +725,8 @@ struct NativeConnectBundle {
               NativePlaybackServices::instance().http_client),
           connect_service(subsystem),
           volume_service(subsystem),
-          dodo_service(subsystem) {}
+          dodo_service(subsystem),
+          rpc_executor(connect_service, volume_service, dodo_service) {}
 };
 
 void post_bytes_to_dart_port(int64_t port, const std::vector<uint8_t>& bytes) {
@@ -679,7 +739,71 @@ void post_bytes_to_dart_port(int64_t port, const std::vector<uint8_t>& bytes) {
     cobj.value.as_typed_data.type = Dart_TypedData_kUint8;
     cobj.value.as_typed_data.length = static_cast<intptr_t>(bytes.size());
     cobj.value.as_typed_data.values = bytes.empty() ? &kEmptyByte : bytes.data();
-    (void)Dart_PostCObject_DL(port, &cobj);
+    if (!Dart_PostCObject_DL(port, &cobj)) {
+        CONNECT_LOGD(
+            "Dart_PostCObject_DL(bytes) returned false for port=%lld len=%zu",
+            static_cast<long long>(port),
+            bytes.size());
+    }
+}
+
+void post_string_to_dart_port(int64_t port, const std::string& str) {
+    if (port == 0 || Dart_PostCObject_DL == nullptr) {
+        return;
+    }
+    Dart_CObject cobj;
+    cobj.type = Dart_CObject_kString;
+    cobj.value.as_string = str.c_str();
+    if (!Dart_PostCObject_DL(port, &cobj)) {
+        CONNECT_LOGD(
+            "Dart_PostCObject_DL(string) returned false for port=%lld len=%zu",
+            static_cast<long long>(port),
+            str.size());
+    }
+}
+
+void post_rpc_result_to_dart_port(
+    int64_t reply_port,
+    int64_t request_id,
+    spotify::connectstate::esperanto::EsperantoCallStatus status,
+    const std::vector<uint8_t>& payload) {
+    if (reply_port == 0 || Dart_PostCObject_DL == nullptr) {
+        return;
+    }
+    static constexpr uint8_t kEmptyByte = 0;
+
+    Dart_CObject elem_request_id;
+    elem_request_id.type = Dart_CObject_kInt64;
+    elem_request_id.value.as_int64 = request_id;
+
+    Dart_CObject elem_status;
+    elem_status.type = Dart_CObject_kInt32;
+    elem_status.value.as_int32 = static_cast<int32_t>(status);
+
+    Dart_CObject elem_payload;
+    elem_payload.type = Dart_CObject_kTypedData;
+    elem_payload.value.as_typed_data.type = Dart_TypedData_kUint8;
+    elem_payload.value.as_typed_data.length = static_cast<intptr_t>(payload.size());
+    elem_payload.value.as_typed_data.values =
+        payload.empty() ? &kEmptyByte : payload.data();
+
+    Dart_CObject* elements[3] = {
+        &elem_request_id,
+        &elem_status,
+        &elem_payload,
+    };
+
+    Dart_CObject array_obj;
+    array_obj.type = Dart_CObject_kArray;
+    array_obj.value.as_array.length = 3;
+    array_obj.value.as_array.values = elements;
+
+    if (!Dart_PostCObject_DL(reply_port, &array_obj)) {
+        CONNECT_LOGD(
+            "Dart_PostCObject_DL(rpc_reply) returned false for port=%lld req_id=%lld",
+            static_cast<long long>(reply_port),
+            static_cast<long long>(request_id));
+    }
 }
 
 void set_connect_port_atomic(
@@ -737,6 +861,16 @@ MUSIFY_EXPORT void* musify_connect_create(void* cpi_handle) {
     if (!bundle) {
         return nullptr;
     }
+
+    bundle->rpc_executor.set_state_request_observer(
+        [bundle](const spotify::connectstate::esperanto::StateRequest& req) {
+            if (bundle->destroyed.load(std::memory_order_acquire)) {
+                return;
+            }
+            std::lock_guard<std::mutex> lock(bundle->state_request_mutex);
+            bundle->state_request = req;
+        });
+    bundle->rpc_executor.start();
 
     bundle->state_listener_id = bundle->subsystem.add_state_listener([bundle]() {
         if (bundle->destroyed.load(std::memory_order_acquire)) {
@@ -829,6 +963,10 @@ MUSIFY_EXPORT void musify_connect_destroy(void* handle) {
     bundle->local_volume_port.store(0, std::memory_order_seq_cst);
     bundle->dodo_port.store(0, std::memory_order_seq_cst);
     bundle->install_spotify_port.store(0, std::memory_order_seq_cst);
+    bundle->diagnostic_port.store(0, std::memory_order_seq_cst);
+
+    bundle->subsystem.set_diagnostic_callback(nullptr);
+    bundle->rpc_executor.set_state_request_observer(nullptr);
 
     if (bundle->state_listener_id != 0) {
         bundle->subsystem.remove_state_listener(bundle->state_listener_id);
@@ -847,6 +985,7 @@ MUSIFY_EXPORT void musify_connect_destroy(void* handle) {
         bundle->dodo_listener_id = 0;
     }
 
+    bundle->rpc_executor.stop();
     bundle->subsystem.stop();
     delete bundle;
 }
@@ -855,19 +994,22 @@ MUSIFY_EXPORT int32_t musify_connect_start(
     void* handle,
     const uint8_t* device_info_bytes,
     int32_t len) {
-    if (!handle || len < 0 || (len > 0 && !device_info_bytes)) {
-        return -1;
+    if (!handle || !device_info_bytes || len <= 0) {
+        CONNECT_LOGE(
+            "musify_connect_start rejected: invalid handle or empty DeviceInfo payload "
+            "(handle=%p bytes=%p len=%d)",
+            handle,
+            static_cast<const void*>(device_info_bytes),
+            len);
+        return spotify::connectstate::ConnectSubsystem::kStartInvalidArgs;
     }
     auto* bundle = static_cast<NativeConnectBundle*>(handle);
-    spotify::connectstate::DeviceInfo initial_device;
-    if (device_info_bytes != nullptr && len > 0) {
-        if (!spotify::connectstate::decode_device_info(
-                device_info_bytes, static_cast<size_t>(len), initial_device)) {
-            return -2;
-        }
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        CONNECT_LOGE("musify_connect_start rejected: NativeConnectBundle is destroyed");
+        return spotify::connectstate::ConnectSubsystem::kStartInvalidArgs;
     }
-    bundle->subsystem.start(initial_device);
-    return 0;
+    bundle->rpc_executor.start();
+    return bundle->subsystem.start(device_info_bytes, len);
 }
 
 MUSIFY_EXPORT void musify_connect_stop(void* handle) {
@@ -875,7 +1017,112 @@ MUSIFY_EXPORT void musify_connect_stop(void* handle) {
         return;
     }
     auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    bundle->rpc_executor.stop();
     bundle->subsystem.stop();
+}
+
+MUSIFY_EXPORT int32_t musify_connect_call_async(
+    void* handle,
+    int32_t service_id,
+    const char* method,
+    const uint8_t* payload,
+    int32_t payload_len,
+    int64_t request_id,
+    int64_t reply_port) {
+    if (!handle || !method || method[0] == '\0' || payload_len < 0 ||
+        (payload_len > 0 && !payload) || reply_port == 0) {
+        return spotify::connectstate::esperanto::ConnectRpcExecutor::kSubmitInvalidArgs;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        return spotify::connectstate::esperanto::ConnectRpcExecutor::kSubmitStopped;
+    }
+    return bundle->rpc_executor.submit(
+        service_id,
+        method,
+        payload,
+        payload_len,
+        request_id,
+        [reply_port](
+            int64_t req_id,
+            spotify::connectstate::esperanto::EsperantoCallStatus status,
+            std::vector<uint8_t> res_payload) {
+            post_rpc_result_to_dart_port(reply_port, req_id, status, res_payload);
+        });
+}
+
+MUSIFY_EXPORT int32_t musify_connect_set_endpoints(
+    void* handle,
+    const char* spclient_base_url,
+    const char* dealer_ws_url) {
+    if (!handle) {
+        return -1;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        return -1;
+    }
+    const std::string_view spclient_sv =
+        spclient_base_url ? std::string_view(spclient_base_url) : std::string_view{};
+    const std::string_view dealer_sv =
+        dealer_ws_url ? std::string_view(dealer_ws_url) : std::string_view{};
+    const int32_t rc = bundle->subsystem.set_endpoints(spclient_sv, dealer_sv);
+    if (rc == 0 && !spclient_sv.empty()) {
+        NativePlaybackServices::instance().track_info_provider.set_spclient_base_url(
+            std::string(spclient_sv));
+    }
+    return rc;
+}
+
+MUSIFY_EXPORT int32_t musify_connect_reconnect(void* handle, int32_t reason_code) {
+    if (!handle) {
+        return -1;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        return -1;
+    }
+    return bundle->subsystem.reconnect(reason_code);
+}
+
+MUSIFY_EXPORT void musify_connect_set_network_available(void* handle, int32_t is_available) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        return;
+    }
+    bundle->subsystem.set_network_available(is_available != 0);
+}
+
+MUSIFY_EXPORT int32_t musify_connect_update_nsd_services(
+    void* handle,
+    const char* services_json_utf8) {
+    if (!handle) {
+        return -1;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        return -1;
+    }
+    return bundle->subsystem.update_nsd_services(
+        services_json_utf8 ? std::string_view(services_json_utf8) : std::string_view{});
+}
+
+MUSIFY_EXPORT int32_t musify_connect_set_local_volume(
+    void* handle,
+    uint32_t volume_0_to_65535,
+    int32_t volume_steps,
+    int32_t reason_code) {
+    if (!handle) {
+        return -1;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    if (bundle->destroyed.load(std::memory_order_acquire)) {
+        return -1;
+    }
+    return bundle->subsystem.set_local_volume(volume_0_to_65535, volume_steps, reason_code);
 }
 
 MUSIFY_EXPORT uint8_t* musify_connect_service_call(
@@ -1020,4 +1267,25 @@ MUSIFY_EXPORT void musify_connect_set_install_spotify_port(void* handle, int64_t
     }
     auto* bundle = static_cast<NativeConnectBundle*>(handle);
     set_connect_port_atomic(bundle, bundle->install_spotify_port, dart_port);
+}
+
+MUSIFY_EXPORT void musify_connect_set_diagnostic_port(void* handle, int64_t dart_port) {
+    if (!handle) {
+        return;
+    }
+    auto* bundle = static_cast<NativeConnectBundle*>(handle);
+    set_connect_port_atomic(bundle, bundle->diagnostic_port, dart_port);
+    if (dart_port == 0 || bundle->destroyed.load(std::memory_order_acquire)) {
+        bundle->subsystem.set_diagnostic_callback(nullptr);
+        return;
+    }
+    bundle->subsystem.set_diagnostic_callback([bundle](const std::string& json_payload) {
+        if (bundle->destroyed.load(std::memory_order_acquire) || json_payload.empty()) {
+            return;
+        }
+        const int64_t port = bundle->diagnostic_port.load(std::memory_order_acquire);
+        if (port != 0) {
+            post_string_to_dart_port(port, json_payload);
+        }
+    });
 }

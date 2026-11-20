@@ -195,6 +195,71 @@ final class LogoutDeviceRequested extends ConnectEvent {
   List<Object?> get props => [deviceIdentifier];
 }
 
+/// Requests renaming a remote Connect device (`ConnectService.Rename`).
+@immutable
+final class RenameDeviceRequested extends ConnectEvent {
+  final String deviceIdentifier;
+  final String newName;
+  final String? interactionId;
+
+  RenameDeviceRequested({
+    required this.deviceIdentifier,
+    required this.newName,
+    this.interactionId,
+  }) {
+    if (deviceIdentifier.trim().isEmpty) {
+      throw ArgumentError.value(
+        deviceIdentifier,
+        'deviceIdentifier',
+        'Must be non-empty',
+      );
+    }
+    if (newName.trim().isEmpty) {
+      throw ArgumentError.value(
+        newName,
+        'newName',
+        'Must be non-empty',
+      );
+    }
+  }
+
+  @override
+  List<Object?> get props => [deviceIdentifier, newName, interactionId];
+}
+
+/// Requests sending a raw Connect player command JSON payload to a device
+/// (`ConnectService.SendCommand`).
+@immutable
+final class SendPlayerCommandRequested extends ConnectEvent {
+  final String deviceIdentifier;
+  final String commandJson;
+  final String? interactionId;
+
+  SendPlayerCommandRequested({
+    required this.deviceIdentifier,
+    required this.commandJson,
+    this.interactionId,
+  }) {
+    if (deviceIdentifier.trim().isEmpty) {
+      throw ArgumentError.value(
+        deviceIdentifier,
+        'deviceIdentifier',
+        'Must be non-empty',
+      );
+    }
+    if (commandJson.trim().isEmpty) {
+      throw ArgumentError.value(
+        commandJson,
+        'commandJson',
+        'Must be non-empty',
+      );
+    }
+  }
+
+  @override
+  List<Object?> get props => [deviceIdentifier, commandJson, interactionId];
+}
+
 /// Requests setting active remote volume `[0.0, 1.0]` (`p199p/a0f1.java:409-422`).
 @immutable
 final class SetVolumeRequested extends ConnectEvent {
@@ -593,6 +658,40 @@ final class LogoutResultEvent extends ConnectEvent {
 
   @override
   List<Object?> get props => [deviceIdentifier, status, error];
+}
+
+/// Feedback event emitted when `RenameDeviceEffect` finishes.
+@immutable
+final class RenameDeviceResultEvent extends ConnectEvent {
+  final String deviceIdentifier;
+  final common_pb.Status? status;
+  final Object? error;
+
+  const RenameDeviceResultEvent({
+    required this.deviceIdentifier,
+    this.status,
+    this.error,
+  });
+
+  @override
+  List<Object?> get props => [deviceIdentifier, status, error];
+}
+
+/// Feedback event emitted when `SendPlayerCommandEffect` finishes.
+@immutable
+final class SendPlayerCommandResultEvent extends ConnectEvent {
+  final String deviceIdentifier;
+  final int? contextPlayerError;
+  final Object? error;
+
+  const SendPlayerCommandResultEvent({
+    required this.deviceIdentifier,
+    this.contextPlayerError,
+    this.error,
+  });
+
+  @override
+  List<Object?> get props => [deviceIdentifier, contextPlayerError, error];
 }
 
 /// Feedback event emitted when a volume effect finishes.

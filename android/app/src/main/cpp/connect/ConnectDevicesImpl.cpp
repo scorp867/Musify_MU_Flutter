@@ -1,21 +1,23 @@
-// Replicated from liborbit-jni-spotify.so (ConnectDevicesImpl cluster, postponement, discovery):
+// ============================================================================
+// Replicated from liborbit-jni-spotify.so (ConnectDevicesImpl cluster,
+// postponement, discovery, incarnation deduplication & group enrichment):
 // - Binary symbols / offsets:
 //   - ConnectDevicesImpl::acquireClusterUpdatePostponementBlock @ 0xdbdd30..0xdbdd68
-//   - ConnectDevicesImpl::releaseClusterUpdatePostponementBlock @ 0xdbdd6c..0xdbdda8 (refcount at [this, #0x2394])
-//   - ConnectDevicesImpl::performDiscovery @ 0xdac4e0..0xdac59c (can_discover check)
+//   - ConnectDevicesImpl::releaseClusterUpdatePostponementBlock @ 0xdbdd6c..0xdbdda8
+//   - ConnectDevicesImpl::performDiscovery @ 0xdac4e0..0xdac59c
 //   - ConnectDevicesImpl::stopScanning @ 0xdaec9c..0xdaecdc
 //   - ConnectDevicesImpl::fetchAndApplyCapabilities @ 0xdb1a60..0xdb1be0
-//   - ConnectDevicesImpl::has_received_cluster_update_after_backend_connection (0x5de01b)
-// - Java / Esperanto counterparts:
-//   - p199p/s77.java (ConnectService.State, ClusterUpdateAfterBackendConnection, SetPreferredIncarnation, AddDeviceToGroup, RemoveDeviceFromGroup)
-//   - p199p/C2086nd.java (ConnectService.PerformDiscovery, RefreshCluster)
-//   - com/spotify/connect/esperanto/proto/ConnectMessages$StateResponse.java
+//   - ConnectDevicesImpl incarnation deduplication @ 0xdad978..0xdae530
+// ============================================================================
 
 #include "ConnectDevicesImpl.h"
 
-#include <utility>
-
+#include "../network/NativeLog.h"
 #include "ConnectStateClientImpl.h"
+
+#include <algorithm>
+#include <unordered_set>
+#include <utility>
 
 namespace spotify::connectstate {
 
@@ -29,6 +31,7 @@ void ConnectDevicesImpl::set_local_device_info(DeviceInfo local_device) {
         auto it = current_cluster_.devices.find(local_device_info_.device_id);
         if (it != current_cluster_.devices.end()) {
             it->second.volume = local_device_info_.volume;
+            it->second.has_volume = local_device_info_.has_volume;
         }
     }
 }
@@ -188,12 +191,11 @@ void ConnectDevicesImpl::apply_cluster_snapshot(
 
 void ConnectDevicesImpl::commit_cluster_locked(
     const Cluster& cluster,
-    ClusterUpdateReason reason,
+    ClusterUpdateReason /*reason*/,
     std::vector<ClusterListener>& out_cluster_listeners,
     std::vector<DodoListener>& out_dodo_listeners,
     Cluster& out_cluster_copy,
     std::vector<SingleDodo>& out_dodos_copy) {
-    (void)reason;
     current_cluster_ = cluster;
     if (backend_connected_) {
         has_received_cluster_after_connect_ = true;
@@ -203,14 +205,12 @@ void ConnectDevicesImpl::commit_cluster_locked(
     out_dodos_copy = build_dodo_list(current_cluster_);
 
     out_cluster_listeners.reserve(cluster_listeners_.size());
-    for (const auto& [id, cb] : cluster_listeners_) {
-        (void)id;
-        out_cluster_listeners.push_back(cb);
+    for (const auto& entry : cluster_listeners_) {
+        out_cluster_listeners.push_back(entry.second);
     }
     out_dodo_listeners.reserve(dodo_listeners_.size());
-    for (const auto& [id, cb] : dodo_listeners_) {
-        (void)id;
-        out_dodo_listeners.push_back(cb);
+    for (const auto& entry : dodo_listeners_) {
+        out_dodo_listeners.push_back(entry.second);
     }
 }
 
@@ -231,6 +231,272 @@ std::vector<SingleDodo> ConnectDevicesImpl::build_dodo_list(const Cluster& clust
     return result;
 }
 
+DeviceInfo ConnectDevicesImpl::synthesize_device_from_local(const DiscoveredLocalEntry& entry) {
+    const LocalDevice& ld = entry.device;
+    DeviceInfo info;
+    info.can_play = ld.supports_on_demand || true;
+    info.volume = 65535;
+    info.has_volume = false;
+    info.name = ld.device_name;
+    info.device_type = ld.device_type;
+    info.device_id = ld.device_id;
+    info.client_id = ld.client_id;
+    info.brand = ld.brand;
+    info.model = ld.model;
+    info.product_id = ld.product_id;
+    info.deduplication_id = entry.deduplication_id.empty() ? ld.device_id : entry.deduplication_id;
+    info.selected_alias_id = ld.alias_id;
+    info.public_ip = ld.local_ip;
+    info.license = ld.license;
+    info.is_locally_discovered = true;
+    info.is_offline = false;
+    info.is_public = false;
+    info.is_wol_capable = ld.wol_info.has_value();
+    info.capabilities.supported_types = ld.supported_media_types;
+    info.capabilities.supports_dj = ld.supports_dj;
+    info.capabilities.is_voice_enabled = ld.is_voice_enabled;
+    info.capabilities.supports_hifi = ld.supports_hifi;
+    info.capabilities.connect_capabilities = ld.connect_capabilities;
+    info.capabilities.supports_external_episodes = ld.supports_external_episodes;
+    info.disallow_transfer_reasons = ld.disallow_reasons;
+    return info;
+}
+
+void ConnectDevicesImpl::apply_local_devices(std::vector<DiscoveredLocalEntry> entries) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    discovered_local_entries_ = std::move(entries);
+    CONNECT_LOGD("Updated locally discovered Connect devices: count=%zu",
+                 discovered_local_entries_.size());
+}
+
+std::vector<LocalDevice> ConnectDevicesImpl::local_devices_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<LocalDevice> out;
+    out.reserve(discovered_local_entries_.size());
+    for (const auto& entry : discovered_local_entries_) {
+        out.push_back(entry.device);
+    }
+    return out;
+}
+
+std::vector<DeviceInfo> ConnectDevicesImpl::merged_devices_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    // Start with all Connect-State cluster devices keyed by device_id.
+    std::unordered_map<std::string, DeviceInfo> merged_by_id = current_cluster_.devices;
+    std::unordered_map<std::string, std::string> dedup_to_device_id;
+    for (const auto& [id, dev] : merged_by_id) {
+        if (!dev.deduplication_id.empty()) {
+            dedup_to_device_id[dev.deduplication_id] = id;
+        }
+    }
+
+    // Merge/deduplicate ZEROCONF/CAST/DIAL local incarnations against cluster devices.
+    for (const auto& local_entry : discovered_local_entries_) {
+        const std::string& ld_id = local_entry.device.device_id;
+        if (ld_id.empty()) {
+            continue;
+        }
+        if (!local_device_info_.device_id.empty() && ld_id == local_device_info_.device_id) {
+            continue;
+        }
+
+        std::string matched_id;
+        if (merged_by_id.find(ld_id) != merged_by_id.end()) {
+            matched_id = ld_id;
+        } else if (!local_entry.deduplication_id.empty()) {
+            const auto dit = dedup_to_device_id.find(local_entry.deduplication_id);
+            if (dit != dedup_to_device_id.end()) {
+                matched_id = dit->second;
+            }
+        }
+
+        if (!matched_id.empty()) {
+            DeviceInfo& existing = merged_by_id[matched_id];
+            existing.is_locally_discovered = true;
+            if (existing.public_ip.empty() && !local_entry.device.local_ip.empty()) {
+                existing.public_ip = local_entry.device.local_ip;
+            }
+            if (existing.deduplication_id.empty() && !local_entry.deduplication_id.empty()) {
+                existing.deduplication_id = local_entry.deduplication_id;
+            }
+        } else {
+            DeviceInfo synthesized = synthesize_device_from_local(local_entry);
+            if (!synthesized.deduplication_id.empty()) {
+                dedup_to_device_id[synthesized.deduplication_id] = ld_id;
+            }
+            merged_by_id[ld_id] = std::move(synthesized);
+        }
+    }
+
+    std::vector<DeviceInfo> out;
+    out.reserve(merged_by_id.size());
+    for (auto& [id, dev] : merged_by_id) {
+        out.push_back(std::move(dev));
+    }
+    std::sort(out.begin(), out.end(), [](const DeviceInfo& a, const DeviceInfo& b) {
+        return a.device_id < b.device_id;
+    });
+    return out;
+}
+
+std::vector<Incarnation> ConnectDevicesImpl::incarnations_for_device(
+    std::string_view device_id,
+    std::string_view deduplication_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<Incarnation> result;
+    const std::string dev_id_str(device_id);
+    const std::string dedup_str(deduplication_id);
+
+    const bool in_cluster =
+        !dev_id_str.empty() &&
+        (current_cluster_.devices.find(dev_id_str) != current_cluster_.devices.end() ||
+         dev_id_str == local_device_info_.device_id);
+    if (in_cluster) {
+        Incarnation inc;
+        inc.type = IncarnationType::CONNECT;
+        inc.identifier = dev_id_str;
+        inc.connect_state_identifier = dev_id_str;
+        inc.preferred = (preferred_incarnation_ == dev_id_str);
+        result.push_back(std::move(inc));
+    }
+
+    for (const auto& entry : discovered_local_entries_) {
+        const bool match_id = !dev_id_str.empty() && entry.device.device_id == dev_id_str;
+        const bool match_dedup =
+            !dedup_str.empty() &&
+            (!entry.deduplication_id.empty() && entry.deduplication_id == dedup_str);
+        if (!match_id && !match_dedup) {
+            continue;
+        }
+        bool duplicate = false;
+        for (const auto& existing : result) {
+            if (existing.type == entry.incarnation_type &&
+                existing.identifier == entry.device.device_id) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) {
+            continue;
+        }
+        Incarnation inc;
+        inc.type = entry.incarnation_type;
+        inc.identifier = entry.device.device_id;
+        inc.connect_state_identifier = in_cluster ? dev_id_str : entry.device.device_id;
+        inc.local_ip = entry.device.local_ip;
+        inc.port = entry.port;
+        inc.preferred = (preferred_incarnation_ == entry.device.device_id &&
+                         inc.type != IncarnationType::CONNECT);
+        result.push_back(std::move(inc));
+    }
+    return result;
+}
+
+void ConnectDevicesImpl::apply_group_data(const std::vector<ConnectGroupData>& groups) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& gd : groups) {
+        if (gd.spotify_device_id.empty()) {
+            continue;
+        }
+        const auto it = group_data_by_device_id_.find(gd.spotify_device_id);
+        if (it != group_data_by_device_id_.end() &&
+            it->second.timestamp_ms > 0 && gd.timestamp_ms > 0 &&
+            gd.timestamp_ms < it->second.timestamp_ms) {
+            continue;
+        }
+        group_data_by_device_id_[gd.spotify_device_id] = gd;
+    }
+}
+
+void ConnectDevicesImpl::apply_group_device_volumes(
+    const std::vector<ConnectGroupDeviceVolume>& volumes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& vol : volumes) {
+        if (vol.group_device_identifier.empty()) {
+            continue;
+        }
+        const auto it = group_volumes_by_member_id_.find(vol.group_device_identifier);
+        if (it != group_volumes_by_member_id_.end() &&
+            it->second.timestamp_ms > 0 && vol.timestamp_ms > 0 &&
+            vol.timestamp_ms < it->second.timestamp_ms) {
+            continue;
+        }
+        group_volumes_by_member_id_[vol.group_device_identifier] = vol;
+    }
+}
+
+void ConnectDevicesImpl::remove_group_device(std::string_view group_device_id) {
+    if (group_device_id.empty()) {
+        return;
+    }
+    const std::string key(group_device_id);
+    std::lock_guard<std::mutex> lock(mutex_);
+    group_volumes_by_member_id_.erase(key);
+    for (auto& [dev_id, gd] : group_data_by_device_id_) {
+        auto& members = gd.grouped_devices;
+        members.erase(
+            std::remove_if(
+                members.begin(),
+                members.end(),
+                [&key](const ConnectGroupedDevice& d) {
+                    return d.group_device_identifier == key;
+                }),
+            members.end());
+    }
+}
+
+void ConnectDevicesImpl::clear_group_instance(std::string_view group_instance) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (group_instance.empty()) {
+        group_data_by_device_id_.clear();
+        group_volumes_by_member_id_.clear();
+        return;
+    }
+    for (auto it = group_data_by_device_id_.begin(); it != group_data_by_device_id_.end();) {
+        if (it->second.group_instance == group_instance || it->first == group_instance) {
+            it = group_data_by_device_id_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = group_volumes_by_member_id_.begin(); it != group_volumes_by_member_id_.end();) {
+        if (it->second.group_instance == group_instance ||
+            it->second.spotify_device_id == group_instance) {
+            it = group_volumes_by_member_id_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+std::optional<ConnectGroupData> ConnectDevicesImpl::group_data_for_device(
+    std::string_view spotify_device_id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto it = group_data_by_device_id_.find(std::string(spotify_device_id));
+    if (it == group_data_by_device_id_.end()) {
+        return std::nullopt;
+    }
+    return it->second;
+}
+
+std::unordered_map<std::string, ConnectGroupDeviceVolume>
+ConnectDevicesImpl::group_device_volumes_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return group_volumes_by_member_id_;
+}
+
+std::unordered_map<std::string, uint32_t>
+ConnectDevicesImpl::group_device_volume_values_snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::unordered_map<std::string, uint32_t> out;
+    out.reserve(group_volumes_by_member_id_.size());
+    for (const auto& [member_id, vol] : group_volumes_by_member_id_) {
+        out[member_id] = vol.volume;
+    }
+    return out;
+}
+
 Cluster ConnectDevicesImpl::current_cluster() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return current_cluster_;
@@ -239,10 +505,15 @@ Cluster ConnectDevicesImpl::current_cluster() const {
 std::optional<DeviceInfo> ConnectDevicesImpl::find_device(std::string_view device_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto it = current_cluster_.devices.find(std::string(device_id));
-    if (it == current_cluster_.devices.end()) {
-        return std::nullopt;
+    if (it != current_cluster_.devices.end()) {
+        return it->second;
     }
-    return it->second;
+    for (const auto& local_entry : discovered_local_entries_) {
+        if (local_entry.device.device_id == device_id) {
+            return synthesize_device_from_local(local_entry);
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<DeviceInfo> ConnectDevicesImpl::active_device() const {
@@ -277,6 +548,10 @@ uint32_t ConnectDevicesImpl::device_volume(std::string_view device_id) const {
     const auto it = current_cluster_.devices.find(std::string(device_id));
     if (it != current_cluster_.devices.end()) {
         return it->second.volume;
+    }
+    const auto git = group_volumes_by_member_id_.find(std::string(device_id));
+    if (git != group_volumes_by_member_id_.end()) {
+        return git->second.volume;
     }
     return 0;
 }
@@ -337,11 +612,17 @@ bool ConnectDevicesImpl::perform_discovery() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!can_discover_) {
+            CONNECT_LOGD("perform_discovery skipped: can_discover=false");
             return false;
         }
         scanning_ = true;
     }
     const auto wake_res = client_.wake_up_sleeping_cluster();
+    if (!wake_res.ok) {
+        CONNECT_LOGW("perform_discovery wake_up_sleeping_cluster failed: status=%d err='%s'",
+                     wake_res.http_status,
+                     wake_res.error_message.c_str());
+    }
     return wake_res.ok;
 }
 
@@ -384,6 +665,10 @@ bool ConnectDevicesImpl::fetch_and_apply_capabilities(int32_t max_retries) {
             local_device_info_.capabilities = res.capabilities;
             return true;
         }
+        CONNECT_LOGW("fetch_and_apply_capabilities attempt %d/%d failed: %s",
+                     attempt + 1,
+                     attempts,
+                     res.error_message.c_str());
     }
     return false;
 }
@@ -396,6 +681,9 @@ int32_t ConnectDevicesImpl::last_capability_retry_count() const {
 void ConnectDevicesImpl::reset() {
     std::lock_guard<std::mutex> lock(mutex_);
     current_cluster_ = Cluster{};
+    discovered_local_entries_.clear();
+    group_data_by_device_id_.clear();
+    group_volumes_by_member_id_.clear();
     backend_connected_ = false;
     has_received_cluster_after_connect_ = false;
     postponement_count_ = 0;

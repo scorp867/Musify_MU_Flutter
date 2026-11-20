@@ -3,16 +3,18 @@ import 'dart:developer' as dev;
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:musify_mu/core/network/spotify/auth/spotify_totp.dart';
 import 'package:musify_mu/core/network/spotify/auth/spotify_token_store.dart';
+import 'package:musify_mu/core/network/spotify/auth/spotify_totp.dart';
 
-/// Refreshes the Spotify Web Player access token using the sp_dc cookie + TOTP.
+/// Refreshes the Spotify Web Player access token using the `sp_dc` cookie + TOTP.
 ///
 /// Flow:
 /// 1. Fetch Spotify's server time to avoid clock skew.
 /// 2. Generate TOTP codes (local + server time).
-/// 3. Call `GET /api/token` with sp_dc cookie + TOTP params.
-/// 4. If 401/403 -> cipher was rotated -> refresh cipher -> retry once.
+/// 3. Call `GET /api/token` with `Cookie: sp_dc=<raw>` + TOTP params.
+/// 4. Persist `accessToken`, real `accessTokenExpirationTimestampMs`, and
+///    captured `clientId` into [SpotifyTokenStore].
+/// 5. If 401/403 -> cipher was rotated -> refresh cipher -> retry once.
 class SpotifyTokenRefresher {
   final SpotifyTokenStore _tokenStore;
   final SpotifyTotp _totp;
@@ -25,42 +27,58 @@ class SpotifyTokenRefresher {
     required SpotifyTokenStore tokenStore,
     SpotifyTotp? totp,
   })  : _tokenStore = tokenStore,
-        _totp = totp ?? SpotifyTotp();
+        _totp = switch (totp) {
+          final providedTotp? => providedTotp,
+          null => SpotifyTotp(),
+        };
 
   /// Attempts to refresh the access token.
-  /// Returns the new token on success, or null on failure.
+  /// Returns the new token on success, or `null` on failure.
   Future<String?> refresh() async {
-    final spDc = await _tokenStore.getSpDc();
-    if (spDc == null || spDc.isEmpty) {
+    final storedSpDc = await _tokenStore.getSpDc();
+    if (storedSpDc == null || storedSpDc.trim().isEmpty) {
       dev.log('TokenRefresh: No sp_dc cookie stored', name: 'Auth');
       return null;
     }
 
-    // Validate the sp_dc is a real cookie value, not a placeholder.
-    if (!spDc.startsWith('sp_dc=') || spDc.length < 20) {
+    final rawSpDc = SpotifyTokenStore.normalizeSpDcValue(storedSpDc);
+    // Validate the sp_dc is a real cookie value, not a short placeholder.
+    if (rawSpDc.length < 14) {
+      final previewLen = storedSpDc.length < 20 ? storedSpDc.length : 20;
+      final preview = storedSpDc.substring(0, previewLen);
       dev.log(
-        'TokenRefresh: Invalid sp_dc format: '
-        '${spDc.substring(0, spDc.length.clamp(0, 20))}...',
+        'TokenRefresh: Invalid sp_dc format: $preview...',
         name: 'Auth',
       );
       return null;
     }
+
+    // If legacy storage still held the `sp_dc=` prefix, rewrite the normalized
+    // raw value cleanly so native C++ and Dart share a single unprefixed SSOT.
+    if (storedSpDc != rawSpDc) {
+      await _tokenStore.saveSpDc(rawSpDc);
+    }
+
+    final cookieHeader = SpotifyTokenStore.formatSpDcCookieHeader(rawSpDc);
 
     // Ensure the TOTP cipher is fresh.
     await _totp.ensureFreshCipher();
 
     // First attempt.
     dev.log('TokenRefresh: Attempting refresh (attempt 1)...', name: 'Auth');
-    var result = await _attemptRefresh(spDc);
+    var result = await _attemptRefresh(cookieHeader);
     if (result != null) {
       dev.log('TokenRefresh: Success on attempt 1', name: 'Auth');
       return result;
     }
 
     // If failed, cipher may have been rotated -> force refresh + retry.
-    dev.log('TokenRefresh: Attempt 1 failed, refreshing cipher...', name: 'Auth');
+    dev.log(
+      'TokenRefresh: Attempt 1 failed, refreshing cipher...',
+      name: 'Auth',
+    );
     await _totp.refreshCipher();
-    result = await _attemptRefresh(spDc);
+    result = await _attemptRefresh(cookieHeader);
     if (result != null) {
       dev.log('TokenRefresh: Success on attempt 2', name: 'Auth');
     } else {
@@ -69,10 +87,9 @@ class SpotifyTokenRefresher {
     return result;
   }
 
-  /// Performs a single token refresh call.
-  Future<String?> _attemptRefresh(String spDc) async {
+  /// Performs a single token refresh call with a formatted `Cookie: sp_dc=...` header.
+  Future<String?> _attemptRefresh(String cookieHeader) async {
     try {
-      // Fetch Spotify's server time.
       final serverTimeMs = await _fetchServerTimeMs();
       if (serverTimeMs == null) {
         dev.log('TokenRefresh: Failed to fetch server time', name: 'Auth');
@@ -95,38 +112,63 @@ class SpotifyTokenRefresher {
         },
       );
 
-      final response = await http.get(url, headers: {
-        'Cookie': spDc,
-        'User-Agent': _userAgent,
-        'Accept': '*/*',
-        'Referer': 'https://open.spotify.com/',
-        'Origin': 'https://open.spotify.com',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-      }).timeout(const Duration(seconds: 15));
+      final response = await http.get(
+        url,
+        headers: {
+          'Cookie': cookieHeader,
+          'User-Agent': _userAgent,
+          'Accept': '*/*',
+          'Referer': 'https://open.spotify.com/',
+          'Origin': 'https://open.spotify.com',
+          'sec-fetch-dest': 'empty',
+          'sec-fetch-mode': 'cors',
+          'sec-fetch-site': 'same-origin',
+        },
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
         dev.log('TokenRefresh: HTTP ${response.statusCode}', name: 'Auth');
         return null;
       }
 
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final accessToken = body['accessToken'] as String?;
-      final isAnonymous = body['isAnonymous'] as bool? ?? true;
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, Object?>) {
+        dev.log('TokenRefresh: Unexpected non-map JSON payload', name: 'Auth');
+        return null;
+      }
 
-      if (accessToken == null || isAnonymous) {
+      final accessToken = switch (decoded['accessToken']) {
+        final String token => token,
+        _ => null,
+      };
+      final isAnonymous = switch (decoded['isAnonymous']) {
+        final bool flag => flag,
+        _ => true,
+      };
+
+      if (accessToken == null || accessToken.isEmpty || isAnonymous) {
         dev.log('TokenRefresh: Got anonymous token or null', name: 'Auth');
         return null;
       }
 
-      // Use the real expiry from the response instead of assuming 1 hour.
-      final expiresMs = body['accessTokenExpirationTimestampMs'] as int?;
-      final lifetimeMs = expiresMs != null
-          ? expiresMs - DateTime.now().millisecondsSinceEpoch
-          : 3600000;
+      if (decoded['clientId'] case final String rawClientId) {
+        final trimmedClientId = rawClientId.trim();
+        if (trimmedClientId.isNotEmpty) {
+          await _tokenStore.saveActiveClientId(trimmedClientId);
+        }
+      }
 
-      // Save the fresh token with its actual remaining lifetime.
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final expiresMs = switch (decoded['accessTokenExpirationTimestampMs']) {
+        final int value => value,
+        final num value => value.toInt(),
+        _ => null,
+      };
+      final lifetimeMs = switch (expiresMs) {
+        final int exp when exp > nowMs => exp - nowMs,
+        _ => 3600000,
+      };
+
       await _tokenStore.saveAccessToken(accessToken, lifetimeMs: lifetimeMs);
       dev.log(
         'TokenRefresh: Token saved, expires in ${lifetimeMs ~/ 60000} min',
@@ -152,9 +194,13 @@ class SpotifyTokenRefresher {
         final serverDate = HttpDate.parse(dateHeader);
         return serverDate.millisecondsSinceEpoch;
       }
-    } catch (_) {}
+    } catch (e) {
+      dev.log(
+        'TokenRefresh: Server time HEAD failed, using local clock: $e',
+        name: 'Auth',
+      );
+    }
 
-    // Fallback: use local time (may cause skew issues).
     return DateTime.now().millisecondsSinceEpoch;
   }
 }

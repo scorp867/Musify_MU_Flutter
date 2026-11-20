@@ -1,4 +1,4 @@
-// 1:1 Esperanto Native Transport & Connect FFI Routing Tests (Items 131-132)
+// 1:1 Esperanto Native Transport & Connect FFI Routing Tests (Items 131-132, Wave 2 Async RPCs)
 
 import 'dart:async';
 import 'dart:ffi';
@@ -15,17 +15,13 @@ import 'package:musify_mu/features/connect/data/proto/es_dodos_messages.pb.dart'
 import 'package:musify_mu/features/connect/data/proto/es_volume_messages.pb.dart';
 import 'package:musify_mu/features/player/data/esperanto/native_esperanto_transport.dart';
 
-class _FakeEngine implements MusifyNativeAudioEngine {
+class _FakeEngine extends Fake implements MusifyNativeAudioEngine {
   _FakeEngine(this._handle);
 
   final Pointer<Void> _handle;
 
   @override
   Pointer<Void> get handle => _handle;
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('Unexpected engine call: ${invocation.memberName}');
 }
 
 class _RecordedCall {
@@ -43,7 +39,7 @@ class _MockNativeResponse {
   final Uint8List bytes;
 }
 
-class _FakeFfiBindings implements MusifyFfiBindings {
+class _FakeFfiBindings extends Fake implements MusifyFfiBindings {
   final List<String> lifecycleLog = <String>[];
   final List<_RecordedCall> serviceCalls = <_RecordedCall>[];
   final Set<int> allocatedAddresses = <int>{};
@@ -63,10 +59,13 @@ class _FakeFfiBindings implements MusifyFfiBindings {
   int localVolumePort = 0;
   int dodoPort = 0;
   int installSpotifyPort = 0;
+  int diagnosticPort = 0;
 
   int connectStartCalls = 0;
   Uint8List? lastConnectStartBytes;
   int connectStopCalls = 0;
+
+  SendPort? rpcReplySendPort;
 
   final Pointer<Void> cpiHandle = Pointer<Void>.fromAddress(0x11110);
   final Pointer<Void> connectHandle = Pointer<Void>.fromAddress(0x22220);
@@ -113,7 +112,8 @@ class _FakeFfiBindings implements MusifyFfiBindings {
     expect(h, equals(connectHandle));
     connectStartCalls += 1;
     if (deviceInfoBytes != nullptr && len > 0) {
-      lastConnectStartBytes = Uint8List.fromList(deviceInfoBytes.asTypedList(len));
+      lastConnectStartBytes =
+          Uint8List.fromList(deviceInfoBytes.asTypedList(len));
     } else {
       lastConnectStartBytes = Uint8List(0);
     }
@@ -175,6 +175,12 @@ class _FakeFfiBindings implements MusifyFfiBindings {
   }
 
   @override
+  void connectSetDiagnosticPort(Pointer<Void> h, int dartPort) {
+    diagnosticPort = dartPort;
+    lifecycleLog.add('connectSetDiagnosticPort:$dartPort');
+  }
+
+  @override
   Pointer<Uint8> cpiGetState(Pointer<Void> h, Pointer<Int32> outLen) {
     final initial = initialCpiState;
     if (initial == null || initial.isEmpty) {
@@ -215,6 +221,43 @@ class _FakeFfiBindings implements MusifyFfiBindings {
     serviceCalls.add(
       _RecordedCall('ContextPlayer', method.toDartString(), copied),
     );
+    return 0;
+  }
+
+  @override
+  int connectCallAsync(
+    Pointer<Void> h,
+    int serviceId,
+    Pointer<Utf8> method,
+    Pointer<Uint8> payload,
+    int payloadLen,
+    int requestId,
+    int replyPort,
+  ) {
+    expect(h, equals(connectHandle));
+    expect(replyPort, isNonZero);
+    final service = switch (serviceId) {
+      1 => 'ConnectService',
+      2 => 'ConnectVolumeService',
+      3 => 'DodoService',
+      _ => throw ArgumentError('Unexpected Connect serviceId: $serviceId'),
+    };
+    final methodName = method.toDartString();
+    final copiedPayload = payload != nullptr && payloadLen > 0
+        ? Uint8List.fromList(payload.asTypedList(payloadLen))
+        : Uint8List(0);
+    serviceCalls.add(_RecordedCall(service, methodName, copiedPayload));
+
+    final fn = handler;
+    final res = fn != null
+        ? fn(service, methodName, copiedPayload)
+        : _MockNativeResponse(0, Uint8List(0));
+    final port = rpcReplySendPort;
+    if (port != null) {
+      scheduleMicrotask(() {
+        port.send(<Object?>[requestId, res.status, res.bytes]);
+      });
+    }
     return 0;
   }
 
@@ -312,32 +355,59 @@ class _FakeFfiBindings implements MusifyFfiBindings {
     freedAddresses.add(ptr.address);
     calloc.free(ptr);
   }
+}
 
-  @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('Unexpected FFI call: ${invocation.memberName}');
+NativeEsperantoTransport _createTransport(
+  _FakeEngine engine,
+  _FakeFfiBindings ffi,
+) {
+  final transport = NativeEsperantoTransport(engine, ffi: ffi);
+  ffi.rpcReplySendPort = transport.connectRpcReplySendPort;
+  return transport;
 }
 
 void main() {
-  group('NativeEsperantoTransport (Items 131-132)', () {
-    late _FakeEngine engine;
-    late _FakeFfiBindings ffi;
+  group('NativeEsperantoTransport (Items 131-132 & Wave 2 Async RPCs)', () {
+    _FakeEngine? currentEngine;
+    _FakeFfiBindings? currentFfi;
+
+    _FakeEngine getEngine() {
+      if (currentEngine case final e?) {
+        return e;
+      }
+      throw StateError('engine not initialized');
+    }
+
+    _FakeFfiBindings getFfi() {
+      if (currentFfi case final f?) {
+        return f;
+      }
+      throw StateError('ffi not initialized');
+    }
 
     setUp(() {
-      engine = _FakeEngine(Pointer<Void>.fromAddress(0xCAFE));
-      ffi = _FakeFfiBindings();
+      currentEngine = _FakeEngine(Pointer<Void>.fromAddress(0xCAFE));
+      currentFfi = _FakeFfiBindings();
     });
 
     test('destroys cpi handle if connectCreate returns nullptr', () {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.failConnectCreate = true;
       expect(
         () => NativeEsperantoTransport(engine, ffi: ffi),
         throwsStateError,
       );
-      expect(ffi.lifecycleLog, containsAllInOrder(['cpiCreate', 'connectCreate', 'cpiDestroy']));
+      expect(
+        ffi.lifecycleLog,
+        containsAllInOrder(['cpiCreate', 'connectCreate', 'cpiDestroy']),
+      );
     });
 
-    test('routes ConnectService, ConnectVolumeService, DodoService, and ContextPlayer calls and frees native buffers', () async {
+    test('routes ConnectService, ConnectVolumeService, DodoService via async connectCallAsync, ContextPlayer calls, and frees native buffers', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
+      ffi.initialCpiState = Uint8List.fromList([0x08, 0x01]);
       ffi.handler = (service, method, payload) {
         if (service == 'ConnectService' && method == 'Transfer') {
           final req = TransferRequest.fromBuffer(payload);
@@ -371,7 +441,7 @@ void main() {
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport = _createTransport(engine, ffi);
       addTearDown(transport.destroy);
 
       final transferOut = await transport.callSingle(
@@ -426,6 +496,8 @@ void main() {
     });
 
     test('callStream emits initial native snapshot and forwards ReceivePort updates', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.handler = (service, method, payload) {
         if (service == 'ConnectService' && method == 'State') {
           final req = StateRequest.fromBuffer(payload);
@@ -471,7 +543,7 @@ void main() {
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport = _createTransport(engine, ffi);
       addTearDown(transport.destroy);
 
       expect(ffi.connectStatePort, isNonZero);
@@ -487,7 +559,10 @@ void main() {
             StateRequest(includeLocalDevice: true).writeToBuffer(),
           )
           .first;
-      expect(StateResponse.fromBuffer(firstState).localName, equals('My Phone'));
+      expect(
+        StateResponse.fromBuffer(firstState).localName,
+        equals('My Phone'),
+      );
 
       final firstVolume = await transport
           .callStream(
@@ -516,7 +591,10 @@ void main() {
             Uint8List(0),
           )
           .first;
-      expect(DodoSubResponse.fromBuffer(firstDodo).dodos.single.dodoId, equals('d1'));
+      expect(
+        DodoSubResponse.fromBuffer(firstDodo).dodos.single.dodoId,
+        equals('d1'),
+      );
 
       final installStatus = await transport
           .callStream(
@@ -532,6 +610,8 @@ void main() {
     });
 
     test('fails fast with UnsupportedError, FormatException, and ArgumentError on error statuses', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.handler = (service, method, payload) {
         if (method == 'DecodeFail') return _MockNativeResponse(6, Uint8List(0));
         if (method == 'BadArg') return _MockNativeResponse(2, Uint8List(0));
@@ -541,7 +621,7 @@ void main() {
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport = _createTransport(engine, ffi);
       addTearDown(transport.destroy);
 
       await expectLater(
@@ -608,8 +688,13 @@ void main() {
       );
     });
 
-    test('destroy() clears ports and destroys connectHandle strictly before cpiHandle', () {
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+    test('destroy() clears ports, disposes attached gateways, and destroys connectHandle strictly before cpiHandle', () {
+      final engine = getEngine();
+      final ffi = getFfi();
+      final transport = _createTransport(engine, ffi);
+      final gateway = transport.createConnectGateway();
+      expect(gateway.isDisposed, isFalse);
+
       transport.connectStart();
       expect(ffi.connectStartCalls, equals(1));
       transport.connectStop();
@@ -617,11 +702,13 @@ void main() {
 
       transport.destroy();
 
+      expect(gateway.isDisposed, isTrue);
       expect(ffi.connectStatePort, equals(0));
       expect(ffi.volumePort, equals(0));
       expect(ffi.localVolumePort, equals(0));
       expect(ffi.dodoPort, equals(0));
       expect(ffi.installSpotifyPort, equals(0));
+      expect(ffi.diagnosticPort, equals(0));
 
       final connectDestroyIdx = ffi.lifecycleLog.indexOf('connectDestroy');
       final cpiDestroyIdx = ffi.lifecycleLog.indexOf('cpiDestroy');
@@ -663,24 +750,36 @@ void main() {
     });
 
     test('callStream delivers onDone to all 8 active subscribers on destroy() and completes subscribe-after-destroy cleanly', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.initialCpiState = Uint8List.fromList([10, 11]);
       ffi.initialCpiQueue = Uint8List.fromList([20, 21]);
       ffi.handler = (service, method, payload) {
         if (service == 'ConnectService' && method == 'State') {
-          return _MockNativeResponse(0, StateResponse(isRunning: true).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            StateResponse(isRunning: true).writeToBuffer(),
+          );
         }
         if (service == 'ConnectService' && method == 'InstallSpotify') {
           return _MockNativeResponse(
             0,
-            InstallSpotifyStatusUpdate(currentState: InstallSpotifyState.PAIRING)
-                .writeToBuffer(),
+            InstallSpotifyStatusUpdate(
+              currentState: InstallSpotifyState.PAIRING,
+            ).writeToBuffer(),
           );
         }
         if (service == 'ConnectVolumeService' && method == 'Volume') {
-          return _MockNativeResponse(0, VolumeResponse(volume: 1000).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            VolumeResponse(volume: 1000).writeToBuffer(),
+          );
         }
         if (service == 'ConnectVolumeService' && method == 'LocalVolume') {
-          return _MockNativeResponse(0, LocalVolumeResponse(volume: 500).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            LocalVolumeResponse(volume: 500).writeToBuffer(),
+          );
         }
         if (service == 'DodoService' && method == 'DodoSub') {
           return _MockNativeResponse(0, DodoSubResponse().writeToBuffer());
@@ -688,7 +787,7 @@ void main() {
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport = _createTransport(engine, ffi);
 
       final preObtainedAfterDestroy = transport.callStream(
         NativeEsperantoTransport.connectService,
@@ -782,6 +881,8 @@ void main() {
     });
 
     test('multi-listener replay on a single callStream delivers snapshots and live SendPort updates across all replaying channels', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.initialCpiState = Uint8List.fromList([1, 2]);
       ffi.initialCpiQueue = Uint8List.fromList([3, 4]);
       ffi.handler = (service, method, payload) {
@@ -792,10 +893,16 @@ void main() {
           );
         }
         if (service == 'ConnectVolumeService' && method == 'Volume') {
-          return _MockNativeResponse(0, VolumeResponse(volume: 100).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            VolumeResponse(volume: 100).writeToBuffer(),
+          );
         }
         if (service == 'ConnectVolumeService' && method == 'LocalVolume') {
-          return _MockNativeResponse(0, LocalVolumeResponse(volume: 200).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            LocalVolumeResponse(volume: 200).writeToBuffer(),
+          );
         }
         if (service == 'DodoService' && method == 'DodoSub') {
           return _MockNativeResponse(
@@ -806,7 +913,7 @@ void main() {
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport = _createTransport(engine, ffi);
       addTearDown(transport.destroy);
 
       final connectStateStream = transport.callStream(
@@ -823,8 +930,14 @@ void main() {
       await Future<void>(() {});
       expect(listener1, hasLength(1));
       expect(listener2, hasLength(1));
-      expect(StateResponse.fromBuffer(listener1.single).localName, equals('Initial'));
-      expect(StateResponse.fromBuffer(listener2.single).localName, equals('Initial'));
+      expect(
+        StateResponse.fromBuffer(listener1.single).localName,
+        equals('Initial'),
+      );
+      expect(
+        StateResponse.fromBuffer(listener2.single).localName,
+        equals('Initial'),
+      );
 
       final updatedState =
           StateResponse(isRunning: true, localName: 'Updated').writeToBuffer();
@@ -832,8 +945,14 @@ void main() {
       await Future<void>(() {});
       expect(listener1, hasLength(2));
       expect(listener2, hasLength(2));
-      expect(StateResponse.fromBuffer(listener1.last).localName, equals('Updated'));
-      expect(StateResponse.fromBuffer(listener2.last).localName, equals('Updated'));
+      expect(
+        StateResponse.fromBuffer(listener1.last).localName,
+        equals('Updated'),
+      );
+      expect(
+        StateResponse.fromBuffer(listener2.last).localName,
+        equals('Updated'),
+      );
 
       await sub1.cancel();
       final updatedState2 =
@@ -842,13 +961,19 @@ void main() {
       await Future<void>(() {});
       expect(listener1, hasLength(2));
       expect(listener2, hasLength(3));
-      expect(StateResponse.fromBuffer(listener2.last).localName, equals('Updated2'));
+      expect(
+        StateResponse.fromBuffer(listener2.last).localName,
+        equals('Updated2'),
+      );
 
       final listener3 = <Uint8List>[];
       final sub3 = connectStateStream.listen(listener3.add);
       await Future<void>(() {});
       expect(listener3, hasLength(1));
-      expect(StateResponse.fromBuffer(listener3.single).localName, equals('Updated2'));
+      expect(
+        StateResponse.fromBuffer(listener3.single).localName,
+        equals('Updated2'),
+      );
       await sub2.cancel();
       await sub3.cancel();
 
@@ -905,8 +1030,10 @@ void main() {
             Uint8List(0),
           ),
           sendPort: transport.dodoSendPort,
-          initial: DodoSubResponse(dodos: [SingleDodo(dodoId: 'd0')]).writeToBuffer(),
-          live: DodoSubResponse(dodos: [SingleDodo(dodoId: 'd1')]).writeToBuffer(),
+          initial: DodoSubResponse(dodos: [SingleDodo(dodoId: 'd0')])
+              .writeToBuffer(),
+          live: DodoSubResponse(dodos: [SingleDodo(dodoId: 'd1')])
+              .writeToBuffer(),
         ),
       ];
 
@@ -931,14 +1058,19 @@ void main() {
     });
 
     test('ignores late ReceivePort emissions after destroy() and runs full teardown when invalidate() precedes destroy()', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.handler = (service, method, payload) {
         if (service == 'ConnectService' && method == 'State') {
-          return _MockNativeResponse(0, StateResponse(isRunning: true).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            StateResponse(isRunning: true).writeToBuffer(),
+          );
         }
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport1 = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport1 = _createTransport(engine, ffi);
       final received = <Uint8List>[];
       final done = Completer<void>();
       final sub = transport1
@@ -967,7 +1099,7 @@ void main() {
 
       final ffi2 = _FakeFfiBindings();
       ffi2.handler = ffi.handler;
-      final transport2 = NativeEsperantoTransport(engine, ffi: ffi2);
+      final transport2 = _createTransport(engine, ffi2);
       final done2 = Completer<void>();
       final sub2 = transport2
           .callStream(
@@ -1036,6 +1168,8 @@ void main() {
     });
 
     test('routes ContextPlayer streams/callSync, Dodo aliases, non-empty error payloads, and connectStart bytes', () async {
+      final engine = getEngine();
+      final ffi = getFfi();
       ffi.handler = (service, method, payload) {
         if (service == 'ConnectService' && method == 'SendCommand') {
           return _MockNativeResponse(
@@ -1047,18 +1181,22 @@ void main() {
           return _MockNativeResponse(0, Uint8List(0));
         }
         if (service == 'ConnectVolumeService' && method == 'Volume') {
-          return _MockNativeResponse(0, VolumeResponse(volume: 777).writeToBuffer());
+          return _MockNativeResponse(
+            0,
+            VolumeResponse(volume: 777).writeToBuffer(),
+          );
         }
         if (service == 'DodoService' && (method == 'Dodos' || method == 'Sub')) {
           return _MockNativeResponse(
             0,
-            DodoSubResponse(dodos: [SingleDodo(dodoId: method)]).writeToBuffer(),
+            DodoSubResponse(dodos: [SingleDodo(dodoId: method)])
+                .writeToBuffer(),
           );
         }
         return _MockNativeResponse(5, Uint8List(0));
       };
 
-      final transport = NativeEsperantoTransport(engine, ffi: ffi);
+      final transport = _createTransport(engine, ffi);
       addTearDown(transport.destroy);
 
       final startBytes = Uint8List.fromList([0x0A, 0x01, 0x61]);

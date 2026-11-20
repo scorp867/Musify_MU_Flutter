@@ -2,17 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:musify_mu/app/di/injection.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/core/color/color_extraction_service.dart';
 import 'package:musify_mu/core/ubi/data/lifecycle/page_instance_id_holder.dart';
 import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
-import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
-import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
-import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
 
 import '../../application/queue/player_queue_bloc.dart';
 import '../../data/logging/player_logging_params_factory.dart';
@@ -46,6 +45,10 @@ class MiniPlayer extends StatefulWidget {
   final PlayerQueueMobiusController? queueBloc;
   final ContextTrack? currentTrack;
   final ConnectMobiusController? connectController;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
+  final UbiLogger? ubiLogger;
+  final PlayerLoggingParamsFactory? loggingParamsFactory;
+  final PageInstanceIdHolder? pageInstanceIdHolder;
 
   const MiniPlayer({
     super.key,
@@ -62,6 +65,10 @@ class MiniPlayer extends StatefulWidget {
     this.queueBloc,
     this.currentTrack,
     this.connectController,
+    this.outputStatusPolicy,
+    this.ubiLogger,
+    this.loggingParamsFactory,
+    this.pageInstanceIdHolder,
   });
 
   @override
@@ -70,28 +77,73 @@ class MiniPlayer extends StatefulWidget {
 
 class _MiniPlayerState extends State<MiniPlayer>
     with SingleTickerProviderStateMixin {
+  static void _noop() {}
+
   Color _currentColor = const Color(0xFF242424);
   bool _isFavorite = false;
-  late bool _isPlaying;
+  bool _isPlaying = false;
   String? _lastExtractedKey;
-  late final PageInstanceId _pageInstanceId;
-  late final ValueNotifier<double> _progressNotifier;
-  late final Ticker _progressTicker;
+  PageInstanceId _pageInstanceId = PageInstanceIdHolder.generateNew();
+  final ValueNotifier<double> _progressNotifier = ValueNotifier<double>(0.0);
+  Ticker? _progressTicker;
+
+  UbiLogger? _resolveUbiLogger() {
+    if (widget.ubiLogger case final explicit?) {
+      return explicit;
+    }
+    return context.read<UbiLogger?>();
+  }
+
+  PlayerLoggingParamsFactory? _resolveLoggingParamsFactory() {
+    if (widget.loggingParamsFactory case final explicit?) {
+      return explicit;
+    }
+    return context.read<PlayerLoggingParamsFactory?>();
+  }
+
+  PageInstanceIdHolder? _resolvePageInstanceIdHolder() {
+    if (widget.pageInstanceIdHolder case final explicit?) {
+      return explicit;
+    }
+    return context.read<PageInstanceIdHolder?>();
+  }
+
+  ColorExtractionService? _resolveColorService() {
+    if (widget.colorService case final explicit?) {
+      return explicit;
+    }
+    return context.read<ColorExtractionService?>();
+  }
+
+  ConnectMobiusController? _resolveConnectController() {
+    if (widget.connectController case final explicit?) {
+      return explicit;
+    }
+    return context.read<ConnectMobiusController?>();
+  }
+
+  ConnectOutputStatusPolicy _resolveOutputStatusPolicy() {
+    if (widget.outputStatusPolicy case final explicit?) {
+      return explicit;
+    }
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
+    }
+    return ConnectOutputStatusPolicy.instance;
+  }
 
   LoggingParams? _logMiniPlayerInteraction(
     String elementPath, [
     String actionName = 'hit',
   ]) {
-    if (getIt.isRegistered<UbiLogger>()) {
-      final ubiLogger = getIt<UbiLogger>();
+    if (_resolveUbiLogger() case final ubiLogger?) {
       final result = ubiLogger.logInteraction(
         UbiInteractionElement(
           elementPath: elementPath,
           actionName: actionName,
         ),
       );
-      if (getIt.isRegistered<PlayerLoggingParamsFactory>()) {
-        final factory = getIt<PlayerLoggingParamsFactory>();
+      if (_resolveLoggingParamsFactory() case final factory?) {
         return factory.createFromInteractionResult(result);
       }
     }
@@ -103,16 +155,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   void initState() {
     super.initState();
-    if (getIt.isRegistered<PageInstanceIdHolder>()) {
-      final holder = getIt<PageInstanceIdHolder>();
-      _pageInstanceId = PageInstanceIdHolder.generateNew();
+    _pageInstanceId = PageInstanceIdHolder.generateNew();
+    if (_resolvePageInstanceIdHolder() case final holder?) {
       holder.update(_pageInstanceId);
-    } else {
-      _pageInstanceId = PageInstanceIdHolder.generateNew();
     }
 
-    if (getIt.isRegistered<UbiLogger>()) {
-      final ubiLogger = getIt<UbiLogger>();
+    if (_resolveUbiLogger() case final ubiLogger?) {
       ubiLogger.logImpression(
         const UbiImpressionElement(
           elementPath: 'mini_player',
@@ -133,9 +181,9 @@ class _MiniPlayerState extends State<MiniPlayer>
         null => widget.progress,
       },
     );
-    _progressNotifier = ValueNotifier<double>(initialProgress);
+    _progressNotifier.value = initialProgress;
 
-    _progressTicker = createTicker((elapsed) {
+    final ticker = createTicker((elapsed) {
       if (mounted) {
         final bloc = widget.queueBloc;
         if (bloc != null) {
@@ -149,9 +197,10 @@ class _MiniPlayerState extends State<MiniPlayer>
         }
       }
     });
+    _progressTicker = ticker;
 
     if (_isPlaying) {
-      _progressTicker.start();
+      ticker.start();
     }
 
     widget.queueBloc?.addListener(_onQueueStateChanged);
@@ -159,7 +208,8 @@ class _MiniPlayerState extends State<MiniPlayer>
 
   @override
   void dispose() {
-    _progressTicker.dispose();
+    _progressTicker?.dispose();
+    _progressTicker = null;
     _progressNotifier.dispose();
     widget.queueBloc?.removeListener(_onQueueStateChanged);
     super.dispose();
@@ -174,11 +224,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     }
     if (oldWidget.isPlaying != widget.isPlaying) {
       _isPlaying = widget.isPlaying;
-      if (_isPlaying) {
-        if (!_progressTicker.isActive) _progressTicker.start();
-      } else {
-        if (_progressTicker.isActive) _progressTicker.stop();
-      }
+      _syncProgressTicker();
     }
     if (oldWidget.progress != widget.progress && widget.queueBloc == null) {
       _progressNotifier.value = _boundProgress(widget.progress);
@@ -191,6 +237,22 @@ class _MiniPlayerState extends State<MiniPlayer>
     }
   }
 
+  void _syncProgressTicker() {
+    final ticker = _progressTicker;
+    if (ticker == null) {
+      return;
+    }
+    if (_isPlaying) {
+      if (!ticker.isActive) {
+        ticker.start();
+      }
+    } else {
+      if (ticker.isActive) {
+        ticker.stop();
+      }
+    }
+  }
+
   void _onQueueStateChanged() {
     if (widget.queueBloc case final bloc?) {
       final state = bloc.state;
@@ -198,11 +260,7 @@ class _MiniPlayerState extends State<MiniPlayer>
         setState(() {
           _isPlaying = state.isPlaying;
         });
-        if (_isPlaying) {
-          if (!_progressTicker.isActive) _progressTicker.start();
-        } else {
-          if (_progressTicker.isActive) _progressTicker.stop();
-        }
+        _syncProgressTicker();
       }
       _progressNotifier.value = _boundProgress(state.playbackProgress);
       final resolvedImageUrl = _resolveImageUrl(state);
@@ -263,12 +321,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     if (key == _lastExtractedKey) return;
     _lastExtractedKey = key;
 
-    final service = switch (widget.colorService) {
-      final s? => s,
-      null => getIt.isRegistered<ColorExtractionService>()
-          ? getIt<ColorExtractionService>()
-          : null,
-    };
+    final service = _resolveColorService();
     if (service == null) return;
 
     final cached = service.getCached(key);
@@ -288,45 +341,30 @@ class _MiniPlayerState extends State<MiniPlayer>
     }
 
     unawaited(
-      service.extract(
-        imageUrl: imageUrl,
-        cacheKey: key,
-      ).then((scheme) {
-        if (mounted && _lastExtractedKey == key) {
-          final targetColor =
-              scheme.isNeutral ? const Color(0xFF242424) : scheme.surface;
-          if (_currentColor != targetColor) {
-            setState(() {
-              _currentColor = targetColor;
-            });
-          }
-        }
-      }),
+      service
+          .extract(
+            imageUrl: imageUrl,
+            cacheKey: key,
+          )
+          .then((scheme) {
+            if (mounted && _lastExtractedKey == key) {
+              final targetColor = scheme.isNeutral
+                  ? const Color(0xFF242424)
+                  : scheme.surface;
+              if (_currentColor != targetColor) {
+                setState(() {
+                  _currentColor = targetColor;
+                });
+              }
+            }
+          }),
     );
   }
 
   static double _boundProgress(double progress) {
-    if (progress < 0.0) return 0.0;
+    if (!progress.isFinite || progress < 0.0) return 0.0;
     if (progress > 1.0) return 1.0;
     return progress;
-  }
-
-  static bool _shouldShowConnectBanner(ConnectState state) {
-    if (state.transferState is TransferInProgress) {
-      return true;
-    }
-    final ConnectDevice? currentActive = state.activeDevice;
-    if (currentActive != null && !currentActive.isSelf) {
-      return true;
-    }
-    final LocalAudioPeripheral? peripheral = state.activeSelfPeripheral;
-    if (peripheral != null &&
-        peripheral.id != kBuiltInSpeakerPeripheralId &&
-        peripheral.connectionType !=
-            OutputPeripheralConnectionType.builtInSpeaker) {
-      return true;
-    }
-    return false;
   }
 
   @override
@@ -375,6 +413,8 @@ class _MiniPlayerState extends State<MiniPlayer>
       final playing? => playing,
       null => _isPlaying,
     };
+    final effectiveConnectController = _resolveConnectController();
+    final policy = _resolveOutputStatusPolicy();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -388,7 +428,7 @@ class _MiniPlayerState extends State<MiniPlayer>
             PlayerScreen.show(
               context,
               queueBloc: widget.queueBloc,
-              connectController: widget.connectController,
+              connectController: effectiveConnectController,
               currentTrack: switch (state?.currentTrack) {
                 final track? => track,
                 null => widget.currentTrack,
@@ -434,144 +474,235 @@ class _MiniPlayerState extends State<MiniPlayer>
               ),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: switch (effectiveConnectController) {
+            final controller? => ValueListenableBuilder<ConnectState>(
+                valueListenable: controller,
+                builder: (context, connectState, _) {
+                  return _buildMiniPlayerCardBody(
+                    context: context,
+                    displayTitle: displayTitle,
+                    displayArtist: displayArtist,
+                    displayThumbnailUrl: displayThumbnailUrl,
+                    isPlaying: isPlaying,
+                    connectController: controller,
+                    connectState: connectState,
+                    policy: policy,
+                  );
+                },
+              ),
+            null => _buildMiniPlayerCardBody(
+                context: context,
+                displayTitle: displayTitle,
+                displayArtist: displayArtist,
+                displayThumbnailUrl: displayThumbnailUrl,
+                isPlaying: isPlaying,
+                connectController: null,
+                connectState: null,
+                policy: policy,
+              ),
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniPlayerCardBody({
+    required BuildContext context,
+    required String displayTitle,
+    required String displayArtist,
+    required String? displayThumbnailUrl,
+    required bool isPlaying,
+    required ConnectMobiusController? connectController,
+    required ConnectState? connectState,
+    required ConnectOutputStatusPolicy policy,
+  }) {
+    final bool isConnectActive =
+        connectState != null && policy.isConnectOutputActive(connectState);
+    final bool showBanner =
+        connectState != null && policy.shouldShowBanner(connectState);
+
+    final VoidCallback handleConnectTap = switch (connectController) {
+      final controller? => () {
+          _logMiniPlayerInteraction('connect_destination_button', 'hit');
+          DevicePickerSheet.show(
+            context,
+            controller: controller,
+          );
+        },
+      null => _noop,
+    };
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+          child: Row(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
-                child: Row(
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: PlayerArtworkImage(
+                  imageUrl: displayThumbnailUrl,
+                  artworkWidth: 40,
+                  artworkHeight: 40,
+                  placeholderIconSize: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: PlayerArtworkImage(
-                        imageUrl: displayThumbnailUrl,
-                        artworkWidth: 40,
-                        artworkHeight: 40,
-                        placeholderIconSize: 20,
+                    Text(
+                      displayTitle,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        height: 1.2,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            displayTitle,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              height: 1.2,
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isConnectActive) ...[
+                          const Icon(
+                            Icons.graphic_eq_rounded,
+                            key: ValueKey<String>(
+                              'mini_player_active_output_indicator',
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            size: 12,
+                            color: kSpotifyConnectGreen,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
+                          const SizedBox(width: 4),
+                        ],
+                        Expanded(
+                          child: Text(
                             displayArtist,
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.70),
-                              fontWeight: FontWeight.w400,
+                              color: isConnectActive
+                                  ? kSpotifyConnectGreen
+                                  : Colors.white.withValues(alpha: 0.70),
+                              fontWeight: isConnectActive
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                               fontSize: 11,
                               height: 1.2,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.all(4),
-                      constraints: const BoxConstraints(),
-                      icon: Icon(
-                        _isFavorite
-                            ? Icons.check_circle_rounded
-                            : Icons.favorite_border_rounded,
-                        color: _isFavorite
-                            ? const Color(0xFF1DB954)
-                            : Colors.white.withValues(alpha: 0.75),
-                        size: 20,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _isFavorite = !_isFavorite;
-                        });
-                      },
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.all(4),
-                      constraints: const BoxConstraints(),
-                      icon: Icon(
-                        isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 28,
-                      ),
-                      onPressed: () {
-                        final lp = _logMiniPlayerInteraction('play_pause_button', 'hit');
-                        if (widget.onPlayPause case final onPlayPauseAction?) {
-                          onPlayPauseAction();
-                        } else if (widget.queueBloc case final bloc?) {
-                          bloc.add(TogglePlayPauseEvent(loggingParams: lp));
-                        }
-                      },
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              if (widget.connectController case final controller?)
-                ValueListenableBuilder<ConnectState>(
-                  valueListenable: controller,
-                  builder: (context, connectState, _) {
-                    if (!_shouldShowConnectBanner(connectState)) {
-                      return const SizedBox.shrink();
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-                      child: ActiveDeviceBanner(
-                        controller: controller,
-                        compact: true,
-                        showWhenLocalBuiltIn: false,
-                        onTap: () => DevicePickerSheet.show(
-                          context,
-                          controller: controller,
-                        ),
-                      ),
-                    );
-                  },
+              const SizedBox(width: 4),
+              IconButton(
+                key: const ValueKey<String>('mini_player_connect_button'),
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(),
+                tooltip: 'Devices',
+                icon: Icon(
+                  Icons.devices_rounded,
+                  color: isConnectActive
+                      ? kSpotifyConnectGreen
+                      : Colors.white.withValues(alpha: 0.75),
+                  size: 20,
                 ),
-              ClipRRect(
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(8),
-                  bottomRight: Radius.circular(8),
+                onPressed: handleConnectTap,
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(),
+                icon: Icon(
+                  _isFavorite
+                      ? Icons.check_circle_rounded
+                      : Icons.favorite_border_rounded,
+                  color: _isFavorite
+                      ? kSpotifyConnectGreen
+                      : Colors.white.withValues(alpha: 0.75),
+                  size: 20,
                 ),
-                child: RepaintBoundary(
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: _progressNotifier,
-                    builder: (context, currentProgress, _) {
-                      return LinearProgressIndicator(
-                        value: currentProgress,
-                        backgroundColor: Colors.white.withValues(alpha: 0.15),
-                        valueColor: const AlwaysStoppedAnimation<Color>(
-                          Colors.white,
-                        ),
-                        minHeight: 2,
-                      );
-                    },
-                  ),
+                onPressed: () {
+                  setState(() {
+                    _isFavorite = !_isFavorite;
+                  });
+                },
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(),
+                icon: Icon(
+                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 28,
                 ),
+                onPressed: () {
+                  final lp = _logMiniPlayerInteraction(
+                    'play_pause_button',
+                    'hit',
+                  );
+                  if (widget.onPlayPause case final onPlayPauseAction?) {
+                    onPlayPauseAction();
+                  } else if (widget.queueBloc case final bloc?) {
+                    bloc.add(TogglePlayPauseEvent(loggingParams: lp));
+                  }
+                },
               ),
             ],
           ),
         ),
-      ),
+        if (showBanner && connectController != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+            child: ActiveDeviceBanner(
+              activeDevice: connectState.activeDevice,
+              activeSelfPeripheral: connectState.activeSelfPeripheral,
+              selfDevice: connectState.selfDevice,
+              devices: connectState.devices,
+              transferState: connectState.transferState,
+              outputStatusPolicy: policy,
+              compact: true,
+              showWhenLocalBuiltIn: false,
+              onTap: () => DevicePickerSheet.show(
+                context,
+                controller: connectController,
+              ),
+            ),
+          ),
+        ClipRRect(
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(8),
+            bottomRight: Radius.circular(8),
+          ),
+          child: RepaintBoundary(
+            child: ValueListenableBuilder<double>(
+              valueListenable: _progressNotifier,
+              builder: (context, currentProgress, _) {
+                return LinearProgressIndicator(
+                  value: currentProgress,
+                  backgroundColor: Colors.white.withValues(alpha: 0.15),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Colors.white,
+                  ),
+                  minHeight: 2,
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

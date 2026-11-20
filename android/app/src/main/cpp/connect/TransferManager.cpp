@@ -1,18 +1,24 @@
+// ============================================================================
 // Replicated from liborbit-jni-spotify.so (TransferManager lifecycle, timeouts & dedup):
-// - Binary symbols / offsets:
-//   - TransferManager become active timer @ 0xdf3ddc..0xdf3e70 ("Command sent, starting become active timer", 10000ms @ 0x1595ab8 -> onBecomeActiveTimeout @ 0x3a24a1)
+// - Binary symbols / offsets (`liborbit-jni-spotify.so` arm64):
+//   - TransferManager become active timer @ 0xdf3ddc..0xdf3e70
+//     ("Command sent, starting become active timer", 10000ms @ 0x1595ab8 -> onBecomeActiveTimeout @ 0x3a24a1)
 //   - TransferManager::transferToConnectStateDevice @ 0xdf3b2c (30000ms @ 0x7530)
 //   - cast_transfer_timeout @ 0xd8f880 (default 30s, range [1, 60])
-//   - TransferManager::shouldIgnoreRepeatedTransferRequest @ 0xdf19c0..0xdf1a84 (1,000,000us = 0xf4240 scale + interaction_ids)
+//   - TransferManager::shouldIgnoreRepeatedTransferRequest @ 0xdf19c0..0xdf1a84
+//     (1,000,000us = 0xf4240 scale + interaction_ids)
 //   - TransferManager::onClusterUpdate @ 0xdf4b00..0xdf4cf8 ("pending device in cluster but offline")
 //   - Secondary Dodo transfer guard @ 0xdf16e8
 // - Java / JNI counterpart:
 //   - p199p/whd.java
+// ============================================================================
 
 #include "TransferManager.h"
 
 #include <algorithm>
 #include <utility>
+
+#include "../network/NativeLog.h"
 
 namespace spotify::connectstate {
 
@@ -111,14 +117,14 @@ void TransferManager::set_cast_transfer_timeout_sec(int32_t timeout_sec) {
     bool notify = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        int32_t clamped = timeout_sec;
-        if (clamped < kMinCastTimeoutSec) {
-            clamped = kMinCastTimeoutSec;
-        } else if (clamped > kMaxCastTimeoutSec) {
-            clamped = kMaxCastTimeoutSec;
+        int32_t bounded = timeout_sec;
+        if (bounded < kMinCastTimeoutSec) {
+            bounded = kMinCastTimeoutSec;
+        } else if (bounded > kMaxCastTimeoutSec) {
+            bounded = kMaxCastTimeoutSec;
         }
-        if (cast_transfer_timeout_sec_ != clamped) {
-            cast_transfer_timeout_sec_ = clamped;
+        if (cast_transfer_timeout_sec_ != bounded) {
+            cast_transfer_timeout_sec_ = bounded;
             ++schedule_version_;
             notify = true;
         }
@@ -189,7 +195,11 @@ bool TransferManager::is_device_offline(const DeviceInfo& device) {
 void TransferManager::release_postponement_if_held(TransferIntention& intention) {
     if (intention.postponement_acquired()) {
         intention.set_postponement_acquired(false);
-        (void)devices_.release_cluster_update_postponement_block();
+        const int32_t remaining = devices_.release_cluster_update_postponement_block();
+        CONNECT_LOGD(
+            "TransferManager: released cluster postponement block (remaining=%d, intention=%s)",
+            remaining,
+            intention.intention_id().c_str());
     }
 }
 
@@ -206,6 +216,7 @@ void TransferManager::notify_completion(const TransferOutcome& outcome) {
 
 TransferOutcome TransferManager::transfer_to_device(const TransferRequest& request) {
     if (request.target_device_id.empty()) {
+        CONNECT_LOGW("TransferManager::transfer_to_device rejected: empty target_device_id");
         return TransferOutcome{
             .ok = false,
             .intention_id = {},
@@ -219,6 +230,9 @@ TransferOutcome TransferManager::transfer_to_device(const TransferRequest& reque
 
     if (should_ignore_repeated_transfer_request(
             request.target_device_id, request.interaction_ids)) {
+        CONNECT_LOGD(
+            "TransferManager: ignoring repeated transfer request for target=%s",
+            request.target_device_id.c_str());
         return TransferOutcome{
             .ok = false,
             .intention_id = {},
@@ -242,6 +256,9 @@ TransferOutcome TransferManager::transfer_to_device(const TransferRequest& reque
             if ((dodo.cs_id == request.target_device_id ||
                  (!request.dodo_id.empty() && dodo.dodo_id == request.dodo_id)) &&
                 !dodo.is_primary && !allow_secondary) {
+                CONNECT_LOGW(
+                    "TransferManager: secondary Dodo transfer disallowed target=%s",
+                    request.target_device_id.c_str());
                 return TransferOutcome{
                     .ok = false,
                     .intention_id = {},
@@ -291,7 +308,12 @@ TransferOutcome TransferManager::transfer_to_device(const TransferRequest& reque
         intention.set_dodo_target(!request.dodo_id.empty(), request.dodo_id);
         intention.enter_phase(TransferPhase::kTransferring, current_time);
 
-        (void)devices_.acquire_cluster_update_postponement_block();
+        const int32_t block_count = devices_.acquire_cluster_update_postponement_block();
+        CONNECT_LOGD(
+            "TransferManager: acquired cluster postponement block (count=%d, intention=%s, target=%s)",
+            block_count,
+            intention_id.c_str(),
+            request.target_device_id.c_str());
         intention.set_postponement_acquired(true);
         active_intention_ = std::move(intention);
         ++schedule_version_;
@@ -326,6 +348,11 @@ TransferOutcome TransferManager::transfer_to_device(const TransferRequest& reque
     const auto post_http_time = now();
 
     if (!http_res.ok) {
+        CONNECT_LOGW(
+            "TransferManager: HTTP transfer failed target=%s http=%d desc=%s",
+            request.target_device_id.c_str(),
+            http_res.http_status,
+            http_res.error_description.c_str());
         std::optional<TransferOutcome> fail_outcome;
         std::optional<TransferOutcome> recorded_outcome;
         std::optional<TransferIntention> to_release;
@@ -357,7 +384,10 @@ TransferOutcome TransferManager::transfer_to_device(const TransferRequest& reque
             }
         }
         if (to_release.has_value()) {
-            (void)devices_.release_cluster_update_postponement_block();
+            const int32_t remaining = devices_.release_cluster_update_postponement_block();
+            CONNECT_LOGD(
+                "TransferManager: released postponement block after transfer failure (remaining=%d)",
+                remaining);
         }
         if (fail_outcome.has_value()) {
             cv_.notify_all();
@@ -401,7 +431,10 @@ TransferOutcome TransferManager::transfer_to_device(const TransferRequest& reque
         }
     }
     if (should_release) {
-        (void)devices_.release_cluster_update_postponement_block();
+        const int32_t remaining = devices_.release_cluster_update_postponement_block();
+        CONNECT_LOGD(
+            "TransferManager: command sent, starting become-active timer (postponement remaining=%d)",
+            remaining);
     }
     if (matched_active) {
         cv_.notify_all();
@@ -488,7 +521,10 @@ void TransferManager::abort_active_transfer(std::string reason) {
         ++schedule_version_;
     }
     if (should_release) {
-        (void)devices_.release_cluster_update_postponement_block();
+        const int32_t remaining = devices_.release_cluster_update_postponement_block();
+        CONNECT_LOGD(
+            "TransferManager: released postponement block after abort (remaining=%d)",
+            remaining);
     }
     if (outcome.has_value()) {
         cv_.notify_all();
@@ -537,9 +573,15 @@ void TransferManager::on_cluster_update(const Cluster& cluster) {
     }
 
     if (should_release) {
-        (void)devices_.release_cluster_update_postponement_block();
+        const int32_t remaining = devices_.release_cluster_update_postponement_block();
+        CONNECT_LOGD(
+            "TransferManager: released postponement block on transfer completion (remaining=%d)",
+            remaining);
     }
     if (completed_outcome.has_value()) {
+        CONNECT_LOGI(
+            "TransferManager: transfer completed target=%s",
+            completed_outcome->target_device_id.c_str());
         cv_.notify_all();
         notify_completion(*completed_outcome);
     }
@@ -617,9 +659,15 @@ void TransferManager::check_timeouts() {
         on_become_active_timeout_locked(timeout_outcome, &should_release);
     }
     if (should_release) {
-        (void)devices_.release_cluster_update_postponement_block();
+        const int32_t remaining = devices_.release_cluster_update_postponement_block();
+        CONNECT_LOGD(
+            "TransferManager: released postponement block after timeout (remaining=%d)",
+            remaining);
     }
     if (timeout_outcome.has_value()) {
+        CONNECT_LOGW(
+            "TransferManager: become-active timed out target=%s",
+            timeout_outcome->target_device_id.c_str());
         cv_.notify_all();
         notify_completion(*timeout_outcome);
     }

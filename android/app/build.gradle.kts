@@ -63,8 +63,8 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.media:media:1.7.0")
     implementation("com.google.oboe:oboe:1.9.0")
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 }
-

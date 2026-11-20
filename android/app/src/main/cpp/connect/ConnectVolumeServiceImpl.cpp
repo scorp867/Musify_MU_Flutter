@@ -1,13 +1,17 @@
+// ============================================================================
 // 1:1 Replicated Spotify Esperanto ConnectVolumeService Native Adapter
 // Sources:
-// - `liborbit-jni-spotify.so`: `spotify::connect::esperanto::proto::ConnectVolumeService`
+// - `liborbit-jni-spotify.so` (arm64): `spotify::connect::esperanto::proto::ConnectVolumeService`
 //   dispatcher @ `0xe40268`, vtable @ `0x18f49a0` (handlers `0xe3d1b0..0xe3d80e`)
 // - Decompiled Java: `p199p/C2086nd.java`, `p199p/lw51.java`, `p199p/a0f1.java`, `p199p/a170.java`
+// ============================================================================
 
 #include "ConnectVolumeServiceImpl.h"
 
 #include <algorithm>
 #include <utility>
+
+#include "../network/NativeLog.h"
 
 namespace spotify::connectstate::esperanto {
 
@@ -95,7 +99,7 @@ EsperantoCallResult ConnectVolumeServiceImpl::handle_local_volume(
     }
     const ConnectVolumeSnapshot snap = subsystem_.current_volume_snapshot();
     const spotify::connectstate::LocalVolumeReason reason =
-        snap.local_reason == "remote"
+        (snap.local_reason == "remote" || snap.local_reason == "system")
             ? spotify::connectstate::LocalVolumeReason::kSystem
             : spotify::connectstate::LocalVolumeReason::kUser;
     return EsperantoCallResult{
@@ -110,7 +114,14 @@ uint32_t ConnectVolumeServiceImpl::resolve_volume_step(
                                       ? group_device_id
                                       : subsystem_.devices().active_device_id();
     int32_t steps = 0;
-    if (!target_id.empty()) {
+    if (!group_device_id.empty()) {
+        const auto member_vols = subsystem_.devices().group_device_volumes_snapshot();
+        const auto it = member_vols.find(group_device_id);
+        if (it != member_vols.end() && it->second.volume_steps > 0) {
+            steps = it->second.volume_steps;
+        }
+    }
+    if (steps <= 0 && !target_id.empty()) {
         if (const auto dev = subsystem_.devices().find_device(target_id)) {
             steps = dev->capabilities.volume_steps;
         }
@@ -146,6 +157,14 @@ EsperantoCallResult ConnectVolumeServiceImpl::handle_volume_set(
         static_cast<uint32_t>(req.volume), ConnectSubsystem::kMaxVolumeSteps);
     const std::string group_id = req.group_device_identifier.value_or("");
     const AckHttpResult res = subsystem_.volume_set(bounded, group_id);
+    if (!res.ok && !res.throttled) {
+        CONNECT_LOGW(
+            "ConnectVolumeService::VolumeSet failed vol=%u group=%s http=%d err=%s",
+            bounded,
+            group_id.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(
@@ -172,6 +191,13 @@ EsperantoCallResult ConnectVolumeServiceImpl::handle_volume_up(
     const std::string group_id = req.group_device_identifier.value_or("");
     const uint32_t step = resolve_volume_step(group_id);
     const AckHttpResult res = subsystem_.volume_up(step, group_id);
+    if (!res.ok && !res.throttled) {
+        CONNECT_LOGW(
+            "ConnectVolumeService::VolumeUp failed group=%s http=%d err=%s",
+            group_id.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(
@@ -198,6 +224,13 @@ EsperantoCallResult ConnectVolumeServiceImpl::handle_volume_down(
     const std::string group_id = req.group_device_identifier.value_or("");
     const uint32_t step = resolve_volume_step(group_id);
     const AckHttpResult res = subsystem_.volume_down(step, group_id);
+    if (!res.ok && !res.throttled) {
+        CONNECT_LOGW(
+            "ConnectVolumeService::VolumeDown failed group=%s http=%d err=%s",
+            group_id.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(

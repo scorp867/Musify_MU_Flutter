@@ -1,0 +1,120 @@
+[+] READY. Play a track.
+
+
+[ORCHESTRATOR] this=0xb2f69100
+  +0x390..0x3b0: d0 4a 28 b3 16 0a 14 0a 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 00 00 e2 02
+  +0x43c (branch flag) = 0
+  +0x480..0x500: 01 da 24 01 ee a7 14 be 0a 58 bb be 00 00 00 00 00 00 00 00 00 6f 69 38 00 76 55 41 73 23 00 6b 00 f6 0c 37 20 e9 ac b7 70 e9 ac b7 70 e9 ac b7 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 77 01 00 01 cb fc 08 bc 7a 13 b3 b0 7a 13 b3 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 a8 93 dc b7 dc 7a 13 b3 d0 7a 13 b3 3b 39 a6 f3 cb b6 2e 21 c7 cf 07 ac
+
+[CIPHER_CMP] esp=0xbb09080c
+  ret   = 0xbebb85a2
+  XMM   = 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  arg3  = 0x1
+  arg4  = 0x0
+[STATS] runner=0 cmp=82 disp(R/K/A)=0/0/0
+[STATS] runner=0 cmp=182 disp(R/K/A)=0/0/0
+╔══════════════════════════════════════════╗
+║  CIPHER_RUNNER  state_obj = 0xbbd58d88  ║
+╚══════════════════════════════════════════╝
+  [00] +290  init0   data=[00 90 d5 bb 6d e4 88 f3 10 00 00 00]  idx=-1143631360  flg=170
+  [01] +280  init1   data=[00 90 d5 bb 58 a1 13 be 08 00 00 00]  idx=-1089222144  flg=0
+  [02] +26c  kstep0  data=[00 ca 13 bf 48 90 d5 bb 6d e4 88 f3]  idx=8  flg=0
+  [03] +258  rnd_01  data=[00 0f 25 ef 34 dc 96 f3 08 90 d5 bb]  idx=-209132406  flg=0
+  [04] +244  rnd_02  data=[00 00 00 00 cc 90 d5 bb 40 f1 96 f3]  idx=-1143632127  flg=0
+  [05] +230  rnd_03  data=[00 7e d0 7c 6d e4 88 f3 04 48 58 bd]  idx=-1118287628  flg=0
+  [06] +21c  rnd_04  data=[00 48 58 bd 00 00 00 00 dc 49 58 bd]  idx=18  flg=0
+  [07] +208  rnd_05  data=[00 49 58 bd 34 dc 96 f3 08 90 d5 bb]  idx=-209113497  flg=0
+  [08] +1f4  rnd_06  data=[00 2a 89 f3 00 00 00 80 a8 8f d5 bb]  idx=2094038698  flg=0
+  [09] +1e0  kstep1  data=[00 00 00 00 24 d1 8c f3 df 31 96 f3]  idx=-208217036  flg=0
+  [10] +1cc  rnd_07  data=[00 03 d0 f6 f4 48 58 bd dc 49 58 bd]  idx=18  flg=0
+  [11] +1b8  rnd_08  data=[00 8f d5 bb 34 dc 96 f3 98 8f d5 bb]  idx=-208871417  flg=0
+  [12] +1a4  rnd_09  data=[00 49 58 bd 01 00 00 00 00 00 00 00]  idx=0  flg=0
+  [13] +190  rnd_10  data=[00 03 00 00 ff ff ff ff 00 29 d0 f6]  idx=1  flg=0
+  [14] +17c  rnd_11  data=[00 f0 48 02 18 53 86 f3 28 53 86 f3]  idx=-154130116  flg=0
+  [15] +168  rnd_12  data=[00 00 00 00 08 00 00 00 c0 a3 d1 f6]  idx=1  flg=0
+  [16] +154  rnd_13  data=[00 f9 89 f3 3c 29 d0 f6 34 dc 96 f3]  idx=44  flg=0
+  [17] +140  rnd_14  data=[00 70 da f6 ff ff ff ff 01 00 00 00]  idx=-208217036  flg=0
+  [18] +12c  rnd_15  data=[00 00 00 00 58 00 00 00 34 dc 96 f3]  idx=3  flg=0
+  [19] +118  rnd_16  data=[00 00 00 00 34 dc 96 f3 18 8f d5 bb]  idx=-208257916  flg=0
+  [20] +104  final   data=[00 dc 96 f3 03 00 00 00 30 00 00 00]  idx=-153457344  flg=0
+  [21] +0f0  kstep2  data=[00 8e d5 bb 84 3c 96 f3 bc 1c d0 f6]  idx=2  flg=0
+  [22] +0dc  kstep3  data=[00 7a 3e f2 08 8f d5 bb fc ff ff ff]  idx=4  flg=0
+  [23] +0c8  rnd_17  data=[00 48 58 bd 00 00 00 00 aa 7e d0 7c]  idx=40961  flg=0
+  [24] +0b4  rnd_18  data=[00 00 00 00 00 70 08 00 94 f0 96 f3]  idx=45056  flg=0
+  [25] +0a0  rnd_19  data=[00 50 86 f3 34 dc 96 f3 34 dc 96 f3]  idx=-1118287868  flg=0
+  [26] +08c  rnd_20  data=[00 6d da f6 00 00 00 00 80 03 d0 f6]  idx=2  flg=0
+  [27] +078  rnd_21  data=[00 1c d0 f6 34 dc 96 f3 58 8f d5 bb]  idx=-209061071  flg=0
+  [28] +064  kstep4  data=[00 1c d0 f6 58 00 00 00 34 dc 96 f3]  idx=-1143632264  flg=0
+  [29] +050  rnd_22  data=[00 00 00 00 40 f1 96 f3 28 90 d5 bb]  idx=-154617216  flg=0
+  [30] +03c  rnd_23  data=[00 8f d5 bb aa 7e d0 7c a8 1a d0 f6]  idx=0  flg=0
+  [31] +028  rnd_24  data=[00 00 00 00 00 00 00 00 00 00 00 00]  idx=-208217036  flg=0
+  [32] +014  rnd_25  data=[00 92 8b f3 a8 1a d0 f6 03 90 d5 bb]  idx=1  flg=0
+  [33] +000  rnd_26  data=[00 00 00 00 40 39 dd f6 b4 11 d0 f6]  idx=-208217036  flg=0
+
+  ── full state (0x2a4 bytes) ──
+  +000: 00 00 00 00 40 39 dd f6 b4 11 d0 f6 34 dc 96 f3
+  +010: 00 8f d5 bb 00 92 8b f3 a8 1a d0 f6 03 90 d5 bb
+  +020: 01 00 00 00 00 91 8b f3 00 00 00 00 00 00 00 00
+  +030: 00 00 00 00 34 dc 96 f3 00 00 00 00 00 8f d5 bb
+  +040: aa 7e d0 7c a8 1a d0 f6 00 00 00 00 00 8f d5 bb
+  +050: 00 00 00 00 40 f1 96 f3 28 90 d5 bb 80 ba c8 f6
+  +060: 00 8e d5 bb 00 1c d0 f6 58 00 00 00 34 dc 96 f3
+  +070: 78 8e d5 bb 00 fb 89 f3 00 1c d0 f6 34 dc 96 f3
+  +080: 58 8f d5 bb 31 fb 89 f3 00 10 d0 f6 00 6d da f6
+  +090: 00 00 00 00 80 03 d0 f6 02 00 00 00 00 00 00 00
+  +0a0: 00 50 86 f3 34 dc 96 f3 34 dc 96 f3 04 48 58 bd
+  +0b0: 00 1c d0 f6 00 00 00 00 00 70 08 00 94 f0 96 f3
+  +0c0: 00 b0 00 00 00 3c 96 f3 00 48 58 bd 00 00 00 00
+  +0d0: aa 7e d0 7c 01 a0 00 00 00 f1 96 f3 00 7a 3e f2
+  +0e0: 08 8f d5 bb fc ff ff ff 04 00 00 00 00 dc 96 f3
+  +0f0: 00 8e d5 bb 84 3c 96 f3 bc 1c d0 f6 02 00 00 00
+  +100: 00 8f d5 bb 00 dc 96 f3 03 00 00 00 30 00 00 00
+  +110: 40 6d da f6 00 ff ff ff 00 00 00 00 34 dc 96 f3
+  +120: 18 8f d5 bb 84 3c 96 f3 00 1b d0 f6 00 00 00 00
+  +130: 58 00 00 00 34 dc 96 f3 03 00 00 00 00 00 00 00
+  +140: 00 70 da f6 ff ff ff ff 01 00 00 00 34 dc 96 f3
+  +150: 00 8f d5 bb 00 f9 89 f3 3c 29 d0 f6 34 dc 96 f3
+  +160: 2c 00 00 00 00 dc 96 f3 00 00 00 00 08 00 00 00
+  +170: c0 a3 d1 f6 01 00 00 00 00 0e 00 00 00 f0 48 02
+  +180: 18 53 86 f3 28 53 86 f3 3c 29 d0 f6 00 dc 96 f3
+  +190: 00 03 00 00 ff ff ff ff 00 29 d0 f6 01 00 00 00
+  +1a0: 00 29 d0 f6 00 49 58 bd 01 00 00 00 00 00 00 00
+  +1b0: 00 00 00 00 00 49 58 bd 00 8f d5 bb 34 dc 96 f3
+  +1c0: 98 8f d5 bb 07 e0 8c f3 00 48 58 bd 00 03 d0 f6
+  +1d0: f4 48 58 bd dc 49 58 bd 12 00 00 00 00 00 00 00
+  +1e0: 00 00 00 00 24 d1 8c f3 df 31 96 f3 34 dc 96 f3
+  +1f0: 00 8f d5 bb 00 2a 89 f3 00 00 00 80 a8 8f d5 bb
+  +200: aa 7e d0 7c 00 10 be b8 00 49 58 bd 34 dc 96 f3
+  +210: 08 90 d5 bb 67 2e 89 f3 00 48 58 bd 00 48 58 bd
+  +220: 00 00 00 00 dc 49 58 bd 12 00 00 00 00 f1 96 f3
+  +230: 00 7e d0 7c 6d e4 88 f3 04 48 58 bd f4 48 58 bd
+  +240: 00 7e d0 7c 00 00 00 00 cc 90 d5 bb 40 f1 96 f3
+  +250: 01 8f d5 bb 00 00 00 00 00 0f 25 ef 34 dc 96 f3
+  +260: 08 90 d5 bb 8a e4 88 f3 00 00 00 00 00 ca 13 bf
+  +270: 48 90 d5 bb 6d e4 88 f3 08 00 00 00 00 ca 13 bf
+  +280: 00 90 d5 bb 58 a1 13 be 08 00 00 00 00 ca 13 bf
+  +290: 00 90 d5 bb 6d e4 88 f3 10 00 00 00 00 92 d5 bb
+  +2a0: aa 7e d0 7c
+
+  ── beyond state (+0x2a4 .. +0x340) ──
+  +000: 61 79 14 be 08 00 00 00 00 00 00 00 00 00 00 00
+  +010: 00 0f 25 ef 00 0f 25 ef a8 ca 13 bf 78 95 d5 bb
+  +020: 4e 15 c3 be 10 00 00 00 34 dc 96 01 40 39 dd f6
+  +030: d6 f9 89 f3 40 f1 96 f3 00 70 0c 01 aa 7e d0 7c
+  +040: 84 3c 96 f3 03 00 00 00 30 00 00 00 a8 ca 13 bf
+  +050: 00 0f 25 ef e0 10 25 ef 00 0f 25 ef d4 10 25 ef
+  +060: e4 10 25 ef 00 00 00 00 00 00 00 00 00 00 00 00
+  +070: 00 00 00 00 14 1f d0 f6 04 00 00 00 1c 0f 25 ef
+  +080: 34 dc 96 f3 03 00 00 00 00 88 ec b1 c0 86 db f6
+  +090: 00 00 00 00 00 00 00 00 00 00 00 00
+[STATS] runner=8 cmp=295 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=313 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=315 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+[Android Emulator 5554::com.spotify.music ]-> [STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+[STATS] runner=8 cmp=321 disp(R/K/A)=0/0/0
+

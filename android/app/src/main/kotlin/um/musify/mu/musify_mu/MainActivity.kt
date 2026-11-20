@@ -7,14 +7,23 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.webkit.CookieManager
 import io.flutter.embedding.android.FlutterFragmentActivity
-import um.musify.mu.musify_mu.vault.VaultHardwareKeyStoreBridge
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import um.musify.mu.musify_mu.connect.AudioRouteMonitor
+import um.musify.mu.musify_mu.connect.ConnectNsdDiscovery
+import um.musify.mu.musify_mu.connect.DeviceEnvironmentBridge
+import um.musify.mu.musify_mu.connect.SystemVolumeBridge
+import um.musify.mu.musify_mu.vault.VaultHardwareKeyStoreBridge
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterFragmentActivity() {
     private var vaultBridge: VaultHardwareKeyStoreBridge? = null
+    private var deviceEnvironmentBridge: DeviceEnvironmentBridge? = null
+    private var audioRouteMonitor: AudioRouteMonitor? = null
+    private var systemVolumeBridge: SystemVolumeBridge? = null
+    private var connectNsdDiscovery: ConnectNsdDiscovery? = null
+
     private var screenPrivacyChannel: MethodChannel? = null
     private var localArtworkChannel: MethodChannel? = null
     private val artworkExecutor = Executors.newFixedThreadPool(2)
@@ -23,6 +32,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val artworkCache = object : android.util.LruCache<String, ByteArray>(8 * 1024 * 1024) {
         override fun sizeOf(key: String, value: ByteArray): Int = value.size.coerceAtLeast(1)
     }
+
     companion object {
         init {
             try {
@@ -56,16 +66,40 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         try {
             System.loadLibrary("musify_audio")
-        } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            android.util.Log.w("MainActivity", "System.loadLibrary(musify_audio) check in configureFlutterEngine: ${e.message}")
+        }
         super.configureFlutterEngine(flutterEngine)
 
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+
         // Register Vault Hardware KeyStore Bridge
+        vaultBridge?.detach()
         val bridge = VaultHardwareKeyStoreBridge(this)
-        bridge.register(flutterEngine.dartExecutor.binaryMessenger)
+        bridge.register(messenger)
         vaultBridge = bridge
 
+        // Register Spotify Connect Platform Bridges
+        detachConnectBridges()
+
+        val envBridge = DeviceEnvironmentBridge(applicationContext)
+        envBridge.register(messenger)
+        deviceEnvironmentBridge = envBridge
+
+        val routeMonitor = AudioRouteMonitor(applicationContext)
+        routeMonitor.register(messenger)
+        audioRouteMonitor = routeMonitor
+
+        val volumeBridge = SystemVolumeBridge(applicationContext)
+        volumeBridge.register(messenger)
+        systemVolumeBridge = volumeBridge
+
+        val nsdBridge = ConnectNsdDiscovery(applicationContext)
+        nsdBridge.register(messenger)
+        connectNsdDiscovery = nsdBridge
+
         // Cookie method channel - reads HttpOnly cookies via Android's native CookieManager.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, COOKIE_CHANNEL)
+        MethodChannel(messenger, COOKIE_CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method == "getCookies") {
                     val url = call.arguments as? String
@@ -86,7 +120,7 @@ class MainActivity : FlutterFragmentActivity() {
             }
 
         // Register Screen Privacy Method Channel
-        val privacyChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SCREEN_PRIVACY_CHANNEL)
+        val privacyChannel = MethodChannel(messenger, SCREEN_PRIVACY_CHANNEL)
         privacyChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "enableSecureFlag" -> setWindowSecureFlag(true, result)
@@ -124,7 +158,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
         screenPrivacyChannel = privacyChannel
 
-        val artworkChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LOCAL_ARTWORK_CHANNEL)
+        val artworkChannel = MethodChannel(messenger, LOCAL_ARTWORK_CHANNEL)
         artworkChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "extractEmbeddedArtwork" -> {
@@ -189,7 +223,9 @@ class MainActivity : FlutterFragmentActivity() {
                             } finally {
                                 try {
                                     retriever.release()
-                                } catch (_: Exception) {}
+                                } catch (e: Exception) {
+                                    android.util.Log.w("MainActivity", "MediaMetadataRetriever.release error: ${e.message}")
+                                }
                             }
                             val waiters: List<MethodChannel.Result> = synchronized(artworkCacheLock) {
                                 artworkInFlight.remove(cacheKey)?.toList() ?: emptyList()
@@ -218,7 +254,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
         localArtworkChannel = artworkChannel
 
-        EventChannel(flutterEngine.dartExecutor.binaryMessenger, OBSERVER_CHANNEL).setStreamHandler(
+        EventChannel(messenger, OBSERVER_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                     eventSink = events
@@ -231,6 +267,32 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
         )
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        detachConnectBridges()
+        vaultBridge?.detach()
+        vaultBridge = null
+        screenPrivacyChannel?.setMethodCallHandler(null)
+        screenPrivacyChannel = null
+        localArtworkChannel?.setMethodCallHandler(null)
+        localArtworkChannel = null
+        unregisterObserver()
+        super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    private fun detachConnectBridges() {
+        deviceEnvironmentBridge?.detach()
+        deviceEnvironmentBridge = null
+
+        audioRouteMonitor?.detach()
+        audioRouteMonitor = null
+
+        systemVolumeBridge?.detach()
+        systemVolumeBridge = null
+
+        connectNsdDiscovery?.detach()
+        connectNsdDiscovery = null
     }
 
     private fun setWindowSecureFlag(enable: Boolean, result: MethodChannel.Result) {
@@ -319,6 +381,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        detachConnectBridges()
         localArtworkChannel?.setMethodCallHandler(null)
         localArtworkChannel = null
         synchronized(artworkCacheLock) {
@@ -330,6 +393,7 @@ class MainActivity : FlutterFragmentActivity() {
         screenPrivacyChannel = null
         vaultBridge?.detach()
         vaultBridge = null
+        unregisterObserver()
         super.onDestroy()
     }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart' show StateStreamableSource;
@@ -8,11 +9,15 @@ import '../../../data/esperanto/context_player_options_client.dart';
 import '../../../data/esperanto/context_player_play_client.dart';
 import '../../../data/esperanto/context_player_queue_client.dart';
 import '../../../data/esperanto/context_player_state_client.dart';
+import '../../../domain/commands/options/play_operation.dart';
+import '../../../domain/commands/options/play_options.dart';
+import '../../../domain/commands/options/play_trigger.dart';
 import '../../../domain/commands/options/prepare_play_options.dart';
 import '../../../domain/commands/play_command.dart';
 import '../../../domain/models/context.dart';
 import '../../../domain/models/play_origin.dart';
 import '../../../domain/models/player_queue.dart';
+import '../../../domain/models/player_response.dart';
 import 'mobius_loop.dart';
 import 'queue_effect.dart';
 import 'queue_effect_handler.dart';
@@ -201,12 +206,26 @@ class PlayerQueueMobiusController extends ChangeNotifier
       final po? => po,
       null => const PlayOrigin(),
     };
-    final builder = PlayCommand.builder(context, origin);
+    final builder = PlayCommand.builder(context, origin).playOptions(
+      const PlayOptions(
+        operation: PlayOperation.replace,
+        trigger: PlayTrigger.immediately,
+      ),
+    );
     if (options case final opt?) {
       builder.options(opt);
     }
     final command = builder.build();
-    await pc.play(command);
+    final response = await pc.play(command);
+    switch (response) {
+      case PlayerResponseSuccess():
+        break;
+      case PlayerResponseFailure(:final reasons):
+        dev.log(
+          '[PLAYBACK][CONNECT] playContext failed for ${context.uri}: $reasons',
+          name: 'PlayerQueueMobiusController',
+        );
+    }
   }
 
   @override

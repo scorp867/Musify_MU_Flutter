@@ -1,8 +1,11 @@
+// ============================================================================
 // 1:1 Replicated Spotify Esperanto ConnectService Native Adapter
 // Sources:
-// - `liborbit-jni-spotify.so`: `spotify::connect::esperanto::proto::ConnectService`
+// - `liborbit-jni-spotify.so` (arm64): `spotify::connect::esperanto::proto::ConnectService`
 //   dispatcher @ `0xe3e3dc`, vtable @ `0x18f48b0` (handlers `0xe397c0..0xe3b0e6`)
+// - Connect-Group v1 enrichment (`0xd9f810..0xda1818`) & incarnation dedup (`0xdad978..0xdae530`)
 // - Decompiled Java: `p199p/s77.java`, `p199p/C2086nd.java`, `p199p/c8k.java`, `p199p/n8d.java`
+// ============================================================================
 
 #include "ConnectServiceImpl.h"
 
@@ -10,6 +13,8 @@
 #include <cctype>
 #include <unordered_set>
 #include <utility>
+
+#include "../network/NativeLog.h"
 
 namespace spotify::connectstate::esperanto {
 namespace {
@@ -46,8 +51,10 @@ bool contains_case_insensitive(std::string_view haystack, std::string_view needl
     for (size_t i = 0; i <= haystack.size() - needle.size(); ++i) {
         bool match = true;
         for (size_t j = 0; j < needle.size(); ++j) {
-            const auto a = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(haystack[i + j])));
-            const auto b = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(needle[j])));
+            const auto a = static_cast<unsigned char>(
+                std::tolower(static_cast<unsigned char>(haystack[i + j])));
+            const auto b = static_cast<unsigned char>(
+                std::tolower(static_cast<unsigned char>(needle[j])));
             if (a != b) {
                 match = false;
                 break;
@@ -141,6 +148,18 @@ AudioOutputCategory map_wire_category(OutputPeripheralCategory cat) {
     return AudioOutputCategory::AUDIO_OUTPUT_CATEGORY_UNKNOWN;
 }
 
+LoginType map_incarnation_login_type(IncarnationType type) {
+    switch (type) {
+        case IncarnationType::CAST:
+            return LoginType::CAST;
+        case IncarnationType::CONNECT:
+        case IncarnationType::ZEROCONF:
+        case IncarnationType::DIAL:
+            return LoginType::CONNECT;
+    }
+    return LoginType::CONNECT;
+}
+
 GroupError map_add_group_error(const AckHttpResult& res) {
     if (res.http_status == 404) return GroupError::GROUP_DEVICE_NOT_FOUND;
     if (res.http_status == 408 || res.http_status == 504) return GroupError::TIMEOUT_GROUP_ERROR;
@@ -224,7 +243,8 @@ StateDevice ConnectServiceImpl::map_device(
     bool is_self,
     const Cluster& cluster,
     const std::string& preferred_incarnation,
-    std::optional<uint32_t> preferred_login_type) const {
+    std::optional<uint32_t> preferred_login_type,
+    const std::unordered_map<std::string, ConnectGroupDeviceVolume>& group_volumes) const {
     StateDevice d;
     d.is_self = is_self;
     d.local_identifier = info.device_id;
@@ -269,7 +289,29 @@ StateDevice ConnectServiceImpl::map_device(
         d.capabilities = info.capabilities.connect_capabilities;
     }
 
-    if (!info.device_id.empty()) {
+    // Incarnation list populated from ConnectDevicesImpl deduplication registry.
+    const std::vector<Incarnation> raw_incarnations =
+        subsystem_.devices().incarnations_for_device(info.device_id, info.deduplication_id);
+    for (const auto& src : raw_incarnations) {
+        StateIncarnation inc;
+        LoginType lt = map_incarnation_login_type(src.type);
+        const bool is_preferred = src.preferred || (preferred_incarnation == src.identifier);
+        if (is_preferred && preferred_login_type.has_value() &&
+            *preferred_login_type == static_cast<uint32_t>(LoginType::CAST)) {
+            lt = LoginType::CAST;
+        }
+        inc.login_type = lt;
+        inc.identifier = src.identifier;
+        inc.preferred = is_preferred;
+        inc.preferred_reason = is_preferred
+                                   ? ProtocolChoiceReason::PROTOCOL_CHOICE_REASON_USER_SELECTED
+                                   : ProtocolChoiceReason::PROTOCOL_CHOICE_REASON_DEFAULT;
+        inc.connect_state_identifier = !src.connect_state_identifier.empty()
+                                           ? src.connect_state_identifier
+                                           : info.device_id;
+        d.incarnations.push_back(std::move(inc));
+    }
+    if (d.incarnations.empty() && !info.device_id.empty()) {
         StateIncarnation inc;
         const bool is_preferred = (preferred_incarnation == info.device_id);
         inc.login_type =
@@ -292,11 +334,9 @@ StateDevice ConnectServiceImpl::map_device(
     d.supports_dj = info.capabilities.supports_dj;
     d.library_version = info.device_software_version;
 
-    const AudioOutputDeviceInfo& ao = info.audio_output_device_info;
-    if (ao.audio_output_device_type !=
-            AudioOutputDeviceType::UNKNOWN_AUDIO_OUTPUT_DEVICE_TYPE ||
-        !ao.device_name.empty() || !ao.brand.empty() || !ao.model.empty() ||
-        ao.category != AudioOutputCategory::AUDIO_OUTPUT_CATEGORY_UNKNOWN) {
+    if (info.audio_output_device_info.has_value() &&
+        is_audio_output_device_info_populated(*info.audio_output_device_info)) {
+        const AudioOutputDeviceInfo& ao = *info.audio_output_device_info;
         OutputPeripheral op;
         if (!ao.device_name.empty()) op.name = ao.device_name;
         if (!ao.brand.empty()) op.brand = ao.brand;
@@ -310,11 +350,78 @@ StateDevice ConnectServiceImpl::map_device(
     d.supports_remote_sleep_timer = info.capabilities.supports_remote_sleep_timer;
     d.supports_playlist_mixing = info.capabilities.supports_playlist_mixing;
 
-    if (info.is_group || !info.device_aliases.empty()) {
+    // Prefer enriched Connect-Group v1 data when present; fall back to DeviceAlias entries.
+    if (const auto enriched_group = subsystem_.devices().group_data_for_device(info.device_id);
+        enriched_group.has_value()) {
+        GroupData gd;
+        gd.capabilities = GroupCapabilities{
+            .max_devices = enriched_group->max_group_size.value_or(5U),
+        };
+        for (const auto& member : enriched_group->grouped_devices) {
+            GroupDevice dev;
+            GroupDeviceIdentifiers ids;
+            ids.group_device_identifier = member.group_device_identifier;
+            if (!member.spotify_connect_device_id.empty()) {
+                ids.connect_state_identifier = member.spotify_connect_device_id;
+            }
+            dev.identifiers = std::move(ids);
+            dev.name = member.display_name;
+            dev.type = device_type_to_wire_string(member.device_type);
+            dev.model_display_name = member.model_display_name;
+            dev.capabilities = GroupDeviceCapabilities{
+                .removable = member.removable,
+                .removal_dissolves_group = member.removal_dissolves_group,
+            };
+            dev.grouping_status = GroupingStatus::GROUPED;
+            const auto vol_it = group_volumes.find(member.group_device_identifier);
+            if (vol_it != group_volumes.end() && vol_it->second.has_volume) {
+                dev.volume = GroupDeviceVolume{
+                    .volume = vol_it->second.volume,
+                    .volume_steps = vol_it->second.volume_steps > 0
+                                        ? vol_it->second.volume_steps
+                                        : info.capabilities.volume_steps,
+                };
+            } else {
+                dev.volume = GroupDeviceVolume{
+                    .volume = info.volume,
+                    .volume_steps = info.capabilities.volume_steps,
+                };
+            }
+            gd.devices.push_back(std::move(dev));
+        }
+        for (const auto& candidate : enriched_group->groupable_devices) {
+            GroupDevice dev;
+            GroupDeviceIdentifiers ids;
+            ids.group_device_identifier = candidate.group_device_identifier;
+            if (!candidate.spotify_connect_device_id.empty()) {
+                ids.connect_state_identifier = candidate.spotify_connect_device_id;
+            }
+            dev.identifiers = std::move(ids);
+            dev.name = candidate.display_name;
+            dev.type = device_type_to_wire_string(candidate.device_type);
+            dev.model_display_name = candidate.model_display_name;
+            dev.capabilities = GroupDeviceCapabilities{
+                .removable = false,
+                .removal_dissolves_group = false,
+            };
+            dev.grouping_status = GroupingStatus::GROUPABLE;
+            const auto vol_it = group_volumes.find(candidate.group_device_identifier);
+            if (vol_it != group_volumes.end() && vol_it->second.has_volume) {
+                dev.volume = GroupDeviceVolume{
+                    .volume = vol_it->second.volume,
+                    .volume_steps = vol_it->second.volume_steps > 0
+                                        ? vol_it->second.volume_steps
+                                        : info.capabilities.volume_steps,
+                };
+            }
+            gd.devices.push_back(std::move(dev));
+        }
+        d.group_data = std::move(gd);
+    } else if (info.is_group || !info.device_aliases.empty()) {
         GroupData gd;
         gd.capabilities = GroupCapabilities{.max_devices = 5};
-        for (const auto& [alias_id, alias] : info.device_aliases) {
-            (void)alias_id;
+        for (const auto& alias_pair : info.device_aliases) {
+            const DeviceAlias& alias = alias_pair.second;
             GroupDevice dev;
             GroupDeviceIdentifiers ids;
             ids.group_device_identifier =
@@ -331,10 +438,20 @@ StateDevice ConnectServiceImpl::map_device(
             dev.grouping_status = alias.is_group
                                       ? GroupingStatus::GROUPED
                                       : GroupingStatus::GROUPABLE;
-            dev.volume = GroupDeviceVolume{
-                .volume = info.volume,
-                .volume_steps = info.capabilities.volume_steps,
-            };
+            const auto vol_it = group_volumes.find(dev.identifiers->group_device_identifier);
+            if (vol_it != group_volumes.end() && vol_it->second.has_volume) {
+                dev.volume = GroupDeviceVolume{
+                    .volume = vol_it->second.volume,
+                    .volume_steps = vol_it->second.volume_steps > 0
+                                        ? vol_it->second.volume_steps
+                                        : info.capabilities.volume_steps,
+                };
+            } else {
+                dev.volume = GroupDeviceVolume{
+                    .volume = info.volume,
+                    .volume_steps = info.capabilities.volume_steps,
+                };
+            }
             gd.devices.push_back(std::move(dev));
         }
         d.group_data = std::move(gd);
@@ -355,6 +472,8 @@ StateResponse ConnectServiceImpl::build_state_response(const StateRequest& reque
     const Cluster cluster = subsystem_.devices().current_cluster();
     const std::string preferred = subsystem_.devices().preferred_incarnation();
     const std::optional<uint32_t> preferred_type = subsystem_.preferred_login_type();
+    const auto group_volumes = subsystem_.devices().group_device_volumes_snapshot();
+    const std::vector<DeviceInfo> merged_devices = subsystem_.devices().merged_devices_snapshot();
 
     StateResponse resp;
     resp.is_running = subsystem_.is_running();
@@ -394,7 +513,7 @@ StateResponse ConnectServiceImpl::build_state_response(const StateRequest& reque
             return;
         }
         StateDevice mapped = map_device(
-            info, is_self, cluster, preferred, preferred_type);
+            info, is_self, cluster, preferred, preferred_type, group_volumes);
         if (!treat_offline && info.is_offline) {
             mapped.is_offline = false;
             mapped.state = "logged_in";
@@ -408,25 +527,16 @@ StateResponse ConnectServiceImpl::build_state_response(const StateRequest& reque
             DeviceInfo merged = cluster_local_it->second;
             merged.audio_output_device_info = local.audio_output_device_info;
             merged.volume = local.volume;
+            merged.has_volume = local.has_volume;
             maybe_append_device(merged, true);
         } else {
             maybe_append_device(local, true);
         }
     }
 
-    std::vector<std::string> sorted_ids;
-    sorted_ids.reserve(cluster.devices.size());
-    for (const auto& [id, dev] : cluster.devices) {
-        (void)dev;
-        if (id != local.device_id) {
-            sorted_ids.push_back(id);
-        }
-    }
-    std::sort(sorted_ids.begin(), sorted_ids.end());
-    for (const auto& id : sorted_ids) {
-        const auto it = cluster.devices.find(id);
-        if (it != cluster.devices.end()) {
-            maybe_append_device(it->second, false);
+    for (const auto& dev : merged_devices) {
+        if (dev.device_id != local.device_id) {
+            maybe_append_device(dev, false);
         }
     }
 
@@ -474,6 +584,12 @@ EsperantoCallResult ConnectServiceImpl::handle_transfer(
     const bool dodo = req.dodo.value_or(false);
     const TransferOutcome outcome = subsystem_.transfer(
         req.connect_device_identifier, opts, interaction_ids, dodo);
+    if (!outcome.ok) {
+        CONNECT_LOGW(
+            "ConnectService::Transfer failed target=%s err=%s",
+            req.connect_device_identifier.c_str(),
+            outcome.error_description.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(
@@ -506,6 +622,13 @@ EsperantoCallResult ConnectServiceImpl::handle_send_command(
     }
     const AckHttpResult res = subsystem_.send_player_command(
         req.connect_device_identifier, req.command_json, intent_id);
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "ConnectService::SendCommand failed target=%s http=%d err=%s",
+            req.connect_device_identifier.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     const int32_t err = res.ok ? 0 : (res.http_status > 0 ? res.http_status : -1);
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
@@ -531,6 +654,9 @@ EsperantoCallResult ConnectServiceImpl::handle_pull(
         };
     }
     const TransferOutcome outcome = subsystem_.pull();
+    if (!outcome.ok) {
+        CONNECT_LOGW("ConnectService::Pull failed err=%s", outcome.error_description.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(
@@ -555,6 +681,13 @@ EsperantoCallResult ConnectServiceImpl::handle_rename(
         };
     }
     const AckHttpResult res = subsystem_.rename(req.device_id, req.new_name);
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "ConnectService::Rename failed device=%s http=%d err=%s",
+            req.device_id.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(
@@ -573,6 +706,13 @@ EsperantoCallResult ConnectServiceImpl::handle_logout(
         };
     }
     const SimpleHttpResult res = subsystem_.logout(req.connect_device_identifier);
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "ConnectService::Logout failed target=%s http=%d err=%s",
+            req.connect_device_identifier.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(
@@ -609,7 +749,18 @@ EsperantoCallResult ConnectServiceImpl::handle_notify_audio_route_changed(
         info.category = map_wire_category(*req.audio_output_device_category);
     }
 
-    (void)subsystem_.notify_audio_route_changed({info});
+    const PutStateResult res = subsystem_.notify_audio_route_changed({info});
+    if (!res.ok && !res.deferred) {
+        CONNECT_LOGW(
+            "ConnectService::NotifyAudioRouteChanged PutState failed http=%d err_code=%d msg=%s",
+            res.http_status,
+            static_cast<int>(res.error_code),
+            res.error_message.c_str());
+        return EsperantoCallResult{
+            .status = EsperantoCallStatus::kBackendFailure,
+            .payload = {},
+        };
+    }
     // Per liborbit @ 0xe3a7f8 and s77.java:1114, NotifyAudioRouteChanged returns google.protobuf.Empty.
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
@@ -698,6 +849,12 @@ EsperantoCallResult ConnectServiceImpl::handle_add_device_to_group(
     out.success = res.ok;
     if (!res.ok) {
         out.error = map_add_group_error(res);
+        CONNECT_LOGW(
+            "ConnectService::AddDeviceToGroup failed target=%s member=%s http=%d err=%s",
+            req.connect_device_identifier.c_str(),
+            req.group_device_identifier.c_str(),
+            res.http_status,
+            res.error_message.c_str());
     }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
@@ -733,6 +890,12 @@ EsperantoCallResult ConnectServiceImpl::handle_remove_device_from_group(
     out.success = res.ok;
     if (!res.ok) {
         out.error = map_remove_group_error(res);
+        CONNECT_LOGW(
+            "ConnectService::RemoveDeviceFromGroup failed target=%s member=%s http=%d err=%s",
+            req.connect_device_identifier.c_str(),
+            req.group_device_identifier.c_str(),
+            res.http_status,
+            res.error_message.c_str());
     }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
@@ -767,6 +930,11 @@ EsperantoCallResult ConnectServiceImpl::handle_delete_group(
     out.success = res.ok;
     if (!res.ok) {
         out.error = map_delete_group_error(res);
+        CONNECT_LOGW(
+            "ConnectService::DeleteGroup failed target=%s http=%d err=%s",
+            req.connect_device_identifier.c_str(),
+            res.http_status,
+            res.error_message.c_str());
     }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
@@ -818,7 +986,14 @@ EsperantoCallResult ConnectServiceImpl::handle_perform_discovery(
             .payload = {},
         };
     }
-    (void)subsystem_.perform_discovery();
+    const bool started = subsystem_.perform_discovery();
+    if (!started) {
+        CONNECT_LOGW("ConnectService::PerformDiscovery: discovery disabled or rejected");
+        return EsperantoCallResult{
+            .status = EsperantoCallStatus::kBackendFailure,
+            .payload = {},
+        };
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = {},
@@ -834,7 +1009,18 @@ EsperantoCallResult ConnectServiceImpl::handle_refresh_cluster(
             .payload = {},
         };
     }
-    (void)subsystem_.refresh_cluster();
+    const PutStateResult res = subsystem_.refresh_cluster();
+    if (!res.ok && !res.deferred) {
+        CONNECT_LOGW(
+            "ConnectService::RefreshCluster failed http=%d err_code=%d msg=%s",
+            res.http_status,
+            static_cast<int>(res.error_code),
+            res.error_message.c_str());
+        return EsperantoCallResult{
+            .status = EsperantoCallStatus::kBackendFailure,
+            .payload = {},
+        };
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = {},
@@ -850,7 +1036,18 @@ EsperantoCallResult ConnectServiceImpl::handle_wake_sleeping_cluster_devices(
             .payload = {},
         };
     }
-    (void)subsystem_.wake_sleeping_cluster_devices();
+    const SimpleHttpResult res = subsystem_.wake_sleeping_cluster_devices();
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "ConnectService::WakeSleepingClusterDevices failed http=%d err_code=%d msg=%s",
+            res.http_status,
+            static_cast<int>(res.error_code),
+            res.error_message.c_str());
+        return EsperantoCallResult{
+            .status = EsperantoCallStatus::kBackendFailure,
+            .payload = {},
+        };
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = {},

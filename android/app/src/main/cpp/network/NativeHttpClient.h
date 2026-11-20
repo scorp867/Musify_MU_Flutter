@@ -5,6 +5,7 @@
 // - `liborbit-jni-spotify.so` offsets 0x44b598 ("POST"), 0x44b5b0 ("DELETE"), 0x44b5c8 ("PUT")
 // - `liborbit-jni-spotify.so` offsets 0x3e1028 ("grpc-status"), 0x38bcd4 ("Retry-After")
 // - `liborbit-jni-spotify.so` offset 0x39c1c3 ("X-Spotify-Connection-Id")
+// - `liborbit-jni-spotify.so` offset 0x446bed @ 0x12f31ac ("client-token-error")
 // ============================================================================
 
 #pragma once
@@ -16,10 +17,22 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace spotify::network {
+
+/// Return true from the predicate to cancel an in-flight HTTP transfer immediately.
+using CancelPredicate = std::function<bool()>;
+
+struct HttpRequestOptions {
+    int connect_timeout_ms{8000};
+    int read_timeout_ms{15000};
+    bool include_spotify_auth{true};
+    bool include_cookie{false};
+    CancelPredicate cancel_pred{nullptr};
+};
 
 struct HttpResponse {
     int32_t status_code{0};
@@ -34,7 +47,7 @@ struct HttpResponse {
         return transport_ok && status_code >= 200 && status_code < 300;
     }
 
-    [[nodiscard]] std::string getHeader(const std::string& name) const noexcept {
+    [[nodiscard]] std::string getHeader(std::string_view name) const noexcept {
         for (const auto& kv : headers) {
             if (kv.first.size() != name.size()) continue;
             bool match = true;
@@ -101,9 +114,6 @@ using RangeChunkCallback = std::function<bool(
     size_t len,
     int64_t total_resource_size)>;
 
-/// Return true from the predicate to cancel an in-flight HTTP transfer immediately.
-using CancelPredicate = std::function<bool()>;
-
 /// Pure C++ HTTPS client built over libcurl + mbedTLS + Android CA stores.
 class NativeHttpClient {
 public:
@@ -120,13 +130,35 @@ public:
     /// or false immediately when the device is offline (Wi-Fi and cellular data disabled).
     [[nodiscard]] static bool hasActiveNetworkRoute() noexcept;
 
+    /// Deduplicated in-memory CA PEM bundle (/apex/com.android.conscrypt/cacerts preferred
+    /// before /system/etc/security/cacerts) and fallback CAPATH directory.
+    [[nodiscard]] static const std::string& caPemBundle() noexcept;
+    [[nodiscard]] static const char* fallbackCaDir() noexcept;
+
+    /// Strips any redundant leading "sp_dc=" prefix and trailing cookie attributes
+    /// so formatting `Cookie: sp_dc=<val>` never produces `sp_dc=sp_dc=...`.
+    [[nodiscard]] static std::string normalizeSpDcValue(std::string_view raw_sp_dc);
+    [[nodiscard]] static std::string normalize_sp_dc_value(std::string_view raw_sp_dc) {
+        return normalizeSpDcValue(raw_sp_dc);
+    }
+
+    /// Returns true if the `client-token-error` header value indicates an expired,
+    /// invalid, missing, or unsupported client token per `liborbit` (`0x12f31ac`).
+    [[nodiscard]] static bool isClientTokenErrorHeader(std::string_view header_value) noexcept;
+
     [[nodiscard]] HttpResponse get(
         const std::string& url,
         const std::vector<std::pair<std::string, std::string>>& extra_headers = {},
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 12000,
         bool include_spotify_auth = true,
-        const CancelPredicate& cancel_pred = nullptr) const;
+        const CancelPredicate& cancel_pred = nullptr,
+        bool include_cookie = false) const;
+
+    [[nodiscard]] HttpResponse get(
+        const std::string& url,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers,
+        const HttpRequestOptions& options) const;
 
     [[nodiscard]] HttpResponse post(
         const std::string& url,
@@ -136,7 +168,15 @@ public:
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 15000,
         bool include_spotify_auth = true,
-        const CancelPredicate& cancel_pred = nullptr) const;
+        const CancelPredicate& cancel_pred = nullptr,
+        bool include_cookie = false) const;
+
+    [[nodiscard]] HttpResponse post(
+        const std::string& url,
+        const std::vector<uint8_t>& body,
+        const std::string& content_type,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers,
+        const HttpRequestOptions& options) const;
 
     /// 1:1 Spotify WebGate PUT state synchronization support
     /// Citations: liborbit-jni-spotify.so offsets 0x35a175, 0x378272 ("connect-state/v1/devices/")
@@ -148,7 +188,15 @@ public:
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 15000,
         bool include_spotify_auth = true,
-        const CancelPredicate& cancel_pred = nullptr) const;
+        const CancelPredicate& cancel_pred = nullptr,
+        bool include_cookie = false) const;
+
+    [[nodiscard]] HttpResponse put(
+        const std::string& url,
+        const std::vector<uint8_t>& body,
+        const std::string& content_type,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers,
+        const HttpRequestOptions& options) const;
 
     /// 1:1 Spotify WebGate DELETE support (ConnectStateClientImpl::deleteDevice at 0xdc3788)
     [[nodiscard]] HttpResponse del(
@@ -157,7 +205,13 @@ public:
         int connect_timeout_ms = 8000,
         int read_timeout_ms = 15000,
         bool include_spotify_auth = true,
-        const CancelPredicate& cancel_pred = nullptr) const;
+        const CancelPredicate& cancel_pred = nullptr,
+        bool include_cookie = false) const;
+
+    [[nodiscard]] HttpResponse del(
+        const std::string& url,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers,
+        const HttpRequestOptions& options) const;
 
     [[nodiscard]] HttpRangeProbe probeRangeLength(
         const std::string& url,
@@ -211,12 +265,9 @@ private:
         const std::string& url,
         const std::vector<std::pair<std::string, std::string>>& extra_headers,
         const std::vector<uint8_t>* body,
-        int connect_timeout_ms,
-        int read_timeout_ms,
-        bool include_spotify_auth,
-        const CancelPredicate& cancel_pred) const;
+        const HttpRequestOptions& options) const;
 
     AuthSessionStore& auth_store_;
 };
 
-} // namespace spotify::network
+}  // namespace spotify::network

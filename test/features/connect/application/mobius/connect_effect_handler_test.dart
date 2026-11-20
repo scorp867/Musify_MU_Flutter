@@ -694,6 +694,93 @@ void main() {
       if (dodoErr is DodoOperationResultEvent) {
         expect(dodoErr.error, isA<StateError>());
       }
+
+      final renameErr = await handler.handleEffect(
+        RenameDeviceEffect(deviceIdentifier: 'spk-1', newName: 'Studio'),
+      );
+      expect(renameErr, isA<RenameDeviceResultEvent>());
+      if (renameErr is RenameDeviceResultEvent) {
+        expect(renameErr.deviceIdentifier, equals('spk-1'));
+        expect(renameErr.error, isA<StateError>());
+      }
+
+      final sendCmdErr = await handler.handleEffect(
+        SendPlayerCommandEffect(
+          deviceIdentifier: 'spk-1',
+          commandJson: '{"endpoint":"pause"}',
+        ),
+      );
+      expect(sendCmdErr, isA<SendPlayerCommandResultEvent>());
+      if (sendCmdErr is SendPlayerCommandResultEvent) {
+        expect(sendCmdErr.deviceIdentifier, equals('spk-1'));
+        expect(sendCmdErr.error, isA<StateError>());
+      }
+    });
+
+    test('handles RenameDeviceEffect and SendPlayerCommandEffect with exact ConnectService proto payloads', () async {
+      final h = harness();
+      final transport = h.transport;
+      final handler = h.handler;
+      connect_pb.RenameRequest? capturedRename;
+      connect_pb.SendCommandRequest? capturedSendCmd;
+
+      transport.onCallSingle = (service, method, payload) async {
+        expect(service, ConnectServiceClient.serviceName);
+        if (method == 'Rename') {
+          capturedRename = connect_pb.RenameRequest.fromBuffer(payload);
+          return _statusBytes(common_pb.Status.OK);
+        }
+        if (method == 'SendCommand') {
+          capturedSendCmd = connect_pb.SendCommandRequest.fromBuffer(payload);
+          return Uint8List.fromList(
+            connect_pb.SendCommandResponse(contextPlayerError: 0)
+                .writeToBuffer(),
+          );
+        }
+        return Uint8List(0);
+      };
+
+      final renameEvent = await handler.handleEffect(
+        RenameDeviceEffect(
+          deviceIdentifier: 'spk-42',
+          newName: 'Bedroom Sonos',
+          interactionId: 'ren-42',
+        ),
+      );
+      expect(
+        renameEvent,
+        const RenameDeviceResultEvent(
+          deviceIdentifier: 'spk-42',
+          status: common_pb.Status.OK,
+        ),
+      );
+      expect(capturedRename?.deviceId, equals('spk-42'));
+      expect(capturedRename?.newName, equals('Bedroom Sonos'));
+
+      final cmdEvent = await handler.handleEffect(
+        SendPlayerCommandEffect(
+          deviceIdentifier: 'spk-42',
+          commandJson: '{"endpoint":"resume"}',
+          interactionId: 'cmd-42',
+        ),
+      );
+      expect(
+        cmdEvent,
+        const SendPlayerCommandResultEvent(
+          deviceIdentifier: 'spk-42',
+          contextPlayerError: 0,
+        ),
+      );
+      expect(capturedSendCmd?.connectDeviceIdentifier, equals('spk-42'));
+      expect(capturedSendCmd?.commandJson, equals('{"endpoint":"resume"}'));
+      expect(
+        capturedSendCmd?.loggingParams.interactionIds,
+        equals(<String>['cmd-42']),
+      );
+      expect(
+        capturedSendCmd?.loggingParams.commandId,
+        equals(fixedCommandId),
+      );
     });
   });
 }

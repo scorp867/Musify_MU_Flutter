@@ -109,6 +109,70 @@ final class LogoutDeviceEffect extends ConnectEffect {
   List<Object?> get props => [deviceIdentifier];
 }
 
+/// Renames a Connect device (`ConnectService.Rename`).
+@immutable
+final class RenameDeviceEffect extends ConnectEffect {
+  final String deviceIdentifier;
+  final String newName;
+  final String? interactionId;
+
+  RenameDeviceEffect({
+    required this.deviceIdentifier,
+    required this.newName,
+    this.interactionId,
+  }) {
+    if (deviceIdentifier.trim().isEmpty) {
+      throw ArgumentError.value(
+        deviceIdentifier,
+        'deviceIdentifier',
+        'Must be non-empty',
+      );
+    }
+    if (newName.trim().isEmpty) {
+      throw ArgumentError.value(
+        newName,
+        'newName',
+        'Must be non-empty',
+      );
+    }
+  }
+
+  @override
+  List<Object?> get props => [deviceIdentifier, newName, interactionId];
+}
+
+/// Sends a Connect player command JSON payload (`ConnectService.SendCommand`).
+@immutable
+final class SendPlayerCommandEffect extends ConnectEffect {
+  final String deviceIdentifier;
+  final String commandJson;
+  final String? interactionId;
+
+  SendPlayerCommandEffect({
+    required this.deviceIdentifier,
+    required this.commandJson,
+    this.interactionId,
+  }) {
+    if (deviceIdentifier.trim().isEmpty) {
+      throw ArgumentError.value(
+        deviceIdentifier,
+        'deviceIdentifier',
+        'Must be non-empty',
+      );
+    }
+    if (commandJson.trim().isEmpty) {
+      throw ArgumentError.value(
+        commandJson,
+        'commandJson',
+        'Must be non-empty',
+      );
+    }
+  }
+
+  @override
+  List<Object?> get props => [deviceIdentifier, commandJson, interactionId];
+}
+
 /// Sets active remote volume `[0.0, 1.0]` via `RemoteVolumeController` (`p199p/a0f1.java:409-422`).
 @immutable
 final class SetVolumeEffect extends ConnectEffect {

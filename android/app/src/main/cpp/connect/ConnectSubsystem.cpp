@@ -1,21 +1,35 @@
-// Replicated from liborbit-jni-spotify.so (ConnectSubsystem bidirectional engine orchestrator):
-// - Binary symbols / offsets (`liborbit-jni-spotify.so`):
-//   - Internal C++ wiring connecting DealerWebSocketClient (0xdb4d9c..0xdb50c0),
-//     ConnectStateClientImpl (0xdc1b80..0xdc6310), PutStateBackoff (0xdc5e8c..0xdc6310),
-//     VolumeThrottler (0xdca2d4..0xdca6fc), ConnectDevicesImpl (0xdac4e0..0xdbddaa),
-//     TransferManager (0xdf16e8..0xdf4cf8), and ContextPlayerImpl local playback state.
-// - Esperanto service contracts (`liborbit-jni-spotify.so` / `liborbit-jni-spotify_memdump.so`):
-//   - ConnectService (.so @ 0x3a20cd), ConnectVolumeService (.so @ 0x343b80,
-//     LocalVolumeResponse @ .so 0x5a24d5 / memdump 0x36ac39),
-//     DodoService (.so @ 0x36a9f8, dodos_messages.proto @ .so 0x5a1dd0 / memdump 0x36a536)
+// ============================================================================
+// Replicated from liborbit-jni-spotify.so (ConnectSubsystem bidirectional
+// engine orchestrator + IRemotePlaybackDelegate bridge):
+// - Binary symbols / offsets (`liborbit-jni-spotify.so` arm64):
+//   - DealerWebSocketClient (0xdb4d9c..0xdb50c0),
+//   - ConnectStateClientImpl (0xdc1b80..0xdc6310),
+//   - PutStateBackoff (0xdc5e8c..0xdc6310),
+//   - VolumeThrottler (0xdca2d4..0xdca6fc),
+//   - ConnectDevicesImpl (0xdac4e0..0xdbddaa),
+//   - TransferManager (0xdf16e8..0xdf4cf8),
+//   - GroupDataEnricher (0xd9f810..0xda1818),
+//   - StateRestoreController (`LoadLastTransferBlob` @ 0xdb4758, 5000ms @ 0xdb9e10),
+//   - LocalDeviceReporter (0xdc3b90..0xdc42bc, 0xdcf304..0xdd232c, 0xdedec0..0xdeffff),
+//   - ConnectStateImpl::onClusterChanged (0xdb6740..0xdb7060),
+//   - ConnectApiImpl outbound remote command forward (0xda66f0..0xda96ac).
+// - Esperanto service contracts:
+//   - ConnectService (.so @ 0x3a20cd), ConnectVolumeService (.so @ 0x343b80),
+//     DodoService (.so @ 0x36a9f8)
 // - Java / Esperanto counterparts:
 //   - com/spotify/core/corefullimpl/NativeFullAuthenticatedScopeImpl.java
 //   - p199p/s77.java, p199p/c8k.java, p199p/C2086nd.java, p199p/a0f1.java, p199p/lw51.java
+// ============================================================================
 
 #include "ConnectSubsystem.h"
 
 #include <algorithm>
+#include <charconv>
 #include <utility>
+
+#include "../network/NativeLog.h"
+#include "dealer/DealerMessageParser.h"
+#include "dealer/WsCodec.h"
 
 namespace spotify::connectstate {
 
@@ -38,7 +52,95 @@ ProvidedTrack to_provided_track(const player::context_view::Entry& entry) {
     pt.uid = entry.uid;
     pt.metadata = entry.metadata;
     pt.provider = entry.provider;
+    if (const auto it = entry.metadata.find("album_uri");
+        it != entry.metadata.end() && !it->second.empty()) {
+        pt.album_uri = it->second;
+    }
+    if (const auto it = entry.metadata.find("artist_uri");
+        it != entry.metadata.end() && !it->second.empty()) {
+        pt.artist_uri = it->second;
+    }
     return pt;
+}
+
+player::context_view::Entry from_provided_track(const ProvidedTrack& pt) {
+    player::context_view::Entry entry;
+    entry.type = player::ContextProcessor::is_delimiter(pt.uri)
+                     ? player::context_view::EntryType::DELIMITER
+                     : player::context_view::EntryType::TRACK;
+    entry.uri = pt.uri;
+    entry.uid = pt.uid;
+    entry.provider = pt.provider;
+    entry.metadata = pt.metadata;
+    if (!pt.album_uri.empty()) {
+        const auto it = entry.metadata.find("album_uri");
+        if (it == entry.metadata.end() || it->second.empty()) {
+            entry.metadata["album_uri"] = pt.album_uri;
+        }
+    }
+    if (!pt.artist_uri.empty()) {
+        const auto it = entry.metadata.find("artist_uri");
+        if (it == entry.metadata.end() || it->second.empty()) {
+            entry.metadata["artist_uri"] = pt.artist_uri;
+        }
+    }
+    return entry;
+}
+
+uint64_t parse_uint64_strict(std::string_view text) noexcept {
+    if (text.empty()) {
+        return 0;
+    }
+    uint64_t val = 0;
+    const auto res = std::from_chars(text.data(), text.data() + text.size(), val);
+    if (res.ec != std::errc{} || res.ptr != text.data() + text.size()) {
+        return 0;
+    }
+    return val;
+}
+
+std::string default_platform_for_device_type(DeviceType device_type) {
+    switch (device_type) {
+        case DeviceType::SMARTPHONE:
+        case DeviceType::TABLET:
+        case DeviceType::CHROMEBOOK:
+        case DeviceType::AUTOMOBILE:
+        case DeviceType::SMARTWATCH:
+            return "Android";
+        case DeviceType::COMPUTER:
+            return "Desktop";
+        default:
+            return "Android";
+    }
+}
+
+bool is_http_or_https_url(std::string_view url) {
+    return url.rfind("https://", 0) == 0 || url.rfind("http://", 0) == 0;
+}
+
+bool is_ws_or_wss_url(std::string_view url) {
+    return url.rfind("wss://", 0) == 0 || url.rfind("ws://", 0) == 0;
+}
+
+std::string ensure_command_json_has_endpoint(
+    std::string_view endpoint,
+    std::string_view payload_json) {
+    if (payload_json.empty()) {
+        return "{\"endpoint\":\"" + json::json_escape(endpoint) + "\"}";
+    }
+    const auto parsed = json::parse_json(payload_json);
+    if (parsed.has_value() && parsed->is_object()) {
+        if (parsed->find("endpoint") != nullptr) {
+            return std::string(payload_json);
+        }
+        json::JsonValue enriched = *parsed;
+        json::JsonValue ep_val;
+        ep_val.type = json::JsonValue::Type::kString;
+        ep_val.string_value = std::string(endpoint);
+        enriched.object_value["endpoint"] = std::move(ep_val);
+        return json::serialize_json(enriched);
+    }
+    return std::string(payload_json);
 }
 
 }  // namespace
@@ -53,6 +155,9 @@ ConnectSubsystem::ConnectSubsystem(
       client_(http_client, std::move(spclient_base_url)),
       devices_(client_),
       transfer_manager_(client_, devices_),
+      group_enricher_(client_, devices_),
+      state_restore_(),
+      local_device_reporter_(client_, devices_, http_client),
       dealer_(auth_store, std::move(dealer_base_url)) {}
 
 ConnectSubsystem::ConnectSubsystem(
@@ -60,38 +165,82 @@ ConnectSubsystem::ConnectSubsystem(
     network::AuthSessionStore& auth_store,
     ConnectStateClientImpl::TransportFn transport_fn,
     std::string spclient_base_url,
-    std::string dealer_base_url)
+    std::string dealer_base_url,
+    LocalDeviceReporter::ZeroconfGetFn zeroconf_get_fn)
     : player_(player),
       client_(std::move(transport_fn), std::move(spclient_base_url)),
       devices_(client_),
       transfer_manager_(client_, devices_),
+      group_enricher_(client_, devices_),
+      state_restore_(),
+      local_device_reporter_(client_, devices_, std::move(zeroconf_get_fn)),
       dealer_(auth_store, std::move(dealer_base_url)) {}
 
 ConnectSubsystem::~ConnectSubsystem() {
     stop();
 }
 
-void ConnectSubsystem::start(const DeviceInfo& initial_device) {
+int32_t ConnectSubsystem::start(const uint8_t* device_info_bytes, int32_t len) {
+    if (device_info_bytes == nullptr || len <= 0) {
+        CONNECT_LOGE("ConnectSubsystem::start rejected: empty or null DeviceInfo payload (len=%d)", len);
+        return kStartInvalidArgs;
+    }
+    DeviceInfo decoded;
+    if (!decode_device_info(device_info_bytes, static_cast<size_t>(len), decoded)) {
+        CONNECT_LOGE("ConnectSubsystem::start rejected: DeviceInfo protobuf decode failed (len=%d)", len);
+        return kStartDecodeError;
+    }
+    return start(decoded);
+}
+
+int32_t ConnectSubsystem::start(const std::vector<uint8_t>& device_info_bytes) {
+    if (device_info_bytes.empty()) {
+        CONNECT_LOGE("ConnectSubsystem::start rejected: empty DeviceInfo byte vector");
+        return kStartInvalidArgs;
+    }
+    return start(device_info_bytes.data(), static_cast<int32_t>(device_info_bytes.size()));
+}
+
+int32_t ConnectSubsystem::start(const DeviceInfo& initial_device) {
+    if (initial_device.device_id.empty() ||
+        initial_device.name.empty() ||
+        initial_device.client_id.empty()) {
+        CONNECT_LOGE(
+            "ConnectSubsystem::start rejected: missing mandatory identity fields "
+            "(device_id_empty=%d name_empty=%d client_id_empty=%d)",
+            initial_device.device_id.empty() ? 1 : 0,
+            initial_device.name.empty() ? 1 : 0,
+            initial_device.client_id.empty() ? 1 : 0);
+        return kStartMissingIdentity;
+    }
+
     join_pending_logout_stop_thread();
     std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
     if (needs_teardown_) {
-        return;
+        CONNECT_LOGI("ConnectSubsystem::start: already running for device_id=%s",
+                     devices_.local_device_id().c_str());
+        return kStartOk;
     }
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (running_) {
-            return;
+            return kStartOk;
         }
         running_ = true;
         local_active_ = false;
         last_cluster_active_device_id_.clear();
+        last_local_state_timestamp_ms_ = 0;
+        last_needs_state_updates_ = false;
+        last_need_full_player_state_ = false;
         was_playing_ = false;
         started_playing_at_ms_ = 0;
     }
     needs_teardown_ = true;
 
-    devices_.set_local_device_info(initial_device);
-    client_.set_local_device_id(initial_device.device_id);
+    DeviceInfo normalized_device = initial_device;
+    normalized_device.has_volume = true;
+    devices_.set_local_device_info(normalized_device);
+    client_.set_local_device_id(normalized_device.device_id);
 
     client_.set_cluster_callback([this](const Cluster& cluster) {
         devices_.apply_cluster_snapshot(cluster, ClusterUpdateReason::DEVICE_STATE_CHANGED);
@@ -99,8 +248,30 @@ void ConnectSubsystem::start(const DeviceInfo& initial_device) {
     client_.set_volume_applied_callback([this]() {
         notify_volume_listeners();
     });
-    transfer_manager_.set_completion_callback([this](const TransferOutcome& /*outcome*/) {
+    transfer_manager_.set_completion_callback([this](const TransferOutcome& outcome) {
+        if (!outcome.ok) {
+            CONNECT_LOGW(
+                "ConnectSubsystem: transfer failed target=%s reason=%s",
+                outcome.target_device_id.c_str(),
+                outcome.error_description.c_str());
+        }
+        emit_diagnostic(
+            "transfer",
+            outcome.ok ? "transfer_succeeded" : "transfer_failed",
+            outcome.target_device_id);
         notify_state_listeners();
+    });
+    group_enricher_.set_enriched_callback([this]() {
+        notify_state_listeners();
+    });
+    group_enricher_.set_volume_enriched_callback([this]() {
+        notify_volume_listeners();
+    });
+    local_device_reporter_.set_devices_changed_callback([this]() {
+        notify_state_listeners();
+    });
+    state_restore_.set_restore_callback([this](const CachedTransferBlob& blob) {
+        handle_restore_transfer_blob(blob);
     });
 
     const uint64_t listener_id = devices_.add_cluster_listener(
@@ -122,11 +293,24 @@ void ConnectSubsystem::start(const DeviceInfo& initial_device) {
     }
     put_state_worker_ = std::thread(&ConnectSubsystem::put_state_worker_loop, this);
 
+    player_.set_remote_playback_delegate(this);
     player_.add_player_state_listener(this);
     client_.start();
     transfer_manager_.start();
+    group_enricher_.start();
+    state_restore_.start();
+    local_device_reporter_.start();
     dealer_.start();
+
+    CONNECT_LOGI(
+        "ConnectSubsystem started device_id=%s name=%s spclient=%s dealer=%s",
+        normalized_device.device_id.c_str(),
+        normalized_device.name.c_str(),
+        sanitize_url_for_log(client_.spclient_base_url()).c_str(),
+        sanitize_url_for_log(dealer_.dealer_base_url()).c_str());
+    emit_diagnostic("connect", "started", normalized_device.device_id);
     notify_state_listeners();
+    return kStartOk;
 }
 
 void ConnectSubsystem::join_pending_logout_stop_thread() {
@@ -164,16 +348,46 @@ void ConnectSubsystem::stop() {
     {
         std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
         if (needs_teardown_) {
+            const bool was_local_active = is_local_active();
+            const std::string local_id = devices_.local_device_id();
+            const bool has_conn_id = !client_.connection_id().empty();
+
             {
                 std::lock_guard<std::mutex> lock(state_mutex_);
                 running_ = false;
                 local_active_ = false;
                 last_cluster_active_device_id_.clear();
+                last_local_state_timestamp_ms_ = 0;
+                last_needs_state_updates_ = false;
+                last_need_full_player_state_ = false;
                 was_playing_ = false;
                 started_playing_at_ms_ = 0;
+                group_device_volumes_.clear();
             }
 
+            player_.set_remote_playback_delegate(nullptr);
             player_.remove_player_state_listener(this);
+            player_.clear_remote_mirrored_state();
+
+            if (was_local_active && !local_id.empty() && has_conn_id) {
+                SetDeviceInactiveRequest inactive_req;
+                inactive_req.device_id = local_id;
+                inactive_req.notify_others = true;
+                inactive_req.client_side_timestamp = current_epoch_ms();
+                const SimpleHttpResult res = client_.send_set_device_inactive(
+                    local_id, inactive_req, kStopInactiveTimeoutMs);
+                if (!res.ok) {
+                    CONNECT_LOGW(
+                        "ConnectSubsystem::stop: send_set_device_inactive failed http=%d err=%s",
+                        res.http_status,
+                        res.error_message.c_str());
+                } else {
+                    CONNECT_LOGI(
+                        "ConnectSubsystem::stop: marked device_id=%s inactive (http=%d)",
+                        local_id.c_str(),
+                        res.http_status);
+                }
+            }
 
             uint64_t listener_id = 0;
             {
@@ -186,6 +400,9 @@ void ConnectSubsystem::stop() {
             }
 
             dealer_.stop();
+            local_device_reporter_.stop();
+            state_restore_.stop();
+            group_enricher_.stop();
             transfer_manager_.stop();
 
             {
@@ -202,9 +419,16 @@ void ConnectSubsystem::stop() {
                 worker_stop_requested_ = false;
             }
 
+            client_.set_connection_id({});
             client_.shutdown();
+            group_enricher_.reset();
+            state_restore_.reset();
+            local_device_reporter_.reset();
             devices_.reset();
             needs_teardown_ = false;
+
+            CONNECT_LOGI("ConnectSubsystem stopped cleanly");
+            emit_diagnostic("connect", "stopped", local_id);
         }
     }
 
@@ -217,40 +441,267 @@ bool ConnectSubsystem::is_running() const {
     return running_;
 }
 
+int32_t ConnectSubsystem::set_endpoints(
+    std::string_view spclient_base_url,
+    std::string_view dealer_ws_url) {
+    if (spclient_base_url.empty() && dealer_ws_url.empty()) {
+        CONNECT_LOGW("ConnectSubsystem::set_endpoints rejected: both URLs are empty");
+        return -1;
+    }
+    if (!spclient_base_url.empty() && !is_http_or_https_url(spclient_base_url)) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::set_endpoints rejected invalid spclient URL: %s",
+            sanitize_url_for_log(spclient_base_url).c_str());
+        return -1;
+    }
+    if (!dealer_ws_url.empty() && !is_ws_or_wss_url(dealer_ws_url)) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::set_endpoints rejected invalid dealer WS URL: %s",
+            sanitize_url_for_log(dealer_ws_url).c_str());
+        return -1;
+    }
+
+    if (!spclient_base_url.empty()) {
+        client_.set_spclient_base_url(std::string(spclient_base_url));
+        player_.set_spclient_base_url(std::string(spclient_base_url));
+    }
+    if (!dealer_ws_url.empty()) {
+        dealer_.set_dealer_base_url(std::string(dealer_ws_url));
+    }
+
+    CONNECT_LOGI(
+        "ConnectSubsystem::set_endpoints applied spclient=%s dealer=%s",
+        sanitize_url_for_log(client_.spclient_base_url()).c_str(),
+        sanitize_url_for_log(dealer_.dealer_base_url()).c_str());
+    emit_diagnostic("connect", "endpoints_updated", sanitize_url_for_log(dealer_.dealer_base_url()));
+    return 0;
+}
+
+int32_t ConnectSubsystem::reconnect(int32_t reason_code) {
+    if (!is_running()) {
+        CONNECT_LOGW("ConnectSubsystem::reconnect(%d) ignored: subsystem not running", reason_code);
+        return -1;
+    }
+    CONNECT_LOGI("ConnectSubsystem::reconnect(reason=%d)", reason_code);
+    dealer_.force_reconnect(reason_code);
+    emit_diagnostic("connect", "reconnect_requested", std::to_string(reason_code));
+    return 0;
+}
+
+void ConnectSubsystem::set_network_available(bool is_available) {
+    CONNECT_LOGI("ConnectSubsystem::set_network_available(%d)", is_available ? 1 : 0);
+    dealer_.set_network_available(is_available);
+    emit_diagnostic("connect", "network_available", is_available ? "true" : "false");
+}
+
+int32_t ConnectSubsystem::update_nsd_services(std::string_view services_json_utf8) {
+    const int32_t rc = local_device_reporter_.update_nsd_services(services_json_utf8);
+    emit_diagnostic("discovery", "nsd_update", rc == 0 ? "ok" : "invalid_json");
+    return rc;
+}
+
+int32_t ConnectSubsystem::set_local_volume(
+    uint32_t volume_0_to_65535,
+    int32_t volume_steps,
+    int32_t reason_code) {
+    if (reason_code != static_cast<int32_t>(LocalVolumeReason::kUser) &&
+        reason_code != static_cast<int32_t>(LocalVolumeReason::kSystem)) {
+        CONNECT_LOGW("ConnectSubsystem::set_local_volume rejected invalid reason=%d", reason_code);
+        return -1;
+    }
+    return set_local_volume(
+        volume_0_to_65535,
+        volume_steps,
+        static_cast<LocalVolumeReason>(reason_code));
+}
+
+int32_t ConnectSubsystem::set_local_volume(
+    uint32_t volume_0_to_65535,
+    int32_t volume_steps,
+    LocalVolumeReason reason) {
+    if (volume_0_to_65535 > kMaxVolumeSteps) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::set_local_volume rejected out-of-range volume=%u",
+            volume_0_to_65535);
+        return -1;
+    }
+
+    DeviceInfo local = devices_.local_device_info();
+    const bool changed =
+        !local.has_volume ||
+        local.volume != volume_0_to_65535 ||
+        (volume_steps > 0 && local.capabilities.volume_steps != volume_steps);
+
+    local.volume = volume_0_to_65535;
+    local.has_volume = true;
+    if (volume_steps > 0) {
+        local.capabilities.volume_steps = volume_steps;
+    }
+    devices_.set_local_device_info(local);
+
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        local_volume_reason_ = (reason == LocalVolumeReason::kSystem) ? "system" : "user";
+    }
+
+    if (changed && is_running()) {
+        QueuedPutStateTask task;
+        task.kind = WorkerTaskKind::kPutState;
+        task.reason = PutStateReason::VOLUME_CHANGED;
+        task.only_write_player_state = false;
+        enqueue_put_state(std::move(task));
+    }
+
+    notify_volume_listeners();
+    notify_state_listeners();
+    return 0;
+}
+
+void ConnectSubsystem::set_diagnostic_callback(DiagnosticCallback callback) {
+    std::lock_guard<std::mutex> lock(cb_mutex_);
+    diagnostic_callback_ = std::move(callback);
+}
+
+void ConnectSubsystem::emit_diagnostic(
+    std::string_view source,
+    std::string_view event,
+    std::string_view detail) {
+    DiagnosticCallback cb;
+    {
+        std::lock_guard<std::mutex> lock(cb_mutex_);
+        cb = diagnostic_callback_;
+    }
+    if (!cb) {
+        return;
+    }
+    std::string payload;
+    payload.reserve(source.size() + event.size() + detail.size() + 96);
+    payload.append("{\"source\":\"");
+    payload.append(json::json_escape(source));
+    payload.append("\",\"event\":\"");
+    payload.append(json::json_escape(event));
+    payload.append("\",\"detail\":\"");
+    payload.append(json::json_escape(detail));
+    payload.append("\",\"timestamp_ms\":");
+    payload.append(std::to_string(current_epoch_ms()));
+    payload.push_back('}');
+    cb(payload);
+}
+
+bool ConnectSubsystem::is_remote_active() const {
+    if (!is_running()) {
+        return false;
+    }
+    const std::string local_id = devices_.local_device_id();
+    const std::string active_id = devices_.active_device_id();
+    return !active_id.empty() && active_id != local_id;
+}
+
+std::string ConnectSubsystem::active_remote_device_id() const {
+    if (!is_running()) {
+        return {};
+    }
+    const std::string local_id = devices_.local_device_id();
+    const std::string active_id = devices_.active_device_id();
+    if (active_id.empty() || active_id == local_id) {
+        return {};
+    }
+    return active_id;
+}
+
+bool ConnectSubsystem::forward_player_command(
+    const std::string& endpoint,
+    const std::string& payload_json,
+    const std::string& intent_id) {
+    const std::string target_id = active_remote_device_id();
+    if (target_id.empty()) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::forward_player_command(%s): no active remote device",
+            endpoint.c_str());
+        return false;
+    }
+    const std::string command_json = ensure_command_json_has_endpoint(endpoint, payload_json);
+    const AckHttpResult res = send_player_command(target_id, command_json, intent_id);
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::forward_player_command(%s -> %s) failed http=%d err=%s",
+            endpoint.c_str(),
+            target_id.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+        emit_diagnostic("player_forward", "command_failed", endpoint);
+        return false;
+    }
+    CONNECT_LOGI(
+        "ConnectSubsystem::forward_player_command(%s -> %s) ok ack=%s",
+        endpoint.c_str(),
+        target_id.c_str(),
+        res.ack_id.c_str());
+    return true;
+}
+
 void ConnectSubsystem::setup_dealer_callbacks() {
     DealerCallbacks cbs;
 
     cbs.on_connection_state_changed = [this](DealerConnectionState state) {
         if (state == DealerConnectionState::kConnected) {
             devices_.on_backend_connected();
+            state_restore_.on_dealer_reconnected();
+            emit_diagnostic("dealer", "connected", {});
         } else if (state == DealerConnectionState::kDisconnected ||
                    state == DealerConnectionState::kReconnecting) {
+            const bool local_was_active = is_local_active();
+            client_.set_connection_id({});
             devices_.on_backend_disconnected();
+            state_restore_.on_dealer_disconnected(local_was_active);
+            emit_diagnostic(
+                "dealer",
+                state == DealerConnectionState::kReconnecting ? "reconnecting" : "disconnected",
+                {});
         }
         notify_state_listeners();
     };
 
     cbs.on_connection_id = [this](const std::string& conn_id) {
         client_.set_connection_id(conn_id);
+        local_device_reporter_.trigger_report_if_needed();
         QueuedPutStateTask task;
-        task.reason = PutStateReason::NEW_DEVICE;
+        task.kind = WorkerTaskKind::kPutState;
+        task.reason = PutStateReason::NEW_CONNECTION;
         task.only_write_player_state = false;
         task.wake_devices = false;
         task.snapshot = player_.snapshot_for_connect();
         enqueue_put_state(std::move(task));
+        emit_diagnostic("dealer", "connection_id_received", {});
         notify_state_listeners();
     };
 
     cbs.on_cluster_update = [this](const ClusterUpdate& update) {
+        if (!update.ack_id.empty()) {
+            const bool matched = client_.on_cluster_ack(update.ack_id);
+            CONNECT_LOGD(
+                "ConnectSubsystem: cluster update ack_id=%s matched=%d",
+                update.ack_id.c_str(),
+                matched ? 1 : 0);
+        }
         devices_.apply_cluster_update(update);
     };
 
     cbs.on_player_command = [this](const DealerPlayerCommand& cmd) -> bool {
+        if (cmd.has_target_alias_id && cmd.target_alias_id != 0) {
+            DeviceInfo local = devices_.local_device_info();
+            if (local.device_aliases.find(cmd.target_alias_id) != local.device_aliases.end() &&
+                local.selected_alias_id != cmd.target_alias_id) {
+                local.selected_alias_id = cmd.target_alias_id;
+                devices_.set_local_device_info(local);
+            }
+        }
         return player_.apply_connect_remote_command(
             cmd.endpoint,
             cmd.command_json,
             cmd.sent_by_device_id,
-            cmd.message_id);
+            cmd.message_id,
+            cmd.target_alias_id);
     };
 
     cbs.on_set_volume = [this](const SetVolumeCommand& cmd) {
@@ -267,35 +718,67 @@ void ConnectSubsystem::setup_dealer_callbacks() {
 
     cbs.on_proxy_transfer = [this](const ProxyTransferCommand& cmd) {
         if (!cmd.target_device_id.empty()) {
-            (void)transfer_manager_.transfer_to_connect_state_device(cmd.target_device_id);
+            QueuedPutStateTask task;
+            task.kind = WorkerTaskKind::kProxyTransfer;
+            task.proxy_transfer_target_device_id = cmd.target_device_id;
+            enqueue_put_state(std::move(task));
         }
     };
 
-    cbs.on_proxy_wake = [](const ProxyWakeCommand& /*cmd*/) {
+    cbs.on_proxy_wake = [this](const ProxyWakeCommand& /*cmd*/) {
         // WoL magic packet has already been validated and dispatched by DealerWebSocketClient.
+        emit_diagnostic("dealer", "proxy_wake_dispatched", {});
     };
 
     cbs.on_add_device_to_group = [this](const AddDeviceToGroupCommand& cmd) {
         if (!cmd.group_device_identifier.empty()) {
-            devices_.apply_cluster_snapshot(devices_.current_cluster(),
-                                            ClusterUpdateReason::DEVICE_STATE_CHANGED);
+            group_enricher_.request_refresh_async();
+            devices_.apply_cluster_snapshot(
+                devices_.current_cluster(),
+                ClusterUpdateReason::DEVICE_STATE_CHANGED);
         }
     };
 
     cbs.on_remove_device_from_group = [this](const RemoveDeviceFromGroupCommand& cmd) {
         if (!cmd.group_device_identifier.empty()) {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            group_device_volumes_.erase(cmd.group_device_identifier);
+            {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                group_device_volumes_.erase(cmd.group_device_identifier);
+            }
+            client_.volume_throttler().clear_target(cmd.group_device_identifier);
+            group_enricher_.on_device_removed_from_group(cmd.group_device_identifier);
         }
     };
 
-    cbs.on_delete_group = [this](const DeleteGroupCommand& /*cmd*/) {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        group_device_volumes_.clear();
+    cbs.on_delete_group = [this](const DeleteGroupCommand& cmd) {
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            group_device_volumes_.clear();
+        }
+        client_.volume_throttler().clear_all();
+        group_enricher_.on_group_deleted(cmd.group_instance);
     };
 
     cbs.on_resync_group_data = [this](const ResyncGroupDataCommand& /*cmd*/) {
-        (void)refresh_cluster();
+        group_enricher_.request_refresh_async();
+        QueuedPutStateTask task;
+        task.kind = WorkerTaskKind::kPutState;
+        task.reason = PutStateReason::PICKER_OPENED;
+        task.only_write_player_state = false;
+        task.wake_devices = false;
+        enqueue_put_state(std::move(task));
+    };
+
+    cbs.on_group_data_event = [this](const GroupDataEvent& event) {
+        group_enricher_.on_group_data_event(event);
+    };
+
+    cbs.on_group_device_volume_event = [this](const GroupDeviceVolumeEvent& event) {
+        group_enricher_.on_group_device_volume_event(event);
+    };
+
+    cbs.on_diagnostic_event = [this](std::string_view event_type, std::string_view detail) {
+        emit_diagnostic("dealer", event_type, detail);
     };
 
     dealer_.set_callbacks(std::move(cbs));
@@ -318,6 +801,8 @@ PlayerState ConnectSubsystem::build_connect_player_state(
     ps.index = ContextIndex{
         .page = snapshot.page_index,
         .track = snapshot.track_index >= 0 ? static_cast<uint32_t>(snapshot.track_index) : 0U,
+        .has_page = true,
+        .has_track = true,
     };
 
     const bool playing =
@@ -331,22 +816,32 @@ PlayerState ConnectSubsystem::build_connect_player_state(
         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPaused;
 
     ps.is_playing = playing || paused;
+    ps.has_is_playing = true;
     ps.is_paused = paused;
+    ps.has_is_paused = true;
     ps.is_buffering = buffering;
+    ps.has_is_buffering = true;
     ps.playback_speed =
         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Playing
             ? snapshot.playback_speed
             : 0.0;
+    ps.has_playback_speed = true;
     ps.position_as_of_timestamp = snapshot.position_ms;
+    ps.has_position_as_of_timestamp = true;
     ps.duration = snapshot.duration_ms;
+    ps.has_duration = true;
 
     ps.options.shuffling_context = snapshot.shuffling;
+    ps.options.has_shuffling_context = true;
     ps.options.repeating_context =
         snapshot.repeat_mode == player::ContextPlayerImpl::SessionRepeatMode::Context ||
         snapshot.repeat_mode == player::ContextPlayerImpl::SessionRepeatMode::Track;
+    ps.options.has_repeating_context = true;
     ps.options.repeating_track =
         snapshot.repeat_mode == player::ContextPlayerImpl::SessionRepeatMode::Track;
+    ps.options.has_repeating_track = true;
     ps.options.playback_speed = static_cast<float>(snapshot.playback_speed);
+    ps.options.has_playback_speed = true;
 
     if (snapshot.current_track.has_value()) {
         ps.track = to_provided_track(*snapshot.current_track);
@@ -388,16 +883,86 @@ PlayerState ConnectSubsystem::build_connect_player_state(
     return ps;
 }
 
+MirroredRemotePlaybackState ConnectSubsystem::build_mirrored_remote_state(
+    const Cluster& cluster) {
+    const PlayerState& ps = cluster.player_state;
+    MirroredRemotePlaybackState mirrored;
+    mirrored.active_device_id = cluster.active_device_id;
+    mirrored.timestamp_ms =
+        ps.timestamp > 0 ? ps.timestamp : cluster.changed_timestamp_ms;
+    mirrored.context_uri = ps.context_uri;
+    mirrored.context_url = ps.context_url;
+    mirrored.playback_id = ps.playback_id;
+    mirrored.session_id = ps.session_id;
+    mirrored.session_command_id = ps.session_command_id;
+    mirrored.queue_revision = parse_uint64_strict(ps.queue_revision);
+    mirrored.raw_queue_revision = ps.queue_revision;
+    mirrored.position_as_of_timestamp_ms =
+        ps.has_position_as_of_timestamp ? ps.position_as_of_timestamp : ps.position;
+    mirrored.duration_ms = ps.duration;
+    mirrored.playback_speed =
+        ps.has_playback_speed
+            ? ps.playback_speed
+            : ((ps.is_playing && !ps.is_paused && !ps.is_buffering) ? 1.0 : 0.0);
+    if (ps.index.has_value()) {
+        mirrored.page_index = static_cast<int32_t>(ps.index->page);
+        mirrored.track_index = static_cast<int32_t>(ps.index->track);
+    }
+    mirrored.is_playing = ps.is_playing;
+    mirrored.is_paused = ps.is_paused;
+    mirrored.is_buffering = ps.is_buffering;
+    mirrored.shuffling = ps.options.shuffling_context;
+    mirrored.repeating_context = ps.options.repeating_context;
+    mirrored.repeating_track = ps.options.repeating_track;
+    mirrored.modes = ps.options.modes;
+
+    if (!ps.track.uri.empty() || !ps.track.uid.empty()) {
+        mirrored.current_track = from_provided_track(ps.track);
+    }
+    mirrored.prev_tracks.reserve(ps.prev_tracks.size());
+    for (const auto& t : ps.prev_tracks) {
+        mirrored.prev_tracks.push_back(from_provided_track(t));
+    }
+    mirrored.next_tracks.reserve(ps.next_tracks.size());
+    for (const auto& t : ps.next_tracks) {
+        mirrored.next_tracks.push_back(from_provided_track(t));
+    }
+
+    if (ps.restrictions.has_value()) {
+        mirrored.restrictions_bytes = encode_restrictions(*ps.restrictions);
+    }
+    if (ps.suppressions.has_value()) {
+        mirrored.suppressions_bytes = encode_suppressions(*ps.suppressions);
+    }
+    mirrored.context_metadata = ps.context_metadata;
+    mirrored.page_metadata = ps.page_metadata;
+    if (ps.play_origin.has_value()) {
+        mirrored.play_origin.feature_identifier = ps.play_origin->feature_identifier;
+        mirrored.play_origin.feature_version = ps.play_origin->feature_version;
+        mirrored.play_origin.view_uri = ps.play_origin->view_uri;
+        mirrored.play_origin.external_referrer = ps.play_origin->external_referrer;
+        mirrored.play_origin.referrer_identifier = ps.play_origin->referrer_identifier;
+        mirrored.play_origin.device_identifier = ps.play_origin->device_identifier;
+        mirrored.play_origin.feature_classes = ps.play_origin->feature_classes;
+        mirrored.play_origin.restriction_identifier = ps.play_origin->restriction_identifier;
+    }
+    mirrored.signals = ps.signals;
+    return mirrored;
+}
+
 PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStateTask& task) {
     const auto snapshot = task.snapshot.has_value()
                               ? *task.snapshot
                               : player_.snapshot_for_connect();
+    const bool is_local_origin =
+        player_.playback_origin() == player::PlaybackOrigin::kLocal;
     const uint64_t now_ms = current_epoch_ms();
     const bool playing_or_paused =
-        snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Playing ||
-        snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPlay ||
-        snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Paused ||
-        snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPaused;
+        is_local_origin &&
+        (snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Playing ||
+         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPlay ||
+         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Paused ||
+         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPaused);
 
     uint32_t msg_seq = 1;
     uint64_t started_at = 0;
@@ -409,6 +974,7 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     }
     const bool is_active =
         (task.reason != PutStateReason::BECAME_INACTIVE) &&
+        is_local_origin &&
         (local_active || devices_.is_local_device_active());
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -431,6 +997,7 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     req.put_state_reason = task.reason;
     req.message_id = msg_seq;
     req.is_active = is_active;
+    req.has_is_active = true;
     req.last_command_sent_by_device_id = snapshot.last_command_sent_by_device_id;
     req.last_command_message_id = snapshot.last_command_message_id;
     req.started_playing_at = started_at;
@@ -439,14 +1006,21 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     req.only_write_player_state = task.only_write_player_state;
 
     req.device.device_info = devices_.local_device_info();
-    if (!task.only_write_player_state) {
-        req.device.player_state = build_connect_player_state(snapshot);
-        req.device.has_player_state = !snapshot.context_uri.empty() ||
-                                      !snapshot.context_url.empty() ||
-                                      snapshot.current_track.has_value();
-    } else {
+    req.device.platform = default_platform_for_device_type(req.device.device_info.device_type);
+
+    const bool local_snapshot_populated =
+        is_local_origin &&
+        (snapshot.has_player_state ||
+         !snapshot.context_uri.empty() ||
+         !snapshot.context_url.empty() ||
+         snapshot.current_track.has_value());
+
+    if (local_snapshot_populated) {
         req.device.player_state = build_connect_player_state(snapshot);
         req.device.has_player_state = true;
+    } else {
+        req.device.has_player_state = false;
+        req.only_write_player_state = false;
     }
     return req;
 }
@@ -454,6 +1028,7 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
 PutStateResult ConnectSubsystem::execute_put_state_task(const QueuedPutStateTask& task) {
     const std::string dev_id = devices_.local_device_id();
     if (dev_id.empty()) {
+        CONNECT_LOGW("ConnectSubsystem::execute_put_state_task: local device ID is empty");
         return PutStateResult{
             .ok = false,
             .deferred = false,
@@ -466,7 +1041,16 @@ PutStateResult ConnectSubsystem::execute_put_state_task(const QueuedPutStateTask
         };
     }
     const PutStateRequest req = assemble_put_state_request(task);
-    return client_.put_state(dev_id, req, task.wake_devices);
+    const PutStateResult res = client_.put_state(dev_id, req, task.wake_devices);
+    if (!res.ok && !res.deferred) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::execute_put_state_task failed reason=%u http=%d err_code=%d msg=%s",
+            static_cast<unsigned>(task.reason),
+            res.http_status,
+            static_cast<int>(res.error_code),
+            res.error_message.c_str());
+    }
+    return res;
 }
 
 void ConnectSubsystem::enqueue_put_state(QueuedPutStateTask task) {
@@ -476,8 +1060,10 @@ void ConnectSubsystem::enqueue_put_state(QueuedPutStateTask task) {
             return;
         }
         // Coalesce consecutive PLAYER_STATE_CHANGED tasks so rapid player events upload latest state.
-        if (task.reason == PutStateReason::PLAYER_STATE_CHANGED &&
+        if (task.kind == WorkerTaskKind::kPutState &&
+            task.reason == PutStateReason::PLAYER_STATE_CHANGED &&
             !put_state_queue_.empty() &&
+            put_state_queue_.back().kind == WorkerTaskKind::kPutState &&
             put_state_queue_.back().reason == PutStateReason::PLAYER_STATE_CHANGED) {
             put_state_queue_.back() = std::move(task);
         } else {
@@ -501,17 +1087,67 @@ void ConnectSubsystem::put_state_worker_loop() {
             task = std::move(put_state_queue_.front());
             put_state_queue_.pop_front();
         }
-        (void)execute_put_state_task(task);
+
+        switch (task.kind) {
+            case WorkerTaskKind::kPutState: {
+                const PutStateResult res = execute_put_state_task(task);
+                if (!res.ok && !res.deferred) {
+                    emit_diagnostic("put_state", "put_state_failed", res.error_message);
+                }
+                break;
+            }
+            case WorkerTaskKind::kSetDeviceInactive: {
+                const std::string local_id = devices_.local_device_id();
+                if (!local_id.empty()) {
+                    SetDeviceInactiveRequest inactive_req;
+                    inactive_req.device_id = local_id;
+                    inactive_req.notify_others = false;
+                    inactive_req.client_side_timestamp = current_epoch_ms();
+                    const SimpleHttpResult res =
+                        client_.send_set_device_inactive(local_id, inactive_req);
+                    if (!res.ok) {
+                        CONNECT_LOGW(
+                            "ConnectSubsystem worker: send_set_device_inactive failed http=%d err=%s",
+                            res.http_status,
+                            res.error_message.c_str());
+                    }
+                }
+                break;
+            }
+            case WorkerTaskKind::kProxyTransfer: {
+                if (!task.proxy_transfer_target_device_id.empty()) {
+                    const TransferOutcome outcome =
+                        transfer_manager_.transfer_to_connect_state_device(
+                            task.proxy_transfer_target_device_id);
+                    if (!outcome.ok) {
+                        CONNECT_LOGW(
+                            "ConnectSubsystem worker: proxy_transfer failed target=%s err=%s",
+                            task.proxy_transfer_target_device_id.c_str(),
+                            outcome.error_description.c_str());
+                    }
+                }
+                break;
+            }
+        }
     }
 }
 
 void ConnectSubsystem::on_player_state_changed(
     const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot,
     bool track_changed) {
+    // Never upload mirrored remote state back to Spotify as if it were local state.
+    if (player_.playback_origin() != player::PlaybackOrigin::kLocal) {
+        return;
+    }
+
+    bool force_full_state = false;
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (!running_) {
             return;
+        }
+        if (snapshot.timestamp_ms > last_local_state_timestamp_ms_) {
+            last_local_state_timestamp_ms_ = snapshot.timestamp_ms;
         }
         if (is_active_playing_phase(snapshot.playback_phase)) {
             local_active_ = true;
@@ -522,11 +1158,20 @@ void ConnectSubsystem::on_player_state_changed(
                    !snapshot.current_track.has_value()) {
             local_active_ = false;
         }
+        force_full_state = last_need_full_player_state_;
     }
+
+    if (is_active_playing_phase(snapshot.playback_phase)) {
+        state_restore_.cancel_pending_recovery();
+    }
+
     QueuedPutStateTask task;
+    task.kind = WorkerTaskKind::kPutState;
     task.reason = PutStateReason::PLAYER_STATE_CHANGED;
     task.only_write_player_state =
-        !track_changed && devices_.has_received_cluster_update_after_backend_connection();
+        !force_full_state &&
+        !track_changed &&
+        devices_.has_received_cluster_update_after_backend_connection();
     task.wake_devices = false;
     task.snapshot = snapshot;
     enqueue_put_state(std::move(task));
@@ -534,61 +1179,144 @@ void ConnectSubsystem::on_player_state_changed(
 
 void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
     const std::string local_id = devices_.local_device_id();
-    bool should_clear_wanted = false;
+
+    state_restore_.on_cluster_update(cluster);
+    group_enricher_.on_cluster_updated(cluster);
+    local_device_reporter_.set_needs_local_devices(cluster.needs_local_devices);
+
+    bool should_clear_active_volume_slot = false;
     bool became_inactive_remote = false;
+    bool needs_state_updates_edge = false;
+    bool need_full_state = cluster.need_full_player_state;
+    int64_t local_ts = 0;
+    const bool local_activating = !local_id.empty() && is_being_activated(local_id);
+
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (!running_) {
             return;
         }
+        local_ts = last_local_state_timestamp_ms_;
+        needs_state_updates_edge = cluster.needs_state_updates && !last_needs_state_updates_;
+        last_needs_state_updates_ = cluster.needs_state_updates;
+        last_need_full_player_state_ = cluster.need_full_player_state;
+
         if (cluster.active_device_id != last_cluster_active_device_id_) {
             last_cluster_active_device_id_ = cluster.active_device_id;
-            should_clear_wanted = true;
+            should_clear_active_volume_slot = true;
         }
-        if (!cluster.active_device_id.empty() && cluster.active_device_id != local_id) {
-            became_inactive_remote = local_active_;
-            local_active_ = false;
-            was_playing_ = false;
-            started_playing_at_ms_ = 0;
-        } else if (!local_id.empty() && cluster.active_device_id == local_id) {
+    }
+
+    if (should_clear_active_volume_slot) {
+        client_.volume_throttler().clear_target("");
+    }
+
+    if (!cluster.active_device_id.empty() && cluster.active_device_id != local_id) {
+        const bool stale_cluster_vs_local =
+            local_ts > 0 && cluster.changed_timestamp_ms > 0 &&
+            local_ts > cluster.changed_timestamp_ms;
+
+        if (local_activating || stale_cluster_vs_local) {
+            CONNECT_LOGI(
+                "ConnectSubsystem::handle_cluster_changed: ignoring stale remote cluster "
+                "(remote=%s local_activating=%d local_ts=%lld cluster_ts=%lld)",
+                cluster.active_device_id.c_str(),
+                local_activating ? 1 : 0,
+                static_cast<long long>(local_ts),
+                static_cast<long long>(cluster.changed_timestamp_ms));
+        } else {
+            {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                became_inactive_remote = local_active_;
+                local_active_ = false;
+                was_playing_ = false;
+                started_playing_at_ms_ = 0;
+            }
+            state_restore_.cancel_pending_recovery();
+
+            const auto local_snap = player_.snapshot_for_connect();
+            if (became_inactive_remote || is_active_playing_phase(local_snap.playback_phase)) {
+                CONNECT_LOGI(
+                    "ConnectSubsystem: remote takeover by %s; pausing local playback and sending inactive",
+                    cluster.active_device_id.c_str());
+                player_.pause_for_remote_takeover();
+                QueuedPutStateTask inactive_task;
+                inactive_task.kind = WorkerTaskKind::kSetDeviceInactive;
+                enqueue_put_state(std::move(inactive_task));
+                emit_diagnostic("cluster", "remote_takeover", cluster.active_device_id);
+            }
+
+            const MirroredRemotePlaybackState mirrored = build_mirrored_remote_state(cluster);
+            player_.apply_remote_mirrored_state(mirrored);
+        }
+    } else if (!local_id.empty() && cluster.active_device_id == local_id) {
+        {
+            std::lock_guard<std::mutex> lock(state_mutex_);
             local_active_ = true;
         }
-    }
-    if (should_clear_wanted) {
-        client_.volume_throttler().clear_wanted_volume();
-    }
-    if (!cluster.active_device_id.empty() && cluster.active_device_id != local_id) {
-        const auto snap = player_.snapshot_for_connect();
-        if (is_active_playing_phase(snap.playback_phase)) {
-            (void)player_.pause();
-        }
-        if (became_inactive_remote) {
-            QueuedPutStateTask task;
-            task.reason = PutStateReason::BECAME_INACTIVE;
-            task.only_write_player_state = false;
-            task.wake_devices = false;
-            task.snapshot = player_.snapshot_for_connect();
-            enqueue_put_state(std::move(task));
-        }
-    } else if (cluster.active_device_id.empty()) {
+        player_.clear_remote_mirrored_state();
+    } else {
         const auto snap = player_.snapshot_for_connect();
         if (!is_active_playing_phase(snap.playback_phase)) {
             std::lock_guard<std::mutex> lock(state_mutex_);
             local_active_ = false;
         }
+        player_.clear_remote_mirrored_state();
     }
+
+    if (needs_state_updates_edge && is_local_active()) {
+        CONNECT_LOGI(
+            "ConnectSubsystem: Cluster.needs_state_updates transitioned false -> true; forcing PutState");
+        QueuedPutStateTask task;
+        task.kind = WorkerTaskKind::kPutState;
+        task.reason = PutStateReason::PLAYER_STATE_CHANGED;
+        task.only_write_player_state = !need_full_state;
+        task.wake_devices = false;
+        task.snapshot = player_.snapshot_for_connect();
+        enqueue_put_state(std::move(task));
+    }
+
     notify_state_listeners();
     notify_volume_listeners();
 }
 
+void ConnectSubsystem::handle_restore_transfer_blob(const CachedTransferBlob& blob) {
+    if (!is_running() || blob.transfer_data.empty()) {
+        return;
+    }
+    const std::string local_id = devices_.local_device_id();
+    const std::string b64 = base64_encode(
+        blob.transfer_data.data(),
+        blob.transfer_data.size());
+    const std::string cmd_json =
+        "{\"endpoint\":\"transfer\",\"data\":\"" + b64 +
+        "\",\"options\":{\"restore_paused\":\"restore\"}}";
+    const bool ok = player_.apply_connect_remote_command(
+        "transfer", cmd_json, local_id, 0, 0);
+    if (!ok) {
+        CONNECT_LOGW(
+            "ConnectSubsystem::handle_restore_transfer_blob: LoadLastTransferBlob apply failed");
+        emit_diagnostic("state_restore", "restore_failed", {});
+    } else {
+        CONNECT_LOGI(
+            "ConnectSubsystem::handle_restore_transfer_blob: restored cached TransferState (%zu bytes)",
+            blob.transfer_data.size());
+        emit_diagnostic("state_restore", "restore_applied", {});
+    }
+}
+
 void ConnectSubsystem::handle_remote_volume_command(const SetVolumeCommand& cmd) {
     if (cmd.volume < 0) {
+        CONNECT_LOGW("ConnectSubsystem::handle_remote_volume_command: ignoring negative volume=%d", cmd.volume);
         return;
     }
     const uint32_t vol = static_cast<uint32_t>(
         std::min<int32_t>(cmd.volume, static_cast<int32_t>(kMaxVolumeSteps)));
 
     if (!cmd.group_device_identifier.empty()) {
+        if (!client_.volume_throttler().should_apply_remote_volume(vol, cmd.group_device_identifier)) {
+            return;
+        }
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
             group_device_volumes_[cmd.group_device_identifier] = vol;
@@ -597,12 +1325,13 @@ void ConnectSubsystem::handle_remote_volume_command(const SetVolumeCommand& cmd)
         return;
     }
 
-    if (!client_.volume_throttler().should_apply_remote_volume(vol)) {
+    if (!client_.volume_throttler().should_apply_remote_volume(vol, "")) {
         return;
     }
 
     DeviceInfo local = devices_.local_device_info();
     local.volume = vol;
+    local.has_volume = true;
     devices_.set_local_device_info(local);
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -621,12 +1350,15 @@ void ConnectSubsystem::handle_remote_volume_command(const SetVolumeCommand& cmd)
     notify_volume_listeners();
 
     QueuedPutStateTask task;
+    task.kind = WorkerTaskKind::kPutState;
     task.reason = PutStateReason::VOLUME_CHANGED;
     task.only_write_player_state = false;
     enqueue_put_state(std::move(task));
 }
 
 void ConnectSubsystem::handle_remote_logout_command(const LogoutCommand& /*cmd*/) {
+    CONNECT_LOGI("ConnectSubsystem: received remote Logout command");
+    emit_diagnostic("dealer", "remote_logout", {});
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         running_ = false;
@@ -655,6 +1387,7 @@ void ConnectSubsystem::handle_remote_backend_metadata_command(
     devices_.set_local_device_info(local);
 
     QueuedPutStateTask task;
+    task.kind = WorkerTaskKind::kPutState;
     task.reason = PutStateReason::BACKEND_METADATA_APPLIED;
     task.only_write_player_state = false;
     enqueue_put_state(std::move(task));
@@ -850,11 +1583,15 @@ SimpleHttpResult ConnectSubsystem::logout(const std::string& target_device_id) {
 PutStateResult ConnectSubsystem::notify_audio_route_changed(
     const std::vector<AudioOutputDeviceInfo>& outputs) {
     DeviceInfo local = devices_.local_device_info();
-    local.audio_output_device_info =
-        !outputs.empty() ? outputs.front() : AudioOutputDeviceInfo{};
+    if (!outputs.empty() && is_audio_output_device_info_populated(outputs.front())) {
+        local.audio_output_device_info = outputs.front();
+    } else {
+        local.audio_output_device_info.reset();
+    }
     devices_.set_local_device_info(local);
 
     QueuedPutStateTask task;
+    task.kind = WorkerTaskKind::kPutState;
     task.reason = PutStateReason::AUDIO_DRIVER_INFO_CHANGED;
     task.only_write_player_state = false;
     PutStateResult res = execute_put_state_task(task);
@@ -883,8 +1620,12 @@ AckHttpResult ConnectSubsystem::add_device_to_group(
     const std::string& group_device_id) {
     AddDeviceToGroupCommand cmd;
     cmd.group_device_identifier = group_device_id;
-    return client_.add_device_to_group(
+    AckHttpResult res = client_.add_device_to_group(
         devices_.local_device_id(), target_device_id, cmd);
+    if (res.ok) {
+        group_enricher_.request_refresh_async();
+    }
+    return res;
 }
 
 AckHttpResult ConnectSubsystem::remove_device_from_group(
@@ -899,7 +1640,8 @@ AckHttpResult ConnectSubsystem::remove_device_from_group(
             std::lock_guard<std::mutex> lock(state_mutex_);
             group_device_volumes_.erase(group_device_id);
         }
-        notify_volume_listeners();
+        client_.volume_throttler().clear_target(group_device_id);
+        group_enricher_.on_device_removed_from_group(group_device_id);
     }
     return res;
 }
@@ -914,7 +1656,8 @@ AckHttpResult ConnectSubsystem::delete_group(const std::string& group_device_id)
             std::lock_guard<std::mutex> lock(state_mutex_);
             group_device_volumes_.erase(group_device_id);
         }
-        notify_volume_listeners();
+        client_.volume_throttler().clear_target(group_device_id);
+        group_enricher_.on_group_deleted(group_device_id);
     }
     return res;
 }
@@ -938,11 +1681,13 @@ bool ConnectSubsystem::has_received_cluster_update_after_backend_connection() co
 }
 
 bool ConnectSubsystem::perform_discovery() {
+    local_device_reporter_.trigger_report_if_needed();
     return devices_.perform_discovery();
 }
 
 PutStateResult ConnectSubsystem::refresh_cluster() {
     QueuedPutStateTask task;
+    task.kind = WorkerTaskKind::kPutState;
     task.reason = PutStateReason::PICKER_OPENED;
     task.only_write_player_state = false;
     task.wake_devices = true;
@@ -961,7 +1706,7 @@ AckHttpResult ConnectSubsystem::volume_set(
     const std::string active_id = devices_.active_device_id();
     const std::string target_id =
         !group_device_id.empty()
-            ? group_device_id
+            ? (!active_id.empty() ? active_id : group_device_id)
             : (!active_id.empty() ? active_id : local_id);
 
     if (!group_device_id.empty()) {
@@ -972,6 +1717,7 @@ AckHttpResult ConnectSubsystem::volume_set(
     if (group_device_id.empty() && (target_id == local_id || active_id.empty())) {
         DeviceInfo local = devices_.local_device_info();
         local.volume = bounded;
+        local.has_volume = true;
         devices_.set_local_device_info(local);
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
@@ -988,6 +1734,7 @@ AckHttpResult ConnectSubsystem::volume_set(
         notify_local_volume_listeners(bounded, LocalVolumeReason::kUser);
         notify_volume_listeners();
         QueuedPutStateTask task;
+        task.kind = WorkerTaskKind::kPutState;
         task.reason = PutStateReason::VOLUME_CHANGED;
         task.only_write_player_state = false;
         const auto put_res = execute_put_state_task(task);
@@ -995,12 +1742,21 @@ AckHttpResult ConnectSubsystem::volume_set(
             .ok = put_res.ok || put_res.deferred,
             .throttled = put_res.deferred,
             .http_status = put_res.http_status,
+            .error_code = put_res.error_code,
             .ack_id = {},
             .error_message = put_res.error_message,
         };
     }
 
-    AckHttpResult res = client_.set_volume(local_id, target_id, bounded, group_device_id);
+    std::string group_instance;
+    if (!group_device_id.empty() && !active_id.empty()) {
+        if (const auto gd = devices_.group_data_for_device(active_id); gd.has_value()) {
+            group_instance = gd->group_instance;
+        }
+    }
+
+    AckHttpResult res = client_.set_volume(
+        local_id, target_id, bounded, group_device_id, group_instance);
     if (res.ok || res.throttled) {
         notify_volume_listeners();
     }
@@ -1041,13 +1797,25 @@ ConnectVolumeSnapshot ConnectSubsystem::current_volume_snapshot() const {
     ConnectVolumeSnapshot snap;
     snap.active_device_connect_state_identifier = devices_.active_device_id();
     snap.local_volume = devices_.local_device_info().volume;
+
+    // Start with enriched Connect-Group v1 member volumes, then overlay optimistic local overrides.
+    snap.group_device_volumes = devices_.group_device_volume_values_snapshot();
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        snap.group_device_volumes = group_device_volumes_;
+        for (const auto& [member_id, vol] : group_device_volumes_) {
+            snap.group_device_volumes[member_id] = vol;
+        }
         snap.local_reason = local_volume_reason_;
     }
 
-    if (const auto wanted = client_.volume_throttler().active_wanted_volume()) {
+    // Apply any active per-member wanted volume overrides from VolumeThrottler.
+    for (auto& [member_id, vol] : snap.group_device_volumes) {
+        if (const auto wanted_member = client_.volume_throttler().active_wanted_volume(member_id)) {
+            vol = *wanted_member;
+        }
+    }
+
+    if (const auto wanted = client_.volume_throttler().active_wanted_volume("")) {
         snap.volume = *wanted;
     } else if (!snap.active_device_connect_state_identifier.empty()) {
         snap.volume = devices_.device_volume(snap.active_device_connect_state_identifier);

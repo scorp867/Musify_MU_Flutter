@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -69,6 +70,12 @@ public:
 
     /// Synchronizes and reorders lookahead context tracks following active index (1:1 with liborbit.so QueueImpl::setQueueWithinSlice)
     void set_next_tracks_slice(const std::vector<context_view::Entry>& reordered_next);
+
+    /// Patches metadata in-place for every matching track URI across loaded_tracks_,
+    /// shuffled_order_, and active context_view structures without disturbing indices or order.
+    bool apply_metadata_for_uri(
+        const std::string& uri,
+        const std::function<bool(context_view::Entry&)>& patcher);
 
     /// Clears all tracks, shuffle state, and page metadata cleanly.
     void clear();

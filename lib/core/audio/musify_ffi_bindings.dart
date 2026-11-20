@@ -7,8 +7,12 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 ///
 /// `isLeaf: true` is applied ONLY to pre-existing Phase 6/11 bindings with no
 /// GC interaction, Dart callbacks, or blocking I/O. Connect port setters
-/// (`_connectSet*Port`) and RPC dispatch functions omit `isLeaf` (using
-/// `.asFunction()`) to remain safepoint-safe.
+/// (`_connectSet*Port`), client profile setters, and RPC dispatch functions
+/// omit `isLeaf` (using `.asFunction()`) to remain safepoint-safe.
+///
+/// The shared library is loaded lazily only when [instance] is first accessed,
+/// keeping host unit tests and mocked environments safe without requiring
+/// `libmusify_audio.so` on disk.
 class MusifyFfiBindings {
   factory MusifyFfiBindings._open() {
     final library = DynamicLibrary.open(_libName);
@@ -22,150 +26,195 @@ class MusifyFfiBindings {
   MusifyFfiBindings._fromLibrary(this.lib)
       : _create = lib
             .lookup<NativeFunction<Pointer<Void> Function()>>(
-                'musify_engine_create')
+              'musify_engine_create',
+            )
             .asFunction(isLeaf: true),
         _destroy = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_engine_destroy')
+              'musify_engine_destroy',
+            )
             .asFunction(isLeaf: true),
         _loadLocal = lib
             .lookup<
                 NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
-                'musify_engine_load_local')
+              'musify_engine_load_local',
+            )
             .asFunction(),
         _loadDualSource = lib
             .lookup<
                 NativeFunction<
                     Int32 Function(
-                        Pointer<Void>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Int64)>>('musify_engine_load_dual_source')
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Int64,
+                    )>>('musify_engine_load_dual_source')
             .asFunction(),
         _loadEncrypted = lib
             .lookup<
                 NativeFunction<
-                    Int32 Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>,
-                        Pointer<Utf8>)>>('musify_engine_load_encrypted')
+                    Int32 Function(
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                    )>>('musify_engine_load_encrypted')
             .asFunction(),
         _attachSecondaryStream = lib
             .lookup<
                 NativeFunction<
                     Int32 Function(
-                        Pointer<Void>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Int64)>>('musify_engine_attach_secondary_stream')
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Int64,
+                    )>>('musify_engine_attach_secondary_stream')
             .asFunction(),
         _loadTrackWithHead = lib
             .lookup<
                 NativeFunction<
                     Int32 Function(
-                        Pointer<Void>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Int64)>>('musify_engine_load_track_with_head')
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Int64,
+                    )>>('musify_engine_load_track_with_head')
             .asFunction(),
         _prefetchHead = lib
             .lookup<
                 NativeFunction<
-                    Void Function(Pointer<Void>, Pointer<Utf8>,
-                        Pointer<Utf8>)>>('musify_engine_prefetch_head')
+                    Void Function(
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                    )>>('musify_engine_prefetch_head')
             .asFunction(),
         _setDrmSession = lib
             .lookup<
                 NativeFunction<
                     Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32)>>(
-                'musify_engine_set_drm_session')
+              'musify_engine_set_drm_session',
+            )
             .asFunction(isLeaf: true),
         _play = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_engine_play')
+              'musify_engine_play',
+            )
             .asFunction(isLeaf: true),
         _pause = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_engine_pause')
+              'musify_engine_pause',
+            )
             .asFunction(isLeaf: true),
         _seekMs = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>, Int64)>>(
-                'musify_engine_seek_ms')
+              'musify_engine_seek_ms',
+            )
             .asFunction(),
         _stop = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_engine_stop')
+              'musify_engine_stop',
+            )
             .asFunction(isLeaf: true),
         _getPositionMs = lib
             .lookup<NativeFunction<Int64 Function(Pointer<Void>)>>(
-                'musify_engine_get_position_ms')
+              'musify_engine_get_position_ms',
+            )
             .asFunction(isLeaf: true),
         _getDurationMs = lib
             .lookup<NativeFunction<Int64 Function(Pointer<Void>)>>(
-                'musify_engine_get_duration_ms')
+              'musify_engine_get_duration_ms',
+            )
             .asFunction(isLeaf: true),
         _getState = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_engine_get_state')
+              'musify_engine_get_state',
+            )
             .asFunction(isLeaf: true),
         _getUnderrunCount = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_engine_get_underrun_count')
+              'musify_engine_get_underrun_count',
+            )
             .asFunction(isLeaf: true),
         _isDualSource = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_engine_is_dual_source')
+              'musify_engine_is_dual_source',
+            )
             .asFunction(isLeaf: true),
         _isHandoffCompleted = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_engine_is_handoff_completed')
+              'musify_engine_is_handoff_completed',
+            )
             .asFunction(isLeaf: true),
         _freeString = lib
             .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>(
-                'musify_free_string')
+              'musify_free_string',
+            )
             .asFunction(isLeaf: true),
         _freeBytes = lib
             .lookup<NativeFunction<Void Function(Pointer<Uint8>)>>(
-                'musify_free_bytes')
+              'musify_free_bytes',
+            )
             .asFunction(isLeaf: true),
         _setAuthSession = lib
             .lookup<
                 NativeFunction<
                     Void Function(
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>,
-                        Pointer<Utf8>)>>('musify_set_auth_session')
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                    )>>('musify_set_auth_session')
             .asFunction(),
         _setAuthRefreshPort = lib
             .lookup<NativeFunction<Void Function(Int64)>>(
-                'musify_set_auth_refresh_port')
+              'musify_set_auth_refresh_port',
+            )
             .asFunction(isLeaf: true),
+        _setClientProfile = lib
+            .lookup<
+                NativeFunction<
+                    Void Function(
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                      Int32,
+                    )>>('musify_set_client_profile')
+            .asFunction(),
         _metadataSeedExtension = lib
             .lookup<
                 NativeFunction<
                     Void Function(
-                        Int32, Pointer<Utf8>, Pointer<Uint8>, Int32)>>(
-                'musify_metadata_seed_extension')
+                      Int32,
+                      Pointer<Utf8>,
+                      Pointer<Uint8>,
+                      Int32,
+                    )>>('musify_metadata_seed_extension')
             .asFunction(),
         _cpCreate = lib
             .lookup<NativeFunction<Pointer<Void> Function()>>(
-                'musify_context_processor_create')
+              'musify_context_processor_create',
+            )
             .asFunction(isLeaf: true),
         _cpDestroy = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_context_processor_destroy')
+              'musify_context_processor_destroy',
+            )
             .asFunction(isLeaf: true),
         _cpIsDelimiter = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Utf8>)>>(
-                'musify_context_processor_is_delimiter')
+              'musify_context_processor_is_delimiter',
+            )
             .asFunction(isLeaf: true),
         _cpSetContextProto = lib
             .lookup<
@@ -199,175 +248,266 @@ class MusifyFfiBindings {
             .asFunction(),
         _cpSkipNext = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_context_processor_skip_next')
+              'musify_context_processor_skip_next',
+            )
             .asFunction(isLeaf: true),
         _cpSkipPrev = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_context_processor_skip_prev')
+              'musify_context_processor_skip_prev',
+            )
             .asFunction(isLeaf: true),
         _cpSkipToIndex = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>, Int32)>>(
-                'musify_context_processor_skip_to_index')
+              'musify_context_processor_skip_to_index',
+            )
             .asFunction(isLeaf: true),
         _cpSkipToUri = lib
             .lookup<
                 NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
-                'musify_context_processor_skip_to_uri')
+              'musify_context_processor_skip_to_uri',
+            )
             .asFunction(isLeaf: true),
         _cpSkipToUid = lib
             .lookup<
                 NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
-                'musify_context_processor_skip_to_uid')
+              'musify_context_processor_skip_to_uid',
+            )
             .asFunction(isLeaf: true),
         _cpSetShuffling = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int32)>>(
-                'musify_context_processor_set_shuffling')
+              'musify_context_processor_set_shuffling',
+            )
             .asFunction(isLeaf: true),
         _cpIsShuffling = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_context_processor_is_shuffling')
+              'musify_context_processor_is_shuffling',
+            )
             .asFunction(isLeaf: true),
         _cpNeedsNextPage = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_context_processor_needs_next_page')
+              'musify_context_processor_needs_next_page',
+            )
             .asFunction(isLeaf: true),
         _cpGetNextPageUrl = lib
             .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
-                'musify_context_processor_get_next_page_url')
+              'musify_context_processor_get_next_page_url',
+            )
             .asFunction(),
         _cpGetCurrentIteration = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_context_processor_get_current_iteration')
+              'musify_context_processor_get_current_iteration',
+            )
             .asFunction(isLeaf: true),
         _cpGetCurrentIndex = lib
             .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-                'musify_context_processor_get_current_index')
+              'musify_context_processor_get_current_index',
+            )
             .asFunction(isLeaf: true),
         _initDartApiDl = lib
             .lookup<NativeFunction<IntPtr Function(Pointer<Void>)>>(
-                'musify_init_dart_api_dl')
+              'musify_init_dart_api_dl',
+            )
             .asFunction(),
         _cpiCreate = lib
             .lookup<NativeFunction<Pointer<Void> Function(Pointer<Void>)>>(
-                'musify_cpi_create')
+              'musify_cpi_create',
+            )
             .asFunction(),
         _cpiDestroy = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_cpi_destroy')
+              'musify_cpi_destroy',
+            )
             .asFunction(isLeaf: true),
         _cpiSetAudioEngine = lib
-            .lookup<NativeFunction<Void Function(Pointer<Void>, Pointer<Void>)>>(
-                'musify_cpi_set_audio_engine')
+            .lookup<
+                NativeFunction<Void Function(Pointer<Void>, Pointer<Void>)>>(
+              'musify_cpi_set_audio_engine',
+            )
             .asFunction(),
         _cpiHandleCommand = lib
             .lookup<
                 NativeFunction<
-                    Int32 Function(Pointer<Void>, Pointer<Utf8>,
-                        Pointer<Uint8>, Int32)>>('musify_cpi_handle_command')
+                    Int32 Function(
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Uint8>,
+                      Int32,
+                    )>>('musify_cpi_handle_command')
             .asFunction(),
         _cpiAdvanceToNextTrack = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_cpi_advance_to_next_track')
+              'musify_cpi_advance_to_next_track',
+            )
             .asFunction(),
         _cpiGetState = lib
             .lookup<
                 NativeFunction<
-                    Pointer<Uint8> Function(
-                        Pointer<Void>, Pointer<Int32>)>>('musify_cpi_get_state')
+                    Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>)>>(
+              'musify_cpi_get_state',
+            )
             .asFunction(),
         _cpiGetQueue = lib
             .lookup<
                 NativeFunction<
-                    Pointer<Uint8> Function(
-                        Pointer<Void>, Pointer<Int32>)>>('musify_cpi_get_queue')
+                    Pointer<Uint8> Function(Pointer<Void>, Pointer<Int32>)>>(
+              'musify_cpi_get_queue',
+            )
             .asFunction(),
         _cpiSetStateChangedPort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_cpi_set_state_changed_port')
+              'musify_cpi_set_state_changed_port',
+            )
             .asFunction(isLeaf: true),
         _cpiSetQueueChangedPort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_cpi_set_queue_changed_port')
+              'musify_cpi_set_queue_changed_port',
+            )
             .asFunction(isLeaf: true),
         _cpiSetErrorPort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_cpi_set_error_port')
+              'musify_cpi_set_error_port',
+            )
             .asFunction(isLeaf: true),
         _connectCreate = lib
             .lookup<NativeFunction<Pointer<Void> Function(Pointer<Void>)>>(
-                'musify_connect_create')
+              'musify_connect_create',
+            )
             .asFunction(),
         _connectDestroy = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_connect_destroy')
+              'musify_connect_destroy',
+            )
             .asFunction(),
         _connectStart = lib
             .lookup<
                 NativeFunction<
                     Int32 Function(Pointer<Void>, Pointer<Uint8>, Int32)>>(
-                'musify_connect_start')
+              'musify_connect_start',
+            )
             .asFunction(),
         _connectStop = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-                'musify_connect_stop')
+              'musify_connect_stop',
+            )
+            .asFunction(),
+        _connectCallAsync = lib
+            .lookup<
+                NativeFunction<
+                    Int32 Function(
+                      Pointer<Void>,
+                      Int32,
+                      Pointer<Utf8>,
+                      Pointer<Uint8>,
+                      Int32,
+                      Int64,
+                      Int64,
+                    )>>('musify_connect_call_async')
+            .asFunction(),
+        _connectSetEndpoints = lib
+            .lookup<
+                NativeFunction<
+                    Int32 Function(
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Utf8>,
+                    )>>('musify_connect_set_endpoints')
+            .asFunction(),
+        _connectReconnect = lib
+            .lookup<NativeFunction<Int32 Function(Pointer<Void>, Int32)>>(
+              'musify_connect_reconnect',
+            )
+            .asFunction(),
+        _connectSetNetworkAvailable = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int32)>>(
+              'musify_connect_set_network_available',
+            )
+            .asFunction(),
+        _connectUpdateNsdServices = lib
+            .lookup<
+                NativeFunction<Int32 Function(Pointer<Void>, Pointer<Utf8>)>>(
+              'musify_connect_update_nsd_services',
+            )
+            .asFunction(),
+        _connectSetLocalVolume = lib
+            .lookup<
+                NativeFunction<
+                    Int32 Function(Pointer<Void>, Uint32, Int32, Int32)>>(
+              'musify_connect_set_local_volume',
+            )
             .asFunction(),
         _connectServiceCall = lib
             .lookup<
                 NativeFunction<
                     Pointer<Uint8> Function(
-                        Pointer<Void>,
-                        Pointer<Utf8>,
-                        Pointer<Uint8>,
-                        Int32,
-                        Pointer<Int32>,
-                        Pointer<Int32>)>>('musify_connect_service_call')
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Uint8>,
+                      Int32,
+                      Pointer<Int32>,
+                      Pointer<Int32>,
+                    )>>('musify_connect_service_call')
             .asFunction(),
         _connectVolumeServiceCall = lib
             .lookup<
                 NativeFunction<
                     Pointer<Uint8> Function(
-                        Pointer<Void>,
-                        Pointer<Utf8>,
-                        Pointer<Uint8>,
-                        Int32,
-                        Pointer<Int32>,
-                        Pointer<Int32>)>>('musify_connect_volume_service_call')
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Uint8>,
+                      Int32,
+                      Pointer<Int32>,
+                      Pointer<Int32>,
+                    )>>('musify_connect_volume_service_call')
             .asFunction(),
         _dodoServiceCall = lib
             .lookup<
                 NativeFunction<
                     Pointer<Uint8> Function(
-                        Pointer<Void>,
-                        Pointer<Utf8>,
-                        Pointer<Uint8>,
-                        Int32,
-                        Pointer<Int32>,
-                        Pointer<Int32>)>>('musify_dodo_service_call')
+                      Pointer<Void>,
+                      Pointer<Utf8>,
+                      Pointer<Uint8>,
+                      Int32,
+                      Pointer<Int32>,
+                      Pointer<Int32>,
+                    )>>('musify_dodo_service_call')
             .asFunction(),
         _connectSetStatePort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_connect_set_state_port')
+              'musify_connect_set_state_port',
+            )
             .asFunction(),
         _connectSetVolumePort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_connect_set_volume_port')
+              'musify_connect_set_volume_port',
+            )
             .asFunction(),
         _connectSetLocalVolumePort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_connect_set_local_volume_port')
+              'musify_connect_set_local_volume_port',
+            )
             .asFunction(),
         _connectSetDodoPort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_connect_set_dodo_port')
+              'musify_connect_set_dodo_port',
+            )
             .asFunction(),
         _connectSetInstallSpotifyPort = lib
             .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
-                'musify_connect_set_install_spotify_port')
+              'musify_connect_set_install_spotify_port',
+            )
+            .asFunction(),
+        _connectSetDiagnosticPort = lib
+            .lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
+              'musify_connect_set_diagnostic_port',
+            )
             .asFunction();
 
   static const String _libName = 'libmusify_audio.so';
 
   static MusifyFfiBindings? _instance;
+
+  static bool get isInitialized => _instance != null;
+
   static MusifyFfiBindings get instance {
     final current = _instance;
     if (current != null) return current;
@@ -441,6 +581,13 @@ class MusifyFfiBindings {
     Pointer<Utf8>,
   ) _setAuthSession;
   final void Function(int) _setAuthRefreshPort;
+  final void Function(
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    Pointer<Utf8>,
+    int,
+  ) _setClientProfile;
   final void Function(int, Pointer<Utf8>, Pointer<Uint8>, int)
       _metadataSeedExtension;
 
@@ -494,6 +641,21 @@ class MusifyFfiBindings {
   final void Function(Pointer<Void>) _connectDestroy;
   final int Function(Pointer<Void>, Pointer<Uint8>, int) _connectStart;
   final void Function(Pointer<Void>) _connectStop;
+  final int Function(
+    Pointer<Void>,
+    int,
+    Pointer<Utf8>,
+    Pointer<Uint8>,
+    int,
+    int,
+    int,
+  ) _connectCallAsync;
+  final int Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+      _connectSetEndpoints;
+  final int Function(Pointer<Void>, int) _connectReconnect;
+  final void Function(Pointer<Void>, int) _connectSetNetworkAvailable;
+  final int Function(Pointer<Void>, Pointer<Utf8>) _connectUpdateNsdServices;
+  final int Function(Pointer<Void>, int, int, int) _connectSetLocalVolume;
   final Pointer<Uint8> Function(
     Pointer<Void>,
     Pointer<Utf8>,
@@ -523,6 +685,7 @@ class MusifyFfiBindings {
   final void Function(Pointer<Void>, int) _connectSetLocalVolumePort;
   final void Function(Pointer<Void>, int) _connectSetDodoPort;
   final void Function(Pointer<Void>, int) _connectSetInstallSpotifyPort;
+  final void Function(Pointer<Void>, int) _connectSetDiagnosticPort;
 
   // --- Public API ---
 
@@ -636,6 +799,21 @@ class MusifyFfiBindings {
 
   void setAuthRefreshPort(int port) => _setAuthRefreshPort(port);
 
+  void setClientProfile({
+    required Pointer<Utf8> clientId,
+    required Pointer<Utf8> appPlatform,
+    required Pointer<Utf8> appVersion,
+    required Pointer<Utf8> userAgent,
+    required int sendOriginHeaders,
+  }) =>
+      _setClientProfile(
+        clientId,
+        appPlatform,
+        appVersion,
+        userAgent,
+        sendOriginHeaders,
+      );
+
   void metadataSeedExtension(
     int extensionKind,
     Pointer<Utf8> entityUri,
@@ -717,8 +895,7 @@ class MusifyFfiBindings {
       _cpiSetStateChangedPort(h, port);
   void cpiSetQueueChangedPort(Pointer<Void> h, int port) =>
       _cpiSetQueueChangedPort(h, port);
-  void cpiSetErrorPort(Pointer<Void> h, int port) =>
-      _cpiSetErrorPort(h, port);
+  void cpiSetErrorPort(Pointer<Void> h, int port) => _cpiSetErrorPort(h, port);
 
   Pointer<Void> connectCreate(Pointer<Void> cpiHandle) =>
       _connectCreate(cpiHandle);
@@ -730,6 +907,46 @@ class MusifyFfiBindings {
   ) =>
       _connectStart(h, deviceInfoBytes, len);
   void connectStop(Pointer<Void> h) => _connectStop(h);
+  int connectCallAsync(
+    Pointer<Void> h,
+    int serviceId,
+    Pointer<Utf8> method,
+    Pointer<Uint8> payload,
+    int payloadLen,
+    int requestId,
+    int replyPort,
+  ) =>
+      _connectCallAsync(
+        h,
+        serviceId,
+        method,
+        payload,
+        payloadLen,
+        requestId,
+        replyPort,
+      );
+  int connectSetEndpoints(
+    Pointer<Void> h,
+    Pointer<Utf8> spclientBaseUrl,
+    Pointer<Utf8> dealerWsUrl,
+  ) =>
+      _connectSetEndpoints(h, spclientBaseUrl, dealerWsUrl);
+  int connectReconnect(Pointer<Void> h, int reasonCode) =>
+      _connectReconnect(h, reasonCode);
+  void connectSetNetworkAvailable(Pointer<Void> h, int isAvailable) =>
+      _connectSetNetworkAvailable(h, isAvailable);
+  int connectUpdateNsdServices(
+    Pointer<Void> h,
+    Pointer<Utf8> servicesJsonUtf8,
+  ) =>
+      _connectUpdateNsdServices(h, servicesJsonUtf8);
+  int connectSetLocalVolume(
+    Pointer<Void> h,
+    int volume0To65535,
+    int volumeSteps,
+    int reasonCode,
+  ) =>
+      _connectSetLocalVolume(h, volume0To65535, volumeSteps, reasonCode);
   Pointer<Uint8> connectServiceCall(
     Pointer<Void> h,
     Pointer<Utf8> method,
@@ -774,4 +991,6 @@ class MusifyFfiBindings {
       _connectSetDodoPort(h, port);
   void connectSetInstallSpotifyPort(Pointer<Void> h, int port) =>
       _connectSetInstallSpotifyPort(h, port);
+  void connectSetDiagnosticPort(Pointer<Void> h, int dartPort) =>
+      _connectSetDiagnosticPort(h, dartPort);
 }

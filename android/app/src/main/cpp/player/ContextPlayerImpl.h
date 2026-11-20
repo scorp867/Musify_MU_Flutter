@@ -1,19 +1,29 @@
 // ============================================================================
 // 1:1 Replicated Spotify ContextPlayerImpl & Connect Bidirectional Hooks
-// Sources:
-// - `liborbit-jni-spotify.so` ContextPlayerImpl command/state dispatcher & Connect state sync
-// - `liborbit-jni-spotify.so` ELF FileDescriptorProto `player.proto` (`0x635f80`)
+// Sources (`liborbit-jni-spotify.so` arm64):
+// - ContextPlayerImpl command/state dispatcher & Connect state sync
+// - ELF FileDescriptorProto `player.proto` (`0x635f80`)
+// - `transfer_state.proto` (`0x60c1c4`), `playback.proto` (`0x60a6c0`),
+//   `session.proto` (`0x60ba78`), `queue.proto` (`0x60a8d4`),
+//   `sleep_timer.proto` (`0x60be60`)
+// - LocalPlaybackIntentContextPlayer (`0x1090200..0x10924a8`)
+// - ConnectApiImpl (`0xda66f0..0xda96ac`, `&not_playing_locally` @ `0xdaa0bc`)
+// - ConnectStateImpl::onClusterChanged (`0xdb6740..0xdb7060`)
 // ============================================================================
 
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../ContextProcessor.h"
@@ -21,14 +31,26 @@
 #include "../ProtobufWireHelper.h"
 #include "../metadata/TrackInfoProvider.h"
 #include "../rendering/TrackPlayer.h"
+#include "ContextResolveClient.h"
+#include "RemotePlaybackDelegate.h"
 #include "RestrictionsEngine.h"
 #include "StateEmitter.h"
 
 namespace spotify::player {
 
+/// Single source of truth for whether `ContextPlayerImpl` is driving local audio
+/// rendering (`kLocal`) or mirroring a remote Spotify Connect cluster's active
+/// `PlayerState` into Dart UI streams (`kRemoteMirrored`).
+enum class PlaybackOrigin : uint8_t {
+    kLocal = 0,
+    kRemoteMirrored = 1,
+};
+
 /// 1:1 replica of spotify.player.esperanto.proto.ContextPlayer / ContextPlayerImpl
 /// Command dispatcher and session/queue orchestrator in liborbit-jni-spotify.so.
-/// Delegates all audio playback rendering to `rendering::TrackPlayer` (`RoutingTrackPlayer`).
+/// Delegates all local audio playback rendering to `rendering::TrackPlayer` (`RoutingTrackPlayer`),
+/// and delegates outbound remote player commands to `IRemotePlaybackDelegate` when a remote
+/// Spotify Connect device is active and `CommandOptions.only_for_local_device` is false.
 class ContextPlayerImpl {
 public:
     /// Exhaustive session playback state machine replacing loose booleans
@@ -50,6 +72,19 @@ public:
         Track = 2
     };
 
+    /// Exhaustive sleep timer mode matching `es_set_sleep_timer_request.proto`
+    /// and `spotify.player.proto.transfer.SleepTimer`.
+    enum class SleepTimerMode : uint8_t {
+        kOff = 0,
+        kDuration = 1,
+        kEndOfTrack = 2
+    };
+
+    struct SleepTimerState {
+        SleepTimerMode mode{SleepTimerMode::kOff};
+        int64_t expires_at_ms{0};
+    };
+
     /// Callback invoked when ContextPlayerState changes, sending protobuf-encoded bytes
     using StateChangedCallback = std::function<void(const uint8_t* data, size_t len)>;
 
@@ -69,7 +104,7 @@ public:
         std::string session_command_id;
         std::string last_command_sent_by_device_id;
         uint32_t last_command_message_id{0};
-        int64_t queue_revision{1};
+        uint64_t queue_revision{1};
 
         SessionPlaybackPhase playback_phase{SessionPlaybackPhase::Idle};
         SessionRepeatMode repeat_mode{SessionRepeatMode::Off};
@@ -88,6 +123,7 @@ public:
         std::unordered_map<std::string, std::string> context_metadata;
         std::unordered_map<std::string, std::string> page_metadata;
         std::vector<std::string> signals;
+        bool has_player_state{false};
     };
 
     class PlayerStateListener {
@@ -98,7 +134,9 @@ public:
             bool track_changed) = 0;
     };
 
-    explicit ContextPlayerImpl(std::shared_ptr<rendering::TrackPlayer> track_player = nullptr);
+    explicit ContextPlayerImpl(
+        std::shared_ptr<rendering::TrackPlayer> track_player = nullptr,
+        metadata::TrackInfoProvider* track_info_provider = nullptr);
     ~ContextPlayerImpl();
 
     ContextPlayerImpl(const ContextPlayerImpl&) = delete;
@@ -114,7 +152,8 @@ public:
     void set_queue_changed_callback(QueueChangedCallback cb);
     void set_error_callback(ErrorCallback cb);
 
-    /// Connect subsystem bidirectional hooks (listener must outlive registration or remove before destruction)
+    /// Connect subsystem bidirectional hooks (listener/delegate must outlive registration
+    /// or detach before destruction).
     void add_player_state_listener(PlayerStateListener* listener);
     void remove_player_state_listener(PlayerStateListener* listener);
     [[nodiscard]] ConnectPlayerSnapshot snapshot_for_connect() const;
@@ -122,8 +161,25 @@ public:
         const std::string& endpoint,
         const std::string& command_json,
         const std::string& sent_by_device_id,
-        uint32_t message_id);
+        uint32_t message_id,
+        uint32_t target_alias_id = 0);
     void set_session_command_id(const std::string& command_id);
+
+    /// Frozen Wave 1/Wave 2 remote playback mirroring and delegation contract (#47 sec 3)
+    void set_remote_playback_delegate(IRemotePlaybackDelegate* delegate);
+    void apply_remote_mirrored_state(const MirroredRemotePlaybackState& state);
+    void clear_remote_mirrored_state();
+    void pause_for_remote_takeover();
+
+    /// Dynamic spclient base URL forwarded to owned ContextResolveClient
+    void set_spclient_base_url(const std::string& url);
+    [[nodiscard]] std::string spclient_base_url() const;
+
+    /// Current playback origin SSOT (`kLocal` vs `kRemoteMirrored`)
+    [[nodiscard]] PlaybackOrigin playback_origin() const;
+
+    /// Current sleep timer state
+    [[nodiscard]] SleepTimerState sleep_timer_state() const;
 
     /// Main Esperanto RPC command dispatcher matching Spotify method routing
     bool handle_command(const std::string& method, const uint8_t* payload, size_t payload_len);
@@ -181,6 +237,14 @@ public:
     [[nodiscard]] RestrictionsEngine& get_restrictions_engine() noexcept { return restrictions_engine_; }
     [[nodiscard]] const RestrictionsEngine& get_restrictions_engine() const noexcept { return restrictions_engine_; }
 
+    /// Direct access to ContextResolveClient
+    [[nodiscard]] ContextResolveClient& get_context_resolve_client() noexcept {
+        return context_resolve_client_;
+    }
+    [[nodiscard]] const ContextResolveClient& get_context_resolve_client() const noexcept {
+        return context_resolve_client_;
+    }
+
 private:
     static constexpr bool is_phase_playing(SessionPlaybackPhase phase) noexcept {
         return phase == SessionPlaybackPhase::Playing ||
@@ -205,6 +269,34 @@ private:
     void begin_track_transition_locked(
         const context_view::Entry& track,
         SessionPlaybackPhase initial_phase);
+    void transition_to_local_locked() noexcept;
+
+    bool skip_next_impl(bool override_restrictions, const context_view::Entry& target_track);
+    bool skip_prev_impl(
+        bool override_restrictions,
+        bool allow_seeking,
+        const context_view::Entry& target_track);
+    bool apply_signal_value(const std::string& signal_id, const std::string& parameters);
+    void apply_sleep_timer_state(const SleepTimerState& next_timer);
+    void ensure_sleep_timer_thread_locked();
+    void stop_sleep_timer_thread();
+    void sleep_timer_worker_loop();
+
+    struct OutboundForwardOutcome {
+        bool intercepted{false};
+        bool ok{false};
+    };
+
+    OutboundForwardOutcome try_forward_remote_command(
+        const std::string& method_name,
+        const uint8_t* payload,
+        size_t payload_len);
+
+    bool handle_connect_transfer_command(
+        const json::JsonValue& parsed,
+        const std::string& sent_by_device_id,
+        uint32_t message_id,
+        uint32_t target_alias_id);
 
     void bind_track_player_callbacks(const std::shared_ptr<rendering::TrackPlayer>& tp);
     void on_track_player_state_changed(const rendering::TrackPlayerState& state);
@@ -215,9 +307,24 @@ private:
     void emit_queue_locked();
     void update_position_and_duration_locked(bool sync_position = true);
     void clear_pending_player_sync(uint64_t sync_token);
-    static void apply_track_info_locked(
+    void bump_queue_revision_locked() noexcept;
+    static bool apply_track_info_locked(
         context_view::Entry& track,
         const metadata::TrackInfo& info);
+
+    struct PendingMetadataRequest {
+        std::string uri;
+        network::AcquisitionIntent intent{network::AcquisitionIntent::BackgroundPrefetch};
+    };
+
+    bool decorate_entry_locked(
+        context_view::Entry& entry,
+        network::AcquisitionIntent intent,
+        std::unordered_set<std::string>& seen_uris,
+        std::vector<PendingMetadataRequest>& out_misses);
+    void decorate_mirrored_state_locked(std::vector<PendingMetadataRequest>& out_misses);
+    void decorate_local_queue_locked(std::vector<PendingMetadataRequest>& out_misses);
+    void dispatch_metadata_requests(const std::vector<PendingMetadataRequest>& requests) const;
 
     struct ConnectDispatchBundle {
         std::vector<PlayerStateListener*> listeners;
@@ -231,8 +338,17 @@ private:
     mutable std::mutex mutex_;
 
     std::shared_ptr<rendering::TrackPlayer> track_player_;
+    metadata::TrackInfoProvider* track_info_provider_{nullptr};
+    int32_t metadata_listener_id_{0};
+    std::shared_ptr<std::atomic<bool>> alive_flag_{std::make_shared<std::atomic<bool>>(true)};
     ContextProcessor context_processor_;
     RestrictionsEngine restrictions_engine_;
+    ContextResolveClient context_resolve_client_;
+
+    PlaybackOrigin origin_{PlaybackOrigin::kLocal};
+    bool paused_for_remote_takeover_{false};
+    IRemotePlaybackDelegate* remote_delegate_{nullptr};
+    MirroredRemotePlaybackState mirrored_state_;
 
     std::string context_uri_;
     std::string context_url_;
@@ -252,7 +368,8 @@ private:
 
     std::optional<context_view::Entry> current_track_;
     std::vector<context_view::Entry> user_queue_;
-    int64_t queue_revision_{1};
+    std::optional<std::vector<context_view::Entry>> explicit_prev_tracks_;
+    uint64_t queue_revision_{1};
 
     std::string playback_id_;
     std::string last_emitted_playback_id_;
@@ -260,14 +377,22 @@ private:
     std::string session_command_id_;
     std::string last_command_sent_by_device_id_;
     uint32_t last_command_message_id_{0};
+    uint32_t last_command_target_alias_id_{0};
     std::string view_uri_;
     std::vector<std::string> signals_;
+    std::unordered_map<std::string, std::string> modes_;
     std::string last_error_;
+
+    SleepTimerState sleep_timer_;
+    std::mutex sleep_timer_mutex_;
+    std::condition_variable sleep_timer_cv_;
+    bool sleep_timer_stop_{false};
+    uint64_t sleep_timer_epoch_{0};
+    std::thread sleep_timer_thread_;
 
     std::vector<uint8_t> cached_state_bytes_;
     std::vector<uint8_t> cached_queue_bytes_;
     ConnectPlayerSnapshot latest_connect_snapshot_;
-    std::unordered_map<std::string, metadata::TrackInfo> resolved_track_info_cache_;
 
     StateChangedCallback state_changed_callback_;
     QueueChangedCallback queue_changed_callback_;
@@ -275,4 +400,4 @@ private:
     std::vector<PlayerStateListener*> player_state_listeners_;
 };
 
-} // namespace spotify::player
+}  // namespace spotify::player

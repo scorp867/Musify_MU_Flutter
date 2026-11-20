@@ -1,10 +1,14 @@
+// ============================================================================
 // 1:1 Replicated Spotify Esperanto DodoService Native Adapter
 // Sources:
-// - `liborbit-jni-spotify.so`: `spotify::connect::esperanto::proto::DodoService`
+// - `liborbit-jni-spotify.so` (arm64): `spotify::connect::esperanto::proto::DodoService`
 //   dispatcher @ `0xe3fdb4`, vtable @ `0x18f4a08` (`0xe3de2e`, `0xe3def8`, `0xe3e0d2`)
 // - `dodos_messages.proto` descriptor offset `5714450` / `0x5a1dd0`
+// ============================================================================
 
 #include "DodoServiceImpl.h"
+
+#include "../network/NativeLog.h"
 
 namespace spotify::connectstate::esperanto {
 namespace {
@@ -80,6 +84,13 @@ EsperantoCallResult DodoServiceImpl::handle_switch_to_dodo(
         };
     }
     const ClusterHttpResult res = subsystem_.switch_to_dodo(req.cs_id);
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "DodoService::SwitchToDodo failed cs_id=%s http=%d err=%s",
+            req.cs_id.c_str(),
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(map_cluster_http_status(res)),
@@ -96,6 +107,12 @@ EsperantoCallResult DodoServiceImpl::handle_create_new_dodo(
         };
     }
     const ClusterHttpResult res = subsystem_.create_new_dodo();
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "DodoService::CreateNewDodo failed http=%d err=%s",
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(map_cluster_http_status(res)),
@@ -112,6 +129,12 @@ EsperantoCallResult DodoServiceImpl::handle_end_dodo(
         };
     }
     const ClusterHttpResult res = subsystem_.end_dodo();
+    if (!res.ok) {
+        CONNECT_LOGW(
+            "DodoService::EndDodo failed http=%d err=%s",
+            res.http_status,
+            res.error_message.c_str());
+    }
     return EsperantoCallResult{
         .status = EsperantoCallStatus::kOk,
         .payload = encode_status_response(map_cluster_http_status(res)),

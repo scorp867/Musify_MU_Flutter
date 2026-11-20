@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
-import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
-import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
-import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
+import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
 import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
 
@@ -21,37 +20,41 @@ class PlayerUtilityRow extends StatelessWidget {
     required this.onQueue,
     this.onDevice,
     this.connectController,
+    this.outputStatusPolicy,
   });
 
   final VoidCallback onQueue;
   final VoidCallback? onDevice;
   final ConnectMobiusController? connectController;
+  final ConnectOutputStatusPolicy? outputStatusPolicy;
 
   static void _noop() {}
 
-  static bool _isConnectOutputActive(ConnectState state) {
-    if (state.transferState is TransferInProgress) {
-      return true;
+  ConnectMobiusController? _resolveConnectController(BuildContext context) {
+    if (connectController case final explicit?) {
+      return explicit;
     }
-    final ConnectDevice? currentActive = state.activeDevice;
-    if (currentActive != null && !currentActive.isSelf) {
-      return true;
+    return context.read<ConnectMobiusController?>();
+  }
+
+  ConnectOutputStatusPolicy _resolvePolicy(BuildContext context) {
+    if (outputStatusPolicy case final explicit?) {
+      return explicit;
     }
-    final LocalAudioPeripheral? peripheral = state.activeSelfPeripheral;
-    if (peripheral != null &&
-        peripheral.id != kBuiltInSpeakerPeripheralId &&
-        peripheral.connectionType !=
-            OutputPeripheralConnectionType.builtInSpeaker) {
-      return true;
+    if (context.read<ConnectOutputStatusPolicy?>() case final provided?) {
+      return provided;
     }
-    return false;
+    return ConnectOutputStatusPolicy.instance;
   }
 
   @override
   Widget build(BuildContext context) {
+    final effectiveController = _resolveConnectController(context);
+    final policy = _resolvePolicy(context);
+
     final VoidCallback resolvedOnDevice = switch (onDevice) {
       final cb? => cb,
-      null => switch (connectController) {
+      null => switch (effectiveController) {
           final controller? => () => DevicePickerSheet.show(
                 context,
                 controller: controller,
@@ -60,11 +63,11 @@ class PlayerUtilityRow extends StatelessWidget {
         },
     };
 
-    final Widget deviceButton = switch (connectController) {
+    final Widget deviceButton = switch (effectiveController) {
       final controller? => ValueListenableBuilder<ConnectState>(
           valueListenable: controller,
           builder: (context, state, _) {
-            final Color iconColor = _isConnectOutputActive(state)
+            final Color iconColor = policy.isConnectOutputActive(state)
                 ? kSpotifyConnectGreen
                 : Colors.white60;
             return IconButton(

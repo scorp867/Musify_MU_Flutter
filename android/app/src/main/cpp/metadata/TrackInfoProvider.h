@@ -47,22 +47,38 @@ struct TrackInfo {
     [[nodiscard]] bool hasPlayableSource() const noexcept {
         return !files.empty() || !pass_through_url.empty();
     }
+
+    [[nodiscard]] bool hasDisplayMetadata() const noexcept {
+        return (track_v4_resolved || episode_v4_resolved) && !title.empty();
+    }
 };
 
 /// 1:1 equivalent of liborbit's `TrackInfoProvider`:
 /// - Receives raw binary Kodiak extension payloads (`10`, `12`, `212`) from Dart via FFI
 /// - Fetches `/extended-metadata/v0/extended-metadata` natively on cache misses (including relinking)
-/// - Notifies `AudioTrackPlayer` subscribers when metadata or audio file IDs arrive.
+/// - Notifies `AudioTrackPlayer` and `ContextPlayerImpl` subscribers when metadata or audio file IDs arrive.
 class TrackInfoProvider {
 public:
+    static constexpr const char* kDefaultSpclientBaseUrl = "https://spclient.wg.spotify.com";
+
     using MetadataChangedCallback = std::function<void(const std::string& uri, const TrackInfo& info)>;
+    using PostTransportFn = std::function<network::HttpResponse(
+        const std::string& url,
+        const std::vector<uint8_t>& body,
+        const std::string& content_type,
+        const std::vector<std::pair<std::string, std::string>>& extra_headers)>;
 
     TrackInfoProvider(network::AuthSessionStore& auth_store,
                       network::NativeHttpClient& http_client);
+    TrackInfoProvider(network::AuthSessionStore& auth_store,
+                      PostTransportFn post_transport_fn);
     ~TrackInfoProvider();
 
     TrackInfoProvider(const TrackInfoProvider&) = delete;
     TrackInfoProvider& operator=(const TrackInfoProvider&) = delete;
+
+    void set_spclient_base_url(const std::string& base_url);
+    [[nodiscard]] std::string spclient_base_url() const;
 
     void seedExtensionPayload(int32_t extension_kind,
                               const std::string& entity_uri,
@@ -71,7 +87,7 @@ public:
 
     [[nodiscard]] std::optional<TrackInfo> getCached(const std::string& entity_uri) const;
 
-    /// Requests asynchronous native resolution if `entity_uri` lacks playable audio info.
+    /// Requests asynchronous native resolution if `entity_uri` lacks playable audio or display metadata.
     /// InteractivePlayback requests are placed at the front of the pending queue;
     /// BackgroundPrefetch requests are skipped while offline and placed at the back when online.
     void requestResolution(
@@ -91,6 +107,9 @@ private:
     };
 
     void workerLoop();
+    [[nodiscard]] network::HttpResponse executePost(
+        const std::string& url,
+        const std::vector<uint8_t>& body) const;
     BatchFetchResult fetchBatch(const std::vector<std::string>& uris,
                                 network::TrafficPermit& permit);
     bool applyExtensionLocked(int32_t extension_kind,
@@ -105,9 +124,11 @@ private:
     static bool parsePlaybackTraitWire(const uint8_t* data, size_t len, TrackInfo& target);
 
     network::AuthSessionStore& auth_store_;
-    network::NativeHttpClient& http_client_;
+    network::NativeHttpClient* http_client_{nullptr};
+    PostTransportFn post_transport_fn_;
 
     mutable std::mutex mutex_;
+    std::string spclient_base_url_{kDefaultSpclientBaseUrl};
     std::unordered_map<std::string, TrackInfo> store_;
     std::deque<std::string> pending_queue_;
     std::unordered_set<std::string> queued_or_inflight_;
