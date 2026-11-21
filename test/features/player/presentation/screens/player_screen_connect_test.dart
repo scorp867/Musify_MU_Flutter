@@ -1,5 +1,5 @@
-// Items 178 & 179 PlayerScreen Connect wiring tests (p199p/nhr.java:501-567,
-// p199p/ac0.java:51-53, p199p/es81.java:1678-1682).
+// PlayerScreen Connect entrypoint & DevicePickerSheet wiring tests
+// (`p199p/qsq.java`, `p199p/nhr.java`, `p199p/ac0.java`).
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -22,8 +22,9 @@ import 'package:musify_mu/features/connect/data/proto/es_common_messages.pbenum.
 import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pb.dart'
     as connect_pb;
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
+import 'package:musify_mu/features/connect/presentation/theme/connect_encore_theme.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_entrypoint_button.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_state_icon.dart';
 import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
@@ -115,8 +116,7 @@ final class _PlayerScreenConnectHarness {
       sortingDatabase: sortingDb,
       remoteVolumeController: volumeController,
       commandIdGenerator: () => 'abcdef0123456789abcdef0123456789',
-    );
-    controller.start();
+    )..start();
     return _PlayerScreenConnectHarness._(
       transport: transport,
       sortingDb: sortingDb,
@@ -209,7 +209,7 @@ void main() {
     });
   }
 
-  group('Items 178 & 179: PlayerScreen Connect Wiring', () {
+  group('PlayerScreen Spotify Connect Entrypoint Wiring', () {
     testWidgets(
       'connectController: null renders cleanly and Devices tap is a safe no-op',
       (tester) async {
@@ -228,7 +228,6 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.byType(ActiveDeviceBanner), findsNothing);
         final devicesButton = find.byTooltip('Devices');
         expect(devicesButton, findsOneWidget);
 
@@ -241,7 +240,7 @@ void main() {
     );
 
     testWidgets(
-      'shows ActiveDeviceBanner and tints Devices icon without overflow at 390x640 and 800x600',
+      'renders Spotify qsq inline ConnectEntrypointButton label & active icon without overflow at 390x640 and 800x600',
       (tester) async {
         final harness = _PlayerScreenConnectHarness();
         addTearDown(() => tester.runAsync(harness.dispose));
@@ -262,24 +261,21 @@ void main() {
             ),
           );
 
-          // Initially on local built-in speaker: banner hidden, icon muted.
+          // Local built-in speaker active -> ConnectIconIdle, no inline label.
           harness.emitCluster(selfActive: true);
           await tester.pump();
           await tester.pump();
 
-          expect(find.byType(ActiveDeviceBanner), findsNothing);
-          final mutedIcon = tester.widget<Icon>(
+          final idleIcon = tester.widget<ConnectStateIcon>(
             find.descendant(
-              of: find.descendant(
-                of: find.byType(PlayerUtilityRow),
-                matching: find.byTooltip('Devices'),
-              ),
-              matching: find.byType(Icon),
+              of: find.byType(PlayerUtilityRow),
+              matching: find.byType(ConnectStateIcon),
             ),
           );
-          expect(mutedIcon.color, equals(Colors.white60));
+          expect(idleIcon.iconState, isA<ConnectIconIdle>());
+          expect(find.text('Studio Monitor'), findsNothing);
 
-          // Switch to remote speaker: banner appears and icon tints green.
+          // Remote speaker active -> ConnectIconActive (#1ED760) + inline label.
           harness.emitCluster(
             selfActive: false,
             remoteName: 'Studio Monitor',
@@ -288,25 +284,22 @@ void main() {
           await tester.pump();
           await tester.pump();
 
-          expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-          expect(find.text('Listening on Studio Monitor'), findsOneWidget);
-          final activeIcon = tester.widget<Icon>(
+          final activeIcon = tester.widget<ConnectStateIcon>(
             find.descendant(
-              of: find.descendant(
-                of: find.byType(PlayerUtilityRow),
-                matching: find.byTooltip('Devices'),
-              ),
-              matching: find.byType(Icon),
+              of: find.byType(PlayerUtilityRow),
+              matching: find.byType(ConnectStateIcon),
             ),
           );
-          expect(activeIcon.color, equals(kSpotifyConnectGreen));
+          expect(activeIcon.iconState, isA<ConnectIconActive>());
+          expect(activeIcon.activeColor, equals(kSpotifyConnectGreen));
+          expect(find.text('Studio Monitor'), findsOneWidget);
           expect(tester.takeException(), isNull);
         }
       },
     );
 
     testWidgets(
-      'tapping Devices button or ActiveDeviceBanner in PlayerScreen opens DevicePickerSheet',
+      'tapping ConnectEntrypointButton in PlayerScreen opens DevicePickerSheet',
       (tester) async {
         final harness = _PlayerScreenConnectHarness();
         addTearDown(() => tester.runAsync(harness.dispose));
@@ -333,25 +326,11 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        // 1. Open via PlayerUtilityRow Devices button.
-        await tester.tap(find.byTooltip('Devices'));
+        await tester.tap(find.byType(ConnectEntrypointButton));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.byType(DevicePickerSheet), findsOneWidget);
-
-        // Dismiss sheet via Navigator pop.
-        Navigator.of(
-          tester.element(find.byType(DevicePickerSheet)),
-        ).pop();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(find.byType(DevicePickerSheet), findsNothing);
-
-        // 2. Open via ActiveDeviceBanner tap.
-        await tester.tap(find.byType(ActiveDeviceBanner));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(find.byType(DevicePickerSheet), findsOneWidget);
+        expect(find.text('Connect'), findsOneWidget);
       },
     );
 

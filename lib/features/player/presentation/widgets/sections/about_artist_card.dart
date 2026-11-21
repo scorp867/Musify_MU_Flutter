@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/kodiak/element/data_pool_entities_builder.dart';
 import 'package:musify_mu/core/widgets/app_network_image.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/artist_v4.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/image_size.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/on_platform_reputation_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/visual_identity_trait.dart';
 
@@ -9,16 +12,11 @@ import '../player_artwork.dart';
 
 /// Spotify-identical "About the Artist" card (`ScrollCardType.CREATOR_BIO` / `bio_card_view.xml`).
 ///
-/// Features:
-/// - 16dp rounded corners (`widgets_corner_radius`)
-/// - Dark card background (#242424 / `dark_base_background_elevated_base`)
-/// - Top artist banner with subtle gradient scrim (`bio_card_gradient`)
-/// - "ABOUT THE ARTIST" category badge
-/// - Monthly listeners / verified artist indicator
-/// - "Follow" outline button
-/// - Artist biography preview snippet with expandable "See more" behavior
-/// - Dual-mode: Binds reactively to [DataPool] when available (online),
-///   or falls back to metadata (offline).
+/// Reactively binds to [DataPool] for [artistUri], combining:
+/// - [IdentityTrait] (name, summary description)
+/// - [ArtistV4] (full Spotify artist biography, portrait fallback)
+/// - [VisualIdentityTrait] (wide full-bleed / square banner artwork)
+/// - [OnPlatformReputationTrait] (monthly listeners, verified badge)
 class PlayerAboutArtistSection extends StatefulWidget {
   const PlayerAboutArtistSection({
     super.key,
@@ -44,43 +42,84 @@ class _PlayerAboutArtistSectionState extends State<PlayerAboutArtistSection> {
 
   @override
   Widget build(BuildContext context) {
-    final artistName = widget.artistName.isNotEmpty
+    final fallbackArtistName = widget.artistName.isNotEmpty
         ? widget.artistName
         : 'Unknown Artist';
 
-    final artistUri = widget.artistUri;
+    final watchedUris = switch (widget.artistUri) {
+      final uri? when uri.isNotEmpty => <String>[uri],
+      _ => const <String>[],
+    };
 
-    // If DataPool and an artist URI exist, watch for live Kodiak traits
-    if (widget.dataPool != null && artistUri != null && artistUri.isNotEmpty) {
-      return StreamBuilder<Map<String, dynamic>>(
-        stream: widget.dataPool!.watchEntity(artistUri),
-        initialData: widget.dataPool!.getTraits(artistUri),
-        builder: (context, snapshot) {
-          final identity = widget.dataPool!.getTrait<IdentityTrait>(artistUri);
-          final visual = widget.dataPool!.getTrait<VisualIdentityTrait>(artistUri);
-          final reputation =
-              widget.dataPool!.getTrait<OnPlatformReputationTrait>(artistUri);
-          final bannerUrl = visual?.wideFullBleedUrl ?? visual?.squareCoverUrl;
+    return DataPoolEntitiesBuilder(
+      dataPool: widget.dataPool,
+      uris: watchedUris,
+      builder: (context, pool) {
+        if (pool case final activePool?) {
+          if (widget.artistUri case final uri? when uri.isNotEmpty) {
+            final identity = activePool.getTrait<IdentityTrait>(uri);
+            final artistV4 = activePool.getTrait<ArtistV4>(uri);
+            final visual = activePool.getTrait<VisualIdentityTrait>(uri);
+            final reputation =
+                activePool.getTrait<OnPlatformReputationTrait>(uri);
 
-          return _buildCard(
-            artistName: identity?.name.isNotEmpty == true
-                ? identity!.name
-                : artistName,
-            monthlyListeners: reputation?.monthlyListeners,
-            bio: identity?.description.isNotEmpty == true
-                ? identity!.description
-                : null,
-            isVerified: reputation?.isVerified ?? false,
-            bannerImageUrl: bannerUrl,
-          );
-        },
-      );
-    }
+            final resolvedName = switch (identity?.name) {
+              final n? when n.isNotEmpty => n,
+              _ => switch (artistV4?.name) {
+                  final n? when n.isNotEmpty => n,
+                  _ => fallbackArtistName,
+                },
+            };
 
-    // Offline: render with fallback metadata (no trait data available)
-    return _buildCard(
-      artistName: artistName,
+            final resolvedBio = switch (identity?.description) {
+              final d? when d.isNotEmpty => d,
+              _ => switch (artistV4?.biography) {
+                  final b? when b.isNotEmpty => b,
+                  _ => null,
+                },
+            };
+
+            final resolvedBannerUrl = _resolveBannerUrl(visual, artistV4);
+
+            return _buildCard(
+              artistName: resolvedName,
+              monthlyListeners: reputation?.monthlyListeners,
+              bio: resolvedBio,
+              isVerified: switch (reputation?.isVerified) {
+                final v? => v,
+                null => false,
+              },
+              bannerImageUrl: resolvedBannerUrl,
+            );
+          }
+        }
+
+        return _buildCard(artistName: fallbackArtistName);
+      },
     );
+  }
+
+  static String? _resolveBannerUrl(
+    VisualIdentityTrait? visual,
+    ArtistV4? artistV4,
+  ) {
+    if (visual?.wideFullBleedUrl case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (visual?.sixteenByNineCoverUrl case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (visual?.squareCoverUrl case final url? when url.isNotEmpty) {
+      return url;
+    }
+    if (artistV4?.portrait.urlForSize(ImageSize.large) case final url?
+        when url.isNotEmpty) {
+      return url;
+    }
+    if (artistV4?.portrait.defaultUrl case final url? when url.isNotEmpty) {
+      return url;
+    }
+    return null;
   }
 
   Widget _buildCard({
@@ -96,7 +135,10 @@ class _PlayerAboutArtistSectionState extends State<PlayerAboutArtistSection> {
 
     final defaultBio =
         'Listen to the latest releases, singles, and albums from $artistName.';
-    final bioText = bio?.isNotEmpty == true ? bio! : defaultBio;
+    final bioText = switch (bio) {
+      final text? when text.isNotEmpty => text,
+      _ => defaultBio,
+    };
 
     return Container(
       decoration: BoxDecoration(

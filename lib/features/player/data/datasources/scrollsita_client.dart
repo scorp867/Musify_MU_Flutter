@@ -1,7 +1,11 @@
 import 'dart:developer' as dev;
+
+import 'package:musify_mu/core/config/runtime_context.dart';
 import 'package:musify_mu/core/network/priority/network_priority.dart';
+import 'package:musify_mu/core/network/result/network_result.dart';
 import 'package:musify_mu/core/network/spotify/transport/spotify_transport.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/scrollsita/v1/scrollsita.pb.dart';
+import 'package:musify_mu/features/player/domain/policies/spotify_track_eligibility_policy.dart';
 
 /// Client for Spotify's Scrollsita endpoint.
 ///
@@ -16,13 +20,17 @@ import 'package:musify_mu/core/protocol/generated/spotify/scrollsita/v1/scrollsi
 /// ```
 class ScrollSitaClient {
   final SpotifyTransport _transport;
+  final RuntimeContext? _runtimeContext;
 
   static const String baseHost = 'https://gae2-spclient.spotify.com';
 
-  const ScrollSitaClient({required SpotifyTransport transport})
-      : _transport = transport;
+  const ScrollSitaClient({
+    required SpotifyTransport transport,
+    RuntimeContext? runtimeContext,
+  }) : _transport = transport,
+       _runtimeContext = runtimeContext;
 
-  /// Fetches the ordered scroll sections for the current track.
+  /// Fetches the ordered scroll sections for an eligible Spotify track URI.
   Future<NpvScrollResponse?> getNpvScroll({
     required String nowPlayingUri,
     String? playContextUri,
@@ -33,7 +41,15 @@ class ScrollSitaClient {
     bool isVideoLayerActive = false,
     String? timezone,
   }) async {
-    final tz = timezone ?? _resolveIanaTimezone();
+    final canonicalUri =
+        SpotifyTrackEligibilityPolicy.resolveCanonicalSpotifyTrackUri(
+          nowPlayingUri,
+        );
+    if (canonicalUri == null) {
+      return null;
+    }
+
+    final tz = _resolveEffectiveTimezone(timezone);
     final queryParams = <String, String>{
       if (playContextUri != null && playContextUri.isNotEmpty)
         'play_context_uri': playContextUri,
@@ -49,32 +65,59 @@ class ScrollSitaClient {
         .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
         .join('&');
 
-    final path = 'scrollsita/v1/scroll/$nowPlayingUri?$queryString';
+    final path = 'scrollsita/v1/scroll/$canonicalUri?$queryString';
 
-    try {
-      final bytes = await _transport.get(
-        path,
-        baseHost: baseHost,
-        priority: NetworkPriority.interactive,
-        extraHeaders: const {
-          'Content-Type': 'application/x-protobuf',
-          'Accept': 'application/protobuf',
-        },
-      );
+    final result = await _transport.getResult(
+      path,
+      baseHost: baseHost,
+      priority: NetworkPriority.interactive,
+      extraHeaders: const {
+        'Content-Type': 'application/x-protobuf',
+        'Accept': 'application/protobuf',
+      },
+    );
 
-      if (bytes == null || bytes.isEmpty) {
+    switch (result) {
+      case NetworkFailure(:final error, :final statusCode):
+        dev.log(
+          'ScrollSitaClient: HTTP failure for $canonicalUri '
+          '(status=$statusCode, reason=${error.reason.name}, msg=${error.message})',
+          error: error,
+          name: 'ScrollSita',
+        );
         return null;
-      }
 
-      return NpvScrollResponse.fromBuffer(bytes);
-    } catch (e, st) {
-      dev.log(
-        'ScrollSitaClient: Error fetching scroll structure for $nowPlayingUri',
-        error: e,
-        stackTrace: st,
-      );
-      return null;
+      case NetworkSuccess(:final data, :final statusCode):
+        if (data.isEmpty) {
+          dev.log(
+            'ScrollSitaClient: Empty protobuf response for $canonicalUri (status=$statusCode)',
+            name: 'ScrollSita',
+          );
+          return null;
+        }
+        try {
+          return NpvScrollResponse.fromBuffer(data);
+        } catch (e, st) {
+          dev.log(
+            'ScrollSitaClient: Protobuf decode error for $canonicalUri',
+            error: e,
+            stackTrace: st,
+            name: 'ScrollSita',
+          );
+          return null;
+        }
     }
+  }
+
+  String _resolveEffectiveTimezone(String? explicitTimezone) {
+    if (explicitTimezone case final tz? when tz.trim().isNotEmpty) {
+      return tz.trim();
+    }
+    if (_runtimeContext?.timezone case final ctxTz?
+        when ctxTz.contains('/')) {
+      return ctxTz;
+    }
+    return _resolveIanaTimezone();
   }
 
   static String _resolveIanaTimezone() {
@@ -83,16 +126,12 @@ class ScrollSitaClient {
     return switch (name) {
       'IST' => 'Asia/Calcutta',
       'UTC' || 'GMT' => 'UTC',
-      'EST' => 'America/New_York',
-      'EDT' => 'America/New_York',
-      'CST' => 'America/Chicago',
-      'CDT' => 'America/Chicago',
-      'PST' => 'America/Los_Angeles',
-      'PDT' => 'America/Los_Angeles',
+      'EST' || 'EDT' => 'America/New_York',
+      'CST' || 'CDT' => 'America/Chicago',
+      'PST' || 'PDT' => 'America/Los_Angeles',
       'BST' => 'Europe/London',
-      'CET' => 'Europe/Paris',
-      'CEST' => 'Europe/Paris',
-      _ => 'Asia/Calcutta',
+      'CET' || 'CEST' => 'Europe/Paris',
+      _ => 'UTC',
     };
   }
 }

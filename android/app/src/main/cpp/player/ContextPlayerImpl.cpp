@@ -15,6 +15,7 @@
 
 #include "ContextPlayerImpl.h"
 
+#include "SpotifyPlaybackPolicy.h"
 #include "../network/NativeLog.h"
 
 #ifdef __ANDROID__
@@ -3023,8 +3024,7 @@ constexpr size_t kDecoratePrevWindowSize = 5;
 constexpr size_t kDecorateNextWindowSize = 25;
 
 bool is_vault_masked_entry(const context_view::Entry& entry) noexcept {
-    const auto it = entry.metadata.find("musify_vault_masked");
-    return it != entry.metadata.end() && it->second == "true";
+    return SpotifyPlaybackPolicy::is_vault_masked_entry(entry);
 }
 
 bool has_non_empty_meta(const context_view::Entry& entry, const char* key) noexcept {
@@ -3033,14 +3033,7 @@ bool has_non_empty_meta(const context_view::Entry& entry, const char* key) noexc
 }
 
 bool is_decoratable_spotify_entry(const context_view::Entry& entry) noexcept {
-    if (entry.is_delimiter() || entry.is_placeholder() || entry.uri.empty()) {
-        return false;
-    }
-    if (is_vault_masked_entry(entry)) {
-        return false;
-    }
-    return entry.uri.rfind("spotify:track:", 0) == 0 ||
-           entry.uri.rfind("spotify:episode:", 0) == 0;
+    return SpotifyPlaybackPolicy::is_decoratable_spotify_entry(entry);
 }
 
 bool has_complete_display_metadata(const context_view::Entry& entry) noexcept {
@@ -3650,6 +3643,12 @@ void ContextPlayerImpl::decorate_local_queue_locked(
     if (track_info_provider_ == nullptr) {
         return;
     }
+    if (SpotifyPlaybackPolicy::is_vault_context(
+            context_uri_, context_url_, context_metadata_, play_origin_) ||
+        SpotifyPlaybackPolicy::is_local_context(
+            context_uri_, context_url_, play_origin_)) {
+        return;
+    }
     std::unordered_set<std::string> seen_uris;
 
     if (current_track_.has_value()) {
@@ -3665,7 +3664,9 @@ void ContextPlayerImpl::decorate_local_queue_locked(
                 }
                 context_processor_.apply_metadata_for_uri(
                     current_track_->uri, [&cached](context_view::Entry& e) -> bool {
-                        return !is_vault_masked_entry(e) && apply_track_info_locked(e, *cached);
+                        return !SpotifyPlaybackPolicy::is_vault_entry(e) &&
+                               !SpotifyPlaybackPolicy::is_local_entry(e) &&
+                               apply_track_info_locked(e, *cached);
                     });
             }
         }
@@ -3692,7 +3693,9 @@ void ContextPlayerImpl::decorate_local_queue_locked(
             if (cached.has_value()) {
                 context_processor_.apply_metadata_for_uri(
                     entry.uri, [&cached](context_view::Entry& e) -> bool {
-                        return !is_vault_masked_entry(e) && apply_track_info_locked(e, *cached);
+                        return !SpotifyPlaybackPolicy::is_vault_entry(e) &&
+                               !SpotifyPlaybackPolicy::is_local_entry(e) &&
+                               apply_track_info_locked(e, *cached);
                     });
             }
             if (!cached.has_value() || !cached->hasDisplayMetadata()) {
@@ -3725,7 +3728,9 @@ void ContextPlayerImpl::decorate_local_queue_locked(
             if (cached.has_value()) {
                 context_processor_.apply_metadata_for_uri(
                     entry.uri, [&cached](context_view::Entry& e) -> bool {
-                        return !is_vault_masked_entry(e) && apply_track_info_locked(e, *cached);
+                        return !SpotifyPlaybackPolicy::is_vault_entry(e) &&
+                               !SpotifyPlaybackPolicy::is_local_entry(e) &&
+                               apply_track_info_locked(e, *cached);
                     });
             }
             if (!cached.has_value() || !cached->hasDisplayMetadata()) {
@@ -3814,11 +3819,11 @@ void ContextPlayerImpl::on_track_metadata_resolved(
             bool current_changed = false;
             bool queue_changed = false;
 
-            if (current_track_.has_value() && current_track_->uri == uri) {
-                if (!is_vault_masked_entry(*current_track_)) {
-                    if (apply_track_info_locked(*current_track_, info)) {
-                        current_changed = true;
-                    }
+            if (current_track_.has_value() && current_track_->uri == uri &&
+                !SpotifyPlaybackPolicy::is_vault_entry(*current_track_) &&
+                !SpotifyPlaybackPolicy::is_local_entry(*current_track_)) {
+                if (apply_track_info_locked(*current_track_, info)) {
+                    current_changed = true;
                 }
                 if (info.duration_ms > 0) {
                     if (duration_ms_ <= 0) {
@@ -3834,7 +3839,9 @@ void ContextPlayerImpl::on_track_metadata_resolved(
             }
 
             for (auto& queued : user_queue_) {
-                if (queued.uri == uri && !is_vault_masked_entry(queued)) {
+                if (queued.uri == uri &&
+                    !SpotifyPlaybackPolicy::is_vault_entry(queued) &&
+                    !SpotifyPlaybackPolicy::is_local_entry(queued)) {
                     if (apply_track_info_locked(queued, info)) {
                         queue_changed = true;
                     }
@@ -3843,7 +3850,8 @@ void ContextPlayerImpl::on_track_metadata_resolved(
 
             if (context_processor_.apply_metadata_for_uri(
                     uri, [&info](context_view::Entry& entry) -> bool {
-                        if (is_vault_masked_entry(entry)) {
+                        if (SpotifyPlaybackPolicy::is_vault_entry(entry) ||
+                            SpotifyPlaybackPolicy::is_local_entry(entry)) {
                             return false;
                         }
                         return apply_track_info_locked(entry, info);
@@ -3853,7 +3861,9 @@ void ContextPlayerImpl::on_track_metadata_resolved(
 
             if (explicit_prev_tracks_.has_value()) {
                 for (auto& prev : *explicit_prev_tracks_) {
-                    if (prev.uri == uri && !is_vault_masked_entry(prev)) {
+                    if (prev.uri == uri &&
+                        !SpotifyPlaybackPolicy::is_vault_entry(prev) &&
+                        !SpotifyPlaybackPolicy::is_local_entry(prev)) {
                         if (apply_track_info_locked(prev, info)) {
                             queue_changed = true;
                         }

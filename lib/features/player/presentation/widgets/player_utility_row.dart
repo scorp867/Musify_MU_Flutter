@@ -1,19 +1,17 @@
+// 1:1 Spotify Player utility row hosting Spotify Connect entrypoint (`qsq.java`:
+// reactive Encore icon + inline active device/connecting label) and Encore Queue trigger.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
+import 'package:musify_mu/features/connect/presentation/icons/connect_encore_icons.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
+import 'package:musify_mu/features/connect/presentation/theme/connect_encore_theme.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_entrypoint_button.dart';
 
-/// Player utility row hosting Spotify Connect output switcher trigger and
-/// Queue drawer sheet trigger.
-///
-/// Citations:
-/// - Decompiled Java: `p199p/ac0.java` (line 51: `device_picker_button`)
-/// - Decompiled Java: `p199p/es81.java` (lines 1678-1682: `spotify:connect-device-picker`, `spotify:internal:gaia-picker`)
-/// - Decompiled Java: `p199p/nhr.java` (lines 513-567: `R.id.accessory_row`)
-/// - Decompiled Java: `p199p/qsq.java` (Connect entrypoint active-state color)
-/// - Native binary: `spotify::connect::ConnectDevicesImpl` (`liborbit-jni-spotify.so` @ `0x18e180`)
+/// Player utility row hosting Spotify's `qsq.java` Connect entrypoint
+/// (`ConnectStateIcon` + inline `ConnectDeviceLabel`) and Encore Queue trigger.
 class PlayerUtilityRow extends StatelessWidget {
   const PlayerUtilityRow({
     super.key,
@@ -63,54 +61,49 @@ class PlayerUtilityRow extends StatelessWidget {
         },
     };
 
-    final Widget deviceButton = switch (effectiveController) {
+    final Widget connectEntrypoint = switch (effectiveController) {
       final controller? => ValueListenableBuilder<ConnectState>(
           valueListenable: controller,
           builder: (context, state, _) {
-            final Color iconColor = policy.isConnectOutputActive(state)
-                ? kSpotifyConnectGreen
-                : Colors.white60;
-            return IconButton(
-              icon: Icon(
-                Icons.devices_rounded,
-                color: iconColor,
-                size: 22,
-              ),
-              tooltip: 'Devices',
-              padding: const EdgeInsets.all(8),
-              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            return ConnectEntrypointButton(
+              key: const ValueKey<String>('player_utility_connect_entrypoint'),
+              connectState: state,
+              outputStatusPolicy: policy,
+              iconSize: 20.0,
+              showLabel: true,
+              showBadgeIcon: false,
+              idleColor: ConnectEncoreTheme.textSubdued,
               onPressed: resolvedOnDevice,
             );
           },
         ),
-      null => IconButton(
-          icon: const Icon(
-            Icons.devices_rounded,
-            color: Colors.white60,
-            size: 22,
-          ),
-          tooltip: 'Devices',
-          padding: const EdgeInsets.all(8),
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      null => ConnectEntrypointButton(
+          key: const ValueKey<String>('player_utility_connect_entrypoint'),
+          connectState: null,
+          outputStatusPolicy: policy,
+          iconSize: 20.0,
+          showLabel: false,
+          idleColor: ConnectEncoreTheme.textSubdued,
           onPressed: resolvedOnDevice,
         ),
     };
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          deviceButton,
+          Flexible(child: connectEntrypoint),
           IconButton(
-            icon: const Icon(
-              Icons.queue_music_rounded,
-              color: Colors.white60,
-              size: 24,
+            key: const ValueKey<String>('player_utility_queue_button'),
+            icon: const ConnectEncoreIcon(
+              icon: ConnectEncoreIcons.queue24,
+              color: ConnectEncoreTheme.textSubdued,
+              size: 20.0,
             ),
             tooltip: 'Queue',
-            padding: const EdgeInsets.all(8),
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            padding: const EdgeInsets.all(8.0),
+            constraints: const BoxConstraints(minWidth: 44.0, minHeight: 44.0),
             onPressed: onQueue,
           ),
         ],

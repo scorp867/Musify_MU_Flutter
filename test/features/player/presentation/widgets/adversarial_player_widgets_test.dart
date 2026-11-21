@@ -17,7 +17,8 @@ import 'package:musify_mu/features/connect/data/proto/es_common_messages.pbenum.
 import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pb.dart'
     as connect_pb;
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
+import 'package:musify_mu/features/connect/presentation/theme/connect_encore_theme.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_state_icon.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 import 'package:musify_mu/features/player/domain/models/now_playing_view_model.dart';
 import 'package:musify_mu/features/player/presentation/widgets/queue_controls_layout.dart';
@@ -616,41 +617,43 @@ void main() {
           ),
         );
 
-        // Local built-in active -> white60.
+        // Local built-in active -> ConnectIconIdle (subdued).
         transport.emitCluster(selfActive: true);
         await tester.pump();
         await tester.pump();
-        Icon devIcon = tester.widget<Icon>(
+        ConnectStateIcon stateIcon = tester.widget<ConnectStateIcon>(
           find.descendant(
             of: find.byTooltip('Devices'),
-            matching: find.byType(Icon),
+            matching: find.byType(ConnectStateIcon),
           ),
         );
-        expect(devIcon.color, equals(Colors.white60));
+        expect(stateIcon.iconState, isA<ConnectIconIdle>());
+        expect(stateIcon.idleColor, equals(ConnectEncoreTheme.textSubdued));
 
-        // Remote active -> kSpotifyConnectGreen.
+        // Remote active -> ConnectIconActive (kSpotifyConnectGreen).
         transport.emitCluster(selfActive: false, remoteActive: true);
         await tester.pump();
         await tester.pump();
-        devIcon = tester.widget<Icon>(
+        stateIcon = tester.widget<ConnectStateIcon>(
           find.descendant(
             of: find.byTooltip('Devices'),
-            matching: find.byType(Icon),
+            matching: find.byType(ConnectStateIcon),
           ),
         );
-        expect(devIcon.color, equals(kSpotifyConnectGreen));
+        expect(stateIcon.iconState, isA<ConnectIconActive>());
+        expect(stateIcon.activeColor, equals(kSpotifyConnectGreen));
 
-        // Back to local built-in -> white60.
+        // Back to local built-in -> ConnectIconIdle.
         transport.emitCluster(selfActive: true, remoteActive: false);
         await tester.pump();
         await tester.pump();
-        devIcon = tester.widget<Icon>(
+        stateIcon = tester.widget<ConnectStateIcon>(
           find.descendant(
             of: find.byTooltip('Devices'),
-            matching: find.byType(Icon),
+            matching: find.byType(ConnectStateIcon),
           ),
         );
-        expect(devIcon.color, equals(Colors.white60));
+        expect(stateIcon.iconState, isA<ConnectIconIdle>());
 
         // Tapping Devices when onDevice is null opens DevicePickerSheet.
         await tester.tap(find.byTooltip('Devices'));

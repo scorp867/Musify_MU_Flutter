@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "../network/NativeLog.h"
+#include "../player/SpotifyPlaybackPolicy.h"
 #include "dealer/DealerMessageParser.h"
 #include "dealer/WsCodec.h"
 
@@ -545,11 +546,14 @@ int32_t ConnectSubsystem::set_local_volume(
     }
 
     if (changed && is_running()) {
-        QueuedPutStateTask task;
-        task.kind = WorkerTaskKind::kPutState;
-        task.reason = PutStateReason::VOLUME_CHANGED;
-        task.only_write_player_state = false;
-        enqueue_put_state(std::move(task));
+        const auto local_snap = player_.snapshot_for_connect();
+        if (!player::SpotifyPlaybackPolicy::is_private_or_local_snapshot(local_snap)) {
+            QueuedPutStateTask task;
+            task.kind = WorkerTaskKind::kPutState;
+            task.reason = PutStateReason::VOLUME_CHANGED;
+            task.only_write_player_state = false;
+            enqueue_put_state(std::move(task));
+        }
     }
 
     notify_volume_listeners();
@@ -843,18 +847,23 @@ PlayerState ConnectSubsystem::build_connect_player_state(
     ps.options.playback_speed = static_cast<float>(snapshot.playback_speed);
     ps.options.has_playback_speed = true;
 
-    if (snapshot.current_track.has_value()) {
+    if (snapshot.current_track.has_value() &&
+        player::SpotifyPlaybackPolicy::is_spotify_song_entry(*snapshot.current_track)) {
         ps.track = to_provided_track(*snapshot.current_track);
     }
 
     ps.prev_tracks.reserve(snapshot.prev_tracks.size());
     for (const auto& entry : snapshot.prev_tracks) {
-        ps.prev_tracks.push_back(to_provided_track(entry));
+        if (player::SpotifyPlaybackPolicy::is_spotify_song_entry(entry)) {
+            ps.prev_tracks.push_back(to_provided_track(entry));
+        }
     }
 
     ps.next_tracks.reserve(snapshot.next_tracks.size());
     for (const auto& entry : snapshot.next_tracks) {
-        ps.next_tracks.push_back(to_provided_track(entry));
+        if (player::SpotifyPlaybackPolicy::is_spotify_song_entry(entry)) {
+            ps.next_tracks.push_back(to_provided_track(entry));
+        }
     }
 
     if (!snapshot.restrictions_bytes.empty()) {
@@ -956,9 +965,12 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
                               : player_.snapshot_for_connect();
     const bool is_local_origin =
         player_.playback_origin() == player::PlaybackOrigin::kLocal;
+    const bool is_spotify_song_active =
+        is_local_origin &&
+        player::SpotifyPlaybackPolicy::is_connect_eligible_snapshot(snapshot);
     const uint64_t now_ms = current_epoch_ms();
     const bool playing_or_paused =
-        is_local_origin &&
+        is_spotify_song_active &&
         (snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Playing ||
          snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPlay ||
          snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Paused ||
@@ -974,7 +986,7 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     }
     const bool is_active =
         (task.reason != PutStateReason::BECAME_INACTIVE) &&
-        is_local_origin &&
+        is_spotify_song_active &&
         (local_active || devices_.is_local_device_active());
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
@@ -998,8 +1010,10 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     req.message_id = msg_seq;
     req.is_active = is_active;
     req.has_is_active = true;
-    req.last_command_sent_by_device_id = snapshot.last_command_sent_by_device_id;
-    req.last_command_message_id = snapshot.last_command_message_id;
+    req.last_command_sent_by_device_id =
+        is_spotify_song_active ? snapshot.last_command_sent_by_device_id : std::string{};
+    req.last_command_message_id =
+        is_spotify_song_active ? snapshot.last_command_message_id : 0U;
     req.started_playing_at = started_at;
     req.has_been_playing_for_ms = playing_duration_ms;
     req.client_side_timestamp = now_ms;
@@ -1008,14 +1022,7 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     req.device.device_info = devices_.local_device_info();
     req.device.platform = default_platform_for_device_type(req.device.device_info.device_type);
 
-    const bool local_snapshot_populated =
-        is_local_origin &&
-        (snapshot.has_player_state ||
-         !snapshot.context_uri.empty() ||
-         !snapshot.context_url.empty() ||
-         snapshot.current_track.has_value());
-
-    if (local_snapshot_populated) {
+    if (is_spotify_song_active) {
         req.device.player_state = build_connect_player_state(snapshot);
         req.device.has_player_state = true;
     } else {
@@ -1026,6 +1033,47 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
 }
 
 PutStateResult ConnectSubsystem::execute_put_state_task(const QueuedPutStateTask& task) {
+    const auto active_snapshot = task.snapshot.has_value()
+                                     ? *task.snapshot
+                                     : player_.snapshot_for_connect();
+    const bool is_spotify_song =
+        player::SpotifyPlaybackPolicy::is_connect_eligible_snapshot(active_snapshot);
+    const bool is_private_or_local =
+        player::SpotifyPlaybackPolicy::is_private_or_local_snapshot(active_snapshot);
+
+    if (is_private_or_local &&
+        task.reason != PutStateReason::PICKER_OPENED &&
+        task.reason != PutStateReason::BECAME_INACTIVE) {
+        CONNECT_LOGI(
+            "ConnectSubsystem::execute_put_state_task suppressed reason=%u for local/vault playback",
+            static_cast<unsigned>(task.reason));
+        return PutStateResult{
+            .ok = true,
+            .deferred = false,
+            .http_status = 0,
+            .grpc_status = {},
+            .retry_after_ms = 0,
+            .error_code = BackoffErrorCode::kNone,
+            .error_message = {},
+            .cluster = std::nullopt,
+        };
+    }
+
+    if (task.reason == PutStateReason::PLAYER_STATE_CHANGED && !is_spotify_song) {
+        CONNECT_LOGI(
+            "ConnectSubsystem::execute_put_state_task suppressed PLAYER_STATE_CHANGED: active track is not an eligible Spotify song");
+        return PutStateResult{
+            .ok = true,
+            .deferred = false,
+            .http_status = 0,
+            .grpc_status = {},
+            .retry_after_ms = 0,
+            .error_code = BackoffErrorCode::kNone,
+            .error_message = {},
+            .cluster = std::nullopt,
+        };
+    }
+
     const std::string dev_id = devices_.local_device_id();
     if (dev_id.empty()) {
         CONNECT_LOGW("ConnectSubsystem::execute_put_state_task: local device ID is empty");
@@ -1137,6 +1185,16 @@ void ConnectSubsystem::on_player_state_changed(
     bool track_changed) {
     // Never upload mirrored remote state back to Spotify as if it were local state.
     if (player_.playback_origin() != player::PlaybackOrigin::kLocal) {
+        return;
+    }
+
+    // Never trigger Connect PutState for local files, Private Vault tracks, or
+    // any non-Spotify-song playback.
+    if (!player::SpotifyPlaybackPolicy::is_connect_eligible_snapshot(snapshot)) {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        local_active_ = false;
+        was_playing_ = false;
+        started_playing_at_ms_ = 0;
         return;
     }
 
@@ -1265,15 +1323,18 @@ void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
     }
 
     if (needs_state_updates_edge && is_local_active()) {
-        CONNECT_LOGI(
-            "ConnectSubsystem: Cluster.needs_state_updates transitioned false -> true; forcing PutState");
-        QueuedPutStateTask task;
-        task.kind = WorkerTaskKind::kPutState;
-        task.reason = PutStateReason::PLAYER_STATE_CHANGED;
-        task.only_write_player_state = !need_full_state;
-        task.wake_devices = false;
-        task.snapshot = player_.snapshot_for_connect();
-        enqueue_put_state(std::move(task));
+        const auto current_snap = player_.snapshot_for_connect();
+        if (player::SpotifyPlaybackPolicy::is_connect_eligible_snapshot(current_snap)) {
+            CONNECT_LOGI(
+                "ConnectSubsystem: Cluster.needs_state_updates transitioned false -> true; forcing PutState");
+            QueuedPutStateTask task;
+            task.kind = WorkerTaskKind::kPutState;
+            task.reason = PutStateReason::PLAYER_STATE_CHANGED;
+            task.only_write_player_state = !need_full_state;
+            task.wake_devices = false;
+            task.snapshot = current_snap;
+            enqueue_put_state(std::move(task));
+        }
     }
 
     notify_state_listeners();
@@ -1349,11 +1410,14 @@ void ConnectSubsystem::handle_remote_volume_command(const SetVolumeCommand& cmd)
     notify_local_volume_listeners(vol, LocalVolumeReason::kSystem);
     notify_volume_listeners();
 
-    QueuedPutStateTask task;
-    task.kind = WorkerTaskKind::kPutState;
-    task.reason = PutStateReason::VOLUME_CHANGED;
-    task.only_write_player_state = false;
-    enqueue_put_state(std::move(task));
+    const auto local_snap = player_.snapshot_for_connect();
+    if (!player::SpotifyPlaybackPolicy::is_private_or_local_snapshot(local_snap)) {
+        QueuedPutStateTask task;
+        task.kind = WorkerTaskKind::kPutState;
+        task.reason = PutStateReason::VOLUME_CHANGED;
+        task.only_write_player_state = false;
+        enqueue_put_state(std::move(task));
+    }
 }
 
 void ConnectSubsystem::handle_remote_logout_command(const LogoutCommand& /*cmd*/) {
@@ -1590,6 +1654,21 @@ PutStateResult ConnectSubsystem::notify_audio_route_changed(
     }
     devices_.set_local_device_info(local);
 
+    const auto local_snap = player_.snapshot_for_connect();
+    if (player::SpotifyPlaybackPolicy::is_private_or_local_snapshot(local_snap)) {
+        notify_state_listeners();
+        return PutStateResult{
+            .ok = true,
+            .deferred = false,
+            .http_status = 0,
+            .grpc_status = {},
+            .retry_after_ms = 0,
+            .error_code = BackoffErrorCode::kNone,
+            .error_message = {},
+            .cluster = std::nullopt,
+        };
+    }
+
     QueuedPutStateTask task;
     task.kind = WorkerTaskKind::kPutState;
     task.reason = PutStateReason::AUDIO_DRIVER_INFO_CHANGED;
@@ -1733,6 +1812,17 @@ AckHttpResult ConnectSubsystem::volume_set(
         }
         notify_local_volume_listeners(bounded, LocalVolumeReason::kUser);
         notify_volume_listeners();
+        const auto local_snap = player_.snapshot_for_connect();
+        if (player::SpotifyPlaybackPolicy::is_private_or_local_snapshot(local_snap)) {
+            return AckHttpResult{
+                .ok = true,
+                .throttled = false,
+                .http_status = 0,
+                .error_code = BackoffErrorCode::kNone,
+                .ack_id = {},
+                .error_message = {},
+            };
+        }
         QueuedPutStateTask task;
         task.kind = WorkerTaskKind::kPutState;
         task.reason = PutStateReason::VOLUME_CHANGED;

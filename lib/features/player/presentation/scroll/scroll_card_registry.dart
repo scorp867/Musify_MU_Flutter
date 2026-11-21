@@ -4,7 +4,8 @@ import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb
 import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
 import 'package:musify_mu/features/player/presentation/widgets/player_sections.dart';
 
-typedef ScrollCardWidgetBuilder<T extends ScrollCardDescriptor> = Widget Function(
+typedef ScrollCardWidgetBuilder<T extends ScrollCardDescriptor> = Widget
+    Function(
   BuildContext context,
   T descriptor,
 );
@@ -20,7 +21,7 @@ typedef ScrollCardWidgetBuilder<T extends ScrollCardDescriptor> = Widget Functio
 /// ```
 class ScrollCardRegistry {
   final DataPool? dataPool;
-  final Map<Type, ScrollCardWidgetBuilder> _builders = {};
+  final Map<Type, ScrollCardWidgetBuilder<ScrollCardDescriptor>> _builders = {};
 
   ScrollCardRegistry({this.dataPool});
 
@@ -38,19 +39,26 @@ class ScrollCardRegistry {
   }
 
   /// 1:1 Factory helper configuring standard Spotify card view binders (`p/ifn0.java:220-235`).
+  ///
+  /// When [enableSpotifyDataPool] is false (for local or Private Vault playback),
+  /// cards are intentionally decoupled from [dataPool] so no Spotify traits are
+  /// watched or leaked into offline/private UI.
   void registerDefaultCards({
     required String defaultArtistName,
     ColorLyricsResponse? colorLyrics,
     int activeLineIndex = 0,
+    bool enableSpotifyDataPool = true,
     VoidCallback? onTapLyrics,
     VoidCallback? onShowAllCredits,
     VoidCallback? onShowAllEvents,
   }) {
+    final effectivePool = enableSpotifyDataPool ? dataPool : null;
+
     register<LyricsCardDescriptor>((context, desc) {
       return PlayerLyricsSection(
         key: ValueKey('lyrics_${desc.entityUri}'),
         trackUri: desc.entityUri,
-        dataPool: dataPool,
+        dataPool: effectivePool,
         colorLyrics: colorLyrics,
         activeLineIndex: activeLineIndex,
         onTapHeader: onTapLyrics,
@@ -61,7 +69,7 @@ class ScrollCardRegistry {
       return PlayerAboutArtistSection(
         key: ValueKey('bio_${desc.creatorUri}'),
         artistName: defaultArtistName,
-        dataPool: dataPool,
+        dataPool: effectivePool,
         artistUri: desc.creatorUri,
       );
     });
@@ -70,7 +78,7 @@ class ScrollCardRegistry {
       return PlayerCreditsSection(
         key: ValueKey('credits_${desc.entityUri}'),
         artistName: defaultArtistName,
-        dataPool: dataPool,
+        dataPool: effectivePool,
         trackUri: desc.entityUri,
         contributorUris: desc.contributorUris,
         onShowAll: onShowAllCredits,
@@ -81,8 +89,9 @@ class ScrollCardRegistry {
       return PlayerEventsSection(
         key: ValueKey('events_${desc.artistUri}'),
         artistName: defaultArtistName,
-        dataPool: dataPool,
+        dataPool: effectivePool,
         artistUri: desc.artistUri,
+        concertUris: desc.concertUris,
         onShowAll: onShowAllEvents,
       );
     });

@@ -1,0 +1,1431 @@
+{
+  "className": "com.android.internal.policy.DecorView",
+  "visibility": 0,
+  "widthPx": 1440,
+  "heightPx": 3040,
+  "widthDp": 411.42857142857144,
+  "heightDp": 868.5714285714286,
+  "xPx": 0,
+  "yPx": 0,
+  "xDp": 0,
+  "yDp": 0,
+  "paddingPx": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "paddingDp": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "layoutWidth": -1,
+  "layoutHeight": -1,
+  "bgClass": "android.graphics.drawable.ColorDrawable",
+  "bgColor": "#00000000",
+  "elevationDp": 0,
+  "clipToOutline": true,
+  "childCount": 2,
+  "children": [
+    {
+      "className": "android.widget.LinearLayout",
+      "visibility": 0,
+      "widthPx": 1440,
+      "heightPx": 3040,
+      "widthDp": 411.42857142857144,
+      "heightDp": 868.5714285714286,
+      "xPx": 0,
+      "yPx": 0,
+      "xDp": 0,
+      "yDp": 0,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "layoutWidth": -1,
+      "layoutHeight": -1,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 2,
+      "children": [
+        {
+          "className": "android.view.ViewStub",
+          "visibility": 8,
+          "widthPx": 0,
+          "heightPx": 0,
+          "widthDp": 0,
+          "heightDp": 0,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "id": "action_mode_bar_stub",
+          "layoutWidth": -1,
+          "layoutHeight": -2,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false
+        },
+        {
+          "className": "android.widget.FrameLayout",
+          "visibility": 0,
+          "widthPx": 1440,
+          "heightPx": 3040,
+          "widthDp": 411.42857142857144,
+          "heightDp": 868.5714285714286,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -1,
+          "layoutHeight": -1,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 1,
+          "children": [
+            {
+              "className": "androidx.appcompat.widget.FitWindowsLinearLayout",
+              "visibility": 0,
+              "widthPx": 1440,
+              "heightPx": 3040,
+              "widthDp": 411.42857142857144,
+              "heightDp": 868.5714285714286,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "action_bar_root",
+              "layoutWidth": -1,
+              "layoutHeight": -1,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 2,
+              "children": [
+                {
+                  "className": "androidx.appcompat.widget.ViewStubCompat",
+                  "visibility": 8,
+                  "widthPx": 0,
+                  "heightPx": 0,
+                  "widthDp": 0,
+                  "heightDp": 0,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "action_mode_bar_stub",
+                  "layoutWidth": -1,
+                  "layoutHeight": -2,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false
+                },
+                {
+                  "className": "androidx.appcompat.widget.ContentFrameLayout",
+                  "visibility": 0,
+                  "widthPx": 1440,
+                  "heightPx": 3040,
+                  "widthDp": 411.42857142857144,
+                  "heightDp": 868.5714285714286,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "content",
+                  "layoutWidth": -1,
+                  "layoutHeight": -1,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "childCount": 1,
+                  "children": [
+                    {
+                      "className": "p.vlq0",
+                      "visibility": 0,
+                      "widthPx": 1440,
+                      "heightPx": 3040,
+                      "widthDp": 411.42857142857144,
+                      "heightDp": 868.5714285714286,
+                      "xPx": 0,
+                      "yPx": 0,
+                      "xDp": 0,
+                      "yDp": 0,
+                      "paddingPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "paddingDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "layoutWidth": -1,
+                      "layoutHeight": -1,
+                      "marginsPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "marginsDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "elevationDp": 0,
+                      "clipToOutline": false,
+                      "childCount": 5,
+                      "children": [
+                        {
+                          "className": "com.spotify.reprise.encorethemeinstaller.EncoreThemeInstaller",
+                          "visibility": 0,
+                          "widthPx": 0,
+                          "heightPx": 0,
+                          "widthDp": 0,
+                          "heightDp": 0,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "layoutWidth": -2,
+                          "layoutHeight": -2,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "childCount": 1,
+                          "children": [
+                            {
+                              "className": "p.x44",
+                              "visibility": 0,
+                              "widthPx": 0,
+                              "heightPx": 0,
+                              "widthDp": 0,
+                              "heightDp": 0,
+                              "xPx": 0,
+                              "yPx": 0,
+                              "xDp": 0,
+                              "yDp": 0,
+                              "paddingPx": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "paddingDp": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "layoutWidth": -2,
+                              "layoutHeight": -2,
+                              "elevationDp": 0,
+                              "clipToOutline": false,
+                              "childCount": 0,
+                              "children": []
+                            }
+                          ]
+                        },
+                        {
+                          "className": "p.vlq0",
+                          "visibility": 8,
+                          "widthPx": 0,
+                          "heightPx": 0,
+                          "widthDp": 0,
+                          "heightDp": 0,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "page_container",
+                          "layoutWidth": -1,
+                          "layoutHeight": -1,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "bgClass": "android.graphics.drawable.ColorDrawable",
+                          "bgColor": "#FF121212",
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "childCount": 0,
+                          "children": []
+                        },
+                        {
+                          "className": "p.fnm0",
+                          "visibility": 0,
+                          "widthPx": 1440,
+                          "heightPx": 3040,
+                          "widthDp": 411.42857142857144,
+                          "heightDp": 868.5714285714286,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "snackbarContainer",
+                          "layoutWidth": -1,
+                          "layoutHeight": -1,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "childCount": 1,
+                          "children": [
+                            {
+                              "className": "android.view.View",
+                              "visibility": 0,
+                              "widthPx": 0,
+                              "heightPx": 0,
+                              "widthDp": 0,
+                              "heightDp": 0,
+                              "xPx": 0,
+                              "yPx": 0,
+                              "xDp": 0,
+                              "yDp": 0,
+                              "paddingPx": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "paddingDp": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "layoutWidth": 1440,
+                              "layoutHeight": 3040,
+                              "marginsPx": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "marginsDp": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "elevationDp": 0,
+                              "clipToOutline": false
+                            }
+                          ]
+                        },
+                        {
+                          "className": "android.view.View",
+                          "visibility": 0,
+                          "widthPx": 0,
+                          "heightPx": 3040,
+                          "widthDp": 0,
+                          "heightDp": 868.5714285714286,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "layoutWidth": 0,
+                          "layoutHeight": -1,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "bgClass": "android.graphics.drawable.ColorDrawable",
+                          "bgColor": "#FF000000",
+                          "elevationDp": 0,
+                          "clipToOutline": false
+                        },
+                        {
+                          "className": "android.view.View",
+                          "visibility": 0,
+                          "widthPx": 0,
+                          "heightPx": 3040,
+                          "widthDp": 0,
+                          "heightDp": 868.5714285714286,
+                          "xPx": 1440,
+                          "yPx": 0,
+                          "xDp": 411.42857142857144,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "layoutWidth": 0,
+                          "layoutHeight": -1,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "bgClass": "android.graphics.drawable.ColorDrawable",
+                          "bgColor": "#FF000000",
+                          "elevationDp": 0,
+                          "clipToOutline": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "className": "p.koq",
+      "visibility": 0,
+      "widthPx": 1440,
+      "heightPx": 3040,
+      "widthDp": 411.42857142857144,
+      "heightDp": 868.5714285714286,
+      "xPx": 0,
+      "yPx": 0,
+      "xDp": 0,
+      "yDp": 0,
+      "paddingPx": [
+        0,
+        98,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        28,
+        0,
+        0
+      ],
+      "layoutWidth": -1,
+      "layoutHeight": -1,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "bgClass": "android.graphics.drawable.ColorDrawable",
+      "bgColor": "#B3000000",
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 2,
+      "children": [
+        {
+          "className": "p.fnm0",
+          "visibility": 0,
+          "widthPx": 1440,
+          "heightPx": 2942,
+          "widthDp": 411.42857142857144,
+          "heightDp": 840.5714285714286,
+          "xPx": 0,
+          "yPx": 98,
+          "xDp": 0,
+          "yDp": 28,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "id": "bottom_sheet_content",
+          "layoutWidth": -1,
+          "layoutHeight": -1,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 5,
+          "children": [
+            {
+              "className": "com.spotify.legacyglue.viewgroup.PasteLinearLayout",
+              "visibility": 0,
+              "widthPx": 1440,
+              "heightPx": 2942,
+              "widthDp": 411.42857142857144,
+              "heightDp": 840.5714285714286,
+              "xPx": 0,
+              "yPx": 932,
+              "xDp": 0,
+              "yDp": 266.2857142857143,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "bottom_sheet_container",
+              "layoutWidth": 1440,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "bgClass": "android.graphics.drawable.LayerDrawable",
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 2,
+              "children": [
+                {
+                  "className": "android.view.View",
+                  "visibility": 0,
+                  "widthPx": 126,
+                  "heightPx": 14,
+                  "widthDp": 36,
+                  "heightDp": 4,
+                  "xPx": 657,
+                  "yPx": 35,
+                  "xDp": 187.71428571428572,
+                  "yDp": 10,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "bottom_sheet_grapple",
+                  "layoutWidth": 126,
+                  "layoutHeight": 14,
+                  "marginsPx": [
+                    0,
+                    35,
+                    0,
+                    35
+                  ],
+                  "marginsDp": [
+                    0,
+                    10,
+                    0,
+                    10
+                  ],
+                  "bgClass": "android.graphics.drawable.GradientDrawable",
+                  "cornerRadiusPx": 14,
+                  "cornerRadiusDp": 4,
+                  "bgColor": "#4DFFFFFF",
+                  "elevationDp": 0,
+                  "clipToOutline": false
+                },
+                {
+                  "className": "p.vlq0",
+                  "visibility": 0,
+                  "widthPx": 1440,
+                  "heightPx": 2858,
+                  "widthDp": 411.42857142857144,
+                  "heightDp": 816.5714285714286,
+                  "xPx": 0,
+                  "yPx": 84,
+                  "xDp": 0,
+                  "yDp": 24,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "bottom_sheet_fragment_container",
+                  "layoutWidth": -1,
+                  "layoutHeight": -1,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "childCount": 1,
+                  "children": [
+                    {
+                      "className": "p.pih1",
+                      "visibility": 0,
+                      "widthPx": 1440,
+                      "heightPx": 2858,
+                      "widthDp": 411.42857142857144,
+                      "heightDp": 816.5714285714286,
+                      "xPx": 0,
+                      "yPx": 0,
+                      "xDp": 0,
+                      "yDp": 0,
+                      "paddingPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "paddingDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "layoutWidth": -1,
+                      "layoutHeight": -1,
+                      "marginsPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "marginsDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "elevationDp": 0,
+                      "clipToOutline": false,
+                      "childCount": 1,
+                      "children": [
+                        {
+                          "className": "androidx.compose.ui.platform.ComposeView",
+                          "visibility": 0,
+                          "widthPx": 1440,
+                          "heightPx": 2858,
+                          "widthDp": 411.42857142857144,
+                          "heightDp": 816.5714285714286,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "compose_view",
+                          "layoutWidth": -1,
+                          "layoutHeight": -1,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "isCompose": true,
+                          "childCount": 1,
+                          "children": [
+                            {
+                              "className": "p.x44",
+                              "visibility": 0,
+                              "widthPx": 1440,
+                              "heightPx": 2858,
+                              "widthDp": 411.42857142857144,
+                              "heightDp": 816.5714285714286,
+                              "xPx": 0,
+                              "yPx": 0,
+                              "xDp": 0,
+                              "yDp": 0,
+                              "paddingPx": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "paddingDp": [
+                                0,
+                                0,
+                                0,
+                                0
+                              ],
+                              "layoutWidth": -2,
+                              "layoutHeight": -2,
+                              "elevationDp": 0,
+                              "clipToOutline": false,
+                              "childCount": 1,
+                              "children": [
+                                {
+                                  "className": "p.z15",
+                                  "visibility": 0,
+                                  "widthPx": 1440,
+                                  "heightPx": 2858,
+                                  "widthDp": 411.42857142857144,
+                                  "heightDp": 816.5714285714286,
+                                  "xPx": 0,
+                                  "yPx": 0,
+                                  "xDp": 0,
+                                  "yDp": 0,
+                                  "paddingPx": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "paddingDp": [
+                                    0,
+                                    0,
+                                    0,
+                                    0
+                                  ],
+                                  "layoutWidth": -2,
+                                  "layoutHeight": -2,
+                                  "elevationDp": 0,
+                                  "clipToOutline": false,
+                                  "childCount": 1,
+                                  "children": [
+                                    {
+                                      "className": "p.ubh1",
+                                      "visibility": 0,
+                                      "widthPx": 0,
+                                      "heightPx": 0,
+                                      "widthDp": 0,
+                                      "heightDp": 0,
+                                      "xPx": 720,
+                                      "yPx": 1063,
+                                      "xDp": 205.71428571428572,
+                                      "yDp": 303.7142857142857,
+                                      "paddingPx": [
+                                        0,
+                                        0,
+                                        0,
+                                        0
+                                      ],
+                                      "paddingDp": [
+                                        0,
+                                        0,
+                                        0,
+                                        0
+                                      ],
+                                      "layoutWidth": -2,
+                                      "layoutHeight": -2,
+                                      "elevationDp": 0,
+                                      "clipToOutline": false,
+                                      "childCount": 1,
+                                      "children": [
+                                        {
+                                          "className": "p.hj91",
+                                          "visibility": 8,
+                                          "widthPx": 0,
+                                          "heightPx": 0,
+                                          "widthDp": 0,
+                                          "heightDp": 0,
+                                          "xPx": 0,
+                                          "yPx": 0,
+                                          "xDp": 0,
+                                          "yDp": 0,
+                                          "paddingPx": [
+                                            0,
+                                            0,
+                                            0,
+                                            0
+                                          ],
+                                          "paddingDp": [
+                                            0,
+                                            0,
+                                            0,
+                                            0
+                                          ],
+                                          "layoutWidth": -2,
+                                          "layoutHeight": -2,
+                                          "elevationDp": 0,
+                                          "clipToOutline": false
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "className": "androidx.compose.ui.platform.ComposeView",
+              "visibility": 8,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "bottom_sheet_pinned_bottom_container",
+              "layoutWidth": 1440,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "isCompose": true,
+              "childCount": 0,
+              "children": []
+            },
+            {
+              "className": "p.fnm0",
+              "visibility": 8,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "bottom_sheet_snackbar_container",
+              "layoutWidth": 1440,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 0,
+              "children": []
+            },
+            {
+              "className": "p.kj91",
+              "visibility": 0,
+              "widthPx": 1440,
+              "heightPx": 340,
+              "widthDp": 411.42857142857144,
+              "heightDp": 97.14285714285714,
+              "xPx": 0,
+              "yPx": 2602,
+              "xDp": 0,
+              "yDp": 743.4285714285714,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "layoutWidth": -1,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 2,
+              "children": [
+                {
+                  "className": "android.view.View",
+                  "visibility": 0,
+                  "widthPx": 1440,
+                  "heightPx": 84,
+                  "widthDp": 411.42857142857144,
+                  "heightDp": 24,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "layoutWidth": -1,
+                  "layoutHeight": 84,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "bgClass": "android.graphics.drawable.GradientDrawable",
+                  "cornerRadiusPx": 0,
+                  "cornerRadiusDp": 0,
+                  "elevationDp": 0,
+                  "clipToOutline": false
+                },
+                {
+                  "className": "android.widget.FrameLayout",
+                  "visibility": 0,
+                  "widthPx": 1440,
+                  "heightPx": 256,
+                  "widthDp": 411.42857142857144,
+                  "heightDp": 73.14285714285714,
+                  "xPx": 0,
+                  "yPx": 84,
+                  "xDp": 0,
+                  "yDp": 24,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "layoutWidth": -1,
+                  "layoutHeight": -2,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "bgClass": "android.graphics.drawable.ColorDrawable",
+                  "bgColor": "#FF1F1F1F",
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "childCount": 1,
+                  "children": [
+                    {
+                      "className": "androidx.compose.ui.platform.ComposeView",
+                      "visibility": 0,
+                      "widthPx": 1440,
+                      "heightPx": 256,
+                      "widthDp": 411.42857142857144,
+                      "heightDp": 73.14285714285714,
+                      "xPx": 0,
+                      "yPx": 0,
+                      "xDp": 0,
+                      "yDp": 0,
+                      "paddingPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "paddingDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "layoutWidth": -1,
+                      "layoutHeight": -1,
+                      "marginsPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "marginsDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "elevationDp": 0,
+                      "clipToOutline": false,
+                      "isCompose": true,
+                      "childCount": 1,
+                      "children": [
+                        {
+                          "className": "p.x44",
+                          "visibility": 0,
+                          "widthPx": 1440,
+                          "heightPx": 256,
+                          "widthDp": 411.42857142857144,
+                          "heightDp": 73.14285714285714,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "layoutWidth": -2,
+                          "layoutHeight": -2,
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "childCount": 0,
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "className": "android.view.View",
+              "visibility": 0,
+              "widthPx": 1440,
+              "heightPx": 2942,
+              "widthDp": 411.42857142857144,
+              "heightDp": 840.5714285714286,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "layoutWidth": 1440,
+              "layoutHeight": 2942,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false
+            }
+          ]
+        },
+        {
+          "className": "p.y9m",
+          "visibility": 0,
+          "widthPx": 1440,
+          "heightPx": 0,
+          "widthDp": 411.42857142857144,
+          "heightDp": 0,
+          "xPx": 0,
+          "yPx": 3040,
+          "xDp": 0,
+          "yDp": 868.5714285714286,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -1,
+          "layoutHeight": 0,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "bgClass": "android.graphics.drawable.GradientDrawable",
+          "cornerRadiusPx": 0,
+          "cornerRadiusDp": 0,
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 0,
+          "children": []
+        }
+      ]
+    }
+  ],
+  "density": 3.5,
+  "screenTotalWidthDp": 411.42857142857144,
+  "screenTotalHeightDp": 868.5714285714286,
+  "activityName": "com.spotify.tome.pageactivity.PageActivity"
+}

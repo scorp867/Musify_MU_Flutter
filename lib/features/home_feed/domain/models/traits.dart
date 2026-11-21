@@ -1,3 +1,4 @@
+export 'traits/artist_v4.dart';
 export 'traits/audio_preview_playback_trait.dart';
 export 'traits/audiobook_price_trait.dart';
 export 'traits/audiobook_specifics_trait.dart';

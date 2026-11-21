@@ -1,5 +1,6 @@
 import 'package:musify_mu/core/kodiak/extendedmetadataimpl/extended_metadata_plugin.dart';
 
+import 'artist_v4_plugin.dart';
 import 'simple_card_trait_plugin.dart';
 import 'shortcuts_card_trait_plugin.dart';
 import 'preview_card_trait_plugin.dart';
@@ -22,6 +23,7 @@ import 'on_platform_reputation_trait_plugin.dart';
 import 'credits_trait_plugin.dart';
 import 'playback_trait_plugin.dart';
 
+export 'artist_v4_plugin.dart';
 export 'plugin_utils.dart';
 export 'simple_card_trait_plugin.dart';
 export 'shortcuts_card_trait_plugin.dart';
@@ -48,6 +50,7 @@ export 'playback_trait_plugin.dart';
 /// Instantiates the standard suite of ExtendedMetadata plugins.
 List<ExtendedMetadataPlugin> createDefaultExtendedMetadataPlugins() {
   return const [
+    ArtistV4Plugin(),
     SimpleCardTraitPlugin(),
     ShortcutsCardTraitPlugin(),
     PreviewCardTraitPlugin(),

@@ -24,6 +24,8 @@ import 'package:musify_mu/features/library/application/library_bloc.dart';
 import 'package:musify_mu/features/local_music/presentation/bloc/local_music_bloc.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_bloc.dart';
 import 'package:musify_mu/features/player/data/logging/player_logging_params_factory.dart';
+import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
+import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 import 'package:musify_mu/features/shell/presentation/hidden_drawer_scaffold.dart';
 import 'package:musify_mu/features/vault/application/coordinator/vault_coordinator.dart';
 import 'package:musify_mu/features/vault/application/gesture/gesture_engine_cubit.dart';
@@ -40,7 +42,8 @@ import 'package:musify_mu/features/vault/domain/usecases/purge_vault_data_use_ca
 import 'package:musify_mu/features/vault/domain/usecases/rotate_pin_use_case.dart';
 import 'package:musify_mu/features/vault/domain/usecases/unlock_vault_use_case.dart';
 
-/// Root application composition root wiring Vault, Player Queue, and auth-gated
+/// Root application composition root wiring Vault, Player Queue, Now Playing
+/// repositories (`ScrollSitaRepository`, `LyricsRepository`), and auth-gated
 /// Spotify Connect (`ConnectSessionCoordinator` / `p199p/yrq.java` / `p199p/C2406w.java`).
 class MusifyApp extends StatefulWidget {
   final AuthBloc Function() createAuthBloc;
@@ -50,6 +53,8 @@ class MusifyApp extends StatefulWidget {
   final ConnectOutputStatusPolicy? connectOutputStatusPolicy;
   final DeviceEnvironmentPort? deviceEnvironmentPort;
   final AudioRoutePort? audioRoutePort;
+  final ScrollSitaRepository? scrollSitaRepository;
+  final LyricsRepository? lyricsRepository;
 
   const MusifyApp({
     super.key,
@@ -60,6 +65,8 @@ class MusifyApp extends StatefulWidget {
     this.connectOutputStatusPolicy,
     this.deviceEnvironmentPort,
     this.audioRoutePort,
+    this.scrollSitaRepository,
+    this.lyricsRepository,
   });
 
   @override
@@ -124,6 +131,26 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
     }
     if (getIt.isRegistered<AudioRoutePort>()) {
       return getIt<AudioRoutePort>();
+    }
+    return null;
+  }
+
+  ScrollSitaRepository? _resolveScrollSitaRepository() {
+    if (widget.scrollSitaRepository case final external?) {
+      return external;
+    }
+    if (getIt.isRegistered<ScrollSitaRepository>()) {
+      return getIt<ScrollSitaRepository>();
+    }
+    return null;
+  }
+
+  LyricsRepository? _resolveLyricsRepository() {
+    if (widget.lyricsRepository case final external?) {
+      return external;
+    }
+    if (getIt.isRegistered<LyricsRepository>()) {
+      return getIt<LyricsRepository>();
     }
     return null;
   }
@@ -291,6 +318,8 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
     final outputStatusPolicy = _resolveConnectOutputStatusPolicy();
     final deviceEnvironmentPort = _resolveDeviceEnvironmentPort();
     final audioRoutePort = _resolveAudioRoutePort();
+    final scrollSitaRepository = _resolveScrollSitaRepository();
+    final lyricsRepository = _resolveLyricsRepository();
 
     // Wrap with app-level RepositoryProviders and BLoC providers so downstream
     // presentation widgets resolve dependencies cleanly via context.read<T>().
@@ -305,6 +334,14 @@ class _MusifyAppState extends State<MusifyApp> with WidgetsBindingObserver {
         RepositoryProvider<ConnectOutputStatusPolicy>.value(
           value: outputStatusPolicy,
         ),
+        if (scrollSitaRepository case final repo?)
+          RepositoryProvider<ScrollSitaRepository>.value(
+            value: repo,
+          ),
+        if (lyricsRepository case final repo?)
+          RepositoryProvider<LyricsRepository>.value(
+            value: repo,
+          ),
         if (_connectSessionCoordinator case final coordinator?)
           RepositoryProvider<ConnectSessionCoordinator>.value(
             value: coordinator,

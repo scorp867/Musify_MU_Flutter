@@ -14,10 +14,11 @@ import 'package:musify_mu/features/browse/application/browse_bloc.dart';
 import 'package:musify_mu/features/browse/presentation/browse_view.dart';
 import 'package:musify_mu/features/browse/presentation/offline_browse_view.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
-import 'package:musify_mu/features/connect/domain/models/connect_device.dart';
 import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
+import 'package:musify_mu/features/connect/presentation/theme/connect_encore_theme.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_device_label.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_state_icon.dart';
 import 'package:musify_mu/features/home/presentation/home_tab.dart';
 import 'package:musify_mu/features/home_feed/application/home_feed_bloc.dart';
 import 'package:musify_mu/features/library/application/library_bloc.dart';
@@ -222,7 +223,7 @@ class _MainScreenState extends State<MainScreen> {
               queueBloc: queueController,
               currentTrack: track,
               colorService: colorService,
-              connectController: widget.connectController,
+              connectController: connectController,
               outputStatusPolicy: policy,
             );
           }
@@ -444,13 +445,15 @@ class _RemoteActiveConnectFallbackBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ConnectDevice? activeDevice = connectState.activeDevice;
-    final IconData leadingIcon = switch (activeDevice) {
-      final device? => resolveDeviceTypeIcon(device.type),
-      null => Icons.devices_rounded,
-    };
+    final ConnectIconState iconState = resolveConnectIconState(
+      connectState,
+      policy: policy,
+    );
+    final ConnectLabelState labelState = resolveConnectLabelState(
+      connectState,
+      policy: policy,
+    );
     final String statusText = policy.resolveBannerStatusText(connectState);
-    final String targetLabel = policy.resolveTargetLabel(connectState);
 
     void openPicker() {
       DevicePickerSheet.show(
@@ -461,37 +464,36 @@ class _RemoteActiveConnectFallbackBar extends StatelessWidget {
 
     return Container(
       key: const ValueKey<String>('remote_active_connect_fallback_bar'),
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      height: ConnectEncoreTheme.miniPlayerDefaultHeight,
       decoration: BoxDecoration(
-        color: const Color(0xFF242424),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: kSpotifyConnectGreen.withValues(alpha: 0.45),
-          width: 1,
+        color: ConnectEncoreTheme.miniPlayerDefaultBackground,
+        borderRadius: BorderRadius.circular(
+          ConnectEncoreTheme.miniPlayerDefaultRadius,
         ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            blurRadius: 12.0,
+            offset: const Offset(0.0, 4.0),
           ),
         ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: openPicker,
-          borderRadius: BorderRadius.circular(8),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12.0),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Icon(
-                  leadingIcon,
-                  size: 22,
-                  color: kSpotifyConnectGreen,
+                ConnectStateIcon(
+                  iconState: iconState,
+                  size: 24.0,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12.0),
                 Expanded(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -501,40 +503,35 @@ class _RemoteActiveConnectFallbackBar extends StatelessWidget {
                         statusText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: kSpotifyConnectGreen,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
+                        style: ConnectEncoreTheme.bodySmall13Bold.copyWith(
+                          color: ConnectEncoreTheme.textBase,
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Connected to $targetLabel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.70),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w400,
+                      const SizedBox(height: 2.0),
+                      ConnectDeviceLabel(
+                        labelState: labelState,
+                        textStyle: ConnectEncoreTheme.caption11Regular.copyWith(
+                          fontWeight: FontWeight.w500,
                         ),
+                        showBadgeIcon: true,
                       ),
                     ],
                   ),
                 ),
-                IconButton(
-                  key: const ValueKey<String>(
-                    'remote_fallback_open_picker_button',
+                SizedBox.square(
+                  dimension: ConnectEncoreTheme.miniPlayerActionButtonSize,
+                  child: IconButton(
+                    key: const ValueKey<String>(
+                      'remote_fallback_open_picker_button',
+                    ),
+                    padding: const EdgeInsets.all(8.0),
+                    tooltip: 'Devices',
+                    icon: ConnectStateIcon(
+                      iconState: iconState,
+                      size: 24.0,
+                    ),
+                    onPressed: openPicker,
                   ),
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.all(6),
-                  constraints: const BoxConstraints(),
-                  tooltip: 'Devices',
-                  icon: const Icon(
-                    Icons.devices_rounded,
-                    color: kSpotifyConnectGreen,
-                    size: 20,
-                  ),
-                  onPressed: openPicker,
                 ),
               ],
             ),

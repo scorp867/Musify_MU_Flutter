@@ -293,7 +293,10 @@ Future<void> setupInjection() async {
     ),
   );
   getIt.registerLazySingleton<ScrollSitaClient>(
-    () => ScrollSitaClient(transport: getIt<AndroidTransport>()),
+    () => ScrollSitaClient(
+      transport: getIt<AndroidTransport>(),
+      runtimeContext: getIt<RuntimeContext>(),
+    ),
   );
   getIt.registerLazySingleton<ScrollSitaRepository>(
     () => ScrollSitaRepositoryImpl(
@@ -302,7 +305,10 @@ Future<void> setupInjection() async {
     ),
   );
   getIt.registerLazySingleton<ColorLyricsClient>(
-    () => ColorLyricsClient(transport: getIt<AndroidTransport>()),
+    () => ColorLyricsClient(
+      transport: getIt<AndroidTransport>(),
+      runtimeContext: getIt<RuntimeContext>(),
+    ),
   );
   getIt.registerLazySingleton<LyricsRepository>(
     () => ColorLyricsRepositoryImpl(client: getIt<ColorLyricsClient>()),

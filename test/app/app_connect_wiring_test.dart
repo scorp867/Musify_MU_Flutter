@@ -24,7 +24,7 @@ import 'package:musify_mu/features/connect/data/proto/es_common_messages.pbenum.
 import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pb.dart'
     as connect_pb;
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_device_label.dart';
 import 'package:musify_mu/features/player/application/queue/mobius/queue_event.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
@@ -297,7 +297,10 @@ void main() {
         await tester.pump();
 
         expect(find.byType(MiniPlayer), findsOneWidget);
-        expect(find.byType(ActiveDeviceBanner), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsNothing,
+        );
         expectForwardedController(tester, null);
 
         final initialMaterialAppState = tester.state(find.byType(MaterialApp));
@@ -360,8 +363,11 @@ void main() {
           isTrue,
         );
         expectForwardedController(tester, bundleA.controller);
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Listening on Speaker Alpha'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsOneWidget,
+        );
+        expect(find.text('Speaker Alpha'), findsOneWidget);
 
         // Step 2: ctrlA -> ctrlB
         await tester.pumpWidget(
@@ -411,8 +417,11 @@ void main() {
           isTrue,
         );
         expectForwardedController(tester, bundleB.controller);
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Listening on Speaker Beta'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsOneWidget,
+        );
+        expect(find.text('Speaker Beta'), findsOneWidget);
 
         // Step 3: ctrlB -> null
         await tester.pumpWidget(buildMusifyApp());
@@ -455,12 +464,15 @@ void main() {
           isTrue,
         );
         expectForwardedController(tester, null);
-        expect(find.byType(ActiveDeviceBanner), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsNothing,
+        );
       },
     );
 
     testWidgets(
-      'transitions ctrlA -> null, dropping BlocProvider and hiding ActiveDeviceBanner with zero teardown',
+      'transitions ctrlA -> null, dropping BlocProvider and hiding MiniPlayer Connect label with zero teardown',
       (tester) async {
         configureViewport(tester);
         final harness = await createSeededVaultHarness(tester);
@@ -486,8 +498,11 @@ void main() {
         await tester.pump();
 
         expectForwardedController(tester, bundleA.controller);
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Listening on Living Room Soundbar'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsOneWidget,
+        );
+        expect(find.text('Living Room Soundbar'), findsOneWidget);
 
         final initialMaterialAppState = tester.state(find.byType(MaterialApp));
         final initialVaultBlocElement = tester.element(
@@ -541,7 +556,10 @@ void main() {
           isTrue,
         );
         expectForwardedController(tester, null);
-        expect(find.byType(ActiveDeviceBanner), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsNothing,
+        );
       },
     );
 
@@ -590,8 +608,8 @@ void main() {
         await tester.pump();
 
         expectForwardedController(tester, diController);
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Listening on DI Studio Speaker'), findsOneWidget);
+        expect(find.byType(ConnectDeviceLabel), findsOneWidget);
+        expect(find.text('DI Studio Speaker'), findsOneWidget);
 
         final initialMaterialAppState = tester.state(find.byType(MaterialApp));
         final initialVaultBlocElement = tester.element(
@@ -653,7 +671,7 @@ void main() {
           isTrue,
         );
         expectForwardedController(tester, externalBundle.controller);
-        expect(find.text('Listening on External Speaker'), findsOneWidget);
+        expect(find.text('External Speaker'), findsOneWidget);
 
         // Revert to DI controller (widget.connectController == null)
         await tester.pumpWidget(buildMusifyApp());
@@ -696,7 +714,7 @@ void main() {
           isTrue,
         );
         expectForwardedController(tester, diController);
-        expect(find.text('Listening on DI Studio Speaker'), findsOneWidget);
+        expect(find.text('DI Studio Speaker'), findsOneWidget);
       },
     );
 
@@ -753,7 +771,7 @@ void main() {
         expect(fallbackBarFinder, findsOneWidget);
         expect(openPickerButtonFinder, findsOneWidget);
         expect(find.text('Listening on Living Room Sonos'), findsOneWidget);
-        expect(find.text('Connected to Living Room Sonos'), findsOneWidget);
+        expect(find.text('Living Room Sonos'), findsOneWidget);
 
         // Tapping remote_fallback_open_picker_button opens DevicePickerSheet
         await tester.tap(openPickerButtonFinder);
@@ -763,12 +781,14 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(DevicePickerSheet),
-            matching: find.text('Listening on Living Room Sonos'),
+            matching: find.text('Living Room Sonos'),
           ),
           findsOneWidget,
         );
 
-        await tester.tap(find.byTooltip('Close'));
+        Navigator.of(
+          tester.element(find.byType(DevicePickerSheet)),
+        ).pop();
         await tester.pumpAndSettle();
         expect(find.byType(DevicePickerSheet), findsNothing);
 
@@ -792,8 +812,11 @@ void main() {
 
         expect(fallbackBarFinder, findsNothing);
         expect(find.byType(MiniPlayer), findsOneWidget);
-        expect(find.text('Mirrored Track'), findsOneWidget);
-        expect(find.text('Listening on Living Room Sonos'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_single_line_connect_mode')),
+          findsOneWidget,
+        );
+        expect(find.text('Living Room Sonos'), findsOneWidget);
       },
     );
   });

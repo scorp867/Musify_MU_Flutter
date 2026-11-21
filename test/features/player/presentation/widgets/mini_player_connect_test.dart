@@ -1,5 +1,4 @@
-// Item 178 MiniPlayer Connect wiring tests (p199p/edi0.java:207,
-// p199p/bdi0.java:146, p199p/hjn0.java, p199p/nfc0.java:93-109).
+// 1:1 Spotify `now_playing_bar` MiniPlayer & Connect wiring widget tests.
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -23,10 +22,10 @@ import 'package:musify_mu/features/connect/data/proto/es_connect_messages.pb.dar
     as connect_pb;
 import 'package:musify_mu/features/connect/domain/models/output_peripheral.dart';
 import 'package:musify_mu/features/connect/domain/models/transfer_state.dart';
-import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
+import 'package:musify_mu/features/connect/presentation/icons/connect_encore_icons.dart';
 import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/device_list_tile.dart';
+import 'package:musify_mu/features/connect/presentation/theme/connect_encore_theme.dart';
+import 'package:musify_mu/features/connect/presentation/widgets/connect_state_icon.dart';
 import 'package:musify_mu/features/player/application/scroll/now_playing_scroll_bloc.dart';
 import 'package:musify_mu/features/player/data/esperanto/esperanto_transport.dart';
 import 'package:musify_mu/features/player/presentation/screens/player_screen.dart';
@@ -124,8 +123,7 @@ final class _MiniPlayerConnectHarness {
       sortingDatabase: sortingDb,
       remoteVolumeController: volumeController,
       commandIdGenerator: () => 'abcdef0123456789abcdef0123456789',
-    );
-    controller.start();
+    )..start();
     return _MiniPlayerConnectHarness._(
       transport: transport,
       sortingDb: sortingDb,
@@ -209,28 +207,36 @@ void main() {
     await getIt.reset();
   });
 
-  Widget wrapHost(Widget child) {
+  Widget wrapHost(
+    Widget child, {
+    double textScale = 1.0,
+    double width = 390,
+  }) {
     return MaterialApp(
       theme: AppTheme.dark,
-      home: Scaffold(
-        body: Align(
-          alignment: Alignment.bottomCenter,
-          child: SizedBox(
-            width: 390,
-            child: child,
+      home: MediaQuery(
+        data: MediaQueryData(
+          size: Size(width, 844),
+          textScaler: TextScaler.linear(textScale),
+        ),
+        child: Scaffold(
+          body: Align(
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: width,
+              child: child,
+            ),
           ),
         ),
       ),
     );
   }
 
-  group('Item 178: MiniPlayer Connect Wiring', () {
+  group('Spotify now_playing_bar MiniPlayer 1:1 Fidelity & Connect Wiring', () {
     testWidgets(
-      'renders cleanly with connectController: null and matches local built-in height',
+      'matches exact 56dp default_size, 68dp scaled_font_height (>=1.5x), and 96dp large_size heights',
       (tester) async {
-        final harness = _MiniPlayerConnectHarness();
-        addTearDown(() => tester.runAsync(harness.dispose));
-
+        // 1. Default 56dp
         await tester.pumpWidget(
           wrapHost(
             const MiniPlayer(
@@ -241,35 +247,62 @@ void main() {
         );
         await tester.pump();
 
-        expect(find.byType(ActiveDeviceBanner), findsNothing);
+        final surfaceFinder = find.byKey(
+          const ValueKey<String>('now_playing_bar_surface'),
+        );
         expect(
-          find.byKey(const ValueKey<String>('mini_player_connect_button')),
+          tester.getSize(surfaceFinder).height,
+          equals(ConnectEncoreTheme.miniPlayerDefaultHeight),
+        );
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_two_line_local_mode')),
           findsOneWidget,
         );
-        final baselineHeight = tester.getSize(find.byType(MiniPlayer)).height;
 
+        // 2. Scaled font >= 1.5x -> 68dp
         await tester.pumpWidget(
           wrapHost(
-            MiniPlayer(
+            const MiniPlayer(
               title: 'Midnight City',
               artist: 'M83',
-              connectController: harness.controller,
+            ),
+            textScale: 1.6,
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(
+          tester.getSize(surfaceFinder).height,
+          equals(ConnectEncoreTheme.miniPlayerScaledFontHeight),
+        );
+
+        // 3. Explicit large_size -> 96dp + outline halo + bottom-sheet mode
+        await tester.pumpWidget(
+          wrapHost(
+            const MiniPlayer(
+              title: 'Midnight City',
+              artist: 'M83',
+              visualConfig: MiniPlayerVisualConfig(
+                sizeMode: MiniPlayerSizeMode.largeSize,
+                bottomSheetMode: true,
+                showOutlineHalo: true,
+              ),
             ),
           ),
         );
-        harness.emitCluster(selfActive: true);
-        await tester.pump();
-        await tester.pump();
-
-        expect(find.byType(ActiveDeviceBanner), findsNothing);
-        final withLocalBuiltInHeight =
-            tester.getSize(find.byType(MiniPlayer)).height;
-        expect(withLocalBuiltInHeight, equals(baselineHeight));
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(
+          tester.getSize(surfaceFinder).height,
+          equals(ConnectEncoreTheme.miniPlayerLargeHeight),
+        );
+        final halo = tester.widget<AnimatedOpacity>(
+          find.byKey(const ValueKey<String>('mini_player_outline_halo')),
+        );
+        expect(halo.opacity, equals(1.0));
       },
     );
 
     testWidgets(
-      'shows compact ActiveDeviceBanner for remote active device without overflow',
+      'switches smoothly between 2-line local mode and 1-line Connect mode with constant 56dp height',
       (tester) async {
         final harness = _MiniPlayerConnectHarness();
         addTearDown(() => tester.runAsync(harness.dispose));
@@ -284,6 +317,27 @@ void main() {
           ),
         );
 
+        final surfaceFinder = find.byKey(
+          const ValueKey<String>('now_playing_bar_surface'),
+        );
+
+        // Local built-in speaker active -> 2-line mode, idle Connect icon.
+        harness.emitCluster(selfActive: true);
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_two_line_local_mode')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsNothing,
+        );
+        final localHeight = tester.getSize(surfaceFinder).height;
+        expect(localHeight, equals(56.0));
+
+        // Remote speaker active -> 1-line "Title • Artist" + overlaid green ConnectDeviceLabel (still 56dp!).
         harness.emitCluster(
           selfActive: false,
           remoteName: 'Living Room Speaker',
@@ -292,14 +346,27 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Listening on Living Room Speaker'), findsOneWidget);
+        expect(
+          find.byKey(
+            const ValueKey<String>('mini_player_single_line_connect_mode'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Living Room Speaker'), findsOneWidget);
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        final activeIcon = tester.widget<ConnectStateIcon>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('mini_player_connect_button')),
+            matching: find.byType(ConnectStateIcon),
+          ),
+        );
+        expect(activeIcon.iconState, isA<ConnectIconActive>());
         expect(tester.takeException(), isNull);
       },
     );
 
     testWidgets(
-      'shows compact ActiveDeviceBanner for external local peripheral and TransferInProgress',
+      'shows Bluetooth peripheral label and white pulsing Connecting... during TransferInProgress',
       (tester) async {
         final harness = _MiniPlayerConnectHarness();
         addTearDown(() => tester.runAsync(harness.dispose));
@@ -329,10 +396,9 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Listening on WH-1000XM5'), findsOneWidget);
+        expect(find.text('WH-1000XM5'), findsOneWidget);
 
-        // Emit TransferInProgress via pending transfer.
+        // Initiate transfer -> Connecting...
         harness.emitCluster(
           selfActive: true,
           remoteName: 'Kitchen Speaker',
@@ -345,8 +411,14 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 50));
 
-        expect(find.byType(ActiveDeviceBanner), findsOneWidget);
-        expect(find.text('Connecting to Kitchen Speaker...'), findsOneWidget);
+        expect(find.text('Connecting...'), findsOneWidget);
+        final connectingIcon = tester.widget<ConnectStateIcon>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('mini_player_connect_button')),
+            matching: find.byType(ConnectStateIcon),
+          ),
+        );
+        expect(connectingIcon.iconState, isA<ConnectIconConnecting>());
 
         harness.transport.transferCompleter?.complete(
           Uint8List.fromList(
@@ -357,44 +429,105 @@ void main() {
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 50));
-        expect(harness.controller.currentState.transferState, isA<TransferSucceeded>());
+        expect(
+          harness.controller.currentState.transferState,
+          isA<TransferSucceeded>(),
+        );
       },
     );
 
     testWidgets(
-      'tapping compact ActiveDeviceBanner opens DevicePickerSheet modal',
+      'renders conditional badges, promo disclosure, video slot, skippable ad, Encore AddTo & PlayPause',
       (tester) async {
-        final harness = _MiniPlayerConnectHarness();
-        addTearDown(() => tester.runAsync(harness.dispose));
+        var skippedAd = false;
+        var played = false;
+        var nextTapped = false;
 
         await tester.pumpWidget(
           wrapHost(
             MiniPlayer(
-              title: 'Midnight City',
-              artist: 'M83',
-              connectController: harness.controller,
+              title: 'Episode 1',
+              artist: 'Podcast Host',
+              isPlaying: false,
+              mediaSlot: MiniPlayerVideoSlot(
+                videoBuilder: (_) => const SizedBox(
+                  key: ValueKey<String>('fake_video_frame'),
+                ),
+              ),
+              badges: const MiniPlayerTrackBadges(
+                isQueued: true,
+                isEnhanced: true,
+                playbackSpeedLabel: '1.5x',
+                listenAlongLabel: 'Jam',
+              ),
+              adConfig: MiniPlayerAdConfig(
+                canSkip: true,
+                onSkip: () => skippedAd = true,
+              ),
+              onPlayPause: () => played = true,
+              onNext: () => nextTapped = true,
             ),
           ),
         );
+        await tester.pump();
 
-        harness.emitCluster(
-          selfActive: false,
-          remoteName: 'Living Room Speaker',
-          remoteActive: true,
+        expect(find.byKey(const ValueKey<String>('mini_player_video_surface')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('mini_player_queued_badge')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('mini_player_enhanced_badge')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('mini_player_speed_badge')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('mini_player_listen_along_badge')), findsOneWidget);
+        expect(find.byKey(const ValueKey<String>('mini_player_skippable_ad_button')), findsOneWidget);
+
+        await tester.tap(find.byKey(const ValueKey<String>('mini_player_skippable_ad_button')));
+        await tester.pump();
+        expect(skippedAd, isTrue);
+
+        // Tap Play/Pause button
+        await tester.tap(find.byKey(const ValueKey<String>('mini_player_play_pause_button')));
+        await tester.pump();
+        expect(played, isTrue);
+
+        // Horizontal swipe left -> skips next
+        await tester.fling(
+          find.byKey(const ValueKey<String>('now_playing_bar_surface')),
+          const Offset(-140, 0),
+          600,
         );
         await tester.pump();
-        await tester.pump();
+        expect(nextTapped, isTrue);
 
-        await tester.tap(find.byType(ActiveDeviceBanner));
+        // Non-ad mode exposes Encore Add-To button (+ -> checkAltFill in #1ED760)
+        await tester.pumpWidget(
+          wrapHost(
+            const MiniPlayer(
+              title: 'Episode 1',
+              artist: 'Podcast Host',
+              promoConfig: MiniPlayerPromoConfig(),
+            ),
+          ),
+        );
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('Includes promotional content'), findsOneWidget);
 
-        expect(find.byType(DevicePickerSheet), findsOneWidget);
+        final addToFinder = find.byKey(const ValueKey<String>('mini_player_add_to_button'));
+        expect(
+          tester.widget<ConnectEncoreIcon>(
+            find.descendant(of: addToFinder, matching: find.byType(ConnectEncoreIcon)),
+          ).icon,
+          equals(ConnectEncoreIcons.plusAlt24),
+        );
+        await tester.tap(addToFinder);
+        await tester.pump();
+        final savedIcon = tester.widget<ConnectEncoreIcon>(
+          find.descendant(of: addToFinder, matching: find.byType(ConnectEncoreIcon)),
+        );
+        expect(savedIcon.icon, equals(ConnectEncoreIcons.checkAltFill24));
+        expect(savedIcon.color, equals(ConnectEncoreTheme.brightAccent));
       },
     );
 
     testWidgets(
-      'tapping MiniPlayer opens PlayerScreen with forwarded connectController',
+      'tapping Connect button opens DevicePickerSheet and tapping bar opens PlayerScreen with forwarded controller',
       (tester) async {
         final harness = _MiniPlayerConnectHarness();
         addTearDown(() => tester.runAsync(harness.dispose));
@@ -417,114 +550,32 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.tap(find.text('Midnight City'));
+        // 1. Connect button -> DevicePickerSheet
+        await tester.tap(
+          find.byKey(const ValueKey<String>('mini_player_connect_button')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(find.byType(DevicePickerSheet), findsOneWidget);
+        expect(find.text('Connect'), findsOneWidget);
+
+        Navigator.of(
+          tester.element(find.byType(DevicePickerSheet)),
+        ).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        expect(find.byType(DevicePickerSheet), findsNothing);
+
+        // 2. Tap track info -> opens PlayerScreen with forwarded controller
+        await tester.tap(
+          find.byKey(const ValueKey<String>('mini_player_single_line_title_artist')),
+        );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
 
         expect(find.byType(PlayerScreen), findsOneWidget);
         final screen = tester.widget<PlayerScreen>(find.byType(PlayerScreen));
         expect(identical(screen.connectController, harness.controller), isTrue);
-        expect(
-          find.descendant(
-            of: find.byType(PlayerScreen),
-            matching: find.text('Listening on Studio Monitor'),
-          ),
-          findsOneWidget,
-        );
-      },
-    );
-
-    testWidgets(
-      'always-visible mini_player_connect_button opens DevicePickerSheet and highlights in kSpotifyConnectGreen with mini_player_active_output_indicator when ConnectOutputStatusPolicy.isConnectOutputActive(state) is true',
-      (tester) async {
-        final harness = _MiniPlayerConnectHarness();
-        addTearDown(() => tester.runAsync(harness.dispose));
-
-        await tester.pumpWidget(
-          wrapHost(
-            MiniPlayer(
-              title: 'Midnight City',
-              artist: 'M83',
-              connectController: harness.controller,
-            ),
-          ),
-        );
-
-        // Local built-in speaker active -> isConnectOutputActive is false
-        harness.emitCluster(selfActive: true);
-        await tester.pump();
-        await tester.pump();
-
-        expect(
-          ConnectOutputStatusPolicy.instance.isConnectOutputActive(
-            harness.controller.currentState,
-          ),
-          isFalse,
-        );
-
-        final connectButtonFinder = find.byKey(
-          const ValueKey<String>('mini_player_connect_button'),
-        );
-        final activeIndicatorFinder = find.byKey(
-          const ValueKey<String>('mini_player_active_output_indicator'),
-        );
-
-        expect(connectButtonFinder, findsOneWidget);
-        expect(activeIndicatorFinder, findsNothing);
-
-        final inactiveButton = tester.widget<IconButton>(connectButtonFinder);
-        final inactiveIcon = inactiveButton.icon as Icon;
-        expect(inactiveIcon.color, isNot(equals(kSpotifyConnectGreen)));
-
-        // Tapping always-visible Connect button opens DevicePickerSheet even when local built-in is active
-        await tester.tap(connectButtonFinder);
-        await tester.pumpAndSettle();
-        expect(find.byType(DevicePickerSheet), findsOneWidget);
-
-        await tester.tap(find.byTooltip('Close'));
-        await tester.pumpAndSettle();
-        expect(find.byType(DevicePickerSheet), findsNothing);
-
-        // Remote Connect device active -> isConnectOutputActive is true
-        harness.emitCluster(
-          selfActive: false,
-          remoteName: 'Studio Speaker',
-          remoteActive: true,
-        );
-        await tester.pump();
-        await tester.pump();
-
-        expect(
-          ConnectOutputStatusPolicy.instance.isConnectOutputActive(
-            harness.controller.currentState,
-          ),
-          isTrue,
-        );
-
-        expect(connectButtonFinder, findsOneWidget);
-        expect(activeIndicatorFinder, findsOneWidget);
-
-        final activeButton = tester.widget<IconButton>(connectButtonFinder);
-        final activeIcon = activeButton.icon as Icon;
-        expect(activeIcon.color, equals(kSpotifyConnectGreen));
-
-        final indicatorIcon = tester.widget<Icon>(activeIndicatorFinder);
-        expect(indicatorIcon.color, equals(kSpotifyConnectGreen));
-
-        final artistText = tester.widget<Text>(find.text('M83'));
-        expect(artistText.style?.color, equals(kSpotifyConnectGreen));
-
-        // Tapping highlighted Connect button opens DevicePickerSheet
-        await tester.tap(connectButtonFinder);
-        await tester.pumpAndSettle();
-        expect(find.byType(DevicePickerSheet), findsOneWidget);
-        expect(
-          find.descendant(
-            of: find.byType(DevicePickerSheet),
-            matching: find.text('Listening on Studio Speaker'),
-          ),
-          findsOneWidget,
-        );
       },
     );
   });

@@ -64,6 +64,7 @@ class _DebugNowPlayingScreenState extends State<DebugNowPlayingScreen> {
         return PlayerEventsSection(
           artistName: _artist,
           artistUri: desc.artistUri,
+          concertUris: desc.concertUris,
           dataPool: pool,
           onShowAll: () {},
         );

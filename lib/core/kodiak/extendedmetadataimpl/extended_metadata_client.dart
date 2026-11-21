@@ -47,6 +47,9 @@ class ExtendedMetadataClient {
 
     final entityQueries = <String, Set<int>>{};
     for (final key in keys) {
+      if (!_isEligibleRemoteSpotifyEntityUri(key.entityUri)) {
+        continue;
+      }
       final plugin = _registry.pluginForType(key.table.traitType);
       if (plugin == null) continue;
       entityQueries
@@ -153,15 +156,27 @@ class ExtendedMetadataClient {
     for (final entry in entityQueries.entries) {
       final entityReq = EntityRequest()..entityUri = entry.key;
       for (final kindVal in entry.value) {
-        final mappedKind = ExtensionKind.valueOf(kindVal);
-        final extKind = mappedKind != null
-            ? mappedKind
-            : ExtensionKind.UNKNOWN_EXTENSION;
+        final extKind = switch (ExtensionKind.valueOf(kindVal)) {
+          final known? => known,
+          null => ExtensionKind.UNKNOWN_EXTENSION,
+        };
         entityReq.query.add(ExtensionQuery()..extensionKind = extKind);
       }
       request.entityRequest.add(entityReq);
     }
 
     return request.writeToBuffer();
+  }
+
+  static bool _isEligibleRemoteSpotifyEntityUri(String uri) {
+    final trimmed = uri.trim();
+    if (trimmed.isEmpty || !trimmed.startsWith('spotify:')) {
+      return false;
+    }
+    if (trimmed.startsWith('spotify:local:') ||
+        trimmed.startsWith('spotify:internal:')) {
+      return false;
+    }
+    return true;
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/kodiak/element/data_pool_entities_builder.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/credits_trait.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait.dart';
 
@@ -7,12 +8,9 @@ import 'package:musify_mu/features/home_feed/domain/models/traits/identity_trait
 ///
 /// 1:1 replica of decompiled Spotify Android layout (`w5i.java` + `fhb1.java`).
 ///
-/// Features:
-/// - 16dp rounded corners
-/// - Surface color #242424
-/// - Header: "Credits" on left, "Show all" in Spotify Green (#1DB954) on right
-/// - Contributor rows with artist name, combined roles ("Main Artist • Composer"),
-///   and native "Follow" stadium button.
+/// Reactively observes [DataPool] updates for [trackUri] and [contributorUris]
+/// via [DataPoolEntitiesBuilder], updating automatically when `CreditsTrait`
+/// or contributor `IdentityTrait` payloads hydrate asynchronously.
 class PlayerCreditsSection extends StatefulWidget {
   const PlayerCreditsSection({
     super.key,
@@ -36,52 +34,70 @@ class PlayerCreditsSection extends StatefulWidget {
 class _PlayerCreditsSectionState extends State<PlayerCreditsSection> {
   final Set<String> _followingContributors = {};
 
+  List<String> _watchedUris() {
+    final uris = <String>[];
+    if (widget.trackUri case final uri? when uri.isNotEmpty) {
+      uris.add(uri);
+    }
+    for (final uri in widget.contributorUris) {
+      if (uri.isNotEmpty) {
+        uris.add(uri);
+      }
+    }
+    return uris;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final contributors = _resolveContributors();
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF242424),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header: "Credits" + "Show all" in Spotify Green
-          Row(
+    return DataPoolEntitiesBuilder(
+      dataPool: widget.dataPool,
+      uris: _watchedUris(),
+      builder: (context, pool) {
+        final contributors = _resolveContributors(pool);
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF242424),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Expanded(
-                child: Text(
-                  'Credits',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+              // Header: "Credits" + "Show all" in Spotify Green
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Credits',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              GestureDetector(
-                onTap: widget.onShowAll,
-                child: const Text(
-                  'Show all',
-                  style: TextStyle(
-                    color: Color(0xFF1DB954),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                  GestureDetector(
+                    onTap: widget.onShowAll,
+                    child: const Text(
+                      'Show all',
+                      style: TextStyle(
+                        color: Color(0xFF1DB954),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
+              const SizedBox(height: 18),
+              for (int i = 0; i < contributors.length; i++) ...[
+                if (i > 0) const SizedBox(height: 16),
+                _buildContributorRow(contributors[i]),
+              ],
             ],
           ),
-          const SizedBox(height: 18),
-          for (int i = 0; i < contributors.length; i++) ...[
-            if (i > 0) const SizedBox(height: 16),
-            _buildContributorRow(contributors[i]),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -157,51 +173,57 @@ class _PlayerCreditsSectionState extends State<PlayerCreditsSection> {
     );
   }
 
-  List<_ContributorData> _resolveContributors() {
+  List<_ContributorData> _resolveContributors(DataPool? pool) {
     final list = <_ContributorData>[];
 
     // 1. Try CreditsTrait from DataPool (provides real names + roles)
-    if (widget.dataPool != null && widget.trackUri != null) {
-      final credits =
-          widget.dataPool!.getTrait<CreditsTrait>(widget.trackUri!);
-      if (credits != null && credits.contributors.isNotEmpty) {
-        // Group contributors by name so we can combine their roles
-        final byName = <String, List<String>>{};
-        final uriByName = <String, String>{};
-        for (final c in credits.contributors) {
-          if (c.name.isEmpty) continue;
-          byName.putIfAbsent(c.name, () => []);
-          if (c.role.isNotEmpty) {
-            byName[c.name]!.add(c.role);
+    if (pool case final activePool?) {
+      if (widget.trackUri case final uri? when uri.isNotEmpty) {
+        final credits = activePool.getTrait<CreditsTrait>(uri);
+        if (credits != null && credits.contributors.isNotEmpty) {
+          final byName = <String, List<String>>{};
+          final uriByName = <String, String>{};
+          for (final c in credits.contributors) {
+            if (c.name.isEmpty) continue;
+            final rolesList = byName.putIfAbsent(c.name, () => <String>[]);
+            if (c.role.isNotEmpty && !rolesList.contains(c.role)) {
+              rolesList.add(c.role);
+            }
+            if (c.uri.isNotEmpty) {
+              uriByName.putIfAbsent(c.name, () => c.uri);
+            }
           }
-          if (c.uri.isNotEmpty) {
-            uriByName.putIfAbsent(c.name, () => c.uri);
+          for (final entry in byName.entries) {
+            final roles = entry.value.isNotEmpty
+                ? entry.value.join(' \u2022 ')
+                : 'Artist';
+            list.add(
+              _ContributorData(
+                name: entry.key,
+                roles: roles,
+                uri: uriByName[entry.key],
+              ),
+            );
           }
-        }
-        for (final entry in byName.entries) {
-          final roles =
-              entry.value.isNotEmpty ? entry.value.join(' \u2022 ') : 'Artist';
-          list.add(_ContributorData(
-            name: entry.key,
-            roles: roles,
-            uri: uriByName[entry.key],
-          ));
         }
       }
-    }
 
-    if (list.isNotEmpty) return list;
+      if (list.isNotEmpty) return list;
 
-    // 2. Fallback: resolve from DataPool using contributor URIs + IdentityTrait
-    if (widget.dataPool != null && widget.contributorUris.isNotEmpty) {
-      for (final uri in widget.contributorUris) {
-        final identity = widget.dataPool!.getTrait<IdentityTrait>(uri);
-        if (identity != null && identity.name.isNotEmpty) {
-          list.add(_ContributorData(
-            name: identity.name,
-            roles: 'Artist',
-            uri: uri,
-          ));
+      // 2. Fallback: resolve from DataPool using contributor URIs + IdentityTrait
+      if (widget.contributorUris.isNotEmpty) {
+        for (final uri in widget.contributorUris) {
+          if (uri.isEmpty) continue;
+          final identity = activePool.getTrait<IdentityTrait>(uri);
+          if (identity != null && identity.name.isNotEmpty) {
+            list.add(
+              _ContributorData(
+                name: identity.name,
+                roles: 'Artist',
+                uri: uri,
+              ),
+            );
+          }
         }
       }
     }

@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:musify_mu/features/player/application/queue/player_queue_state.dart';
 import 'package:musify_mu/features/player/data/queue/context_track_extensions.dart';
 import 'package:musify_mu/features/player/domain/models/context_track.dart';
+import 'package:musify_mu/features/player/domain/models/player_state.dart';
+import 'package:musify_mu/features/player/domain/policies/spotify_track_eligibility_policy.dart';
 import 'package:musify_mu/features/player/presentation/widgets/queue_controls_layout.dart';
 
 /// Explicit state machine representing the transport and stream readiness phase
@@ -21,6 +23,7 @@ enum NowPlayingTransportPhase {
 class NowPlayingViewModel {
   final String trackUri;
   final String trackId;
+  final bool isSpotifySong;
   final String title;
   final String artist;
   final String album;
@@ -40,6 +43,7 @@ class NowPlayingViewModel {
   const NowPlayingViewModel({
     required this.trackUri,
     required this.trackId,
+    this.isSpotifySong = false,
     required this.title,
     required this.artist,
     required this.album,
@@ -68,19 +72,23 @@ class NowPlayingViewModel {
     'spotify:episode:',
     'spotify:podcast-chapter:',
     'spotify:clip:',
+    'vault:',
+    'musify:vault:',
+    'file://',
+    'content://',
   ];
 
-  static String extractTrackId(ContextTrack? track) {
-    if (track != null && track.uri.isNotEmpty) {
-      for (final prefix in nonMusicUriPrefixes) {
-        if (track.uri.startsWith(prefix)) return '';
-      }
-      if (track.uri.startsWith('spotify:track:')) {
-        return track.uri.substring('spotify:track:'.length);
-      }
-      return track.uri;
-    }
-    return '';
+  static String extractTrackId(
+    ContextTrack? track, {
+    PlayerState? playerState,
+  }) {
+    return switch (SpotifyTrackEligibilityPolicy.extractEligibleSpotifyTrackId(
+      track,
+      playerState: playerState,
+    )) {
+      final id? => id,
+      null => '',
+    };
   }
 
   factory NowPlayingViewModel.fromPlayerQueueState(
@@ -192,12 +200,17 @@ class NowPlayingViewModel {
       _ => '',
     };
 
-    final artistUri = switch (track?.metadata[ContextTrackMetadata.keyArtistUri]) {
-      final uri? => uri,
-      null => '',
-    };
+    final trackId = extractTrackId(track, playerState: state?.playerState);
+    final isSpotifySong = trackId.isNotEmpty;
 
-    final trackId = extractTrackId(track);
+    final artistUri = isSpotifySong
+        ? switch (SpotifyTrackEligibilityPolicy.resolveCanonicalSpotifyArtistUri(
+            track?.metadata[ContextTrackMetadata.keyArtistUri],
+          )) {
+            final uri? => uri,
+            null => '',
+          }
+        : '';
 
     final canSkipNext = switch (state?.canSkipNext) {
       final can? => can,
@@ -211,6 +224,7 @@ class NowPlayingViewModel {
     return NowPlayingViewModel(
       trackUri: trackUri,
       trackId: trackId,
+      isSpotifySong: isSpotifySong,
       title: title,
       artist: artist,
       album: album,
@@ -235,6 +249,7 @@ class NowPlayingViewModel {
   NowPlayingViewModel copyWith({
     String? trackUri,
     String? trackId,
+    bool? isSpotifySong,
     String? title,
     String? artist,
     String? album,
@@ -259,6 +274,10 @@ class NowPlayingViewModel {
       trackId: switch (trackId) {
         final id? => id,
         null => this.trackId,
+      },
+      isSpotifySong: switch (isSpotifySong) {
+        final flag? => flag,
+        null => this.isSpotifySong,
       },
       title: switch (title) {
         final t? => t,

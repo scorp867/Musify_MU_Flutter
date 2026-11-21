@@ -1,0 +1,120 @@
+{
+  "config": {},
+  "children": [
+    {
+      "configErr": "TypeError: not a function",
+      "children": []
+    },
+    {
+      "configErr": "TypeError: not a function",
+      "children": [
+        {
+          "configErr": "TypeError: not a function",
+          "children": [
+            {
+              "configErr": "TypeError: not a function",
+              "children": [
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                },
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": [
+                    {
+                      "configErr": "TypeError: not a function",
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                },
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                },
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "configErr": "TypeError: not a function",
+              "children": [
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                },
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                },
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": [
+                    {
+                      "configErr": "TypeError: not a function",
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "configErr": "TypeError: not a function",
+      "children": [
+        {
+          "configErr": "TypeError: not a function",
+          "children": [
+            {
+              "configErr": "TypeError: not a function",
+              "children": []
+            },
+            {
+              "configErr": "TypeError: not a function",
+              "children": [
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "configErr": "TypeError: not a function",
+          "children": [
+            {
+              "configErr": "TypeError: not a function",
+              "children": []
+            },
+            {
+              "configErr": "TypeError: not a function",
+              "children": [
+                {
+                  "configErr": "TypeError: not a function",
+                  "children": []
+                }
+              ]
+            },
+            {
+              "configErr": "TypeError: not a function",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "config": {},
+      "children": []
+    }
+  ]
+}

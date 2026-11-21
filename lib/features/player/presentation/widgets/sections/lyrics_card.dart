@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:musify_mu/core/kodiak/dataloader/data_pool.dart';
+import 'package:musify_mu/core/kodiak/element/data_pool_entities_builder.dart';
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 import 'package:musify_mu/features/home_feed/domain/models/traits/visual_identity_trait.dart';
 import 'package:musify_mu/features/home_feed/presentation/extensions/spotify_entity_presentation.dart';
@@ -37,29 +38,35 @@ class PlayerLyricsSection extends StatelessWidget {
   final String? trackUri;
 
   String? get _normalizedTrackUri {
-    if (trackUri == null || trackUri!.isEmpty) return null;
-    if (!trackUri!.startsWith('spotify:')) {
-      return 'spotify:track:$trackUri';
+    if (trackUri case final raw? when raw.isNotEmpty) {
+      if (!raw.startsWith('spotify:')) {
+        return 'spotify:track:$raw';
+      }
+      return raw;
     }
-    return trackUri;
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final uri = _normalizedTrackUri;
+    final watchedUris = switch (uri) {
+      final u? => <String>[u],
+      null => const <String>[],
+    };
 
-    if (dataPool != null && uri != null) {
-      return StreamBuilder<Map<String, dynamic>>(
-        stream: dataPool!.watchEntity(uri),
-        initialData: dataPool!.getTraits(uri),
-        builder: (context, snapshot) {
-          final visual = dataPool!.getTrait<VisualIdentityTrait>(uri);
-          return _buildCard(visual);
-        },
-      );
-    }
-
-    return _buildCard(null);
+    return DataPoolEntitiesBuilder(
+      dataPool: dataPool,
+      uris: watchedUris,
+      builder: (context, pool) {
+        final visual = switch ((pool, uri)) {
+          (final activePool?, final activeUri?) =>
+            activePool.getTrait<VisualIdentityTrait>(activeUri),
+          _ => null,
+        };
+        return _buildCard(visual);
+      },
+    );
   }
 
   Widget _buildCard(VisualIdentityTrait? visual) {
@@ -77,33 +84,41 @@ class PlayerLyricsSection extends StatelessWidget {
       endBg = palette.backgroundTintedBaseColor;
       highlightColor = palette.textBaseColor;
       inactiveColor = palette.textSubduedColor;
-    } else if (colorLyrics != null && colorLyrics!.hasColors()) {
+    } else if (colorLyrics case final cl? when cl.hasColors()) {
       // Third-party Musixmatch fallback
-      final bg = parseProtoColor(colorLyrics!.colors.background);
+      final bg = parseProtoColor(cl.colors.background);
       startBg = bg;
-      endBg = Color.lerp(bg, Colors.black, 0.15) ?? bg;
+      endBg = switch (Color.lerp(bg, Colors.black, 0.15)) {
+        final lerped? => lerped,
+        null => bg,
+      };
       highlightColor = parseProtoColor(
-        colorLyrics!.colors.highlightText,
+        cl.colors.highlightText,
         defaultColor: Colors.white,
       );
       inactiveColor = parseProtoColor(
-        colorLyrics!.colors.text,
+        cl.colors.text,
         defaultColor: Colors.white60,
       );
     } else {
       // Offline fallback: Spotify Encore default constants from `p/mzs.java:5-9`
-      startBg = backgroundColor ?? const Color(0xFF353535);
+      startBg = switch (backgroundColor) {
+        final bg? => bg,
+        null => const Color(0xFF353535),
+      };
       endBg = const Color(0xFF565656);
       highlightColor = Colors.white;
       inactiveColor = const Color(0xFFCDCDCD);
     }
 
-    final lines = colorLyrics != null && colorLyrics!.hasLyrics()
-        ? colorLyrics!.lyrics.lines
+    final lines = switch (colorLyrics) {
+      final cl? when cl.hasLyrics() =>
+        cl.lyrics.lines
             .map((l) => l.words)
             .where((w) => w.isNotEmpty)
-            .toList()
-        : lyricsLines;
+            .toList(),
+      _ => lyricsLines,
+    };
 
     return Material(
       color: Colors.transparent,

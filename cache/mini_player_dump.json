@@ -1,0 +1,1823 @@
+{
+  "className": "androidx.constraintlayout.motion.widget.MotionLayout",
+  "visibility": 0,
+  "widthPx": 1384,
+  "heightPx": 196,
+  "widthDp": 395.42857142857144,
+  "heightDp": 56,
+  "xPx": 0,
+  "yPx": 0,
+  "xDp": 0,
+  "yDp": 0,
+  "paddingPx": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "paddingDp": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "id": "now_playing_bar_layout",
+  "layoutWidth": -1,
+  "layoutHeight": 196,
+  "marginsPx": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "marginsDp": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "bgClass": "android.graphics.drawable.GradientDrawable",
+  "cornerRadiusPx": 28,
+  "cornerRadiusDp": 8,
+  "bgColor": "#FF282828",
+  "elevationDp": 0,
+  "clipToOutline": false,
+  "childCount": 8,
+  "children": [
+    {
+      "className": "p.rlq0",
+      "visibility": 0,
+      "widthPx": 168,
+      "heightPx": 196,
+      "widthDp": 48,
+      "heightDp": 56,
+      "xPx": 0,
+      "yPx": 0,
+      "xDp": 0,
+      "yDp": 0,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "content_container",
+      "layoutWidth": -2,
+      "layoutHeight": -1,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 3,
+      "children": [
+        {
+          "className": "androidx.appcompat.widget.AppCompatImageView",
+          "visibility": 0,
+          "widthPx": 140,
+          "heightPx": 140,
+          "widthDp": 40,
+          "heightDp": 40,
+          "xPx": 28,
+          "yPx": 28,
+          "xDp": 8,
+          "yDp": 8,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "id": "cover_image",
+          "layoutWidth": 0,
+          "layoutHeight": 0,
+          "marginsPx": [
+            28,
+            28,
+            0,
+            28
+          ],
+          "marginsDp": [
+            8,
+            8,
+            0,
+            8
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "drawableClass": "android.graphics.drawable.BitmapDrawable",
+          "intrinsicWidthDp": 40,
+          "intrinsicHeightDp": 40,
+          "scaleType": "CENTER_CROP"
+        },
+        {
+          "className": "p.vlq0",
+          "visibility": 8,
+          "widthPx": 0,
+          "heightPx": 0,
+          "widthDp": 0,
+          "heightDp": 0,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "id": "companion_content",
+          "layoutWidth": 0,
+          "layoutHeight": 0,
+          "marginsPx": [
+            28,
+            28,
+            0,
+            28
+          ],
+          "marginsDp": [
+            8,
+            8,
+            0,
+            8
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 1,
+          "children": [
+            {
+              "className": "androidx.compose.ui.platform.ComposeView",
+              "visibility": 0,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "layoutWidth": -1,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "isCompose": true,
+              "childCount": 1,
+              "children": [
+                {
+                  "className": "p.x44",
+                  "visibility": 0,
+                  "widthPx": 0,
+                  "heightPx": 0,
+                  "widthDp": 0,
+                  "heightDp": 0,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "layoutWidth": -2,
+                  "layoutHeight": -2,
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "childCount": 0,
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "className": "com.spotify.betamax.player.VideoSurfaceView",
+          "visibility": 8,
+          "widthPx": 0,
+          "heightPx": 0,
+          "widthDp": 0,
+          "heightDp": 0,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "id": "video_surface",
+          "layoutWidth": 0,
+          "layoutHeight": 0,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "bgClass": "android.graphics.drawable.GradientDrawable",
+          "cornerRadiusPx": 14,
+          "cornerRadiusDp": 4,
+          "bgColor": "#FF000000",
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 4,
+          "children": [
+            {
+              "className": "android.view.TextureView",
+              "visibility": 0,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "texture_view",
+              "layoutWidth": -1,
+              "layoutHeight": -1,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false
+            },
+            {
+              "className": "androidx.appcompat.widget.AppCompatImageView",
+              "visibility": 8,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "frozen_frame",
+              "layoutWidth": -1,
+              "layoutHeight": -1,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "scaleType": "FIT_CENTER"
+            },
+            {
+              "className": "android.widget.ProgressBar",
+              "visibility": 8,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "throbber",
+              "layoutWidth": -2,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "progress": 0,
+              "max": 100
+            },
+            {
+              "className": "androidx.appcompat.widget.AppCompatImageView",
+              "visibility": 8,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "seek_frame",
+              "layoutWidth": -1,
+              "layoutHeight": -1,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "scaleType": "FIT_CENTER"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "className": "com.spotify.legacyglue.viewgroup.PasteLinearLayout",
+      "visibility": 0,
+      "widthPx": 684,
+      "heightPx": 116,
+      "widthDp": 195.42857142857142,
+      "heightDp": 33.142857142857146,
+      "xPx": 210,
+      "yPx": 40,
+      "xDp": 60,
+      "yDp": 11.428571428571429,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "device_name_label",
+      "layoutWidth": 0,
+      "layoutHeight": -2,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 2,
+      "children": [
+        {
+          "className": "com.spotify.encoremobile.component.textview.EncoreTextView",
+          "visibility": 4,
+          "widthPx": 0,
+          "heightPx": 63,
+          "widthDp": 0,
+          "heightDp": 18,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -2,
+          "layoutHeight": -2,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "text": "",
+          "textSizeSp": 13.142857142857142,
+          "textColor": "#FFFFFFFF",
+          "maxLines": 2147483647,
+          "ellipsize": null,
+          "typeface": {
+            "isBold": true,
+            "isItalic": false,
+            "weight": 700
+          }
+        },
+        {
+          "className": "com.spotify.legacyglue.viewgroup.PasteLinearLayout",
+          "visibility": 0,
+          "widthPx": 162,
+          "heightPx": 53,
+          "widthDp": 46.285714285714285,
+          "heightDp": 15.142857142857142,
+          "xPx": 0,
+          "yPx": 63,
+          "xDp": 0,
+          "yDp": 18,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "id": "device_name_container",
+          "layoutWidth": -2,
+          "layoutHeight": -2,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 2,
+          "children": [
+            {
+              "className": "com.spotify.encoreconsumermobile.elementscompose.jamlistenalongbadge.JamListenAlongBadgeView",
+              "visibility": 8,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "connect_listen_along_badge",
+              "layoutWidth": -2,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                14,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                4,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 0,
+              "children": []
+            },
+            {
+              "className": "p.vlq0",
+              "visibility": 0,
+              "widthPx": 162,
+              "heightPx": 53,
+              "widthDp": 46.285714285714285,
+              "heightDp": 15.142857142857142,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "device_and_promo_label_container",
+              "layoutWidth": -2,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 2,
+              "children": [
+                {
+                  "className": "androidx.compose.ui.platform.ComposeView",
+                  "visibility": 0,
+                  "widthPx": 162,
+                  "heightPx": 53,
+                  "widthDp": 46.285714285714285,
+                  "heightDp": 15.142857142857142,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "connect_label",
+                  "layoutWidth": -2,
+                  "layoutHeight": -2,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "isCompose": true,
+                  "childCount": 1,
+                  "children": [
+                    {
+                      "className": "p.x44",
+                      "visibility": 0,
+                      "widthPx": 162,
+                      "heightPx": 53,
+                      "widthDp": 46.285714285714285,
+                      "heightDp": 15.142857142857142,
+                      "xPx": 0,
+                      "yPx": 0,
+                      "xDp": 0,
+                      "yDp": 0,
+                      "paddingPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "paddingDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "layoutWidth": -2,
+                      "layoutHeight": -2,
+                      "elevationDp": 0,
+                      "clipToOutline": false,
+                      "childCount": 0,
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "className": "com.spotify.nowplayingbar.nowplayingbar.view.PromoIndicatorView",
+                  "visibility": 8,
+                  "widthPx": 0,
+                  "heightPx": 0,
+                  "widthDp": 0,
+                  "heightDp": 0,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "promo_indicator_row",
+                  "layoutWidth": -2,
+                  "layoutHeight": -2,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "text": "Includes promotional content",
+                  "textSizeSp": 11.142857142857142,
+                  "textColor": "#B3FFFFFF",
+                  "maxLines": 1,
+                  "ellipsize": "MARQUEE",
+                  "typeface": {
+                    "isBold": false,
+                    "isItalic": false,
+                    "weight": 400
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "className": "com.spotify.nowplaying.carousel.CarouselView",
+      "visibility": 0,
+      "widthPx": 684,
+      "heightPx": 196,
+      "widthDp": 195.42857142857142,
+      "heightDp": 56,
+      "xPx": 210,
+      "yPx": 0,
+      "xDp": 60,
+      "yDp": 0,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "tracks_carousel_view",
+      "layoutWidth": 0,
+      "layoutHeight": 0,
+      "marginsPx": [
+        42,
+        0,
+        42,
+        0
+      ],
+      "marginsDp": [
+        12,
+        0,
+        12,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 1,
+      "children": [
+        {
+          "className": "p.rlq0",
+          "visibility": 0,
+          "widthPx": 684,
+          "heightPx": 196,
+          "widthDp": 195.42857142857142,
+          "heightDp": 56,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -1,
+          "layoutHeight": -1,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "childCount": 1,
+          "children": [
+            {
+              "className": "com.spotify.nowplayingbar.nowplayingbar.view.carousel.TrackInfoView",
+              "visibility": 0,
+              "widthPx": 684,
+              "heightPx": 126,
+              "widthDp": 195.42857142857142,
+              "heightDp": 36,
+              "xPx": 0,
+              "yPx": 35,
+              "xDp": 0,
+              "yDp": 10,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "id": "track_info_view",
+              "layoutWidth": -1,
+              "layoutHeight": -2,
+              "marginsPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "marginsDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 2,
+              "children": [
+                {
+                  "className": "com.spotify.encoremobile.component.textview.EncoreTextView",
+                  "visibility": 0,
+                  "widthPx": 684,
+                  "heightPx": 63,
+                  "widthDp": 195.42857142857142,
+                  "heightDp": 18,
+                  "xPx": 0,
+                  "yPx": 0,
+                  "xDp": 0,
+                  "yDp": 0,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "track_info_view_title",
+                  "layoutWidth": -2,
+                  "layoutHeight": -2,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "text": "Somewhere Only We Know • Gustixa, rhianne",
+                  "textSizeSp": 13.142857142857142,
+                  "textColor": "#FFFFFFFF",
+                  "maxLines": 1,
+                  "ellipsize": "MARQUEE",
+                  "typeface": {
+                    "isBold": true,
+                    "isItalic": false,
+                    "weight": 700
+                  }
+                },
+                {
+                  "className": "p.vlq0",
+                  "visibility": 0,
+                  "widthPx": 0,
+                  "heightPx": 63,
+                  "widthDp": 0,
+                  "heightDp": 18,
+                  "xPx": 0,
+                  "yPx": 63,
+                  "xDp": 0,
+                  "yDp": 18,
+                  "paddingPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "paddingDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "id": "subtitle_container",
+                  "layoutWidth": -2,
+                  "layoutHeight": -2,
+                  "marginsPx": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "marginsDp": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "elevationDp": 0,
+                  "clipToOutline": false,
+                  "childCount": 2,
+                  "children": [
+                    {
+                      "className": "com.spotify.legacyglue.viewgroup.PasteLinearLayout",
+                      "visibility": 0,
+                      "widthPx": 0,
+                      "heightPx": 63,
+                      "widthDp": 0,
+                      "heightDp": 18,
+                      "xPx": 0,
+                      "yPx": 0,
+                      "xDp": 0,
+                      "yDp": 0,
+                      "paddingPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "paddingDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "id": "subtitle_row",
+                      "layoutWidth": -2,
+                      "layoutHeight": -2,
+                      "marginsPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "marginsDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "elevationDp": 0,
+                      "clipToOutline": false,
+                      "childCount": 5,
+                      "children": [
+                        {
+                          "className": "com.spotify.encoreconsumermobile.elements.badge.queued.QueuedBadgeView",
+                          "visibility": 8,
+                          "widthPx": 0,
+                          "heightPx": 0,
+                          "widthDp": 0,
+                          "heightDp": 0,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "queued_badge",
+                          "layoutWidth": 42,
+                          "layoutHeight": 42,
+                          "marginsPx": [
+                            0,
+                            0,
+                            14,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            4,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "drawableClass": "android.graphics.drawable.StateListDrawable",
+                          "intrinsicWidthDp": 24,
+                          "intrinsicHeightDp": 24,
+                          "scaleType": "FIT_CENTER"
+                        },
+                        {
+                          "className": "com.spotify.encoreconsumermobile.elements.badge.enhanced.EnhancedBadgeView",
+                          "visibility": 8,
+                          "widthPx": 0,
+                          "heightPx": 0,
+                          "widthDp": 0,
+                          "heightDp": 0,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "enhanced_badge",
+                          "layoutWidth": 42,
+                          "layoutHeight": 42,
+                          "marginsPx": [
+                            0,
+                            0,
+                            14,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            4,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "drawableClass": "p.mp81",
+                          "intrinsicWidthDp": 16,
+                          "intrinsicHeightDp": 16.571428571428573,
+                          "scaleType": "FIT_CENTER"
+                        },
+                        {
+                          "className": "com.spotify.encoreconsumermobile.elements.badge.speed.SpeedBadgeIconView",
+                          "visibility": 8,
+                          "widthPx": 0,
+                          "heightPx": 0,
+                          "widthDp": 0,
+                          "heightDp": 0,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "speed_badge_icon",
+                          "layoutWidth": 42,
+                          "layoutHeight": 42,
+                          "marginsPx": [
+                            0,
+                            0,
+                            14,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            4,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "imageTint": "#B3FFFFFF",
+                          "scaleType": "FIT_CENTER"
+                        },
+                        {
+                          "className": "com.spotify.encoreconsumermobile.elementscompose.jamlistenalongbadge.JamListenAlongBadgeView",
+                          "visibility": 8,
+                          "widthPx": 0,
+                          "heightPx": 0,
+                          "widthDp": 0,
+                          "heightDp": 0,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "listen_along_badge",
+                          "layoutWidth": -2,
+                          "layoutHeight": -2,
+                          "marginsPx": [
+                            0,
+                            0,
+                            14,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            4,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "childCount": 0,
+                          "children": []
+                        },
+                        {
+                          "className": "com.spotify.encoremobile.component.textview.EncoreTextView",
+                          "visibility": 4,
+                          "widthPx": 0,
+                          "heightPx": 63,
+                          "widthDp": 0,
+                          "heightDp": 18,
+                          "xPx": 0,
+                          "yPx": 0,
+                          "xDp": 0,
+                          "yDp": 0,
+                          "paddingPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "paddingDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "id": "track_info_view_subtitle",
+                          "layoutWidth": -2,
+                          "layoutHeight": -2,
+                          "marginsPx": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "marginsDp": [
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "elevationDp": 0,
+                          "clipToOutline": false,
+                          "text": "",
+                          "textSizeSp": 13.142857142857142,
+                          "textColor": "#B3FFFFFF",
+                          "maxLines": 1,
+                          "ellipsize": "MARQUEE",
+                          "typeface": {
+                            "isBold": false,
+                            "isItalic": false,
+                            "weight": 400
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "className": "com.spotify.nowplayingbar.nowplayingbar.view.PromoIndicatorView",
+                      "visibility": 8,
+                      "widthPx": 0,
+                      "heightPx": 0,
+                      "widthDp": 0,
+                      "heightDp": 0,
+                      "xPx": 0,
+                      "yPx": 0,
+                      "xDp": 0,
+                      "yDp": 0,
+                      "paddingPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "paddingDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "id": "promo_indicator_row",
+                      "layoutWidth": -2,
+                      "layoutHeight": -2,
+                      "marginsPx": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "marginsDp": [
+                        0,
+                        0,
+                        0,
+                        0
+                      ],
+                      "elevationDp": 0,
+                      "clipToOutline": false,
+                      "text": "Includes promotional content",
+                      "textSizeSp": 11.142857142857142,
+                      "textColor": "#B3FFFFFF",
+                      "maxLines": 1,
+                      "ellipsize": "MARQUEE",
+                      "typeface": {
+                        "isBold": false,
+                        "isItalic": false,
+                        "weight": 400
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "className": "android.widget.FrameLayout",
+      "visibility": 0,
+      "widthPx": 140,
+      "heightPx": 140,
+      "widthDp": 40,
+      "heightDp": 40,
+      "xPx": 936,
+      "yPx": 28,
+      "xDp": 267.42857142857144,
+      "yDp": 8,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "connect_destination_button",
+      "layoutWidth": 140,
+      "layoutHeight": 140,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 1,
+      "children": [
+        {
+          "className": "androidx.compose.ui.platform.ComposeView",
+          "visibility": 0,
+          "widthPx": 140,
+          "heightPx": 140,
+          "widthDp": 40,
+          "heightDp": 40,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -1,
+          "layoutHeight": -1,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "isCompose": true,
+          "childCount": 1,
+          "children": [
+            {
+              "className": "p.x44",
+              "visibility": 0,
+              "widthPx": 140,
+              "heightPx": 140,
+              "widthDp": 40,
+              "heightDp": 40,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "layoutWidth": -2,
+              "layoutHeight": -2,
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 0,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "className": "com.spotify.encoremobile.viewstub.EncoreViewStub",
+      "visibility": 8,
+      "widthPx": 0,
+      "heightPx": 0,
+      "widthDp": 0,
+      "heightDp": 0,
+      "xPx": 1076,
+      "yPx": 98,
+      "xDp": 307.42857142857144,
+      "yDp": 28,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "skippable_ad_view_stub",
+      "layoutWidth": 140,
+      "layoutHeight": 140,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false
+    },
+    {
+      "className": "com.spotify.encoreconsumermobile.elements.addtobutton.AddToButtonView",
+      "visibility": 0,
+      "widthPx": 140,
+      "heightPx": 140,
+      "widthDp": 40,
+      "heightDp": 40,
+      "xPx": 1076,
+      "yPx": 28,
+      "xDp": 307.42857142857144,
+      "yDp": 8,
+      "paddingPx": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "paddingDp": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "id": "add_to_button",
+      "layoutWidth": 140,
+      "layoutHeight": 140,
+      "marginsPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "drawableClass": "p.t1e0",
+      "intrinsicWidthDp": 384,
+      "intrinsicHeightDp": 384,
+      "scaleType": "FIT_CENTER"
+    },
+    {
+      "className": "android.widget.FrameLayout",
+      "visibility": 0,
+      "widthPx": 140,
+      "heightPx": 140,
+      "widthDp": 40,
+      "heightDp": 40,
+      "xPx": 1216,
+      "yPx": 28,
+      "xDp": 347.42857142857144,
+      "yDp": 8,
+      "paddingPx": [
+        28,
+        28,
+        28,
+        28
+      ],
+      "paddingDp": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "id": "play_pause_button",
+      "layoutWidth": 140,
+      "layoutHeight": 140,
+      "marginsPx": [
+        0,
+        0,
+        28,
+        0
+      ],
+      "marginsDp": [
+        0,
+        0,
+        8,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "childCount": 3,
+      "children": [
+        {
+          "className": "com.airbnb.lottie.LottieAnimationView",
+          "visibility": 8,
+          "widthPx": 0,
+          "heightPx": 0,
+          "widthDp": 0,
+          "heightDp": 0,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -1,
+          "layoutHeight": -1,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "scaleType": "FIT_CENTER"
+        },
+        {
+          "className": "androidx.appcompat.widget.AppCompatImageButton",
+          "visibility": 0,
+          "widthPx": 84,
+          "heightPx": 84,
+          "widthDp": 24,
+          "heightDp": 24,
+          "xPx": 28,
+          "yPx": 28,
+          "xDp": 8,
+          "yDp": 8,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": -1,
+          "layoutHeight": -1,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "drawableClass": "p.mp81",
+          "intrinsicWidthDp": 24,
+          "intrinsicHeightDp": 24.571428571428573,
+          "scaleType": "FIT_CENTER"
+        },
+        {
+          "className": "androidx.compose.ui.platform.ComposeView",
+          "visibility": 8,
+          "widthPx": 0,
+          "heightPx": 0,
+          "widthDp": 0,
+          "heightDp": 0,
+          "xPx": 0,
+          "yPx": 0,
+          "xDp": 0,
+          "yDp": 0,
+          "paddingPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "paddingDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "layoutWidth": 280,
+          "layoutHeight": 280,
+          "marginsPx": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "marginsDp": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "elevationDp": 0,
+          "clipToOutline": false,
+          "isCompose": true,
+          "childCount": 1,
+          "children": [
+            {
+              "className": "p.x44",
+              "visibility": 0,
+              "widthPx": 0,
+              "heightPx": 0,
+              "widthDp": 0,
+              "heightDp": 0,
+              "xPx": 0,
+              "yPx": 0,
+              "xDp": 0,
+              "yDp": 0,
+              "paddingPx": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "paddingDp": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "layoutWidth": -2,
+              "layoutHeight": -2,
+              "elevationDp": 0,
+              "clipToOutline": false,
+              "childCount": 0,
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "className": "android.widget.ProgressBar",
+      "visibility": 0,
+      "widthPx": 1328,
+      "heightPx": 7,
+      "widthDp": 379.42857142857144,
+      "heightDp": 2,
+      "xPx": 28,
+      "yPx": 189,
+      "xDp": 8,
+      "yDp": 54,
+      "paddingPx": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "paddingDp": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "id": "progress_bar",
+      "layoutWidth": 0,
+      "layoutHeight": 7,
+      "marginsPx": [
+        28,
+        0,
+        28,
+        0
+      ],
+      "marginsDp": [
+        8,
+        0,
+        8,
+        0
+      ],
+      "elevationDp": 0,
+      "clipToOutline": false,
+      "progress": 25186,
+      "max": 184186
+    }
+  ],
+  "density": 3.5,
+  "screenTotalWidthDp": 411.42857142857144,
+  "screenTotalHeightDp": 868.5714285714286
+}

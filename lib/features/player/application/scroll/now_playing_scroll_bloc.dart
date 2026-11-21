@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart' show StateStreamableSource;
 import 'package:musify_mu/core/protocol/generated/spotify/lyrics/color_lyrics.pb.dart';
 import 'package:musify_mu/features/player/domain/models/scroll_card_descriptor.dart';
+import 'package:musify_mu/features/player/domain/policies/spotify_track_eligibility_policy.dart';
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 
@@ -16,7 +18,7 @@ export 'now_playing_scroll_state.dart';
 /// Pure reactive controller coordinating Now Playing scroll cards and color-synced lyrics pipeline.
 ///
 /// Implements [ValueListenable] and [StateStreamableSource] without extending BLoC internals,
-/// driving deterministic unidirectional state flow.
+/// driving deterministic unidirectional state flow with restartable generation guards.
 class NowPlayingScrollController extends ChangeNotifier
     implements
         ValueListenable<NowPlayingScrollState>,
@@ -29,12 +31,14 @@ class NowPlayingScrollController extends ChangeNotifier
       StreamController<NowPlayingScrollState>.broadcast();
 
   String? _lastTrackId;
+  String? _lastArtistUri;
+  int _requestGeneration = 0;
 
   NowPlayingScrollController({
     ScrollSitaRepository? scrollSitaRepository,
     LyricsRepository? lyricsRepository,
-  })  : _scrollSitaRepository = scrollSitaRepository,
-        _lyricsRepository = lyricsRepository;
+  }) : _scrollSitaRepository = scrollSitaRepository,
+       _lyricsRepository = lyricsRepository;
 
   @override
   NowPlayingScrollState get state => _state;
@@ -55,72 +59,116 @@ class NowPlayingScrollController extends ChangeNotifier
   void add(NowPlayingScrollEvent event) {
     if (isClosed) return;
     switch (event) {
-      case FetchNowPlayingScroll(:final trackId):
-        unawaited(_fetchScroll(trackId));
+      case FetchNowPlayingScroll(:final trackId, :final artistUri):
+        unawaited(_fetchScroll(trackId, artistUri: artistUri));
+      case ClearNowPlayingScroll():
+        _clearScroll();
     }
   }
 
-  Future<void> _fetchScroll(String? trackId) async {
-    // Skip duplicate requests for the identical trackId when already loaded
-    if (trackId == _lastTrackId && _state is NowPlayingScrollLoaded) {
+  void _clearScroll() {
+    _requestGeneration++;
+    _lastTrackId = null;
+    _lastArtistUri = null;
+    if (_state is! NowPlayingScrollInitial) {
+      _emitState(const NowPlayingScrollInitial());
+    }
+  }
+
+  Future<void> _fetchScroll(String? trackId, {String? artistUri}) async {
+    final canonicalId =
+        SpotifyTrackEligibilityPolicy.extractCanonicalSpotifyTrackId(trackId);
+
+    // Strictly skip all network calls for missing, local, vault, or non-track IDs.
+    if (canonicalId == null) {
+      _clearScroll();
       return;
     }
-    _lastTrackId = trackId;
 
-    // Skip network calls entirely for missing or empty track IDs
-    if (trackId == null || trackId.isEmpty) {
-      _emitState(NowPlayingScrollLoaded(
-        trackId: trackId,
-        cards: const [],
-        lyrics: null,
-      ));
+    final normalizedArtistUri =
+        SpotifyTrackEligibilityPolicy.resolveCanonicalSpotifyArtistUri(
+          artistUri,
+        );
+
+    // Skip duplicate requests when already loaded for the identical track & artist.
+    if (canonicalId == _lastTrackId &&
+        normalizedArtistUri == _lastArtistUri &&
+        _state is NowPlayingScrollLoaded) {
       return;
     }
 
-    _emitState(NowPlayingScrollLoading(
-      trackId: trackId,
-      currentCards: const [],
-    ));
+    final generation = ++_requestGeneration;
+    _lastTrackId = canonicalId;
+    _lastArtistUri = normalizedArtistUri;
 
-    try {
-      final scrollCardsFuture = switch (_scrollSitaRepository) {
-        final repo? => repo.getScrollCards(trackId),
-        null => Future<List<ScrollCardDescriptor>>.value(const []),
-      };
+    _emitState(
+      NowPlayingScrollLoading(
+        trackId: canonicalId,
+        currentCards: const [],
+      ),
+    );
 
-      final lyricsFuture = switch (_lyricsRepository) {
-        final repo? => repo.getLyrics(trackId),
-        null => Future<ColorLyricsResponse?>.value(null),
-      };
+    Object? scrollError;
+    Object? lyricsError;
 
-      final results = await Future.wait([
-        scrollCardsFuture,
-        lyricsFuture,
-      ]);
+    final scrollCardsFuture = switch (_scrollSitaRepository) {
+      final repo? => repo
+          .getScrollCards(canonicalId, normalizedArtistUri)
+          .catchError((Object e, StackTrace st) {
+            scrollError = e;
+            dev.log(
+              'NowPlayingScrollController: ScrollSita fetch failed for $canonicalId',
+              error: e,
+              stackTrace: st,
+              name: 'NowPlayingScroll',
+            );
+            return const <ScrollCardDescriptor>[];
+          }),
+      null => Future<List<ScrollCardDescriptor>>.value(const []),
+    };
 
-      // Ignore superseded track responses if the user switched tracks while in-flight
-      if (trackId != _lastTrackId) {
-        return;
-      }
+    final lyricsFuture = switch (_lyricsRepository) {
+      final repo? => repo
+          .getLyrics(canonicalId)
+          .catchError((Object e, StackTrace st) {
+            lyricsError = e;
+            dev.log(
+              'NowPlayingScrollController: Lyrics fetch failed for $canonicalId',
+              error: e,
+              stackTrace: st,
+              name: 'NowPlayingScroll',
+            );
+            return null;
+          }),
+      null => Future<ColorLyricsResponse?>.value(null),
+    };
 
-      final cards = results[0] as List<ScrollCardDescriptor>;
-      final lyrics = results[1] as ColorLyricsResponse?;
+    final cards = await scrollCardsFuture;
+    final lyrics = await lyricsFuture;
 
-      _emitState(NowPlayingScrollLoaded(
-        trackId: trackId,
+    // Ignore superseded or cleared track responses deterministically.
+    if (generation != _requestGeneration || isClosed) {
+      return;
+    }
+
+    if (scrollError != null && lyricsError != null) {
+      _emitState(
+        NowPlayingScrollFailure(
+          trackId: canonicalId,
+          message: scrollError.toString(),
+          fallbackCards: const [],
+        ),
+      );
+      return;
+    }
+
+    _emitState(
+      NowPlayingScrollLoaded(
+        trackId: canonicalId,
         cards: cards,
         lyrics: lyrics,
-      ));
-    } catch (e) {
-      if (trackId != _lastTrackId) {
-        return;
-      }
-      _emitState(NowPlayingScrollFailure(
-        trackId: trackId,
-        message: e.toString(),
-        fallbackCards: const [],
-      ));
-    }
+      ),
+    );
   }
 
   void _emitState(NowPlayingScrollState nextState) {
@@ -133,6 +181,7 @@ class NowPlayingScrollController extends ChangeNotifier
   @override
   Future<void> close() async {
     if (isClosed) return;
+    _requestGeneration++;
     await _stateController.close();
   }
 

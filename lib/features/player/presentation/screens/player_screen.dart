@@ -12,8 +12,8 @@ import 'package:musify_mu/core/ubi/domain/logging/ubi_logger.dart';
 import 'package:musify_mu/core/ubi/domain/models/page_instance_id.dart';
 import 'package:musify_mu/features/connect/application/mobius/connect_mobius_controller.dart';
 import 'package:musify_mu/features/connect/domain/services/connect_output_status_policy.dart';
-import 'package:musify_mu/features/connect/presentation/screens/device_picker_sheet.dart';
-import 'package:musify_mu/features/connect/presentation/widgets/active_device_banner.dart';
+import 'package:musify_mu/features/home_feed/domain/models/traits/track_v4/track_v4.dart';
+import 'package:musify_mu/features/player/domain/policies/spotify_track_eligibility_policy.dart';
 import 'package:musify_mu/features/player/domain/repositories/lyrics_repository.dart';
 import 'package:musify_mu/features/player/domain/repositories/scrollsita_repository.dart';
 
@@ -54,6 +54,8 @@ class PlayerScreen extends StatefulWidget {
   final ContextTrack? currentTrack;
   final ConnectMobiusController? connectController;
   final NowPlayingScrollController? scrollController;
+  final ScrollSitaRepository? scrollSitaRepository;
+  final LyricsRepository? lyricsRepository;
   final DataPool? dataPool;
   final ConnectOutputStatusPolicy? outputStatusPolicy;
   final UbiLogger? ubiLogger;
@@ -71,6 +73,8 @@ class PlayerScreen extends StatefulWidget {
     this.currentTrack,
     this.connectController,
     this.scrollController,
+    this.scrollSitaRepository,
+    this.lyricsRepository,
     this.dataPool,
     this.outputStatusPolicy,
     this.ubiLogger,
@@ -93,6 +97,8 @@ class PlayerScreen extends StatefulWidget {
     ContextTrack? currentTrack,
     ConnectMobiusController? connectController,
     NowPlayingScrollController? scrollController,
+    ScrollSitaRepository? scrollSitaRepository,
+    LyricsRepository? lyricsRepository,
     DataPool? dataPool,
     ConnectOutputStatusPolicy? outputStatusPolicy,
     UbiLogger? ubiLogger,
@@ -113,6 +119,14 @@ class PlayerScreen extends StatefulWidget {
     final effectiveScrollController = switch (scrollController) {
       final s? => s,
       null => context.read<NowPlayingScrollController?>(),
+    };
+    final effectiveScrollSitaRepository = switch (scrollSitaRepository) {
+      final r? => r,
+      null => context.read<ScrollSitaRepository?>(),
+    };
+    final effectiveLyricsRepository = switch (lyricsRepository) {
+      final r? => r,
+      null => context.read<LyricsRepository?>(),
     };
     final effectiveDataPool = switch (dataPool) {
       final d? => d,
@@ -154,6 +168,8 @@ class PlayerScreen extends StatefulWidget {
               currentTrack: currentTrack,
               connectController: effectiveConnectController,
               scrollController: effectiveScrollController,
+              scrollSitaRepository: effectiveScrollSitaRepository,
+              lyricsRepository: effectiveLyricsRepository,
               dataPool: effectiveDataPool,
               outputStatusPolicy: effectivePolicy,
               ubiLogger: effectiveUbiLogger,
@@ -206,6 +222,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   ScrollCardRegistry _cardRegistry = ScrollCardRegistry();
   DataPool? _dataPool;
   String _currentTrackId = '';
+  String _currentArtistUri = '';
   int _lastRegisteredActiveLineIndex = 0;
 
   NowPlayingTransportPhase _transportPhase = NowPlayingTransportPhase.paused;
@@ -278,6 +295,20 @@ class _PlayerScreenState extends State<PlayerScreen>
     return context.read<DataPool?>();
   }
 
+  ScrollSitaRepository? _resolveScrollSitaRepository() {
+    if (widget.scrollSitaRepository case final explicit?) {
+      return explicit;
+    }
+    return context.read<ScrollSitaRepository?>();
+  }
+
+  LyricsRepository? _resolveLyricsRepository() {
+    if (widget.lyricsRepository case final explicit?) {
+      return explicit;
+    }
+    return context.read<LyricsRepository?>();
+  }
+
   NowPlayingScrollController _resolveOrAllocateScrollController() {
     if (widget.scrollController case final explicit?) {
       return explicit;
@@ -289,8 +320,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       return existingOwned;
     }
     final created = NowPlayingScrollController(
-      scrollSitaRepository: context.read<ScrollSitaRepository?>(),
-      lyricsRepository: context.read<LyricsRepository?>(),
+      scrollSitaRepository: _resolveScrollSitaRepository(),
+      lyricsRepository: _resolveLyricsRepository(),
     );
     _ownedScrollBloc = created;
     return created;
@@ -331,6 +362,59 @@ class _PlayerScreenState extends State<PlayerScreen>
       fallbackDuration: widget.duration,
       fallbackImageUrl: widget.imageUrl,
     );
+  }
+
+  /// Resolves the canonical Spotify artist URI for an eligible Spotify song,
+  /// checking track metadata first and falling back to cached [TrackV4] in
+  /// [_dataPool]. Always returns `''` for local and Private Vault tracks.
+  String _resolveEffectiveArtistUri(NowPlayingViewModel vm) {
+    if (!vm.isSpotifySong) {
+      return '';
+    }
+    if (vm.artistUri.isNotEmpty) {
+      return vm.artistUri;
+    }
+    final pool = _dataPool;
+    if (pool == null || vm.trackId.isEmpty) {
+      return '';
+    }
+    final canonicalTrackUri = 'spotify:track:${vm.trackId}';
+    final trackV4 = pool.getTrait<TrackV4>(canonicalTrackUri);
+    if (trackV4 != null && trackV4.artists.isNotEmpty) {
+      if (SpotifyTrackEligibilityPolicy.resolveCanonicalSpotifyArtistUri(
+            trackV4.artists.first.uri,
+          )
+          case final resolved?) {
+        return resolved;
+      }
+    }
+    return '';
+  }
+
+  void _dispatchScrollIntentForViewModel(
+    NowPlayingViewModel vm, {
+    required NowPlayingScrollController scrollCtrl,
+    bool forceRetry = false,
+  }) {
+    if (!vm.isSpotifySong || vm.trackId.isEmpty) {
+      _currentTrackId = '';
+      _currentArtistUri = '';
+      scrollCtrl.add(const ClearNowPlayingScroll());
+      return;
+    }
+
+    final resolvedArtistUri = _resolveEffectiveArtistUri(vm);
+    final trackChanged = vm.trackId != _currentTrackId;
+    final artistEnriched =
+        resolvedArtistUri.isNotEmpty && resolvedArtistUri != _currentArtistUri;
+
+    if (trackChanged || artistEnriched || forceRetry) {
+      _currentTrackId = vm.trackId;
+      _currentArtistUri = resolvedArtistUri;
+      scrollCtrl.add(
+        FetchNowPlayingScroll(_currentTrackId, _currentArtistUri),
+      );
+    }
   }
 
   @override
@@ -379,10 +463,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     _positionTicker = ticker;
     _syncTickerForTransportPhase(_transportPhase);
 
-    _currentTrackId = initialVm.trackId;
-    if (_currentTrackId.isNotEmpty) {
-      scrollCtrl.add(FetchNowPlayingScroll(_currentTrackId));
-    }
+    _dispatchScrollIntentForViewModel(
+      initialVm,
+      scrollCtrl: scrollCtrl,
+      forceRetry: initialVm.isSpotifySong && initialVm.trackId.isNotEmpty,
+    );
 
     effectiveQueueBloc?.addListener(_onQueueStateChanged);
   }
@@ -403,9 +488,15 @@ class _PlayerScreenState extends State<PlayerScreen>
       _cardRegistry = ScrollCardRegistry(dataPool: _dataPool);
     }
 
-    if (widget.scrollController != oldWidget.scrollController) {
+    final repositoriesChangedForOwned =
+        widget.scrollController == null &&
+        (widget.scrollSitaRepository != oldWidget.scrollSitaRepository ||
+            widget.lyricsRepository != oldWidget.lyricsRepository);
+
+    if (widget.scrollController != oldWidget.scrollController ||
+        repositoriesChangedForOwned) {
       _scrollBloc?.removeListener(_onScrollStateChanged);
-      if (widget.scrollController != null) {
+      if (widget.scrollController != null || repositoriesChangedForOwned) {
         if (_ownedScrollBloc case final owned?) {
           unawaited(owned.close());
           _ownedScrollBloc = null;
@@ -414,6 +505,15 @@ class _PlayerScreenState extends State<PlayerScreen>
       final nextScroll = _resolveOrAllocateScrollController();
       _scrollBloc = nextScroll;
       nextScroll.addListener(_onScrollStateChanged);
+      final vm = _computeViewModel(_boundQueueBloc?.state);
+      _dispatchScrollIntentForViewModel(
+        vm,
+        scrollCtrl: nextScroll,
+        forceRetry: vm.isSpotifySong && vm.trackId.isNotEmpty,
+      );
+    } else if (widget.currentTrack != oldWidget.currentTrack) {
+      final vm = _computeViewModel(_boundQueueBloc?.state);
+      _dispatchScrollIntentForViewModel(vm, scrollCtrl: _requireScrollBloc);
     }
 
     _syncCardRegistry();
@@ -447,7 +547,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _syncCardRegistry() {
     final vm = _computeViewModel(_boundQueueBloc?.state);
-    final colorLyrics = _currentColorLyrics();
+    final colorLyrics = vm.isSpotifySong ? _currentColorLyrics() : null;
     final activeLineIdx = _resolveActiveLyricsLine(
       colorLyrics,
       _positionNotifier.value,
@@ -458,6 +558,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       defaultArtistName: vm.artist,
       colorLyrics: colorLyrics,
       activeLineIndex: activeLineIdx,
+      enableSpotifyDataPool: vm.isSpotifySong,
       onTapLyrics: _onExpandLyrics,
       onShowAllCredits: _onShowAllCreditsFromCard,
       onShowAllEvents: _noopCallback,
@@ -516,18 +617,17 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (_dragNotifier.value == null) {
         _positionNotifier.value = vm.position;
       }
-      final scrollCtrl = _scrollBloc;
-      if (scrollCtrl != null) {
-        if (vm.trackId.isNotEmpty && vm.trackId != _currentTrackId) {
-          _currentTrackId = vm.trackId;
-          scrollCtrl.add(FetchNowPlayingScroll(vm.trackId));
-        } else if (_currentTrackId.isNotEmpty &&
+      if (_scrollBloc case final scrollCtrl?) {
+        final bufferingJustFinished =
             previousPhase ==
                 NowPlayingTransportPhase.bufferingUnplayedSegment &&
             vm.transportPhase == NowPlayingTransportPhase.playing &&
-            scrollCtrl.state is! NowPlayingScrollLoaded) {
-          scrollCtrl.add(FetchNowPlayingScroll(_currentTrackId));
-        }
+            scrollCtrl.state is! NowPlayingScrollLoaded;
+        _dispatchScrollIntentForViewModel(
+          vm,
+          scrollCtrl: scrollCtrl,
+          forceRetry: bufferingJustFinished,
+        );
       }
       _syncCardRegistry();
     }
@@ -611,25 +711,42 @@ class _PlayerScreenState extends State<PlayerScreen>
     return ValueListenableBuilder<NowPlayingScrollState>(
       valueListenable: _requireScrollBloc,
       builder: (context, scrollState, _) {
-        final activeTrackUri = vm.trackUri.isNotEmpty
-            ? vm.trackUri
-            : (_currentTrackId.isNotEmpty
-                ? 'spotify:track:$_currentTrackId'
-                : 'spotify:track:default');
-        final activeArtistUri = vm.artistUri;
+        final isSpotifySong = vm.isSpotifySong;
+        final activeTrackUri = isSpotifySong
+            ? (vm.trackUri.isNotEmpty
+                  ? vm.trackUri
+                  : (_currentTrackId.isNotEmpty
+                        ? 'spotify:track:$_currentTrackId'
+                        : ''))
+            : '';
+        final activeArtistUri = _resolveEffectiveArtistUri(vm);
 
         ColorLyricsResponse? colorLyrics;
         List<ScrollCardDescriptor> cards = const [];
 
-        if (scrollState is NowPlayingScrollLoaded) {
-          cards = scrollState.cards;
-          colorLyrics = scrollState.lyrics;
-        } else if (scrollState is NowPlayingScrollFailure) {
-          cards = scrollState.fallbackCards;
+        if (isSpotifySong) {
+          if (scrollState is NowPlayingScrollLoaded) {
+            cards = scrollState.cards
+                .map((desc) {
+                  if (desc is CreatorBioCardDescriptor &&
+                      desc.creatorUri.isEmpty &&
+                      activeArtistUri.isNotEmpty) {
+                    return CreatorBioCardDescriptor(
+                      creatorUri: activeArtistUri,
+                      title: desc.title,
+                    );
+                  }
+                  return desc;
+                })
+                .toList(growable: false);
+            colorLyrics = scrollState.lyrics;
+          } else if (scrollState is NowPlayingScrollFailure) {
+            cards = scrollState.fallbackCards;
+          }
         }
 
         if (cards.isEmpty) {
-          cards = [
+          cards = <ScrollCardDescriptor>[
             LyricsCardDescriptor(entityUri: activeTrackUri),
             CreatorBioCardDescriptor(
               creatorUri: activeArtistUri,
@@ -642,26 +759,37 @@ class _PlayerScreenState extends State<PlayerScreen>
           ];
         }
 
-        ScrollCardDescriptor peekingDesc;
-        List<ScrollCardDescriptor> expandedDescs;
+        final visibleCards = cards
+            .where((d) => d is! MerchCardDescriptor)
+            .toList(growable: false);
+        final effectiveCards = visibleCards.isNotEmpty ? visibleCards : cards;
 
-        final hasValidLyrics = colorLyrics != null &&
+        final ScrollCardDescriptor peekingDesc;
+        final List<ScrollCardDescriptor> expandedDescs;
+
+        final hasValidLyrics = isSpotifySong &&
+            colorLyrics != null &&
             colorLyrics.hasLyrics() &&
             colorLyrics.lyrics.lines.isNotEmpty;
 
-        final lyricsDesc = cards.whereType<LyricsCardDescriptor>().firstOrNull;
+        final lyricsDesc =
+            effectiveCards.whereType<LyricsCardDescriptor>().firstOrNull;
         final creatorBioDesc =
-            cards.whereType<CreatorBioCardDescriptor>().firstOrNull;
+            effectiveCards.whereType<CreatorBioCardDescriptor>().firstOrNull;
 
         if (hasValidLyrics && lyricsDesc != null) {
           peekingDesc = lyricsDesc;
-          expandedDescs = cards.where((d) => d != lyricsDesc).toList();
+          expandedDescs = effectiveCards
+              .where((d) => !identical(d, lyricsDesc))
+              .toList(growable: false);
         } else if (creatorBioDesc != null) {
           peekingDesc = creatorBioDesc;
-          expandedDescs = cards.where((d) => d != creatorBioDesc).toList();
+          expandedDescs = effectiveCards
+              .where((d) => !identical(d, creatorBioDesc))
+              .toList(growable: false);
         } else {
-          peekingDesc = cards.first;
-          expandedDescs = cards.skip(1).toList();
+          peekingDesc = effectiveCards.first;
+          expandedDescs = effectiveCards.skip(1).toList(growable: false);
         }
 
         final resolvedPeeking = _cardRegistry.buildCard(context, peekingDesc);
@@ -670,7 +798,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           null => PlayerAboutArtistSection(
               key: const ValueKey('bio_default'),
               artistName: displayArtist,
-              dataPool: _dataPool,
+              dataPool: isSpotifySong ? _dataPool : null,
               artistUri: activeArtistUri,
             ),
         };
@@ -678,7 +806,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         final expandedWidgets = expandedDescs
             .map((d) => _cardRegistry.buildCard(context, d))
             .whereType<Widget>()
-            .toList();
+            .toList(growable: false);
 
         final artworkKeyString = switch (track?.uid) {
           final uid? when uid.isNotEmpty => uid,
@@ -808,33 +936,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                         repeatVal: repeatMode,
                       ),
                     ),
-                    if (effectiveConnectController case final controller?)
-                      ValueListenableBuilder<ConnectState>(
-                        valueListenable: controller,
-                        builder: (context, connectState, _) {
-                          if (!policy.shouldShowBanner(connectState)) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: ActiveDeviceBanner(
-                              activeDevice: connectState.activeDevice,
-                              activeSelfPeripheral:
-                                  connectState.activeSelfPeripheral,
-                              selfDevice: connectState.selfDevice,
-                              devices: connectState.devices,
-                              transferState: connectState.transferState,
-                              outputStatusPolicy: policy,
-                              compact: false,
-                              showWhenLocalBuiltIn: false,
-                              onTap: () => DevicePickerSheet.show(
-                                context,
-                                controller: controller,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
                     const SizedBox(height: 8),
                   ],
                 ),
