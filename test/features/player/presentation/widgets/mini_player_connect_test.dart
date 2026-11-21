@@ -1,10 +1,12 @@
-// 1:1 Spotify `now_playing_bar` MiniPlayer & Connect wiring widget tests.
+// 1:1 Spotify `now_playing_bar` MiniPlayer, Connect wiring, and video
+// long-press resize (`ain0`/`zin0`/`hjn0`/`f9m0`/`c64`) widget tests.
 
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:drift/native.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:musify_mu/app/di/injection.dart';
 import 'package:musify_mu/app/theme/app_theme.dart';
@@ -204,6 +206,8 @@ void main() {
   });
 
   tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
     await getIt.reset();
   });
 
@@ -230,6 +234,18 @@ void main() {
         ),
       ),
     );
+  }
+
+  List<String> captureHaptics() {
+    final List<String> haptics = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'HapticFeedback.vibrate') {
+            haptics.add(call.arguments.toString());
+          }
+          return null;
+        });
+    return haptics;
   }
 
   group('Spotify now_playing_bar MiniPlayer 1:1 Fidelity & Connect Wiring', () {
@@ -275,7 +291,7 @@ void main() {
           equals(ConnectEncoreTheme.miniPlayerScaledFontHeight),
         );
 
-        // 3. Explicit large_size -> 96dp + outline halo + bottom-sheet mode
+        // 3. Explicit large_size -> 96dp + 16dp radius + outline halo + bottom-sheet mode
         await tester.pumpWidget(
           wrapHost(
             const MiniPlayer(
@@ -289,6 +305,7 @@ void main() {
             ),
           ),
         );
+        await tester.pump();
         await tester.pump(const Duration(milliseconds: 200));
         expect(
           tester.getSize(surfaceFinder).height,
@@ -298,6 +315,14 @@ void main() {
           find.byKey(const ValueKey<String>('mini_player_outline_halo')),
         );
         expect(halo.opacity, equals(1.0));
+        final roundedBox = tester.widget<DecoratedBox>(
+          find.byKey(const ValueKey<String>('now_playing_bar_rounded_box')),
+        );
+        final BoxDecoration boxDec = roundedBox.decoration as BoxDecoration;
+        expect(
+          boxDec.borderRadius,
+          equals(BorderRadius.circular(ConnectEncoreTheme.miniPlayerLargeRadius)),
+        );
       },
     );
 
@@ -334,8 +359,7 @@ void main() {
           find.byKey(const ValueKey<String>('mini_player_connect_label')),
           findsNothing,
         );
-        final localHeight = tester.getSize(surfaceFinder).height;
-        expect(localHeight, equals(56.0));
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
 
         // Remote speaker active -> 1-line "Title • Artist" + overlaid green ConnectDeviceLabel (still 56dp!).
         harness.emitCluster(
@@ -576,6 +600,409 @@ void main() {
         expect(find.byType(PlayerScreen), findsOneWidget);
         final screen = tester.widget<PlayerScreen>(find.byType(PlayerScreen));
         expect(identical(screen.connectController, harness.controller), isTrue);
+      },
+    );
+  });
+
+  group('Spotify ain0/zin0/hjn0 Video Long-Press Resize 1:1 Fidelity', () {
+    testWidgets(
+      'long-press on video fires start haptic, shows #1AFFFFFF halo, tracks drag continuously, snaps >0.5 to 96dp with end haptic, and collapses back down',
+      (tester) async {
+        final List<String> haptics = captureHaptics();
+        final List<bool> resizingEvents = <bool>[];
+        final List<(bool, int, int)> completedEvents = <(bool, int, int)>[];
+        final List<double> heightUpdates = <double>[];
+
+        await tester.pumpWidget(
+          wrapHost(
+            MiniPlayer(
+              title: 'Music Video Track',
+              artist: 'Video Artist',
+              mediaSlot: MiniPlayerVideoSlot(
+                videoBuilder: (_) => const SizedBox(
+                  key: ValueKey<String>('fake_video_frame'),
+                ),
+              ),
+              onResizingChanged: resizingEvents.add,
+              onResizeCompleted: (isLarge, startDp, endDp) {
+                completedEvents.add((isLarge, startDp, endDp));
+              },
+              onHeightChanged: heightUpdates.add,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final surfaceFinder = find.byKey(
+          const ValueKey<String>('now_playing_bar_surface'),
+        );
+        final haloFinder = find.byKey(
+          const ValueKey<String>('mini_player_outline_halo'),
+        );
+        final haloBoxFinder = find.byKey(
+          const ValueKey<String>('mini_player_outline_halo_box'),
+        );
+        final videoFinder = find.byKey(
+          const ValueKey<String>('mini_player_video_surface'),
+        );
+
+        // Initially 56dp, halo hidden, video 40dp tall (16:9), bar color #282828.
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        expect(tester.widget<AnimatedOpacity>(haloFinder).opacity, equals(0.0));
+        expect(tester.getSize(videoFinder).height, equals(40.0));
+        expect(
+          tester.getSize(videoFinder).width,
+          closeTo(40.0 * (16.0 / 9.0), 0.1),
+        );
+        final colorSurface = tester.widget<AnimatedContainer>(
+          find.byKey(const ValueKey<String>('now_playing_bar_color_surface')),
+        );
+        expect(
+          (colorSurface.decoration as BoxDecoration).color,
+          equals(ConnectEncoreTheme.miniPlayerDefaultBackground),
+        );
+
+        // Long press & hold past kLongPressTimeout (500ms) -> haptic + outline halo.
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(surfaceFinder),
+        );
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+
+        expect(haptics, equals(<String>['HapticFeedbackType.mediumImpact']));
+        expect(resizingEvents, equals(<bool>[true]));
+        expect(tester.widget<AnimatedOpacity>(haloFinder).opacity, equals(1.0));
+        final BoxDecoration haloDecStart =
+            tester.widget<DecoratedBox>(haloBoxFinder).decoration
+                as BoxDecoration;
+        expect(
+          haloDecStart.borderRadius,
+          equals(BorderRadius.circular(10.0)),
+        );
+        expect(
+          (haloDecStart.border as Border).top.color,
+          equals(ConnectEncoreTheme.tintedBase),
+        );
+
+        // Drag upward 20dp -> progress = 0.5 -> height = 76dp, halo radius = 14dp, video height = 60dp.
+        await gesture.moveBy(const Offset(0.0, -20.0));
+        await tester.pump();
+        expect(tester.getSize(surfaceFinder).height, closeTo(76.0, 0.5));
+        expect(tester.getSize(videoFinder).height, closeTo(60.0, 0.5));
+        final BoxDecoration haloDecMid =
+            tester.widget<DecoratedBox>(haloBoxFinder).decoration
+                as BoxDecoration;
+        expect(
+          haloDecMid.borderRadius,
+          equals(BorderRadius.circular(14.0)),
+        );
+
+        // Drag upward another 12dp (total 32dp -> progress 0.8 > 0.5) and release.
+        await gesture.moveBy(const Offset(0.0, -12.0));
+        await tester.pump();
+        expect(tester.getSize(surfaceFinder).height, closeTo(88.0, 0.5));
+
+        await gesture.up();
+        await tester.pump();
+
+        expect(
+          haptics,
+          equals(<String>[
+            'HapticFeedbackType.mediumImpact',
+            'HapticFeedbackType.selectionClick',
+          ]),
+        );
+        expect(resizingEvents, equals(<bool>[true, false]));
+        expect(completedEvents, equals(<(bool, int, int)>[(true, 56, 96)]));
+        expect(tester.widget<AnimatedOpacity>(haloFinder).opacity, equals(0.0));
+
+        // 100ms decelerate snap finishes at exact 96dp, 16dp bar radius, 18dp halo radius, 80dp video height.
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(tester.getSize(surfaceFinder).height, equals(96.0));
+        expect(tester.getSize(videoFinder).height, equals(80.0));
+        expect(
+          tester.getSize(videoFinder).width,
+          closeTo(80.0 * (16.0 / 9.0), 0.1),
+        );
+        expect(heightUpdates, isNotEmpty);
+        final BoxDecoration haloDecLarge =
+            tester.widget<DecoratedBox>(haloBoxFinder).decoration
+                as BoxDecoration;
+        expect(
+          haloDecLarge.borderRadius,
+          equals(BorderRadius.circular(18.0)),
+        );
+
+        // Long-press again and drag downward 30dp (progress = 0.25 <= 0.5) -> snaps back to 56dp.
+        final TestGesture collapseGesture = await tester.startGesture(
+          tester.getCenter(surfaceFinder),
+        );
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+        await collapseGesture.moveBy(const Offset(0.0, 30.0));
+        await tester.pump();
+        expect(tester.getSize(surfaceFinder).height, closeTo(66.0, 0.5));
+
+        await collapseGesture.up();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        expect(
+          completedEvents,
+          equals(<(bool, int, int)>[(true, 56, 96), (false, 96, 56)]),
+        );
+        expect(haptics.length, equals(4));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'long-press on audio track (MiniPlayerArtworkSlot) does NOT resize or trigger haptics',
+      (tester) async {
+        final List<String> haptics = captureHaptics();
+        var resized = false;
+
+        await tester.pumpWidget(
+          wrapHost(
+            MiniPlayer(
+              title: 'Audio Track',
+              artist: 'Audio Artist',
+              onResizingChanged: (_) => resized = true,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final surfaceFinder = find.byKey(
+          const ValueKey<String>('now_playing_bar_surface'),
+        );
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(surfaceFinder),
+        );
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+        await gesture.moveBy(const Offset(0.0, -40.0));
+        await tester.pump();
+        await gesture.up();
+        await tester.pump(const Duration(milliseconds: 150));
+
+        expect(haptics, isEmpty);
+        expect(resized, isFalse);
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+      },
+    );
+
+    testWidgets(
+      'local Bluetooth video supports resize + 0.75 metadata switch to 2-line + bottom label, while remote Connect speaker collapses and blocks resize',
+      (tester) async {
+        final List<String> haptics = captureHaptics();
+        final harness = _MiniPlayerConnectHarness();
+        addTearDown(() => tester.runAsync(harness.dispose));
+
+        await tester.pumpWidget(
+          wrapHost(
+            MiniPlayer(
+              title: 'Video Podcast Episode',
+              artist: 'Studio Host',
+              connectController: harness.controller,
+              mediaSlot: MiniPlayerVideoSlot(
+                videoBuilder: (_) => const SizedBox(
+                  key: ValueKey<String>('fake_video_frame'),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        // Local Bluetooth headphones active (`nck.b == true`) -> eligible for video resize!
+        harness.emitCluster(selfActive: true);
+        harness.controller.dispatch(
+          PeripheralsUpdatedEvent(<LocalAudioPeripheral>[
+            LocalAudioPeripheral(
+              id: 'bt-1',
+              name: 'WH-1000XM5',
+              isActive: true,
+              connectionType: OutputPeripheralConnectionType.bluetooth,
+              isConnected: true,
+            ),
+          ]),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        final surfaceFinder = find.byKey(
+          const ValueKey<String>('now_playing_bar_surface'),
+        );
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        expect(
+          find.byKey(
+            const ValueKey<String>('mini_player_single_line_connect_mode'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_connect_label')),
+          findsOneWidget,
+        );
+
+        // Long-press and drag upward 34dp (progress = 0.85 >= 0.75) ->
+        // switches to 2-line metadata at top AND relocates label to bottom-left!
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(surfaceFinder),
+        );
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+        await gesture.moveBy(const Offset(0.0, -34.0));
+        await tester.pump();
+
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_two_line_local_mode')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('mini_player_large_connect_label')),
+          findsOneWidget,
+        );
+        expect(find.text('WH-1000XM5'), findsOneWidget);
+
+        await gesture.up();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(tester.getSize(surfaceFinder).height, equals(96.0));
+
+        // Transfer playback to a remote Connect speaker (`nck.b == false`) ->
+        // immediately collapses back to 56dp 1-line mode and blocks further resize!
+        harness.emitCluster(
+          selfActive: false,
+          remoteName: 'Living Room TV',
+          remoteActive: true,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        expect(
+          find.byKey(
+            const ValueKey<String>('mini_player_single_line_connect_mode'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Living Room TV'), findsOneWidget);
+
+        final int hapticsBeforeRemoteAttempt = haptics.length;
+        final TestGesture remoteGesture = await tester.startGesture(
+          tester.getCenter(surfaceFinder),
+        );
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+        await remoteGesture.moveBy(const Offset(0.0, -40.0));
+        await tester.pump();
+        await remoteGesture.up();
+        await tester.pump(const Duration(milliseconds: 150));
+
+        expect(haptics.length, equals(hapticsBeforeRemoteAttempt));
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'cancels mid-drag resize when media switches video -> audio and renders large video cleanly at 320dp, 390dp, 800dp and 1.9x fontScale',
+      (tester) async {
+        final List<bool> resizingEvents = <bool>[];
+        captureHaptics();
+
+        await tester.pumpWidget(
+          wrapHost(
+            MiniPlayer(
+              title: 'Live Video Track',
+              artist: 'Artist Name',
+              mediaSlot: MiniPlayerVideoSlot(
+                videoBuilder: (_) => const SizedBox(
+                  key: ValueKey<String>('fake_video_frame'),
+                ),
+              ),
+              onResizingChanged: resizingEvents.add,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final surfaceFinder = find.byKey(
+          const ValueKey<String>('now_playing_bar_surface'),
+        );
+        final haloFinder = find.byKey(
+          const ValueKey<String>('mini_player_outline_halo'),
+        );
+
+        // Start resize drag mid-way.
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(surfaceFinder),
+        );
+        await tester.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+        await gesture.moveBy(const Offset(0.0, -24.0));
+        await tester.pump();
+        expect(resizingEvents, equals(<bool>[true]));
+        expect(tester.widget<AnimatedOpacity>(haloFinder).opacity, equals(1.0));
+
+        // Track changes to audio mid-drag (`gjn0.java:479` `ain0Var.a()`) -> cancels cleanly!
+        await tester.pumpWidget(
+          wrapHost(
+            MiniPlayer(
+              title: 'Next Audio Track',
+              artist: 'Audio Artist',
+              mediaSlot: const MiniPlayerArtworkSlot(),
+              onResizingChanged: resizingEvents.add,
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+
+        expect(resizingEvents, equals(<bool>[true, false]));
+        expect(tester.widget<AnimatedOpacity>(haloFinder).opacity, equals(0.0));
+        expect(tester.getSize(surfaceFinder).height, equals(56.0));
+        await gesture.up();
+        await tester.pump();
+
+        // Stress-check large video + skippable ad + 4 badges across viewports & fontScale > 1.8.
+        for (final double viewportWidth in <double>[320.0, 390.0, 800.0]) {
+          await tester.pumpWidget(
+            wrapHost(
+              MiniPlayer(
+                title: 'Very Long Video Episode Title For Layout Verification',
+                artist: 'Podcast Creator & Co-Host',
+                mediaSlot: MiniPlayerVideoSlot(
+                  videoBuilder: (_) => const SizedBox(),
+                ),
+                badges: const MiniPlayerTrackBadges(
+                  isQueued: true,
+                  isEnhanced: true,
+                  playbackSpeedLabel: '1.5x',
+                  listenAlongLabel: 'Jam',
+                ),
+                adConfig: MiniPlayerAdConfig(
+                  canSkip: true,
+                  onSkip: () {},
+                ),
+                visualConfig: const MiniPlayerVisualConfig(
+                  sizeMode: MiniPlayerSizeMode.largeSize,
+                ),
+              ),
+              width: viewportWidth,
+              textScale: viewportWidth == 320.0 ? 1.9 : 1.0,
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 150));
+          expect(tester.getSize(surfaceFinder).height, equals(96.0));
+          if (viewportWidth == 320.0) {
+            // Exact `f9m0.java:131`: fontScale > 1.8 stays in 1-line metadata.
+            expect(
+              find.byKey(
+                const ValueKey<String>('mini_player_single_line_connect_mode'),
+              ),
+              findsOneWidget,
+            );
+          }
+          expect(tester.takeException(), isNull);
+        }
       },
     );
   });

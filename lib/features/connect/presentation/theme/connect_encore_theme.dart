@@ -6,6 +6,8 @@
 // - Alpha overlays: `p199p/lgw.java`
 // - Brand accent (`spotify_green_157` / `textBrightAccent`): `p199p/tcw.java` (`#FF1ED760`)
 // - Typography scale: `p199p/oww.java` (`f178576a`), `p199p/m0x.java`, `p199p/eel1.java` (`m41044k`)
+// - MiniPlayer resize tokens: `p/zin0.java`, `p/hjn0.java`, `p/ain0.java`, `p/f9m0.java`,
+//   `res/xml/now_playing_bar_scene.xml`, `res/drawable/now_playing_bar_outline.xml`
 
 import 'package:flutter/material.dart';
 
@@ -41,16 +43,17 @@ abstract final class ConnectEncoreTheme {
   /// Bottom sheet top drag handle pill (`#535353`).
   static const Color dragHandle = Color(0xFF535353);
 
-  /// Video surface backing color (`#000000`).
+  /// Video surface backing color (`#000000`, `now_playing_bar_video_bg.xml`).
   static const Color videoSurfaceBackground = Color(0xFF000000);
 
   // ===========================================================================
-  // Tints, Overlays & Dividers (lgw.java)
+  // Tints, Overlays & Dividers (lgw.java, colors.xml)
   // ===========================================================================
 
-  /// `backgroundTintedBase` / `opacity_white_10` (`10%` white).
+  /// `backgroundTintedBase` / `dark_base_background_tinted_base` (`#1AFFFFFF`).
   /// Used for volume slider inactive track, sheet dividers, highlight circles,
-  /// quality pill background, and MiniPlayer progress bar background.
+  /// quality pill background, MiniPlayer progress bar background, and
+  /// `now_playing_bar_outline.xml` resize halo stroke.
   static const Color tintedBase = Color(0x1AFFFFFF);
 
   /// `opacity_white_15` (`15%` white) for subtle pressed/hover states.
@@ -163,7 +166,7 @@ abstract final class ConnectEncoreTheme {
   );
 
   // ===========================================================================
-  // Layout Constants (now_playing_bar.xml, now_playing_bar_scene.xml, lxs/frl1/btl1)
+  // Layout Constants (now_playing_bar.xml, now_playing_bar_scene.xml, zin0, lxs)
   // ===========================================================================
 
   /// Default floating MiniPlayer bar height (`floating_now_playing_bar_height`).
@@ -175,35 +178,67 @@ abstract final class ConnectEncoreTheme {
   /// Large MotionLayout MiniPlayer height (`now_playing_bar_large_height`).
   static const double miniPlayerLargeHeight = 96.0;
 
-  /// Font scale threshold triggering [miniPlayerScaledFontHeight] (`zin0.m97542b`).
+  /// Font scale threshold triggering [miniPlayerScaledFontHeight] (`zin0.b`).
   static const double miniPlayerScaledFontThreshold = 1.5;
+
+  /// Max font scale permitting 2-line metadata in resized video bar (`f9m0.java:131`).
+  static const double miniPlayerLargeMetadataMaxFontScale = 1.8;
 
   /// Floating MiniPlayer corner radius in `default_size` (`encore_corner_radius_larger_2`).
   static const double miniPlayerDefaultRadius = 8.0;
 
-  /// Floating MiniPlayer corner radius in `large_size` (`encore_corner_radius_larger_3`).
-  static const double miniPlayerLargeRadius = 12.0;
+  /// Floating MiniPlayer corner radius in `large_size` (`encore_corner_radius_larger_3`, `zin0.java:44`).
+  static const double miniPlayerLargeRadius = 16.0;
 
-  /// MiniPlayer artwork / video corner radius in `default_size`.
+  /// MiniPlayer artwork / video corner radius in `default_size` (`encore_corner_radius_base`).
   static const double miniPlayerArtworkDefaultRadius = 4.0;
 
-  /// MiniPlayer video corner radius in `large_size`.
+  /// MiniPlayer video corner radius in `large_size` (`encore_corner_radius_larger_2`, `zin0.java:46`).
   static const double miniPlayerArtworkLargeRadius = 8.0;
 
-  /// MiniPlayer outline halo stroke width (`now_playing_bar_outline.xml`).
+  /// MiniPlayer outline halo stroke width (`encore_border_width_thick` / `floating_now_playing_bar_outline_width`).
   static const double miniPlayerOutlineStrokeWidth = 4.0;
 
-  /// MiniPlayer outline halo corner radius (`now_playing_bar_outline.xml`).
+  /// MiniPlayer outline halo corner radius in `default_size` (`(4dp / 2) + 8dp = 10dp`).
   static const double miniPlayerOutlineRadius = 10.0;
+
+  /// MiniPlayer outline halo corner radius in `large_size` (`(4dp / 2) + 16dp = 18dp`, `zin0.java:89`).
+  static const double miniPlayerOutlineLargeRadius = 18.0;
+
+  /// MiniPlayer default content padding (`floating_now_playing_bar_content_padding`).
+  static const double miniPlayerContentPadding = 8.0;
+
+  /// MiniPlayer large content padding for progress bar inset (`floating_now_playing_bar_large_content_padding`).
+  static const double miniPlayerLargeContentPadding = 16.0;
+
+  /// MiniPlayer carousel horizontal margin (`now_playing_bar_carousel_margin`).
+  static const double miniPlayerCarouselMargin = 12.0;
 
   /// MiniPlayer action slot size (`now_playing_bar_actions_button_size`).
   static const double miniPlayerActionButtonSize = 40.0;
 
+  /// MiniPlayer action spacing & bottom/end margin in `large_size` (`now_playing_bar_large_button_spacing`).
+  static const double miniPlayerLargeButtonSpacing = 4.0;
+
+  /// MiniPlayer `device_name_label` bottom margin aligned to `play_pause_button` in `large_size`
+  /// (`now_playing_bar_large_connect_label_bottom_margin`).
+  static const double miniPlayerLargeConnectLabelBottomMargin = 12.0;
+
   /// MiniPlayer progress bar height (`now_playing_bar.xml`).
   static const double miniPlayerProgressHeight = 2.0;
 
-  /// MiniPlayer MotionLayout transition duration (`now_playing_bar_scene.xml`).
+  /// Resize progress threshold that toggles 1-line/2-line metadata (`ain0.java:100`, `x55.java:41`).
+  static const double miniPlayerResizeMetadataThreshold = 0.75;
+
+  /// Resize progress threshold deciding final snap target on release (`ain0.java:116`).
+  static const double miniPlayerResizeSnapThreshold = 0.5;
+
+  /// MiniPlayer MotionLayout transition duration (`now_playing_bar_scene.xml`, `hjn0.h`).
   static const Duration miniPlayerMotionDuration = Duration(milliseconds: 100);
+
+  /// MiniPlayer outline halo alpha fade duration (`hjn0.g`).
+  static const Duration miniPlayerOutlineFadeDuration =
+      Duration(milliseconds: 150);
 
   /// MiniPlayer background artwork color crossfade duration (`dkg.java`).
   static const Duration miniPlayerColorTransitionDuration =
