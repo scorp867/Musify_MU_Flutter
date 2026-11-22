@@ -1709,7 +1709,8 @@ void ConnectStateClientImpl::timer_loop() {
                 }
             }
             if (replay_player_put && !player_meta.device_id.empty()) {
-                player_meta.request.put_state_reason = PutStateReason::PLAYER_STATE_CHANGED;
+                // liborbit @ 0xdc0ec4: deferred PLAYER_STATE_CHANGED (4) rewrites reason to PUT_STATE_RATE_LIMITED (12).
+                player_meta.request.put_state_reason = PutStateReason::PUT_STATE_RATE_LIMITED;
                 const PutStateResult res = execute_put_state_immediate(
                     player_meta.device_id, player_meta.request, player_meta.wake_devices);
                 if (!res.ok) {

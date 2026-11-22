@@ -11,7 +11,20 @@
 //   - GroupDataEnricher (0xd9f810..0xda1818),
 //   - StateRestoreController (`LoadLastTransferBlob` @ 0xdb4758, 5000ms @ 0xdb9e10),
 //   - LocalDeviceReporter (0xdc3b90..0xdc42bc, 0xdcf304..0xdd232c, 0xdedec0..0xdeffff),
-//   - ConnectStateImpl::onClusterChanged (0xdb6740..0xdb7060),
+//   - ConnectStateImpl::onClusterChanged (0xdb6740..0xdb7060, stale check 0xdb6984..0xdb69f4 -> 0xdf0074),
+//   - ConnectProxyPlayer (0x162da80: becomeInactive @ 0xdaaa2c, updateRemotePlayerState @ 0xdaaab4),
+//   - ConnectManager::sendPutState (0xdb2088..0xdb26f8), PutState race guard (0xdb2e84..0xdb3154),
+//   - ConnectManager::onClusterUpdate (0xdb3260..0xdb329c), adjustTimestamps (0xdb28c0..0xdb2968),
+//   - `player.arch = "3"` Dual-Chain Architecture (0x10873e8):
+//     - Object A / Chain 1 (0x108a878) -> Connect `[ConnectState + 0x378]` (0xd94764),
+//       base `toPlayerState` (0x10d77c0..0x10d8f80), `restrictions` (0xf85e5c),
+//       `playback_quality` (0x10d7f00..0x10d8078),
+//     - Object B / Chain 2 (0x108ad38, ExtendedMetadataDecorator 0x10da59c -> 0x10dc214) -> Esperanto (0x11281d0),
+//   - `ListPlayerConfig` full-load clip limits (0x127f4b0: prev=20, 0x127f4c8: next=80 -> 0x108a0c8 -> ListState 0x10abac4),
+//   - `spirc_version = "3.2.6"` (0xd92cb8), `metadata_map` (`debug_level`/`device_address_mask` @ 0xdb81d4..0xdb81fc),
+//   - enable_player_state_stripping (0xdb232c..0xdb24dc, 0x3e0778, 0x341adf, 0x449e08, 0x449e20, 0x1582d50),
+//   - encodeProvidedTrack (0xdc6bc0..0xdc6c94), ListPlayer delimiter metadata (0xe61068..0xe61560),
+//   - EsRestrictions wire contract (0x175be00, 0x1765f00, 0x178d200; EsRestrictions$Restrictions.java:23-55),
 //   - ConnectApiImpl outbound remote command forward (0xda66f0..0xda96ac).
 // - Esperanto service contracts:
 //   - ConnectService (.so @ 0x3a20cd), ConnectVolumeService (.so @ 0x343b80),
@@ -25,6 +38,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdio>
 #include <utility>
 
 #include "../network/NativeLog.h"
@@ -47,21 +61,169 @@ bool is_active_playing_phase(player::ContextPlayerImpl::SessionPlaybackPhase pha
            phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPlay;
 }
 
-ProvidedTrack to_provided_track(const player::context_view::Entry& entry) {
+/// Formats a bare IPv4 address with `/24` mask for `DeviceInfo.metadata_map["device_address_mask"]`
+/// (`liborbit` `0x3e1070` @ `0xdb81d4..0xdb81fc`, e.g. `"192.168.1.21/24"`).
+std::string format_device_address_mask(const std::string& public_ip) {
+    if (public_ip.empty() || public_ip.find('/') != std::string::npos) {
+        return public_ip;
+    }
+    if (public_ip.find('.') != std::string::npos && public_ip.find(':') == std::string::npos) {
+        return public_ip + "/24";
+    }
+    return public_ip;
+}
+
+/// 1:1 with `liborbit-jni-spotify.so` `player.arch = "3"` Dual-Chain Architecture (`0x10873e8`):
+/// Connect sits at `[ConnectState + 0x378]` (`0xd94764`) receiving Object A (`0x108a878`,
+/// base `toPlayerState` `0x10d77c0..0x10d8f80` + Chain 1 ONLY — ZERO Chain 2
+/// `ExtendedMetadataDecorator` UI display keys).
+/// - `prev_tracks[i]` / `next_tracks[i]` (`0x10d8af8..0x10d8f78`): exact 5 base keys
+///   (`requested_uri`, `context_uri`, `interaction_id`, `page_instance_id`, `provider`)
+///   + `is_queued = "true"` ONLY when queued (`0x10d8b80: cbz w8`, never `"false"`).
+/// - Active `track` (`0x10d7d38..0x10d7ea4`): exact 5 base keys (+ `is_queued` if queued)
+///   PLUS 5 active-playback keys (`playback_speed` `%.6f`, `duration`, `position`,
+///   `media.type`, `track_player`).
+/// - `spotify:delimiter` (`0xe61068..0xe61560`): `uri = "spotify:delimiter"`,
+///   `provider = "delimiter"`, `metadata = {"hidden": "true"}` (+ boundary keys when present).
+ProvidedTrack build_base_provided_track(
+    const player::context_view::Entry& entry,
+    const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot,
+    bool is_active_track,
+    int64_t active_duration_ms,
+    int64_t active_position_ms,
+    float active_playback_speed) {
     ProvidedTrack pt;
-    pt.uri = entry.uri;
     pt.uid = entry.uid;
-    pt.metadata = entry.metadata;
-    pt.provider = entry.provider;
-    if (const auto it = entry.metadata.find("album_uri");
-        it != entry.metadata.end() && !it->second.empty()) {
-        pt.album_uri = it->second;
+    if (player::ContextProcessor::is_delimiter(entry.uri)) {
+        pt.uri = "spotify:delimiter";
+        pt.provider =
+            (!entry.provider.empty() && entry.provider != "context")
+                ? entry.provider
+                : "delimiter";
+        pt.metadata["hidden"] = "true";
+        for (const char* boundary_key : {
+                 "is_boundary",
+                 "actions.advancing_past_track",
+                 "actions.skipping_next_past_track",
+             }) {
+            const auto it = entry.metadata.find(boundary_key);
+            if (it != entry.metadata.end() && !it->second.empty()) {
+                pt.metadata[boundary_key] = it->second;
+            }
+        }
+        return pt;
     }
-    if (const auto it = entry.metadata.find("artist_uri");
-        it != entry.metadata.end() && !it->second.empty()) {
-        pt.artist_uri = it->second;
+
+    auto pick_meta = [&entry](const char* key, const std::string& fallback) -> std::string {
+        const auto it = entry.metadata.find(key);
+        if (it != entry.metadata.end() && !it->second.empty()) {
+            return it->second;
+        }
+        return fallback;
+    };
+
+    const auto it_queued = entry.metadata.find("is_queued");
+    const bool is_queued =
+        (entry.provider == "queue") ||
+        (it_queued != entry.metadata.end() &&
+         (it_queued->second == "true" || it_queued->second == "True"));
+    std::string provider;
+    if (is_queued) {
+        provider = "queue";
+    } else if (!entry.provider.empty()) {
+        provider = entry.provider;
+    } else {
+        provider = "context";
     }
+
+    pt.uri = entry.uri;
+    pt.provider = provider;
+
+    // Per-track base helper (`0x10d8af8..0x10d8d24`) + session/provider helper (`0x10d8d28..0x10d8f78`):
+    const std::string requested_uri = pick_meta("requested_uri", entry.uri);
+    if (!requested_uri.empty()) {
+        pt.metadata["requested_uri"] = requested_uri;
+    }
+    const std::string ctx_uri = pick_meta("context_uri", snapshot.context_uri);
+    if (!ctx_uri.empty()) {
+        pt.metadata["context_uri"] = ctx_uri;
+    }
+    const std::string interaction_id = pick_meta("interaction_id", snapshot.interaction_id);
+    if (!interaction_id.empty()) {
+        pt.metadata["interaction_id"] = interaction_id;
+    }
+    const std::string page_instance_id = pick_meta("page_instance_id", snapshot.page_instance_id);
+    if (!page_instance_id.empty()) {
+        pt.metadata["page_instance_id"] = page_instance_id;
+    }
+    pt.metadata["provider"] = provider;
+    if (is_queued) {
+        // 0x10d8b80: cbz w8, 0x10d8b9c -> ONLY emitted when queued, NEVER "false".
+        pt.metadata["is_queued"] = "true";
+    }
+
+    if (is_active_track) {
+        // Active `track.metadata` extra 5 keys (`0x10d7d38..0x10d7ea4`):
+        char speed_buf[32];
+        std::snprintf(
+            speed_buf,
+            sizeof(speed_buf),
+            "%.6f",
+            static_cast<double>(active_playback_speed > 0.0f ? active_playback_speed : 1.0f));
+        pt.metadata["playback_speed"] = speed_buf;
+
+        if (active_duration_ms > 0) {
+            pt.metadata["duration"] = std::to_string(active_duration_ms);
+        } else {
+            const std::string meta_dur = pick_meta("duration", {});
+            if (!meta_dur.empty()) {
+                pt.metadata["duration"] = meta_dur;
+            }
+        }
+        pt.metadata["position"] = std::to_string(std::max<int64_t>(0, active_position_ms));
+
+        const std::string media_type =
+            pick_meta("media.type", "audio") == "video" ? "video" : "audio";
+        pt.metadata["media.type"] = media_type;
+        pt.metadata["track_player"] = media_type;
+    }
+
     return pt;
+}
+
+[[nodiscard]] bool is_put_state_track_entry(const player::context_view::Entry& entry) noexcept {
+    if (player::SpotifyPlaybackPolicy::is_spotify_song_entry(entry)) {
+        return true;
+    }
+    if (player::ContextProcessor::is_delimiter(entry.uri)) {
+        return !player::SpotifyPlaybackPolicy::is_vault_entry(entry) &&
+               !player::SpotifyPlaybackPolicy::is_local_entry(entry);
+    }
+    return false;
+}
+
+[[nodiscard]] bool should_prevent_player_state_stripping(
+    const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot,
+    const PlayerState& ps) noexcept {
+    // 1:1 with liborbit ConnectManager::sendPutState stripping guards (0xdb232c..0xdb24dc):
+    // Skip stripping when play_origin.feature_identifier == "com.spotify.service.dynamicplaylistsession"
+    // (0x341adf), context_metadata has "lexicon_set_type" (0x449e08) or "context_patched" (0x449e20),
+    // or next_tracks contains an "autoplay" track (0x1582d50 -> 0x341b0a).
+    if (snapshot.play_origin.feature_identifier == "com.spotify.service.dynamicplaylistsession" ||
+        snapshot.context_uri.find("dynamicplaylistsession") != std::string::npos) {
+        return true;
+    }
+    if (snapshot.context_metadata.find("lexicon_set_type") != snapshot.context_metadata.end() ||
+        snapshot.context_metadata.find("context_patched") != snapshot.context_metadata.end() ||
+        snapshot.page_metadata.find("context_patched") != snapshot.page_metadata.end()) {
+        return true;
+    }
+    for (const auto& track : ps.next_tracks) {
+        if (track.provider == "autoplay") {
+            return true;
+        }
+    }
+    return false;
 }
 
 player::context_view::Entry from_provided_track(const ProvidedTrack& pt) {
@@ -230,16 +392,29 @@ int32_t ConnectSubsystem::start(const DeviceInfo& initial_device) {
         running_ = true;
         local_active_ = false;
         last_cluster_active_device_id_.clear();
-        last_local_state_timestamp_ms_ = 0;
+        clock_skew_ms_ = 0;
         last_needs_state_updates_ = false;
-        last_need_full_player_state_ = false;
+        last_need_full_player_state_ = true;
         was_playing_ = false;
         started_playing_at_ms_ = 0;
     }
     needs_teardown_ = true;
 
     DeviceInfo normalized_device = initial_device;
-    normalized_device.has_volume = true;
+    // liborbit @ 0xd92cb8..0xd92cc4: spirc_version = "3.2.6" (`0x37c281`).
+    if (normalized_device.spirc_version.empty() ||
+        normalized_device.spirc_version == "3.2.0") {
+        normalized_device.spirc_version = "3.2.6";
+    }
+    // Omit synthetic "musify-android" product_id (`#36` §1).
+    if (normalized_device.product_id == "musify-android") {
+        normalized_device.product_id.clear();
+    }
+    // Ensure valid volume is populated when unset so tag 2 is not dropped as default 0.
+    if (!normalized_device.has_volume && normalized_device.volume == 0) {
+        normalized_device.volume = kMaxVolumeSteps;
+    }
+    normalized_device.has_volume = (normalized_device.volume > 0);
     devices_.set_local_device_info(normalized_device);
     client_.set_local_device_id(normalized_device.device_id);
 
@@ -358,9 +533,9 @@ void ConnectSubsystem::stop() {
                 running_ = false;
                 local_active_ = false;
                 last_cluster_active_device_id_.clear();
-                last_local_state_timestamp_ms_ = 0;
+                clock_skew_ms_ = 0;
                 last_needs_state_updates_ = false;
-                last_need_full_player_state_ = false;
+                last_need_full_player_state_ = true;
                 was_playing_ = false;
                 started_playing_at_ms_ = 0;
                 group_device_volumes_.clear();
@@ -789,9 +964,17 @@ void ConnectSubsystem::setup_dealer_callbacks() {
 }
 
 PlayerState ConnectSubsystem::build_connect_player_state(
-    const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot) {
+    const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot,
+    bool strip_player_state,
+    int64_t clock_skew_ms) {
     PlayerState ps;
-    ps.timestamp = snapshot.timestamp_ms;
+    // 1:1 with liborbit ConnectManager::sendPutState (0xdb2124 -> adjustTimestamps(dir=0) @ 0xdb28c0..0xdb2968):
+    // Subtract Connect clock skew (skew = local_now - cluster.server_timestamp_ms) to convert
+    // local player_state.timestamp into server clock domain (0xdc1334..0xdc1354).
+    ps.timestamp =
+        snapshot.timestamp_ms > 0
+            ? std::max<int64_t>(1, snapshot.timestamp_ms - clock_skew_ms)
+            : 0;
     ps.context_uri = snapshot.context_uri;
     ps.context_url = snapshot.context_url;
     ps.playback_id = snapshot.playback_id;
@@ -800,14 +983,15 @@ PlayerState ConnectSubsystem::build_connect_player_state(
     ps.queue_revision = std::to_string(snapshot.queue_revision);
     ps.signals = snapshot.signals;
     ps.context_metadata = snapshot.context_metadata;
+    // 1:1 with liborbit `player.arch = "3"` `toPlayerState` (`0x10d78e4..0x10d7914`):
+    // Always advertise `player.arch = "3"` (`0x36e9b6` / `0x45ea23`) and `mixer_enabled` (`0x383edd`).
+    ps.context_metadata["player.arch"] = "3";
+    ps.context_metadata.try_emplace("mixer_enabled", "false");
     ps.page_metadata = snapshot.page_metadata;
 
-    ps.index = ContextIndex{
-        .page = snapshot.page_index,
-        .track = snapshot.track_index >= 0 ? static_cast<uint32_t>(snapshot.track_index) : 0U,
-        .has_page = true,
-        .has_track = true,
-    };
+    // 1:1 with liborbit `0x10d8134..0x10d8160` (`cbz w11, 0x10d8160`):
+    // `index` is omitted in `player.arch = "3"` unless explicitly set.
+    ps.index = std::nullopt;
 
     const bool playing =
         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Playing ||
@@ -820,60 +1004,151 @@ PlayerState ConnectSubsystem::build_connect_player_state(
         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPaused;
 
     ps.is_playing = playing || paused;
-    ps.has_is_playing = true;
+    ps.has_is_playing = ps.is_playing;
     ps.is_paused = paused;
-    ps.has_is_paused = true;
+    ps.has_is_paused = ps.is_paused;
     ps.is_buffering = buffering;
-    ps.has_is_buffering = true;
+    ps.has_is_buffering = ps.is_buffering;
     ps.playback_speed =
         snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Playing
             ? snapshot.playback_speed
             : 0.0;
-    ps.has_playback_speed = true;
+    ps.has_playback_speed = ps.playback_speed != 0.0;
     ps.position_as_of_timestamp = snapshot.position_ms;
-    ps.has_position_as_of_timestamp = true;
+    ps.has_position_as_of_timestamp = ps.position_as_of_timestamp != 0;
     ps.duration = snapshot.duration_ms;
-    ps.has_duration = true;
+    ps.has_duration = ps.duration != 0;
 
     ps.options.shuffling_context = snapshot.shuffling;
-    ps.options.has_shuffling_context = true;
+    ps.options.has_shuffling_context = ps.options.shuffling_context;
     ps.options.repeating_context =
         snapshot.repeat_mode == player::ContextPlayerImpl::SessionRepeatMode::Context ||
         snapshot.repeat_mode == player::ContextPlayerImpl::SessionRepeatMode::Track;
-    ps.options.has_repeating_context = true;
+    ps.options.has_repeating_context = ps.options.repeating_context;
     ps.options.repeating_track =
         snapshot.repeat_mode == player::ContextPlayerImpl::SessionRepeatMode::Track;
-    ps.options.has_repeating_track = true;
-    ps.options.playback_speed = static_cast<float>(snapshot.playback_speed);
+    ps.options.has_repeating_track = ps.options.repeating_track;
+    // 1:1 with liborbit `player.arch = "3"` `toPlayerState` (`0x10d8260..0x10d82ac`, `0x10d8790..0x10d8820`):
+    // Always populate `options.playback_speed` (1.0f default) and default `modes`
+    // (`context_enhancement = "NONE"`, `jam = "off"`).
+    ps.options.playback_speed =
+        snapshot.playback_speed > 0.0 ? static_cast<float>(snapshot.playback_speed) : 1.0f;
     ps.options.has_playback_speed = true;
+    ps.options.modes = snapshot.modes;
+    ps.options.modes.try_emplace("context_enhancement", "NONE");
+    ps.options.modes.try_emplace("jam", "off");
 
     if (snapshot.current_track.has_value() &&
         player::SpotifyPlaybackPolicy::is_spotify_song_entry(*snapshot.current_track)) {
-        ps.track = to_provided_track(*snapshot.current_track);
+        ps.track = build_base_provided_track(
+            *snapshot.current_track,
+            snapshot,
+            /*is_active_track=*/true,
+            ps.duration,
+            ps.position_as_of_timestamp,
+            ps.options.playback_speed);
     }
 
-    ps.prev_tracks.reserve(snapshot.prev_tracks.size());
+    // 1:1 with liborbit `player.arch = "3"` `ListPlayerConfig` (`0x127f4b0`: 20 prev,
+    // `0x127f4c8`: 80 next -> `0x108a0c8` -> `ListState` `0x10abac4`) & base `toPlayerState`
+    // (`0x10d8af8..0x10d8f78`):
+    // Emit up to 20 prev_tracks (oldest-to-newest) and 80 next_tracks (chronological,
+    // preserving spotify:delimiter) with base session/context metadata ONLY (ZERO Chain 2
+    // display keys), and strip ONLY track counts to 2/2 with `page_metadata["is_stripped"]="true"`
+    // when `need_full_player_state == false` and `(prev > 2 || next > 2)` (`0xdb232c..0xdb24dc`).
+    ps.prev_tracks.reserve(std::min(snapshot.prev_tracks.size(), kPutStateMaxPrevTracks));
     for (const auto& entry : snapshot.prev_tracks) {
-        if (player::SpotifyPlaybackPolicy::is_spotify_song_entry(entry)) {
-            ps.prev_tracks.push_back(to_provided_track(entry));
+        if (is_put_state_track_entry(entry)) {
+            ps.prev_tracks.push_back(build_base_provided_track(
+                entry,
+                snapshot,
+                /*is_active_track=*/false,
+                0,
+                0,
+                ps.options.playback_speed));
         }
     }
+    if (ps.prev_tracks.size() > kPutStateMaxPrevTracks) {
+        ps.prev_tracks.erase(
+            ps.prev_tracks.begin(),
+            ps.prev_tracks.end() - static_cast<std::ptrdiff_t>(kPutStateMaxPrevTracks));
+    }
 
-    ps.next_tracks.reserve(snapshot.next_tracks.size());
+    ps.next_tracks.reserve(std::min(snapshot.next_tracks.size(), kPutStateMaxNextTracks));
     for (const auto& entry : snapshot.next_tracks) {
-        if (player::SpotifyPlaybackPolicy::is_spotify_song_entry(entry)) {
-            ps.next_tracks.push_back(to_provided_track(entry));
+        if (is_put_state_track_entry(entry)) {
+            ps.next_tracks.push_back(build_base_provided_track(
+                entry,
+                snapshot,
+                /*is_active_track=*/false,
+                0,
+                0,
+                ps.options.playback_speed));
+            if (ps.next_tracks.size() >= kPutStateMaxNextTracks) {
+                break;
+            }
         }
     }
 
+    if (strip_player_state &&
+        (ps.prev_tracks.size() > kPutStateStrippedTrackCount ||
+         ps.next_tracks.size() > kPutStateStrippedTrackCount) &&
+        !should_prevent_player_state_stripping(snapshot, ps)) {
+        if (ps.prev_tracks.size() > kPutStateStrippedTrackCount) {
+            ps.prev_tracks.erase(
+                ps.prev_tracks.begin(),
+                ps.prev_tracks.end() - static_cast<std::ptrdiff_t>(kPutStateStrippedTrackCount));
+        }
+        if (ps.next_tracks.size() > kPutStateStrippedTrackCount) {
+            ps.next_tracks.resize(kPutStateStrippedTrackCount);
+        }
+        ps.page_metadata["is_stripped"] = "true";
+    }
+
+    // 1:1 with liborbit Restrictions builder (`0xf85e5c`):
+    // `context_restrictions` (tag 4) stays empty `{}` during normal playlist/collection playback;
+    // playback-state restrictions (`disallow_resuming_reasons`, `disallow_setting_playback_speed_reasons`,
+    // `disallow_sleep_timer_clear_reasons`) belong ONLY on `restrictions` (tag 17).
+    ps.context_restrictions = Restrictions{};
     if (!snapshot.restrictions_bytes.empty()) {
         Restrictions parsed_restrictions;
-        if (decode_restrictions(
+        // snapshot.restrictions_bytes is encoded by RestrictionsEngine using Esperanto
+        // EsRestrictions$Restrictions.java tags (22=add_to_queue, 23=playback_speed,
+        // 25=setting_modes, 26=signals, 27=play_as_next_in_queue, 28=sleep_timer_clear).
+        if (decode_es_restrictions(
                 snapshot.restrictions_bytes.data(),
                 snapshot.restrictions_bytes.size(),
                 parsed_restrictions)) {
             ps.restrictions = std::move(parsed_restrictions);
         }
+    }
+
+    // 1:1 with liborbit `0x10d7f00..0x10d8078` (`playback_quality` tag 32) & `0xdc1770` (`suppressions` tag 18):
+    ps.suppressions = Suppressions{};
+    ps.playback_quality = PlaybackQuality{
+        .bitrate_level = BitrateLevel::BITRATE_LEVEL_VERY_HIGH,
+        .strategy = BitrateStrategy::BITRATE_STRATEGY_BEST_MATCHING,
+        .target_bitrate_level = BitrateLevel::BITRATE_LEVEL_VERY_HIGH,
+        .target_bitrate_available = true,
+        .hifi_status = HiFiStatus::HIFI_STATUS_NONE,
+        .highest_available_quality = BitrateLevel::BITRATE_LEVEL_VERY_HIGH,
+        .file_origin = FileOrigin::FILE_ORIGIN_INTERNAL,
+    };
+
+    if (snapshot.sleep_timer.mode ==
+            player::ContextPlayerImpl::SleepTimerMode::kDuration &&
+        snapshot.sleep_timer.expires_at_ms > 0) {
+        // liborbit @ 0xdb2928: adjust outgoing sleep_timer.timestamp by -clock_skew_ms.
+        SleepTimer st;
+        st.kind = SleepTimer::Kind::Timestamp;
+        st.timestamp = std::max<int64_t>(
+            1, snapshot.sleep_timer.expires_at_ms - clock_skew_ms);
+        ps.sleep_timer = st;
+    } else if (snapshot.sleep_timer.mode ==
+               player::ContextPlayerImpl::SleepTimerMode::kEndOfTrack) {
+        SleepTimer st;
+        st.kind = SleepTimer::Kind::EndOfTrack;
+        ps.sleep_timer = st;
     }
 
     PlayOrigin po;
@@ -893,12 +1168,26 @@ PlayerState ConnectSubsystem::build_connect_player_state(
 }
 
 MirroredRemotePlaybackState ConnectSubsystem::build_mirrored_remote_state(
-    const Cluster& cluster) {
+    const Cluster& cluster,
+    std::optional<int64_t> fallback_clock_skew_ms) {
     const PlayerState& ps = cluster.player_state;
+    const int64_t local_now_ms = static_cast<int64_t>(current_epoch_ms());
+    // 1:1 with liborbit ConnectManager::onClusterUpdate (0xdb3260..0xdb329c) ->
+    // adjustTimestamps(dir=1) (0xdb28c0..0xdb2968):
+    // clock_skew_ms = local_now_ms - cluster.server_timestamp_ms;
+    // incoming player_state.timestamp += clock_skew_ms (rebasing remote timestamp into
+    // local wall clock WITHOUT altering position_as_of_timestamp).
+    const int64_t clock_skew_ms =
+        (cluster.server_timestamp_ms > 0 && local_now_ms > 0)
+            ? (local_now_ms - cluster.server_timestamp_ms)
+            : fallback_clock_skew_ms.value_or(0);
+    const int64_t raw_ts_ms =
+        ps.timestamp > 0 ? ps.timestamp : cluster.changed_timestamp_ms;
+
     MirroredRemotePlaybackState mirrored;
     mirrored.active_device_id = cluster.active_device_id;
     mirrored.timestamp_ms =
-        ps.timestamp > 0 ? ps.timestamp : cluster.changed_timestamp_ms;
+        raw_ts_ms > 0 ? std::max<int64_t>(1, raw_ts_ms + clock_skew_ms) : local_now_ms;
     mirrored.context_uri = ps.context_uri;
     mirrored.context_url = ps.context_url;
     mirrored.playback_id = ps.playback_id;
@@ -906,6 +1195,7 @@ MirroredRemotePlaybackState ConnectSubsystem::build_mirrored_remote_state(
     mirrored.session_command_id = ps.session_command_id;
     mirrored.queue_revision = parse_uint64_strict(ps.queue_revision);
     mirrored.raw_queue_revision = ps.queue_revision;
+    // parseClusterProto @ 0xdc7958..0xdc7d00: read tag 10 position_as_of_timestamp directly.
     mirrored.position_as_of_timestamp_ms =
         ps.has_position_as_of_timestamp ? ps.position_as_of_timestamp : ps.position;
     mirrored.duration_ms = ps.duration;
@@ -920,6 +1210,7 @@ MirroredRemotePlaybackState ConnectSubsystem::build_mirrored_remote_state(
     mirrored.is_playing = ps.is_playing;
     mirrored.is_paused = ps.is_paused;
     mirrored.is_buffering = ps.is_buffering;
+    mirrored.is_system_initiated = ps.is_system_initiated;
     mirrored.shuffling = ps.options.shuffling_context;
     mirrored.repeating_context = ps.options.repeating_context;
     mirrored.repeating_track = ps.options.repeating_track;
@@ -937,11 +1228,17 @@ MirroredRemotePlaybackState ConnectSubsystem::build_mirrored_remote_state(
         mirrored.next_tracks.push_back(from_provided_track(t));
     }
 
+    // Re-encode connectstate::Restrictions into Esperanto EsRestrictions wire tags
+    // (EsRestrictions$Restrictions.java:23-55) so tag 25 (disallow_setting_playback_speed_reasons
+    // in connectstate) does NOT collide with EsRestrictions tag 25 (map<string, ModeRestrictions>).
+    if (ps.context_restrictions.has_value()) {
+        mirrored.context_restrictions_bytes = encode_es_restrictions(*ps.context_restrictions);
+    }
     if (ps.restrictions.has_value()) {
-        mirrored.restrictions_bytes = encode_restrictions(*ps.restrictions);
+        mirrored.restrictions_bytes = encode_es_restrictions(*ps.restrictions);
     }
     if (ps.suppressions.has_value()) {
-        mirrored.suppressions_bytes = encode_suppressions(*ps.suppressions);
+        mirrored.suppressions = ps.suppressions->providers;
     }
     mirrored.context_metadata = ps.context_metadata;
     mirrored.page_metadata = ps.page_metadata;
@@ -976,13 +1273,16 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
          snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::Paused ||
          snapshot.playback_phase == player::ContextPlayerImpl::SessionPlaybackPhase::BufferingPaused);
 
-    uint32_t msg_seq = 1;
     uint64_t started_at = 0;
     uint64_t playing_duration_ms = 0;
     bool local_active = false;
+    bool need_full_player_state = true;
+    int64_t skew_ms = 0;
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         local_active = local_active_;
+        need_full_player_state = last_need_full_player_state_;
+        skew_ms = clock_skew_ms_;
     }
     const bool is_active =
         (task.reason != PutStateReason::BECAME_INACTIVE) &&
@@ -990,7 +1290,6 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
         (local_active || devices_.is_local_device_active());
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        msg_seq = put_state_message_seq_++;
         if (is_active && playing_or_paused && !was_playing_) {
             started_playing_at_ms_ = now_ms;
             was_playing_ = true;
@@ -1007,9 +1306,11 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     PutStateRequest req;
     req.member_type = MemberType::CONNECT_STATE;
     req.put_state_reason = task.reason;
-    req.message_id = msg_seq;
+    // liborbit @ 0xdc1b00..0xdc1b64: PutStateRequest.has_bits = 0xfde (bit 5 message_id tag 6
+    // is NEVER set; keep 0 so proto3 encoder omits tag 6 on the wire).
+    req.message_id = 0;
     req.is_active = is_active;
-    req.has_is_active = true;
+    req.has_is_active = is_active;
     req.last_command_sent_by_device_id =
         is_spotify_song_active ? snapshot.last_command_sent_by_device_id : std::string{};
     req.last_command_message_id =
@@ -1020,10 +1321,37 @@ PutStateRequest ConnectSubsystem::assemble_put_state_request(const QueuedPutStat
     req.only_write_player_state = task.only_write_player_state;
 
     req.device.device_info = devices_.local_device_info();
+    // liborbit @ 0xd92cb8..0xd92cc4: spirc_version = "3.2.6" (`0x37c281`); omit synthetic product_id.
+    if (req.device.device_info.spirc_version.empty() ||
+        req.device.device_info.spirc_version == "3.2.0") {
+        req.device.device_info.spirc_version = "3.2.6";
+    }
+    if (req.device.device_info.product_id == "musify-android") {
+        req.device.device_info.product_id.clear();
+    }
+    // liborbit @ 0xdb81d4..0xdb81fc & 0xdc0ae0..0xdc0bdc: populate metadata_map
+    // `"debug_level"` (`0x3e1058`) and `"device_address_mask"` (`0x3e1070`).
+    req.device.device_info.metadata_map.try_emplace("debug_level", "1");
+    if (!req.device.device_info.public_ip.empty() &&
+        req.device.device_info.metadata_map.find("device_address_mask") ==
+            req.device.device_info.metadata_map.end()) {
+        req.device.device_info.metadata_map["device_address_mask"] =
+            format_device_address_mask(req.device.device_info.public_ip);
+    }
     req.device.platform = default_platform_for_device_type(req.device.device_info.device_type);
 
-    if (is_spotify_song_active) {
-        req.device.player_state = build_connect_player_state(snapshot);
+    if (task.reason == PutStateReason::VOLUME_CHANGED) {
+        // liborbit ConnectManager::sendPutState @ 0xdb2154..0xdb217c: on VOLUME_CHANGED (5),
+        // overwrite PlayerState with empty PlayerState() (0x13b18cc).
+        req.device.player_state = PlayerState{};
+        req.device.has_player_state = false;
+        req.only_write_player_state = false;
+    } else if (is_spotify_song_active) {
+        const bool strip_player_state =
+            devices_.has_received_cluster_update_after_backend_connection() &&
+            !need_full_player_state;
+        req.device.player_state =
+            build_connect_player_state(snapshot, strip_player_state, skew_ms);
         req.device.has_player_state = true;
     } else {
         req.device.has_player_state = false;
@@ -1059,9 +1387,14 @@ PutStateResult ConnectSubsystem::execute_put_state_task(const QueuedPutStateTask
         };
     }
 
-    if (task.reason == PutStateReason::PLAYER_STATE_CHANGED && !is_spotify_song) {
+    if (task.reason == PutStateReason::PLAYER_STATE_CHANGED &&
+        (!is_spotify_song ||
+         player_.playback_origin() != player::PlaybackOrigin::kLocal)) {
         CONNECT_LOGI(
-            "ConnectSubsystem::execute_put_state_task suppressed PLAYER_STATE_CHANGED: active track is not an eligible Spotify song");
+            "ConnectSubsystem::execute_put_state_task suppressed PLAYER_STATE_CHANGED "
+            "(eligible=%d local_origin=%d)",
+            is_spotify_song ? 1 : 0,
+            player_.playback_origin() == player::PlaybackOrigin::kLocal ? 1 : 0);
         return PutStateResult{
             .ok = true,
             .deferred = false,
@@ -1119,6 +1452,19 @@ void ConnectSubsystem::enqueue_put_state(QueuedPutStateTask task) {
         }
     }
     queue_cv_.notify_one();
+}
+
+void ConnectSubsystem::purge_pending_local_player_state_tasks() {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    put_state_queue_.erase(
+        std::remove_if(
+            put_state_queue_.begin(),
+            put_state_queue_.end(),
+            [](const QueuedPutStateTask& item) {
+                return item.kind == WorkerTaskKind::kPutState &&
+                       item.reason == PutStateReason::PLAYER_STATE_CHANGED;
+            }),
+        put_state_queue_.end());
 }
 
 void ConnectSubsystem::put_state_worker_loop() {
@@ -1199,15 +1545,19 @@ void ConnectSubsystem::on_player_state_changed(
     }
 
     bool force_full_state = false;
+    const uint64_t now_ms = current_epoch_ms();
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         if (!running_) {
             return;
         }
-        if (snapshot.timestamp_ms > last_local_state_timestamp_ms_) {
-            last_local_state_timestamp_ms_ = snapshot.timestamp_ms;
-        }
         if (is_active_playing_phase(snapshot.playback_phase)) {
+            if (!local_active_ || !was_playing_ || started_playing_at_ms_ == 0) {
+                // liborbit [x19+0x1288] -> 0xdf0074: record started_playing_at when local
+                // playback starts (never bumped by metadata decoration or pause ticks).
+                started_playing_at_ms_ = now_ms;
+                was_playing_ = true;
+            }
             local_active_ = true;
         } else if (snapshot.playback_phase ==
                        player::ContextPlayerImpl::SessionPlaybackPhase::Idle &&
@@ -1215,6 +1565,8 @@ void ConnectSubsystem::on_player_state_changed(
                    snapshot.context_url.empty() &&
                    !snapshot.current_track.has_value()) {
             local_active_ = false;
+            was_playing_ = false;
+            started_playing_at_ms_ = 0;
         }
         force_full_state = last_need_full_player_state_;
     }
@@ -1246,7 +1598,10 @@ void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
     bool became_inactive_remote = false;
     bool needs_state_updates_edge = false;
     bool need_full_state = cluster.need_full_player_state;
-    int64_t local_ts = 0;
+    bool local_was_active = false;
+    uint64_t local_started_playing_at_ms = 0;
+    int64_t skew_ms = 0;
+    const int64_t local_now_ms = static_cast<int64_t>(current_epoch_ms());
     const bool local_activating = !local_id.empty() && is_being_activated(local_id);
 
     {
@@ -1254,7 +1609,14 @@ void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
         if (!running_) {
             return;
         }
-        local_ts = last_local_state_timestamp_ms_;
+        // liborbit ConnectManager::onClusterUpdate @ 0xdb3260..0xdb329c ->
+        // adjustTimestamps @ 0xdb28c0..0xdb2968: update Connect server clock skew.
+        if (cluster.server_timestamp_ms > 0 && local_now_ms > 0) {
+            clock_skew_ms_ = local_now_ms - cluster.server_timestamp_ms;
+        }
+        skew_ms = clock_skew_ms_;
+        local_was_active = local_active_;
+        local_started_playing_at_ms = started_playing_at_ms_;
         needs_state_updates_edge = cluster.needs_state_updates && !last_needs_state_updates_;
         last_needs_state_updates_ = cluster.needs_state_updates;
         last_need_full_player_state_ = cluster.need_full_player_state;
@@ -1270,17 +1632,30 @@ void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
     }
 
     if (!cluster.active_device_id.empty() && cluster.active_device_id != local_id) {
+        const int64_t adjusted_cluster_changed_ms =
+            cluster.changed_timestamp_ms > 0
+                ? std::max<int64_t>(1, cluster.changed_timestamp_ms + skew_ms)
+                : 0;
+        // 1:1 with liborbit ConnectStateImpl::onClusterChanged (0xdb6984..0xdb69f4,
+        // 0xdb6fb0..0xdb6fe4 -> 0xdf0074, "Ignoring other active device" @ 0x3475ec):
+        // Compare ONLY local started_playing_at (when locally active) against
+        // cluster.changed_timestamp_ms rebased into local clock — never general state,
+        // metadata decoration, or pause timestamps.
         const bool stale_cluster_vs_local =
-            local_ts > 0 && cluster.changed_timestamp_ms > 0 &&
-            local_ts > cluster.changed_timestamp_ms;
+            local_was_active &&
+            local_started_playing_at_ms > 0 &&
+            adjusted_cluster_changed_ms > 0 &&
+            static_cast<int64_t>(local_started_playing_at_ms) > adjusted_cluster_changed_ms;
 
         if (local_activating || stale_cluster_vs_local) {
             CONNECT_LOGI(
-                "ConnectSubsystem::handle_cluster_changed: ignoring stale remote cluster "
-                "(remote=%s local_activating=%d local_ts=%lld cluster_ts=%lld)",
+                "ConnectSubsystem::handle_cluster_changed: ignoring other active device (%s) "
+                "because local timestamp (%llu) is newer than cluster timestamp (%lld) "
+                "(local_activating=%d cluster_ts=%lld)",
                 cluster.active_device_id.c_str(),
+                static_cast<unsigned long long>(local_started_playing_at_ms),
+                static_cast<long long>(adjusted_cluster_changed_ms),
                 local_activating ? 1 : 0,
-                static_cast<long long>(local_ts),
                 static_cast<long long>(cluster.changed_timestamp_ms));
         } else {
             {
@@ -1290,12 +1665,21 @@ void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
                 was_playing_ = false;
                 started_playing_at_ms_ = 0;
             }
+            // Drop any queued pre-takeover local PLAYER_STATE_CHANGED PutState tasks
+            // before sending BECAME_INACTIVE so a stale upload cannot race the takeover.
+            purge_pending_local_player_state_tasks();
             state_restore_.cancel_pending_recovery();
 
+            // 1:1 with liborbit ConnectStateImpl::onClusterChanged (0xdb6a38..0xdb6b74 ->
+            // ConnectProxyPlayer::becomeInactive @ 0xdaaa2c -> local_context_player->pause
+            // @ 0xdb6afc..0xdb6b5c -> ConnectProxyPlayer::updateRemotePlayerState @ 0xdaaab4):
+            // Become inactive (origin=kRemoteMirrored) BEFORE pausing local audio so no
+            // spurious local is_paused=true state is ever emitted to Esperanto/UI, then
+            // immediately push the authoritative remote PlayerState.
             const auto local_snap = player_.snapshot_for_connect();
             if (became_inactive_remote || is_active_playing_phase(local_snap.playback_phase)) {
                 CONNECT_LOGI(
-                    "ConnectSubsystem: remote takeover by %s; pausing local playback and sending inactive",
+                    "ConnectSubsystem: remote takeover by %s; becoming inactive and pausing local playback",
                     cluster.active_device_id.c_str());
                 player_.pause_for_remote_takeover();
                 QueuedPutStateTask inactive_task;
@@ -1304,7 +1688,8 @@ void ConnectSubsystem::handle_cluster_changed(const Cluster& cluster) {
                 emit_diagnostic("cluster", "remote_takeover", cluster.active_device_id);
             }
 
-            const MirroredRemotePlaybackState mirrored = build_mirrored_remote_state(cluster);
+            const MirroredRemotePlaybackState mirrored =
+                build_mirrored_remote_state(cluster, skew_ms);
             player_.apply_remote_mirrored_state(mirrored);
         }
     } else if (!local_id.empty() && cluster.active_device_id == local_id) {

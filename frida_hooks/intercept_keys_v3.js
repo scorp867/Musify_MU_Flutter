@@ -1,292 +1,357 @@
+// Spotify Audio Decryption Key Interceptor v10
+// Target: liborbit-jni-spotify.so (x86 32-bit)
+//
+// Architecture discovered:
+//   1. SHA-1 hashes the playplay response/token to derive key material
+//   2. Custom NLFSR stream cipher initialized with key material
+//   3. Audio data XORed byte-by-byte with cipher keystream
+//
+// Key functions:
+//   0x1680b2e = Cipher INIT (Fibonacci + magic 0x6996c53a)
+//   0x1680cad = Cipher round (XOR+ROL inner)
+//   0x1680d43 = Cipher full permutation
+//   0x168138b = Cipher output / keystream step
+//   0x16813db = Cipher encrypt/decrypt bytes
+//   0xba2ba2  = Key setup function (calls INIT twice)
+//   0xba4ade  = Stream decrypt (XOR loop + cipher output)
+//   0x167f28c = SHA-1 init
+//   0x167f2e4 = SHA-1 transform
+//   0x1680966 = Some crypto setup called from key setup
+
 "use strict";
-/*  Spotify AES Key Interceptor v9
- *  ───────────────────────────────
- *  Hooks the orchestrator CALL SITE to capture ecx/edx (key material)
- *  right before b394ae is called with the counter block.
- *
- *  Also hooks b2b6a0 directly (called 2x from orchestrator) to dump
- *  all registers and find the actual AES key.
- *
- *  Target: liborbit-jni-spotify.so  x86 32-bit
- *  Run:    frida -U -f com.spotify.music -l intercept_keys_v3.js
- */
 
-var LIB = "liborbit-jni-spotify.so";
+var lib = null;
+var base = null;
+var hookCount = 0;
+var MAX_LOGS = 200;
 
-/* ── offsets ── */
-var ORCH_CALL     = 0x12f0571;   // mov ecx,[edi+0x39c] — right before b394ae call
-var CIPHER_CMP    = 0xb394ae;    // the verify/compare wrapper
-var B2B6A0        = 0xb2b6a0;    // inner cipher — called from b394ae AND orchestrator
-var B23BD4        = 0xb23bd4;    // core function called from b2b6a0
-var COUNTER_MGR   = 0x12ecf88;   // counter manager
-var ORCH_DIRECT1  = 0x12eff6a;   // orchestrator direct call to b2b6a0
-var ORCH_DIRECT2  = 0x12f0a32;   // orchestrator 2nd direct call to b2b6a0
-var ORCHESTRATOR  = 0x12efe92;   // orchestrator entry
-
-function hex(ptr, n) {
-    var buf = ptr.readByteArray(n);
-    if (!buf) return "(null)";
-    return Array.from(new Uint8Array(buf))
-        .map(function (b) { return ("0" + b.toString(16)).slice(-2); })
-        .join(" ");
-}
-
-function hexBlock(ptr, total) {
-    var lines = [];
-    for (var i = 0; i < total; i += 16) {
-        var row = Math.min(16, total - i);
-        lines.push("  +" + ("000" + i.toString(16)).slice(-3) + ": " + hex(ptr.add(i), row));
+function hexdump16(ptr) {
+    var out = "";
+    for (var i = 0; i < 16; i++) {
+        var b = ptr.add(i).readU8();
+        out += (b < 16 ? "0" : "") + b.toString(16) + " ";
     }
-    return lines.join("\n");
+    return out.trim();
 }
 
-function attach(m) {
-    var base = m.base;
-    console.log("[+] " + LIB + " base=" + base);
+function hexdumpN(ptr, n) {
+    var out = "";
+    for (var i = 0; i < n; i++) {
+        var b = ptr.add(i).readU8();
+        out += (b < 16 ? "0" : "") + b.toString(16) + " ";
+        if ((i + 1) % 16 === 0 && i + 1 < n) out += "\n    ";
+    }
+    return out.trim();
+}
 
-    var stats = { orch: 0, cmp: 0, b2b: 0, b23: 0, ctr: 0 };
-    var dumpCount = { orch: 0, b2b: 0, b23: 0, ctr: 0 };
-    var MAX_DUMPS = 3;
+function safeRead(ptr, n) {
+    try {
+        return hexdumpN(ptr, n);
+    } catch (e) {
+        return "<unreadable: " + e.message + ">";
+    }
+}
 
-    /* ════════════════════════════════════════════════════════════
-     *  1. Hook at 0x12f0571 — the mov ecx,[edi+0x39c] instruction
-     *     At this point edi = the orchestrator's object ('this' eventually)
-     *     We read [edi+0x39c] and [edi+0x3a0] which become ecx/edx
-     *     for the b394ae call 0x2c bytes later.
-     * ════════════════════════════════════════════════════════════ */
-    Interceptor.attach(base.add(ORCH_CALL), {
-        onEnter: function () {
-            stats.orch++;
-            if (dumpCount.orch >= MAX_DUMPS) return;
-            dumpCount.orch++;
+function tryReadPtr(ptr, offset) {
+    try {
+        return ptr.add(offset).readPointer();
+    } catch (e) {
+        return null;
+    }
+}
 
-            var edi = this.context.edi;
-            console.log("\n╔══════════════════════════════════════════════╗");
-            console.log("║  ORCH_CALL #" + dumpCount.orch + "  edi=" + edi);
-            console.log("╚══════════════════════════════════════════════╝");
+function installHooks() {
+    console.log("[v10] Installing hooks on base: " + base);
 
+    // ===== HOOK 1: KEY SETUP (0xba2ba2) =====
+    // This is the function that sets up the cipher from key material
+    // It calls INIT twice (at ba2e6f and ba2e89)
+    // ecx = input object with key data at various offsets
+    var keySetup = base.add(0xba2ba2);
+    Interceptor.attach(keySetup, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            this.entryEcx = this.context.ecx;
+            this.entryEdx = this.context.edx;
+            this.entryEsi = this.context.esi;
+
+            console.log("\n[KEY_SETUP] ==================================");
+            console.log("[KEY_SETUP] ecx (this): " + this.context.ecx);
+            console.log("[KEY_SETUP] edx: " + this.context.edx);
+            console.log("[KEY_SETUP] esi: " + this.context.esi);
+
+            // Try to read key material from the input object
+            var ecx = this.context.ecx;
             try {
-                /* read the values that become ecx, edx, eax, esi for b394ae */
-                var key_lo = edi.add(0x39c).readU32();
-                var key_hi = edi.add(0x3a0).readU32();
-                var arg3   = edi.add(0x3a4).readU32();
-                var arg4   = edi.add(0x3a8).readU32();
-                console.log("  [edi+0x39c] -> ecx = 0x" + key_lo.toString(16));
-                console.log("  [edi+0x3a0] -> edx = 0x" + key_hi.toString(16));
-                console.log("  [edi+0x3a4] -> eax = 0x" + arg3.toString(16));
-                console.log("  [edi+0x3a8] -> esi = 0x" + arg4.toString(16));
+                console.log("[KEY_SETUP] [ecx+0x00..0x03] (flags): " + safeRead(ecx, 4));
+                console.log("[KEY_SETUP] [ecx+0x10..0x23] (key?):  " + safeRead(ecx.add(0x10), 20));
+                console.log("[KEY_SETUP] [ecx+0x24..0x37] (hash?): " + safeRead(ecx.add(0x24), 20));
+            } catch (e) {}
 
-                /* Dump surrounding area of edi for context */
-                console.log("\n  edi object +0x380..0x3c0:");
-                console.log(hexBlock(edi.add(0x380), 0x40));
-
-                /* The key data might be a 64-bit value in ecx:edx */
-                /* Or ecx might be a pointer to key material */
-                if (key_lo > 0x10000) {
-                    /* Looks like a pointer — try reading what it points to */
-                    console.log("\n  *ecx (if pointer) first 64 bytes:");
-                    try {
-                        console.log(hexBlock(ptr(key_lo), 64));
-                    } catch (e) {
-                        console.log("  NOT A VALID POINTER");
-                    }
-                }
-
-                /* Also read the counter/IV from [esp+0x60] area */
-                /* The movaps loads from [esp+0x60] AFTER sub esp,0x20 */
-                /* At this instruction, esp hasn't been adjusted yet */
-                var esp = this.context.esp;
-                console.log("\n  Counter area (esp+0x38..0x58):");
-                console.log(hexBlock(esp.add(0x38), 0x20));
-                console.log("  Counter area (esp+0x58..0x78):");
-                console.log(hexBlock(esp.add(0x58), 0x20));
-
-                /* Dump edi+0x480 area (had interesting data in v8) */
-                console.log("\n  edi+0x480..0x500 (potential key area):");
-                console.log(hexBlock(edi.add(0x480), 0x80));
-
-                /* edi+0x4bc was compared in the code — check it */
-                var val_4bc = edi.add(0x4bc).readU32();
-                console.log("\n  [edi+0x4bc] = 0x" + val_4bc.toString(16));
-
-            } catch (e) {
-                console.log("  READ ERR: " + e);
-            }
+            // esi holds a pointer used for key data
+            var esi = this.context.esi;
+            try {
+                console.log("[KEY_SETUP] esi data: " + safeRead(esi, 32));
+                console.log("[KEY_SETUP] [esi+0x10]: " + safeRead(esi.add(0x10), 16));
+            } catch (e) {}
+        },
+        onLeave: function (retval) {
+            if (hookCount >= MAX_LOGS + 1) return;
+            console.log("[KEY_SETUP] returned");
         }
     });
 
-    /* ════════════════════════════════════════════════════════════
-     *  2. Hook b2b6a0 — the inner cipher
-     *     ecx = 'this' or key pointer
-     *     edx = another key/param
-     *     stack args: counter bytes
-     * ════════════════════════════════════════════════════════════ */
-    Interceptor.attach(base.add(B2B6A0), {
-        onEnter: function () {
-            stats.b2b++;
-            if (dumpCount.b2b >= MAX_DUMPS) return;
-            dumpCount.b2b++;
+    // ===== HOOK 2: CIPHER INIT (0x1680b2e) =====
+    // ecx = cipher state object
+    // edx = key data pointer
+    // Initializes Fibonacci sequence, stores magic 0x6996c53a
+    var cipherInit = base.add(0x1680b2e);
+    Interceptor.attach(cipherInit, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            this.cipherState = this.context.ecx;
+            this.keyData = this.context.edx;
 
-            var ecx = this.context.ecx;
-            var edx = this.context.edx;
-            var eax = this.context.eax;
-            var esp = this.context.esp;
+            console.log("\n[CIPHER_INIT] ==============================");
+            console.log("[CIPHER_INIT] ecx (cipher state): " + this.cipherState);
+            console.log("[CIPHER_INIT] edx (key input):    " + this.keyData);
 
-            console.log("\n[b2b6a0 #" + dumpCount.b2b + "] ecx=" + ecx + " edx=" + edx + " eax=" + eax);
-
+            // The key data fed into the cipher
             try {
-                /* stack: [esp]=ret, [esp+4]=arg1, [esp+8]=arg2, ... */
-                console.log("  ret   = " + esp.readPointer());
-                console.log("  stack args:");
-                for (var i = 4; i <= 0x20; i += 4) {
-                    console.log("    [esp+0x" + i.toString(16) + "] = 0x" +
-                        esp.add(i).readU32().toString(16));
-                }
-
-                /* ecx and edx likely contain key material or pointers */
-                console.log("\n  ecx value = 0x" + ecx.toString(16));
-                console.log("  edx value = 0x" + edx.toString(16));
-
-                /* Try reading ecx as pointer */
-                if (ecx.toInt32() > 0x10000 || ecx.toInt32() < -0x10000) {
-                    console.log("  *ecx (64 bytes):");
-                    try { console.log(hexBlock(ecx, 64)); }
-                    catch (e) { console.log("    NOT READABLE"); }
-                }
-
-                /* Try reading edx as pointer */
-                if (edx.toInt32() > 0x10000 || edx.toInt32() < -0x10000) {
-                    console.log("  *edx (64 bytes):");
-                    try { console.log(hexBlock(edx, 64)); }
-                    catch (e) { console.log("    NOT READABLE"); }
-                }
-
-            } catch (e) {
-                console.log("  ERR: " + e);
-            }
+                console.log("[CIPHER_INIT] key input (32 bytes): " + safeRead(this.keyData, 32));
+                console.log("[CIPHER_INIT] key input (next 32):  " + safeRead(this.keyData.add(32), 32));
+                console.log("[CIPHER_INIT] key input (next 32):  " + safeRead(this.keyData.add(64), 32));
+            } catch (e) {}
         },
         onLeave: function (retval) {
-            if (dumpCount.b2b <= MAX_DUMPS) {
-                console.log("[b2b6a0] returned: " + retval);
-            }
+            if (hookCount >= MAX_LOGS + 1) return;
+            // After init, dump the cipher state
+            try {
+                var s = this.cipherState;
+                console.log("[CIPHER_INIT] POST state[0x00-0x3f]: " + safeRead(s, 64));
+                console.log("[CIPHER_INIT] POST state[0x80-0xbf]: " + safeRead(s.add(0x80), 64));
+                console.log("[CIPHER_INIT] POST state[0xc0] (magic): " + safeRead(s.add(0xc0), 16));
+            } catch (e) {}
         }
     });
 
-    /* ════════════════════════════════════════════════════════════
-     *  3. Hook b23bd4 — the actual encrypt call
-     *     This is called twice per b2b6a0 invocation.
-     *     ecx = output buffer pointer
-     *     edx = input/key pointer
-     *     stack: more params
-     * ════════════════════════════════════════════════════════════ */
-    Interceptor.attach(base.add(B23BD4), {
-        onEnter: function () {
-            stats.b23++;
-            if (dumpCount.b23 >= MAX_DUMPS * 2) return;
-            dumpCount.b23++;
-
-            var ecx = this.context.ecx;
-            var edx = this.context.edx;
-            var esp = this.context.esp;
-
-            console.log("\n  [b23bd4 #" + dumpCount.b23 + "] ecx=" + ecx + " edx=" + edx);
-
+    // ===== HOOK 3: STREAM DECRYPT (0xba4ade) =====
+    // ecx = cipher context
+    // edx = data pointer
+    // [ebp+0x08] = length
+    var streamDecrypt = base.add(0xba4ade);
+    Interceptor.attach(streamDecrypt, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            this.ctx = this.context.ecx;
+            this.dataPtr = this.context.edx;
+            // Read length from stack [ebp+0x08]
+            var ebp = this.context.ebp;
             try {
-                /* stack args */
-                console.log("    ret = " + esp.readPointer());
-                for (var i = 4; i <= 0x14; i += 4) {
-                    console.log("    [esp+0x" + i.toString(16) + "] = 0x" +
-                        esp.add(i).readU32().toString(16));
-                }
-
-                /* read *edx as the input data */
-                if (edx.toInt32() > 0x10000 || edx.toInt32() < -0x10000) {
-                    console.log("    *edx (32 bytes):");
-                    try { console.log(hexBlock(edx, 32)); }
-                    catch (e) { console.log("      NOT READABLE"); }
-                }
+                this.len = ebp.add(0x08).readU32();
             } catch (e) {
-                console.log("    ERR: " + e);
+                this.len = 0;
             }
 
-            this._ecx = ecx;
-        },
-        onLeave: function (retval) {
-            if (dumpCount.b23 <= MAX_DUMPS * 2 && this._ecx) {
-                /* dump output buffer */
+            console.log("\n[STREAM_DECRYPT] ===========================");
+            console.log("[STREAM_DECRYPT] ctx: " + this.ctx + " data: " + this.dataPtr + " len: " + this.len);
+
+            // Dump first 32 bytes of encrypted data BEFORE decrypt
+            if (this.len > 0) {
+                var dumpLen = Math.min(this.len, 32);
                 try {
-                    console.log("  [b23bd4] output at " + this._ecx + ": " +
-                        hex(this._ecx, 16));
+                    console.log("[STREAM_DECRYPT] ENCRYPTED (first " + dumpLen + "): " + safeRead(this.dataPtr, dumpLen));
+                } catch (e) {}
+            }
+
+            // Dump cipher state
+            try {
+                var ctx = this.ctx;
+                console.log("[STREAM_DECRYPT] cipher[0x00-0x0f]: " + safeRead(ctx, 16));
+                console.log("[STREAM_DECRYPT] cipher[0x40-0x4f]: " + safeRead(ctx.add(0x40), 16));
+                console.log("[STREAM_DECRYPT] cipher[0xc0-0xcf]: " + safeRead(ctx.add(0xc0), 16));
+                console.log("[STREAM_DECRYPT] cipher[0x100-0x10f]: " + safeRead(ctx.add(0x100), 16));
+            } catch (e) {}
+        },
+        onLeave: function (retval) {
+            if (hookCount >= MAX_LOGS + 1) return;
+            // Dump first 32 bytes AFTER decrypt
+            if (this.len > 0) {
+                var dumpLen = Math.min(this.len, 32);
+                try {
+                    console.log("[STREAM_DECRYPT] DECRYPTED (first " + dumpLen + "): " + safeRead(this.dataPtr, dumpLen));
                 } catch (e) {}
             }
         }
     });
 
-    /* ════════════════════════════════════════════════════════════
-     *  4. Hook COUNTER_MGR (0x12ecf88)
-     * ════════════════════════════════════════════════════════════ */
-    Interceptor.attach(base.add(COUNTER_MGR), {
-        onEnter: function () {
-            stats.ctr++;
-            if (dumpCount.ctr >= MAX_DUMPS) return;
-            dumpCount.ctr++;
-
-            var ecx = this.context.ecx;
-            var edx = this.context.edx;
-            console.log("\n[COUNTER_MGR #" + dumpCount.ctr + "] ecx=" + ecx + " edx=" + edx);
-
+    // ===== HOOK 4: SHA-1 INIT (0x167f28c) =====
+    // Called to hash key material. ecx = SHA-1 context
+    var sha1Init = base.add(0x167f28c);
+    Interceptor.attach(sha1Init, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            this.sha1ctx = this.context.ecx;
+            console.log("\n[SHA1_INIT] ecx: " + this.sha1ctx);
+        },
+        onLeave: function (retval) {
+            if (hookCount >= MAX_LOGS + 1) return;
+            // After init, the state has the IV
             try {
-                var esp = this.context.esp;
-                console.log("  stack[0..0x20]:");
-                console.log(hexBlock(esp, 0x24));
+                console.log("[SHA1_INIT] POST IV: " + safeRead(this.sha1ctx, 32));
             } catch (e) {}
         }
     });
 
-    /* ════════════════════════════════════════════════════════════
-     *  5. Also hook b394ae to track ecx/edx on ENTRY (preserved from caller)
-     * ════════════════════════════════════════════════════════════ */
-    var cmpDumps = 0;
-    Interceptor.attach(base.add(CIPHER_CMP), {
-        onEnter: function () {
-            stats.cmp++;
-            if (cmpDumps >= MAX_DUMPS) return;
-            cmpDumps++;
-
-            var ecx = this.context.ecx;
-            var edx = this.context.edx;
-            var esp = this.context.esp;
-
-            console.log("\n[CIPHER_CMP #" + cmpDumps + "] ecx=" + ecx + " edx=" + edx);
+    // ===== HOOK 5: CIPHER ROUND (0x1680ba3) =====
+    // Called with ecx = cipher state, [ebp+0x08] = round count
+    // edx = data being mixed in
+    var cipherRound = base.add(0x1680ba3);
+    Interceptor.attach(cipherRound, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            var ebp = this.context.ebp;
+            var roundCount = 0;
             try {
-                /* XMM data on stack */
-                console.log("  stack counter: " + hex(esp.add(4), 16));
-                console.log("  arg3=0x" + esp.add(0x14).readU32().toString(16) +
-                    " arg4=0x" + esp.add(0x18).readU32().toString(16));
+                roundCount = ebp.add(0x08).readU32();
+            } catch (e) {}
+            console.log("[CIPHER_ROUND] ecx: " + this.context.ecx +
+                       " edx (data): " + this.context.edx +
+                       " rounds: " + roundCount);
+            try {
+                console.log("[CIPHER_ROUND] data in: " + safeRead(this.context.edx, 32));
             } catch (e) {}
         }
     });
 
-    /* ── stats ── */
-    setInterval(function () {
-        if (stats.orch + stats.cmp + stats.b2b > 0) {
-            console.log("\n[STATS] orch_call=" + stats.orch +
-                " cmp=" + stats.cmp +
-                " b2b6a0=" + stats.b2b +
-                " b23bd4=" + stats.b23 +
-                " counter=" + stats.ctr);
-        }
-    }, 10000);
+    // ===== HOOK 6: KEYSTREAM OUTPUT XOR (0x16813db) =====
+    // This is where individual bytes get XORed
+    // ecx = cipher state, edx = data buffer, [ebp+0x08] = byte count
+    var keystreamXor = base.add(0x16813db);
+    Interceptor.attach(keystreamXor, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            this.ctx = this.context.ecx;
+            this.buf = this.context.edx;
+            var ebp = this.context.ebp;
+            try {
+                this.count = ebp.add(0x08).readU32();
+            } catch (e) {
+                this.count = 0;
+            }
 
-    console.log("[+] READY. Play a track.\n");
+            if (this.count > 0 && this.count < 100000) {
+                console.log("[KEYSTREAM_XOR] ctx: " + this.ctx +
+                           " buf: " + this.buf +
+                           " count: " + this.count);
+                // Dump keystream state before XOR
+                try {
+                    console.log("[KEYSTREAM_XOR] cipher_c4: " + safeRead(this.ctx.add(0xc4), 4) +
+                               " cipher_c8: " + safeRead(this.ctx.add(0xc8), 4) +
+                               " cipher_cc: " + safeRead(this.ctx.add(0xcc), 4));
+                } catch (e) {}
+            }
+        },
+        onLeave: function (retval) {
+            // After XOR, the data is decrypted in-place
+        }
+    });
+
+    // ===== HOOK 7: CRYPTO SETUP (0x1680966) =====
+    // Called from key setup at ba2e11 with edx=0x60 (96 bytes)
+    var cryptoSetup = base.add(0x1680966);
+    Interceptor.attach(cryptoSetup, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            console.log("\n[CRYPTO_SETUP] ecx: " + this.context.ecx +
+                       " edx: " + this.context.edx +
+                       " eax: " + this.context.eax);
+            try {
+                // ecx = destination cipher state, edx = size/count, eax = data ptr
+                console.log("[CRYPTO_SETUP] data (32 bytes): " + safeRead(this.context.eax, 32));
+                console.log("[CRYPTO_SETUP] ecx data:        " + safeRead(this.context.ecx, 32));
+            } catch (e) {}
+        }
+    });
+
+    // ===== HOOK 8: SHA-1 related calls from the cipher cluster =====
+    // 0x1680794, 0x16808d5, 0x16808f0 call SHA1_INIT from within the cipher suite
+    var sha1FromCipher = [0x1680794, 0x16808d5, 0x16808f0];
+    for (var i = 0; i < sha1FromCipher.length; i++) {
+        (function(addr, idx) {
+            try {
+                Interceptor.attach(base.add(addr), {
+                    onEnter: function (args) {
+                        if (hookCount >= MAX_LOGS) return;
+                        // Just log that this specific SHA1 callsite was hit
+                        console.log("[SHA1_CALL_" + idx + "] at 0x" + addr.toString(16) +
+                                   " ecx: " + this.context.ecx);
+                    }
+                });
+            } catch (e) {
+                console.log("[!] Failed to hook SHA1 callsite 0x" + addr.toString(16) + ": " + e);
+            }
+        })(sha1FromCipher[i], i);
+    }
+
+    // ===== HOOK 9: 167503e and 1675120 — HMAC/Key derivation helpers =====
+    // Called from key setup at ba2d31, ba2d40, ba2d58, ba2d89
+    var hmacSetup = base.add(0x167503e);
+    Interceptor.attach(hmacSetup, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            console.log("\n[HMAC_SETUP] ecx: " + this.context.ecx +
+                       " edx (data): " + this.context.edx +
+                       " esp[0] (len): 0x" + (this.context.esp.readU32()).toString(16));
+            try {
+                console.log("[HMAC_SETUP] data: " + safeRead(this.context.edx, 32));
+            } catch (e) {}
+        }
+    });
+
+    var hmacFinish = base.add(0x1675120);
+    Interceptor.attach(hmacFinish, {
+        onEnter: function (args) {
+            if (hookCount >= MAX_LOGS) return;
+            hookCount++;
+            console.log("\n[HMAC_FINISH] ecx: " + this.context.ecx +
+                       " edx (data): " + this.context.edx);
+            try {
+                console.log("[HMAC_FINISH] data: " + safeRead(this.context.edx, 32));
+            } catch (e) {}
+        }
+    });
+
+    console.log("[v10] All hooks installed successfully!");
+    console.log("[v10] Waiting for audio playback...");
 }
 
-(function boot() {
-    var m = Process.findModuleByName(LIB);
-    if (m) { attach(m); return; }
-    console.log("[*] " + LIB + " not loaded. Polling...");
-    var t = setInterval(function () {
-        var mod = Process.findModuleByName(LIB);
-        if (mod) { clearInterval(t); attach(mod); }
+// Wait for library to load
+function waitForLib() {
+    var mod = Process.findModuleByName("liborbit-jni-spotify.so");
+    if (mod) {
+        lib = mod;
+        base = mod.base;
+        console.log("[v10] Found liborbit at " + base + " (size: " + mod.size + ")");
+        installHooks();
+        return true;
+    }
+    return false;
+}
+
+if (!waitForLib()) {
+    console.log("[v10] Waiting for liborbit-jni-spotify.so to load...");
+    var timer = setInterval(function() {
+        if (waitForLib()) {
+            clearInterval(timer);
+        }
     }, 500);
-})();
+}

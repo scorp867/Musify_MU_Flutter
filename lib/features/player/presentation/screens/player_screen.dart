@@ -1,3 +1,20 @@
+// ============================================================================
+// 1:1 Replica of Spotify Now Playing Screen (`com.spotify.nowplaying`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/nhr.java:501-507,513-567` (`connect_entry_point_stub`, `accessory_row`)
+//   - `p199p/ac0.java:51-53` (`device_picker_button` -> `devicepicker view`)
+//   - `p199p/es81.java:1678-1682` (`spotify:connect-device-picker`, `spotify:internal:gaia-picker`)
+//   - `p199p/rrs0.java:28-31` -> `p199p/jhe0.java:63-79` -> `p199p/srs0.java:13-16`
+//     -> `p199p/e9o0.java:133-145` -> `p199p/p1r0.java:209` (100ms live position ticker
+//     computed from `PlayerState.position(System.currentTimeMillis())`)
+//   - `com/spotify/player/model/PlayerState.java:140-145` (`position(long)`)
+// - Native binary (`liborbit-jni-spotify.so` arm64):
+//   - `ConnectPlayer::playerState` @ `0xda97a0..0xda97b4` (serves clock-adjusted
+//     Dealer `timestamp`, `position_as_of_timestamp`, `playback_speed`, `duration`
+//     once per state transition without periodic native ticks)
+// ============================================================================
+
 import 'dart:async';
 
 import 'package:flutter/material.dart' hide RepeatMode;
@@ -61,6 +78,9 @@ class PlayerScreen extends StatefulWidget {
   final UbiLogger? ubiLogger;
   final PlayerLoggingParamsFactory? loggingParamsFactory;
   final PageInstanceIdHolder? pageInstanceIdHolder;
+  final int Function() nowEpochMsProvider;
+
+  static int defaultNowEpochMs() => DateTime.now().millisecondsSinceEpoch;
 
   const PlayerScreen({
     super.key,
@@ -80,6 +100,7 @@ class PlayerScreen extends StatefulWidget {
     this.ubiLogger,
     this.loggingParamsFactory,
     this.pageInstanceIdHolder,
+    this.nowEpochMsProvider = defaultNowEpochMs,
   });
 
   static bool _isOpen = false;
@@ -214,7 +235,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   final ValueNotifier<Duration> _positionNotifier =
       ValueNotifier<Duration>(Duration.zero);
   Ticker? _positionTicker;
-  Duration _lastTick = Duration.zero;
+  Duration? _lastTick;
 
   PlayerQueueMobiusController? _boundQueueBloc;
   NowPlayingScrollController? _scrollBloc;
@@ -352,8 +373,15 @@ class _PlayerScreenState extends State<PlayerScreen>
     return null;
   }
 
+  Duration _sampleQueuePosition(PlayerQueueState? queueState) {
+    if (queueState case final state?) {
+      return Duration(milliseconds: state.positionAt(widget.nowEpochMsProvider()));
+    }
+    return Duration.zero;
+  }
+
   NowPlayingViewModel _computeViewModel(PlayerQueueState? queueState) {
-    return NowPlayingViewModel.fromPlayerQueueState(
+    final vm = NowPlayingViewModel.fromPlayerQueueState(
       queueState,
       fallbackTrack: widget.currentTrack,
       fallbackTitle: widget.title,
@@ -362,6 +390,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       fallbackDuration: widget.duration,
       fallbackImageUrl: widget.imageUrl,
     );
+    if (queueState != null) {
+      return vm.copyWith(position: _sampleQueuePosition(queueState));
+    }
+    return vm;
   }
 
   /// Resolves the canonical Spotify artist URI for an eligible Spotify song,
@@ -450,12 +482,23 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     _syncCardRegistry();
 
+    // 1:1 with Spotify `p199p/rrs0.java` -> `p199p/jhe0.java:63-79` ->
+    // `p199p/srs0.java:13-16` -> `p199p/p1r0.java:209` (100ms live position ticker).
+    // Sampling immediately on first tick (`prevTick == null`) and guarding
+    // `elapsed < prevTick` ensures restarting the ticker after pause/buffering
+    // never stalls waiting for `elapsed` to pass a stale `_lastTick`.
     final ticker = createTicker((elapsed) {
-      if (elapsed - _lastTick > const Duration(milliseconds: 250)) {
+      final prevTick = _lastTick;
+      if (prevTick == null ||
+          elapsed < prevTick ||
+          elapsed - prevTick >= const Duration(milliseconds: 100)) {
         _lastTick = elapsed;
         if (_dragNotifier.value == null && mounted) {
           if (_boundQueueBloc case final activeBloc?) {
-            _positionNotifier.value = activeBloc.state.currentPosition;
+            final nextPos = _sampleQueuePosition(activeBloc.state);
+            if (_positionNotifier.value != nextPos) {
+              _positionNotifier.value = nextPos;
+            }
           }
         }
       }
@@ -480,6 +523,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       _boundQueueBloc?.removeListener(_onQueueStateChanged);
       _boundQueueBloc = nextQueueBloc;
       nextQueueBloc?.addListener(_onQueueStateChanged);
+      final reboundVm = _computeViewModel(nextQueueBloc?.state);
+      _transportPhase = reboundVm.transportPhase;
+      if (_dragNotifier.value == null) {
+        _positionNotifier.value = reboundVm.position;
+      }
+      _syncTickerForTransportPhase(reboundVm.transportPhase);
     }
 
     final nextDataPool = _resolveDataPool();
@@ -612,8 +661,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         setState(() {
           _transportPhase = vm.transportPhase;
         });
-        _syncTickerForTransportPhase(vm.transportPhase);
       }
+      _syncTickerForTransportPhase(vm.transportPhase);
       if (_dragNotifier.value == null) {
         _positionNotifier.value = vm.position;
       }
@@ -663,6 +712,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     switch (phase) {
       case NowPlayingTransportPhase.playing:
         if (!ticker.isActive) {
+          _lastTick = null;
           ticker.start();
         }
       case NowPlayingTransportPhase.paused:
@@ -670,6 +720,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (ticker.isActive) {
           ticker.stop();
         }
+        _lastTick = null;
     }
   }
 

@@ -1,4 +1,15 @@
+// ============================================================================
+// 1:1 Replica of Spotify ContextTrack Metadata Extensions (`p199p/ock1.java`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/ock1.java:204-206` (`m68146V` `isQueued`)
+//   - `p199p/ock1.java:1477-1479` (`m68168i0` compound queue key)
+//   - `p199p/erl.java:40-69` (`collection.is_banned`, `hidden`, `is_19_plus`)
+//   - `com/spotify/player/model/ContextTrack.java:16,206-208` (`isDelimiter()`)
+// ============================================================================
+
 import '../../domain/models/context_track.dart';
+import 'queue_key_resolver.dart';
 
 extension ContextTrackExtensions on ContextTrack {
   /// Compounded unique key identifying a track instance in the queue (from Spotify ock1.m68168i0).
@@ -82,8 +93,7 @@ extension ContextTrackExtensions on ContextTrack {
   }
 
   /// Returns true if this track was explicitly queued by the user (from Spotify ock1.m68146V / ybb1.L).
-  bool get isQueued =>
-      metadata[ContextTrackMetadata.keyIsQueued]?.toLowerCase() == 'true';
+  bool get isQueued => QueueKeyResolver.isQueued(this);
 
   /// Returns true if this track is 19+ (from Spotify ybb1.z).
   bool get is19Plus =>

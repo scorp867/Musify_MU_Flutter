@@ -9,8 +9,22 @@
 //   `context_track.proto` (`0x609c74`), `context_player_options.proto` (`0x609924`),
 //   `play_origin.proto` (`0x60a4d8`), `sleep_timer.proto` (`0x60be60`)
 // - LocalPlaybackIntentContextPlayer (`0x1090200..0x10924a8`)
-// - ConnectApiImpl (`0xda66f0..0xda96ac`, `&not_playing_locally` @ `0xdaa0bc`)
+// - ConnectProxyPlayer (`vtable 0x162da80`: `setLocalActive` @ `0xdaa404`,
+//   `becomeActive` @ `0xdaa144`, `becomeInactive` @ `0xdaaa2c`,
+//   `updateRemotePlayerState` @ `0xdaaab4..0xdaaae8`, `pause` @ `0xda73a0`,
+//   `&not_playing_locally` @ `0xdaa08c` / `0x449ae0`)
 // - ConnectStateImpl::onClusterChanged (`0xdb6740..0xdb7060`)
+// - ConnectManager::onClusterUpdate (`0xdb3260..0xdb329c`), adjustTimestamps (`0xdb28c0..0xdb2968`)
+// - ConnectProxyPlayer::currentPlayerState (`0xda97a0..0xda97b4`), parseClusterProto (`0xdc7958..0xdc7d00`)
+// - `player.arch = "3"` Dual-Chain Architecture (`0x10873e8`):
+//   - Object A / Chain 1 (`0x108a878`, `0x10d7004`) -> Connect `[ConnectState + 0x378]` (`0xd94764`)
+//   - Object B / Chain 2 (`0x108ad38`, `ExtendedMetadataDecorator` `0x10da59c -> 0x10dc214`) -> Esperanto (`0x11281d0`)
+//   - Base `toPlayerState` (`0x10d77c0..0x10d8f80`), `queue_revision` hash (`0x10d8168..0x10d825c`)
+//   - `ListPlayerConfig` (`0x127f480..0x127f4c8`: `full_load_clip_prev = 20`, `full_load_clip_next = 80`
+//     -> `0x108a0c8` -> `ListState` @ `0x10abac4`)
+// - Restrictions builder (`0xf85e5c`: `"not_paused"` @ `0xf84ebc`, `"not_supported_by_content_type"` @ `0xf852c4`,
+//   `"already_set"` @ `0xf856f8`)
+// - core-context-track-exts `max_fetch_batch_size = 100` (`0xf3d6c0..0xf3d6e4`)
 // ============================================================================
 
 #include "ContextPlayerImpl.h"
@@ -40,7 +54,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iterator>
+#include <random>
 #include <utility>
 
 namespace spotify::player {
@@ -50,6 +66,95 @@ namespace {
 inline int64_t get_current_timestamp_ms() noexcept {
     const auto now = std::chrono::system_clock::now();
     return std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+}
+
+inline uint64_t next_entropy_u64() noexcept {
+    static std::atomic<uint64_t> counter{1};
+    thread_local std::mt19937_64 rng([]() {
+        std::random_device rd;
+        const uint64_t t = static_cast<uint64_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        return (static_cast<uint64_t>(rd()) << 32) ^ static_cast<uint64_t>(rd()) ^ t;
+    }());
+    return rng() ^ (counter.fetch_add(1, std::memory_order_relaxed) * 0x9e3779b97f4a7c15ULL);
+}
+
+/// 32-char lowercase hex `playback_id` (128-bit, matching `dealer_payload_officialspotify`).
+std::string generate_playback_id_32hex() {
+    const uint64_t hi = next_entropy_u64();
+    const uint64_t lo = next_entropy_u64();
+    char buf[33];
+    std::snprintf(
+        buf,
+        sizeof(buf),
+        "%016llx%016llx",
+        static_cast<unsigned long long>(hi),
+        static_cast<unsigned long long>(lo));
+    return std::string(buf, 32);
+}
+
+/// 22-char base62 `session_id` (128-bit, matching `dealer_payload_officialspotify` e.g. `4FJQ78issEpmAghtBAAbee`).
+std::string generate_session_id_base62() {
+    static constexpr const char kBase62[] =
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    std::array<uint8_t, 16> num{};
+    const uint64_t hi = next_entropy_u64();
+    const uint64_t lo = next_entropy_u64();
+    for (int i = 0; i < 8; ++i) {
+        num[static_cast<size_t>(i)] = static_cast<uint8_t>((hi >> (56 - i * 8)) & 0xFFU);
+        num[static_cast<size_t>(8 + i)] = static_cast<uint8_t>((lo >> (56 - i * 8)) & 0xFFU);
+    }
+    std::string encoded;
+    encoded.reserve(22);
+    for (int step = 0; step < 22; ++step) {
+        uint32_t remainder = 0;
+        for (size_t i = 0; i < 16; ++i) {
+            const uint32_t cur = (remainder << 8) | static_cast<uint32_t>(num[i]);
+            num[i] = static_cast<uint8_t>(cur / 62U);
+            remainder = cur % 62U;
+        }
+        encoded.push_back(kBase62[remainder]);
+    }
+    std::reverse(encoded.begin(), encoded.end());
+    return encoded;
+}
+
+/// 20-char lowercase hex track UID fallback (80-bit, matching `dealer_payload_officialspotify` e.g. `ca0d0fbd22d57ba4b058`).
+std::string generate_hex_track_uid_20() {
+    const uint64_t hi = next_entropy_u64();
+    const uint32_t lo = static_cast<uint32_t>(next_entropy_u64() & 0xFFFFU);
+    char buf[21];
+    std::snprintf(
+        buf,
+        sizeof(buf),
+        "%016llx%04x",
+        static_cast<unsigned long long>(hi),
+        static_cast<unsigned int>(lo));
+    return std::string(buf, 20);
+}
+
+/// RFC-4122 UUIDv4 for session `interaction_id` / `page_instance_id` when not supplied by caller `logging_params`.
+std::string generate_uuid_v4() {
+    uint64_t hi = next_entropy_u64();
+    uint64_t lo = next_entropy_u64();
+    hi = (hi & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL;
+    lo = (lo & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL;
+    char buf[37];
+    std::snprintf(
+        buf,
+        sizeof(buf),
+        "%08x-%04x-%04x-%04x-%012llx",
+        static_cast<unsigned int>((hi >> 32) & 0xFFFFFFFFU),
+        static_cast<unsigned int>((hi >> 16) & 0xFFFFU),
+        static_cast<unsigned int>(hi & 0xFFFFU),
+        static_cast<unsigned int>((lo >> 48) & 0xFFFFU),
+        static_cast<unsigned long long>(lo & 0x0000FFFFFFFFFFFFULL));
+    return std::string(buf, 36);
+}
+
+/// 64-bit `boost::hash_combine` matching `liborbit-jni-spotify.so` `0x10d8168..0x10d825c` (`0x9e3779b9`).
+inline void boost_hash_combine_u64(uint64_t& seed, uint64_t value) noexcept {
+    seed ^= value + 0x9e3779b9ULL + (seed << 6) + (seed >> 2);
 }
 
 struct DecodedCommandOptions {
@@ -500,47 +605,6 @@ std::vector<uint8_t> playback_id_to_proto_bytes(std::string_view playback_id) {
         }
     }
     return std::vector<uint8_t>(playback_id.begin(), playback_id.end());
-}
-
-std::vector<std::string> decode_suppressions_providers(const std::vector<uint8_t>& bytes) {
-    std::vector<std::string> providers;
-    if (bytes.empty()) {
-        return providers;
-    }
-    const uint8_t* ptr = bytes.data();
-    const uint8_t* end = bytes.data() + bytes.size();
-    bool ok = true;
-    while (ptr < end) {
-        uint64_t tag = 0;
-        if (!decode_varint(ptr, end, tag)) {
-            ok = false;
-            break;
-        }
-        const uint32_t f = static_cast<uint32_t>(tag >> 3);
-        const uint32_t w = static_cast<uint32_t>(tag & 0x07);
-        if (f == 1 && w == 2) {
-            uint64_t len = 0;
-            if (!decode_varint(ptr, end, len) || !has_bytes(ptr, end, len)) {
-                ok = false;
-                break;
-            }
-            const size_t n = static_cast<size_t>(len);
-            std::string prov(reinterpret_cast<const char*>(ptr), n);
-            ptr += n;
-            if (!prov.empty() && is_valid_utf8_string(prov)) {
-                providers.push_back(std::move(prov));
-            }
-        } else {
-            if (!skip_field(ptr, end, w)) {
-                ok = false;
-                break;
-            }
-        }
-    }
-    if (!ok) {
-        providers.clear();
-    }
-    return providers;
 }
 
 inline int32_t resolve_initial_track_index(
@@ -2180,7 +2244,7 @@ inline bool decode_transfer_context_page(
                 if (!decode_transfer_context_track(p, n, entry)) return false;
                 if (!entry.uri.empty() && !entry.is_delimiter()) {
                     if (entry.uid.empty()) {
-                        entry.uid = generate_track_uid();
+                        entry.uid = generate_hex_track_uid_20();
                     }
                     out_page.tracks.push_back(std::move(entry));
                 }
@@ -2342,7 +2406,7 @@ inline bool decode_transfer_queue(
             if (!decode_transfer_context_track(p, static_cast<size_t>(l), entry)) return false;
             if (!entry.uri.empty() && !entry.is_delimiter()) {
                 if (entry.uid.empty()) {
-                    entry.uid = generate_track_uid();
+                    entry.uid = generate_hex_track_uid_20();
                 }
                 entry.provider = "queue";
                 entry.metadata["is_queued"] = "true";
@@ -2898,7 +2962,7 @@ bool parse_connect_json_track(
     }
     context_view::Entry entry;
     entry.uri = uri_opt.value_or(std::string{});
-    entry.uid = (uid_opt.has_value() && !uid_opt->empty()) ? *uid_opt : generate_track_uid();
+    entry.uid = (uid_opt.has_value() && !uid_opt->empty()) ? *uid_opt : generate_hex_track_uid_20();
     if (entry.uri == "spotify:delimiter" || entry.uri == "spotify:meta:delimiter") {
         entry.type = context_view::EntryType::DELIMITER;
     } else {
@@ -3020,9 +3084,6 @@ std::optional<uint64_t> parse_json_uint64_or_string(const json::JsonValue& obj, 
     return std::nullopt;
 }
 
-constexpr size_t kDecoratePrevWindowSize = 5;
-constexpr size_t kDecorateNextWindowSize = 25;
-
 bool is_vault_masked_entry(const context_view::Entry& entry) noexcept {
     return SpotifyPlaybackPolicy::is_vault_masked_entry(entry);
 }
@@ -3034,6 +3095,38 @@ bool has_non_empty_meta(const context_view::Entry& entry, const char* key) noexc
 
 bool is_decoratable_spotify_entry(const context_view::Entry& entry) noexcept {
     return SpotifyPlaybackPolicy::is_decoratable_spotify_entry(entry);
+}
+
+// Normalizes `spotify:delimiter` entries to match liborbit ListPlayer (`0xe61068..0xe61560`:
+// uri="spotify:delimiter", provider="delimiter", metadata={"hidden":"true"} plus boundary
+// action keys when present, no track display keys). Normal tracks pass through unchanged on
+// Object B / Chain 2 (Esperanto UI), while Object A (Connect PutStateRequest) builds base
+// metadata directly in `ConnectSubsystem::build_connect_player_state` (`0x10d77c0..0x10d8f80`).
+context_view::Entry normalize_delimiter_entry(const context_view::Entry& entry) {
+    if (!ContextProcessor::is_delimiter(entry.uri)) {
+        return entry;
+    }
+    context_view::Entry out = entry;
+    out.type = context_view::EntryType::DELIMITER;
+    out.uri = "spotify:delimiter";
+    out.provider =
+        (!out.provider.empty() && out.provider != "context")
+            ? out.provider
+            : "delimiter";
+    std::unordered_map<std::string, std::string> cleaned;
+    cleaned["hidden"] = "true";
+    for (const char* boundary_key : {
+             "is_boundary",
+             "actions.advancing_past_track",
+             "actions.skipping_next_past_track",
+         }) {
+        const auto it = out.metadata.find(boundary_key);
+        if (it != out.metadata.end() && !it->second.empty()) {
+            cleaned[boundary_key] = it->second;
+        }
+    }
+    out.metadata = std::move(cleaned);
+    return out;
 }
 
 bool has_complete_display_metadata(const context_view::Entry& entry) noexcept {
@@ -3121,17 +3214,39 @@ void ContextPlayerImpl::begin_track_transition_locked(
     SessionPlaybackPhase initial_phase) {
     current_track_ = track;
     playback_phase_ = initial_phase;
-    playback_id_ = generate_track_uid();
+    playback_id_ = generate_playback_id_32hex();
     position_ms_ = 0;
     duration_ms_ = 0;
     explicit_prev_tracks_.reset();
 }
 
 void ContextPlayerImpl::bump_queue_revision_locked() noexcept {
-    ++queue_revision_;
-    if (queue_revision_ == 0) {
-        queue_revision_ = 1;
+    // 1:1 with liborbit `player.arch = "3"` `toPlayerState` (`0x10d8168..0x10d825c`):
+    // 64-bit `boost::hash_combine` (`0x9e3779b9`) across the queue track list + mutation counter.
+    ++queue_mutation_counter_;
+    const std::hash<std::string> str_hasher;
+    uint64_t seed = 0xCBF29CE484222325ULL;
+    boost_hash_combine_u64(seed, queue_mutation_counter_);
+    if (!context_uri_.empty()) {
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(context_uri_)));
     }
+    if (current_track_.has_value()) {
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(current_track_->uri)));
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(current_track_->uid)));
+    }
+    for (const auto& q : user_queue_) {
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(q.uri)));
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(q.uid)));
+    }
+    const auto next_slice = context_processor_.get_next_tracks(static_cast<int32_t>(kConnectMaxNextTracks));
+    for (const auto& n : next_slice) {
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(n.uri)));
+        boost_hash_combine_u64(seed, static_cast<uint64_t>(str_hasher(n.uid)));
+    }
+    if (seed == 0) {
+        seed = 1;
+    }
+    queue_revision_ = seed;
 }
 
 void ContextPlayerImpl::transition_to_local_locked() noexcept {
@@ -3155,12 +3270,13 @@ ContextPlayerImpl::ContextPlayerImpl(
     }
     if (track_info_provider_ != nullptr) {
         auto alive = alive_flag_;
-        metadata_listener_id_ = track_info_provider_->addListener(
-            [this, alive = std::move(alive)](const std::string& uri, const metadata::TrackInfo& info) {
+        metadata_listener_id_ = track_info_provider_->addBatchListener(
+            [this, alive = std::move(alive)](
+                const std::vector<std::pair<std::string, metadata::TrackInfo>>& updates) {
                 if (!alive->load(std::memory_order_acquire)) {
                     return;
                 }
-                on_track_metadata_resolved(uri, info);
+                on_tracks_metadata_resolved(updates);
             });
     }
 }
@@ -3168,7 +3284,7 @@ ContextPlayerImpl::ContextPlayerImpl(
 ContextPlayerImpl::~ContextPlayerImpl() {
     alive_flag_->store(false, std::memory_order_release);
     if (track_info_provider_ != nullptr && metadata_listener_id_ != 0) {
-        track_info_provider_->removeListener(metadata_listener_id_);
+        track_info_provider_->removeBatchListener(metadata_listener_id_);
         metadata_listener_id_ = 0;
     }
     stop_sleep_timer_thread();
@@ -3292,10 +3408,18 @@ void ContextPlayerImpl::clear_remote_mirrored_state() {
 }
 
 void ContextPlayerImpl::pause_for_remote_takeover() {
+    // 1:1 with liborbit ConnectStateImpl::onClusterChanged (0xdb6a38..0xdb6b74):
+    // 1. Call ConnectProxyPlayer::becomeInactive() (0xdaaa2c -> setLocalActive(false)
+    //    @ 0xdaa404 + lock local player state subscriptions @ 0xdaaa3c..0xdaaa7c)
+    //    BEFORE pausing local playback.
+    // 2. Only after origin_ == PlaybackOrigin::kRemoteMirrored, pause TrackPlayer
+    //    (0xdb6afc..0xdb6b5c). Local is_paused=true is NEVER forwarded to Esperanto/UI
+    //    or Connect PutState listeners.
     std::shared_ptr<rendering::TrackPlayer> tp;
     uint64_t sync_token = 0;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        origin_ = PlaybackOrigin::kRemoteMirrored;
         paused_for_remote_takeover_ = true;
         tp = track_player_;
         if (tp) {
@@ -3308,9 +3432,6 @@ void ContextPlayerImpl::pause_for_remote_takeover() {
         tp->pause();
     }
 
-    StateChangedCallback sc_cb;
-    std::vector<uint8_t> sc_bytes;
-    bool should_emit_ui = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (pending_player_sync_token_ == sync_token) {
@@ -3326,18 +3447,11 @@ void ContextPlayerImpl::pause_for_remote_takeover() {
             playback_phase_ == SessionPlaybackPhase::BufferingPaused) {
             playback_phase_ = SessionPlaybackPhase::Paused;
         }
-        if (origin_ == PlaybackOrigin::kLocal) {
-            emit_state_locked(false);
-            sc_cb = state_changed_callback_;
-            sc_bytes = cached_state_bytes_;
-            should_emit_ui = true;
-        }
     }
 
-    PLAYER_REMOTE_LOGI("Paused local audio playback for remote takeover (PutState listeners suppressed)");
-    if (should_emit_ui && sc_cb && !sc_bytes.empty()) {
-        sc_cb(sc_bytes.data(), sc_bytes.size());
-    }
+    PLAYER_REMOTE_LOGI(
+        "Became inactive (origin=kRemoteMirrored) and paused local audio for remote takeover "
+        "(local UI & PutState emissions suppressed)");
 }
 
 void ContextPlayerImpl::set_spclient_base_url(const std::string& url) {
@@ -3545,6 +3659,10 @@ bool ContextPlayerImpl::apply_track_info_locked(
             changed = true;
         }
     };
+    // 1:1 with liborbit `player.arch = "3"` Object B / Chain 2 ExtendedMetadataDecorator
+    // (`0x108ad38` -> `0x1660730` -> `0x10da59c` -> `0x10dc214`):
+    // Full display metadata is attached strictly for Esperanto UI output (local & mirrored
+    // remote); Connect Object A (`0x108a878`) uses base `toPlayerState` (`0x10d77c0`) only.
     set_if_missing("title", info.title);
     set_if_missing("artist_name", info.artist_name);
     set_if_missing("artist_uri", info.artist_uri);
@@ -3571,7 +3689,8 @@ bool ContextPlayerImpl::decorate_entry_locked(
     if (track_info_provider_ == nullptr) {
         return false;
     }
-    if (!is_decoratable_spotify_entry(entry) || has_complete_display_metadata(entry)) {
+    if (!is_decoratable_spotify_entry(entry) ||
+        has_complete_display_metadata(entry)) {
         return false;
     }
     const auto cached = track_info_provider_->getCached(entry.uri);
@@ -3617,21 +3736,17 @@ void ContextPlayerImpl::decorate_mirrored_state_locked(
         }
     }
 
-    const size_t prev_count = mirrored_state_.prev_tracks.size();
-    const size_t prev_start =
-        prev_count > kDecoratePrevWindowSize ? (prev_count - kDecoratePrevWindowSize) : 0;
-    for (size_t i = prev_start; i < prev_count; ++i) {
+    for (auto& pt : mirrored_state_.prev_tracks) {
         decorate_entry_locked(
-            mirrored_state_.prev_tracks[i],
+            pt,
             network::AcquisitionIntent::BackgroundPrefetch,
             seen_uris,
             out_misses);
     }
 
-    const size_t next_limit = std::min(mirrored_state_.next_tracks.size(), kDecorateNextWindowSize);
-    for (size_t i = 0; i < next_limit; ++i) {
+    for (auto& nt : mirrored_state_.next_tracks) {
         decorate_entry_locked(
-            mirrored_state_.next_tracks[i],
+            nt,
             network::AcquisitionIntent::BackgroundPrefetch,
             seen_uris,
             out_misses);
@@ -3650,6 +3765,8 @@ void ContextPlayerImpl::decorate_local_queue_locked(
         return;
     }
     std::unordered_set<std::string> seen_uris;
+    std::unordered_map<std::string, metadata::TrackInfo> cached_ctx_hits;
+    std::unordered_set<std::string> cached_ctx_uris;
 
     if (current_track_.has_value()) {
         if (decorate_entry_locked(
@@ -3662,41 +3779,30 @@ void ContextPlayerImpl::decorate_local_queue_locked(
                 if (duration_ms_ <= 0 && cached->duration_ms > 0) {
                     duration_ms_ = cached->duration_ms;
                 }
-                context_processor_.apply_metadata_for_uri(
-                    current_track_->uri, [&cached](context_view::Entry& e) -> bool {
-                        return !SpotifyPlaybackPolicy::is_vault_entry(e) &&
-                               !SpotifyPlaybackPolicy::is_local_entry(e) &&
-                               apply_track_info_locked(e, *cached);
-                    });
+                cached_ctx_uris.insert(current_track_->uri);
+                cached_ctx_hits.emplace(current_track_->uri, *cached);
             }
         }
     }
 
-    const size_t user_queue_limit = std::min(user_queue_.size(), kDecorateNextWindowSize);
-    for (size_t i = 0; i < user_queue_limit; ++i) {
+    for (auto& queued : user_queue_) {
         decorate_entry_locked(
-            user_queue_[i],
+            queued,
             network::AcquisitionIntent::BackgroundPrefetch,
             seen_uris,
             out_misses);
     }
 
-    const size_t remaining_next =
-        kDecorateNextWindowSize > user_queue_limit ? (kDecorateNextWindowSize - user_queue_limit) : 0;
-    if (remaining_next > 0) {
-        const auto ctx_next = context_processor_.get_next_tracks(static_cast<int32_t>(remaining_next));
-        for (const auto& entry : ctx_next) {
-            if (!is_decoratable_spotify_entry(entry) || has_complete_display_metadata(entry)) {
+    auto collect_ctx_entries = [&](const std::vector<context_view::Entry>& entries) {
+        for (const auto& entry : entries) {
+            if (!is_decoratable_spotify_entry(entry) ||
+                has_complete_display_metadata(entry)) {
                 continue;
             }
             const auto cached = track_info_provider_->getCached(entry.uri);
             if (cached.has_value()) {
-                context_processor_.apply_metadata_for_uri(
-                    entry.uri, [&cached](context_view::Entry& e) -> bool {
-                        return !SpotifyPlaybackPolicy::is_vault_entry(e) &&
-                               !SpotifyPlaybackPolicy::is_local_entry(e) &&
-                               apply_track_info_locked(e, *cached);
-                    });
+                cached_ctx_uris.insert(entry.uri);
+                cached_ctx_hits.emplace(entry.uri, *cached);
             }
             if (!cached.has_value() || !cached->hasDisplayMetadata()) {
                 if (seen_uris.insert(entry.uri).second) {
@@ -3705,41 +3811,35 @@ void ContextPlayerImpl::decorate_local_queue_locked(
                 }
             }
         }
-    }
+    };
+
+    collect_ctx_entries(context_processor_.get_all_next_tracks());
 
     if (explicit_prev_tracks_.has_value()) {
-        const size_t prev_limit = std::min(explicit_prev_tracks_->size(), kDecoratePrevWindowSize);
-        for (size_t i = 0; i < prev_limit; ++i) {
+        for (auto& prev : *explicit_prev_tracks_) {
             decorate_entry_locked(
-                (*explicit_prev_tracks_)[i],
+                prev,
                 network::AcquisitionIntent::BackgroundPrefetch,
                 seen_uris,
                 out_misses);
         }
     } else {
-        const auto ctx_prev = context_processor_.get_prev_tracks();
-        const size_t prev_limit = std::min(ctx_prev.size(), kDecoratePrevWindowSize);
-        for (size_t i = 0; i < prev_limit; ++i) {
-            const auto& entry = ctx_prev[i];
-            if (!is_decoratable_spotify_entry(entry) || has_complete_display_metadata(entry)) {
-                continue;
-            }
-            const auto cached = track_info_provider_->getCached(entry.uri);
-            if (cached.has_value()) {
-                context_processor_.apply_metadata_for_uri(
-                    entry.uri, [&cached](context_view::Entry& e) -> bool {
-                        return !SpotifyPlaybackPolicy::is_vault_entry(e) &&
-                               !SpotifyPlaybackPolicy::is_local_entry(e) &&
-                               apply_track_info_locked(e, *cached);
-                    });
-            }
-            if (!cached.has_value() || !cached->hasDisplayMetadata()) {
-                if (seen_uris.insert(entry.uri).second) {
-                    out_misses.push_back(PendingMetadataRequest{
-                        entry.uri, network::AcquisitionIntent::BackgroundPrefetch});
+        collect_ctx_entries(context_processor_.get_prev_tracks());
+    }
+
+    if (!cached_ctx_uris.empty()) {
+        context_processor_.apply_metadata_for_uris(
+            cached_ctx_uris, [&cached_ctx_hits](context_view::Entry& e) -> bool {
+                if (SpotifyPlaybackPolicy::is_vault_entry(e) ||
+                    SpotifyPlaybackPolicy::is_local_entry(e)) {
+                    return false;
                 }
-            }
-        }
+                const auto it = cached_ctx_hits.find(e.uri);
+                if (it == cached_ctx_hits.end()) {
+                    return false;
+                }
+                return apply_track_info_locked(e, it->second);
+            });
     }
 }
 
@@ -3748,15 +3848,44 @@ void ContextPlayerImpl::dispatch_metadata_requests(
     if (track_info_provider_ == nullptr || requests.empty()) {
         return;
     }
+    std::vector<metadata::TrackInfoProvider::ResolutionRequest> batch;
+    batch.reserve(requests.size());
     for (const auto& req : requests) {
-        track_info_provider_->requestResolution(req.uri, req.intent);
+        batch.push_back(metadata::TrackInfoProvider::ResolutionRequest{
+            .uri = req.uri,
+            .intent = req.intent,
+        });
     }
+    track_info_provider_->requestResolutionBatch(batch);
 }
 
 void ContextPlayerImpl::on_track_metadata_resolved(
     const std::string& uri,
     const metadata::TrackInfo& info) {
     if (uri.empty()) {
+        return;
+    }
+    on_tracks_metadata_resolved({{uri, info}});
+}
+
+void ContextPlayerImpl::on_tracks_metadata_resolved(
+    const std::vector<std::pair<std::string, metadata::TrackInfo>>& updates) {
+    if (updates.empty()) {
+        return;
+    }
+
+    std::unordered_map<std::string, const metadata::TrackInfo*> by_uri;
+    std::unordered_set<std::string> uris;
+    by_uri.reserve(updates.size());
+    uris.reserve(updates.size());
+    for (const auto& [uri, info] : updates) {
+        if (uri.empty()) {
+            continue;
+        }
+        by_uri[uri] = &info;
+        uris.insert(uri);
+    }
+    if (by_uri.empty()) {
         return;
     }
 
@@ -3770,39 +3899,46 @@ void ContextPlayerImpl::on_track_metadata_resolved(
 
         if (origin_ == PlaybackOrigin::kRemoteMirrored) {
             bool any_changed = false;
-            if (mirrored_state_.current_track.has_value() &&
-                mirrored_state_.current_track->uri == uri) {
-                if (!is_vault_masked_entry(*mirrored_state_.current_track)) {
-                    if (apply_track_info_locked(*mirrored_state_.current_track, info)) {
-                        any_changed = true;
+            if (mirrored_state_.current_track.has_value()) {
+                const auto it = by_uri.find(mirrored_state_.current_track->uri);
+                if (it != by_uri.end()) {
+                    const metadata::TrackInfo& info = *it->second;
+                    if (!is_vault_masked_entry(*mirrored_state_.current_track)) {
+                        if (apply_track_info_locked(*mirrored_state_.current_track, info)) {
+                            any_changed = true;
+                        }
                     }
-                }
-                if (info.duration_ms > 0) {
-                    if (mirrored_state_.duration_ms <= 0) {
-                        mirrored_state_.duration_ms = info.duration_ms;
-                        any_changed = true;
-                    }
-                    auto dur_it = mirrored_state_.current_track->metadata.find("duration");
-                    if (dur_it == mirrored_state_.current_track->metadata.end() ||
-                        dur_it->second.empty()) {
-                        mirrored_state_.current_track->metadata["duration"] =
-                            std::to_string(info.duration_ms);
-                        any_changed = true;
+                    if (info.duration_ms > 0) {
+                        if (mirrored_state_.duration_ms <= 0) {
+                            mirrored_state_.duration_ms = info.duration_ms;
+                            any_changed = true;
+                        }
+                        auto dur_it = mirrored_state_.current_track->metadata.find("duration");
+                        if (dur_it == mirrored_state_.current_track->metadata.end() ||
+                            dur_it->second.empty()) {
+                            mirrored_state_.current_track->metadata["duration"] =
+                                std::to_string(info.duration_ms);
+                            any_changed = true;
+                        }
                     }
                 }
             }
             for (auto& pt : mirrored_state_.prev_tracks) {
-                if (pt.uri == uri && !is_vault_masked_entry(pt)) {
-                    if (apply_track_info_locked(pt, info)) {
-                        any_changed = true;
-                    }
+                if (is_vault_masked_entry(pt)) {
+                    continue;
+                }
+                const auto it = by_uri.find(pt.uri);
+                if (it != by_uri.end() && apply_track_info_locked(pt, *it->second)) {
+                    any_changed = true;
                 }
             }
             for (auto& nt : mirrored_state_.next_tracks) {
-                if (nt.uri == uri && !is_vault_masked_entry(nt)) {
-                    if (apply_track_info_locked(nt, info)) {
-                        any_changed = true;
-                    }
+                if (is_vault_masked_entry(nt)) {
+                    continue;
+                }
+                const auto it = by_uri.find(nt.uri);
+                if (it != by_uri.end() && apply_track_info_locked(nt, *it->second)) {
+                    any_changed = true;
                 }
             }
             if (!any_changed) {
@@ -3819,54 +3955,64 @@ void ContextPlayerImpl::on_track_metadata_resolved(
             bool current_changed = false;
             bool queue_changed = false;
 
-            if (current_track_.has_value() && current_track_->uri == uri &&
+            if (current_track_.has_value() &&
                 !SpotifyPlaybackPolicy::is_vault_entry(*current_track_) &&
                 !SpotifyPlaybackPolicy::is_local_entry(*current_track_)) {
-                if (apply_track_info_locked(*current_track_, info)) {
-                    current_changed = true;
-                }
-                if (info.duration_ms > 0) {
-                    if (duration_ms_ <= 0) {
-                        duration_ms_ = info.duration_ms;
+                const auto it = by_uri.find(current_track_->uri);
+                if (it != by_uri.end()) {
+                    const metadata::TrackInfo& info = *it->second;
+                    if (apply_track_info_locked(*current_track_, info)) {
                         current_changed = true;
                     }
-                    auto dur_it = current_track_->metadata.find("duration");
-                    if (dur_it == current_track_->metadata.end() || dur_it->second.empty()) {
-                        current_track_->metadata["duration"] = std::to_string(info.duration_ms);
-                        current_changed = true;
+                    if (info.duration_ms > 0) {
+                        if (duration_ms_ <= 0) {
+                            duration_ms_ = info.duration_ms;
+                            current_changed = true;
+                        }
+                        auto dur_it = current_track_->metadata.find("duration");
+                        if (dur_it == current_track_->metadata.end() || dur_it->second.empty()) {
+                            current_track_->metadata["duration"] = std::to_string(info.duration_ms);
+                            current_changed = true;
+                        }
                     }
                 }
             }
 
             for (auto& queued : user_queue_) {
-                if (queued.uri == uri &&
-                    !SpotifyPlaybackPolicy::is_vault_entry(queued) &&
-                    !SpotifyPlaybackPolicy::is_local_entry(queued)) {
-                    if (apply_track_info_locked(queued, info)) {
-                        queue_changed = true;
-                    }
+                if (SpotifyPlaybackPolicy::is_vault_entry(queued) ||
+                    SpotifyPlaybackPolicy::is_local_entry(queued)) {
+                    continue;
+                }
+                const auto it = by_uri.find(queued.uri);
+                if (it != by_uri.end() && apply_track_info_locked(queued, *it->second)) {
+                    queue_changed = true;
                 }
             }
 
-            if (context_processor_.apply_metadata_for_uri(
-                    uri, [&info](context_view::Entry& entry) -> bool {
+            if (context_processor_.apply_metadata_for_uris(
+                    uris, [&by_uri](context_view::Entry& entry) -> bool {
                         if (SpotifyPlaybackPolicy::is_vault_entry(entry) ||
                             SpotifyPlaybackPolicy::is_local_entry(entry)) {
                             return false;
                         }
-                        return apply_track_info_locked(entry, info);
+                        const auto it = by_uri.find(entry.uri);
+                        if (it == by_uri.end()) {
+                            return false;
+                        }
+                        return apply_track_info_locked(entry, *it->second);
                     })) {
                 queue_changed = true;
             }
 
             if (explicit_prev_tracks_.has_value()) {
                 for (auto& prev : *explicit_prev_tracks_) {
-                    if (prev.uri == uri &&
-                        !SpotifyPlaybackPolicy::is_vault_entry(prev) &&
-                        !SpotifyPlaybackPolicy::is_local_entry(prev)) {
-                        if (apply_track_info_locked(prev, info)) {
-                            queue_changed = true;
-                        }
+                    if (SpotifyPlaybackPolicy::is_vault_entry(prev) ||
+                        SpotifyPlaybackPolicy::is_local_entry(prev)) {
+                        continue;
+                    }
+                    const auto it = by_uri.find(prev.uri);
+                    if (it != by_uri.end() && apply_track_info_locked(prev, *it->second)) {
+                        queue_changed = true;
                     }
                 }
             }
@@ -4290,10 +4436,40 @@ ContextPlayerImpl::OutboundForwardOutcome ContextPlayerImpl::try_forward_remote_
     }
 
     if (only_for_local) {
+        // 1:1 with liborbit ConnectProxyPlayer::pause (0xda73a0) & &not_playing_locally
+        // (0xdaa08c / 0x449ae0): only explicit local Play/PreparePlay activates local
+        // playback. Local-only Pause/Stop/transport commands while remote is active must
+        // NOT wipe origin_=kRemoteMirrored or emit local paused state over remote playback.
+        if (method_name == "Play" || method_name == "PreparePlay") {
+            PLAYER_REMOTE_LOGI(
+                "Command %s marked only_for_local_device=true; activating local playback",
+                method_name.c_str());
+            return OutboundForwardOutcome{.intercepted = false, .ok = false};
+        }
+        if (method_name == "Pause" || method_name == "Stop") {
+            std::shared_ptr<rendering::TrackPlayer> tp;
+            uint64_t sync_token = 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                tp = track_player_;
+                if (tp) {
+                    sync_token = ++next_player_sync_token_;
+                    pending_player_sync_token_ = sync_token;
+                }
+            }
+            if (tp) {
+                if (method_name == "Pause") {
+                    tp->pause();
+                } else {
+                    tp->stop(rendering::StopReason::ExplicitStop);
+                }
+                clear_pending_player_sync(sync_token);
+            }
+        }
         PLAYER_REMOTE_LOGI(
-            "Command %s marked only_for_local_device=true; executing locally",
+            "Command %s marked only_for_local_device=true while remote active -> not_playing_locally",
             method_name.c_str());
-        return OutboundForwardOutcome{.intercepted = false, .ok = false};
+        return OutboundForwardOutcome{.intercepted = true, .ok = false};
     }
 
     const std::string target_device_id = delegate->active_remote_device_id();
@@ -4448,7 +4624,13 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
         context_url_ = parsed.context_url;
         context_metadata_ = parsed.context_metadata;
         play_origin_ = parsed.play_origin;
-        session_id_ = !parsed.session_id.empty() ? parsed.session_id : generate_track_uid();
+        session_id_ = !parsed.session_id.empty() ? parsed.session_id : generate_session_id_base62();
+        session_interaction_id_ = !parsed.logging_params.interaction_ids.empty()
+                                      ? parsed.logging_params.interaction_ids.front()
+                                      : generate_uuid_v4();
+        session_page_instance_id_ = !parsed.logging_params.page_instance_ids.empty()
+                                        ? parsed.logging_params.page_instance_ids.front()
+                                        : generate_uuid_v4();
 
         if (parsed.overrides.shuffling_context.has_value()) {
             shuffling_ = *parsed.overrides.shuffling_context;
@@ -4552,10 +4734,39 @@ bool ContextPlayerImpl::play(const uint8_t* payload, size_t len) {
 
 bool ContextPlayerImpl::pause() {
     std::shared_ptr<rendering::TrackPlayer> tp;
+    uint64_t sync_token = 0;
+    bool is_remote_mirrored = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        transition_to_local_locked();
-        tp = track_player_;
+        if (origin_ == PlaybackOrigin::kRemoteMirrored) {
+            // 1:1 with liborbit ConnectProxyPlayer::pause (0xda73a0, &not_playing_locally @ 0xdaa08c):
+            // Never destroy remote mirrored state or emit local is_paused=true when a local
+            // or delayed inbound Dealer pause arrives while mirroring a remote device.
+            is_remote_mirrored = true;
+            tp = track_player_;
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
+        } else {
+            transition_to_local_locked();
+            tp = track_player_;
+        }
+    }
+    if (is_remote_mirrored) {
+        if (tp) {
+            tp->pause();
+            clear_pending_player_sync(sync_token);
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (is_phase_playing(playback_phase_) ||
+                playback_phase_ == SessionPlaybackPhase::BufferingPaused) {
+                playback_phase_ = SessionPlaybackPhase::Paused;
+            }
+        }
+        PLAYER_REMOTE_LOGI("pause(): ignoring while origin=kRemoteMirrored (not_playing_locally)");
+        return false;
     }
     if (tp) {
         tp->pause();
@@ -5263,10 +5474,16 @@ bool ContextPlayerImpl::add_to_queue(const uint8_t* payload, size_t len) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             transition_to_local_locked();
-            req.track.uid = generate_track_uid();
+            req.track.uid = generate_hex_track_uid_20();
             req.track.metadata["is_queued"] = "true";
             req.track.provider = "queue";
             req.track.metadata["provider"] = "queue";
+            if (!req.logging_params.interaction_ids.empty()) {
+                req.track.metadata["interaction_id"] = req.logging_params.interaction_ids.front();
+            }
+            if (!req.logging_params.page_instance_ids.empty()) {
+                req.track.metadata["page_instance_id"] = req.logging_params.page_instance_ids.front();
+            }
             user_queue_.push_back(std::move(req.track));
             bump_queue_revision_locked();
             decorate_local_queue_locked(pending_metadata);
@@ -5304,7 +5521,7 @@ bool ContextPlayerImpl::set_queue(const uint8_t* payload, size_t len) {
             std::vector<context_view::Entry> remaining_context;
             for (auto& t : req.next_tracks) {
                 if (t.uid.empty()) {
-                    t.uid = generate_track_uid();
+                    t.uid = generate_hex_track_uid_20();
                 }
                 auto it = t.metadata.find("is_queued");
                 if ((it != t.metadata.end() && (it->second == "true" || it->second == "True")) ||
@@ -5315,7 +5532,7 @@ bool ContextPlayerImpl::set_queue(const uint8_t* payload, size_t len) {
                     user_queue_.push_back(std::move(t));
                 } else {
                     t.provider = "context";
-                    t.metadata["is_queued"] = "false";
+                    t.metadata.erase("is_queued");
                     t.metadata["provider"] = "context";
                     remaining_context.push_back(std::move(t));
                 }
@@ -5357,10 +5574,16 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
             std::lock_guard<std::mutex> lock(mutex_);
             transition_to_local_locked();
             for (auto& t : req.tracks) {
-                t.uid = generate_track_uid();
+                t.uid = generate_hex_track_uid_20();
                 t.metadata["is_queued"] = "true";
                 t.provider = "queue";
                 t.metadata["provider"] = "queue";
+                if (!req.logging_params.interaction_ids.empty()) {
+                    t.metadata["interaction_id"] = req.logging_params.interaction_ids.front();
+                }
+                if (!req.logging_params.page_instance_ids.empty()) {
+                    t.metadata["page_instance_id"] = req.logging_params.page_instance_ids.front();
+                }
             }
             user_queue_.insert(user_queue_.begin(), req.tracks.begin(), req.tracks.end());
             bump_queue_revision_locked();
@@ -5385,6 +5608,7 @@ bool ContextPlayerImpl::play_as_next_in_queue(const uint8_t* payload, size_t len
 bool ContextPlayerImpl::stop() {
     std::shared_ptr<rendering::TrackPlayer> tp;
     uint64_t sync_token = 0;
+    bool is_remote_mirrored = false;
     StateChangedCallback sc_cb;
     QueueChangedCallback qc_cb;
     std::vector<uint8_t> sc_bytes;
@@ -5392,39 +5616,65 @@ bool ContextPlayerImpl::stop() {
     ConnectDispatchBundle connect_bundle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        transition_to_local_locked();
-        tp = track_player_;
-        playback_phase_ = SessionPlaybackPhase::Idle;
-        position_ms_ = 0;
-        duration_ms_ = 0;
-        playback_id_.clear();
-        current_track_.reset();
-        user_queue_.clear();
-        explicit_prev_tracks_.reset();
-        context_processor_.clear();
-        context_processor_.set_shuffling(shuffling_);
-        if (tp) {
-            sync_token = ++next_player_sync_token_;
-            pending_player_sync_token_ = sync_token;
+        if (origin_ == PlaybackOrigin::kRemoteMirrored) {
+            // 1:1 with liborbit ConnectProxyPlayer (&not_playing_locally @ 0xdaa08c):
+            // Local/delayed stop while mirroring a remote device must NOT wipe origin_ or
+            // emit local idle state over active remote playback.
+            is_remote_mirrored = true;
+            tp = track_player_;
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            }
         } else {
-            pending_player_sync_token_ = 0;
+            transition_to_local_locked();
+            tp = track_player_;
+            playback_phase_ = SessionPlaybackPhase::Idle;
+            position_ms_ = 0;
+            duration_ms_ = 0;
+            playback_id_.clear();
+            current_track_.reset();
+            user_queue_.clear();
+            explicit_prev_tracks_.reset();
+            context_processor_.clear();
+            context_processor_.set_shuffling(shuffling_);
+            if (tp) {
+                sync_token = ++next_player_sync_token_;
+                pending_player_sync_token_ = sync_token;
+            } else {
+                pending_player_sync_token_ = 0;
+            }
+            context_uri_.clear();
+            context_url_.clear();
+            context_metadata_.clear();
+            page_metadata_.clear();
+            session_id_.clear();
+            session_interaction_id_.clear();
+            session_page_instance_id_.clear();
+            session_command_id_.clear();
+            signals_.clear();
+            sleep_timer_ = SleepTimerState{};
+            bump_queue_revision_locked();
+            emit_state_locked(false);
+            emit_queue_locked();
+            sc_cb = state_changed_callback_;
+            qc_cb = queue_changed_callback_;
+            sc_bytes = cached_state_bytes_;
+            qc_bytes = cached_queue_bytes_;
+            capture_connect_dispatch_locked(connect_bundle);
         }
-        context_uri_.clear();
-        context_url_.clear();
-        context_metadata_.clear();
-        page_metadata_.clear();
-        session_id_.clear();
-        session_command_id_.clear();
-        signals_.clear();
-        sleep_timer_ = SleepTimerState{};
-        bump_queue_revision_locked();
-        emit_state_locked(false);
-        emit_queue_locked();
-        sc_cb = state_changed_callback_;
-        qc_cb = queue_changed_callback_;
-        sc_bytes = cached_state_bytes_;
-        qc_bytes = cached_queue_bytes_;
-        capture_connect_dispatch_locked(connect_bundle);
+    }
+    if (is_remote_mirrored) {
+        if (tp) {
+            tp->stop(rendering::StopReason::ExplicitStop);
+            clear_pending_player_sync(sync_token);
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            playback_phase_ = SessionPlaybackPhase::Idle;
+        }
+        PLAYER_REMOTE_LOGI("stop(): ignoring while origin=kRemoteMirrored (not_playing_locally)");
+        return false;
     }
     {
         std::lock_guard<std::mutex> slock(sleep_timer_mutex_);
@@ -5475,7 +5725,13 @@ bool ContextPlayerImpl::prepare_play(const uint8_t* payload, size_t len) {
         context_url_ = parsed.context_url;
         context_metadata_ = parsed.context_metadata;
         play_origin_ = parsed.play_origin;
-        session_id_ = !parsed.session_id.empty() ? parsed.session_id : generate_track_uid();
+        session_id_ = !parsed.session_id.empty() ? parsed.session_id : generate_session_id_base62();
+        session_interaction_id_ = !parsed.logging_params.interaction_ids.empty()
+                                      ? parsed.logging_params.interaction_ids.front()
+                                      : generate_uuid_v4();
+        session_page_instance_id_ = !parsed.logging_params.page_instance_ids.empty()
+                                        ? parsed.logging_params.page_instance_ids.front()
+                                        : generate_uuid_v4();
 
         if (parsed.overrides.shuffling_context.has_value()) {
             shuffling_ = *parsed.overrides.shuffling_context;
@@ -5894,6 +6150,8 @@ bool ContextPlayerImpl::delete_session(const uint8_t* payload, size_t len) {
         }
         tp = track_player_;
         session_id_.clear();
+        session_interaction_id_.clear();
+        session_page_instance_id_.clear();
         session_command_id_.clear();
         playback_id_.clear();
         signals_.clear();
@@ -6075,7 +6333,16 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
             }
         }
 
-        const int64_t extrapolated_pos = mirrored_state_.extrapolated_position_ms(now_ms);
+        // 1:1 with liborbit ConnectManager::onClusterUpdate (0xdb3260) ->
+        // adjustTimestamps (0xdb28c0..0xdb2968) -> ConnectPlayer::playerState (0xda97a0):
+        // Forward the clock-skew-adjusted timestamp and un-altered position_as_of_timestamp
+        // verbatim so Dart's live ticker computes position(now) = pos + speed * (now - ts).
+        const int64_t remote_timestamp_ms =
+            mirrored_state_.timestamp_ms > 0 ? mirrored_state_.timestamp_ms : now_ms;
+        const int64_t remote_position_ms =
+            mirrored_state_.position_as_of_timestamp_ms >= 0
+                ? mirrored_state_.position_as_of_timestamp_ms
+                : 0;
         const bool actively_playing =
             mirrored_state_.is_playing &&
             !mirrored_state_.is_paused &&
@@ -6086,9 +6353,10 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
                 : 0.0;
 
         PlayerStateData data;
-        data.timestamp = now_ms;
+        data.timestamp = remote_timestamp_ms;
         data.context_uri = mirrored_state_.context_uri;
         data.context_url = mirrored_state_.context_url;
+        data.context_restrictions = mirrored_state_.context_restrictions_bytes;
         data.restrictions = mirrored_state_.restrictions_bytes;
         data.play_origin = mirrored_state_.play_origin;
         data.page_index = mirrored_state_.page_index;
@@ -6100,11 +6368,15 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
         data.is_playing = mirrored_state_.is_playing;
         data.is_paused = mirrored_state_.is_paused;
         data.playback_speed = active_speed;
-        data.position_as_of_timestamp = extrapolated_pos;
+        data.has_playback_speed = true;
+        data.position_as_of_timestamp = remote_position_ms;
         data.shuffling_context = mirrored_state_.shuffling;
         data.repeating_context = mirrored_state_.repeating_context;
         data.repeating_track = mirrored_state_.repeating_track;
+        data.modes = mirrored_state_.modes;
         data.is_buffering = mirrored_state_.is_buffering;
+        data.is_system_initiated = mirrored_state_.is_system_initiated;
+        data.suppressions = mirrored_state_.suppressions;
         data.context_metadata = mirrored_state_.context_metadata;
         data.page_metadata = mirrored_state_.page_metadata;
         data.session_id = mirrored_state_.session_id;
@@ -6120,18 +6392,6 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
             if (!pid_bytes.empty()) {
                 encode_submessage_field(cached_state_bytes_, 8, pid_bytes);
             }
-        }
-        // Field 17 (merge fragment): ContextPlayerOptions.modes (field 5)
-        if (!mirrored_state_.modes.empty()) {
-            std::vector<uint8_t> opt_modes;
-            StateEmitter::encode_context_metadata(opt_modes, 5, mirrored_state_.modes);
-            if (!opt_modes.empty()) {
-                encode_submessage_field(cached_state_bytes_, 17, opt_modes);
-            }
-        }
-        // Field 19: suppressions (repeated string) decoded from Suppressions proto
-        for (const auto& provider : decode_suppressions_providers(mirrored_state_.suppressions_bytes)) {
-            encode_string_field(cached_state_bytes_, 19, provider);
         }
         // Field 20: prev_tracks (repeated ProvidedTrack)
         for (const auto& pt : mirrored_state_.prev_tracks) {
@@ -6166,6 +6426,12 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
     const bool repeating_trk_flag =
         repeat_mode_ == SessionRepeatMode::Track;
 
+    const bool supports_playback_speed =
+        current_track_.has_value() &&
+        (current_track_->uri.rfind("spotify:episode:", 0) == 0 ||
+         current_track_->uri.rfind("spotify:show:", 0) == 0);
+    const bool has_active_sleep_timer = (sleep_timer_.mode != SleepTimerMode::kOff);
+
     const auto restrictions_bytes = restrictions_engine_.evaluate(
         playing_flag,
         paused_flag,
@@ -6174,7 +6440,9 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
         shuffling_,
         repeating_ctx_flag,
         repeating_trk_flag,
-        has_queue);
+        has_queue,
+        supports_playback_speed,
+        has_active_sleep_timer);
 
     const context_view::Entry* track_ptr = current_track_.has_value() ? &current_track_.value() : nullptr;
 
@@ -6182,16 +6450,21 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
     data.timestamp = now_ms;
     data.context_uri = context_uri_;
     data.context_url = context_url_;
+    // liborbit @ 0xf85e5c: playback-state restrictions belong on `restrictions` (tag 18),
+    // NOT `context_restrictions` (tag 4, empty during normal playlist/collection playback).
+    data.context_restrictions.clear();
     data.restrictions = restrictions_bytes;
     data.track = track_ptr;
     data.duration_ms = duration_ms_;
     data.is_playing = playing_flag;
     data.is_paused = paused_flag;
     data.playback_speed = (playback_phase_ == SessionPlaybackPhase::Playing) ? playback_speed_ : 0.0;
+    data.has_playback_speed = playing_flag || paused_flag || buffering_flag || current_track_.has_value();
     data.position_as_of_timestamp = position_ms_;
     data.shuffling_context = shuffling_;
     data.repeating_context = repeating_ctx_flag;
     data.repeating_track = repeating_trk_flag;
+    data.modes = modes_;
     data.is_buffering = buffering_flag;
     data.context_metadata = context_metadata_;
     data.page_metadata = page_metadata_;
@@ -6210,13 +6483,6 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
             encode_submessage_field(cached_state_bytes_, 8, pid_bytes);
         }
     }
-    if (!modes_.empty()) {
-        std::vector<uint8_t> opt_modes;
-        StateEmitter::encode_context_metadata(opt_modes, 5, modes_);
-        if (!opt_modes.empty()) {
-            encode_submessage_field(cached_state_bytes_, 17, opt_modes);
-        }
-    }
 
     latest_connect_snapshot_.timestamp_ms = now_ms;
     latest_connect_snapshot_.context_uri = context_uri_;
@@ -6224,6 +6490,8 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
     latest_connect_snapshot_.playback_id = playback_id_;
     latest_connect_snapshot_.session_id = session_id_;
     latest_connect_snapshot_.session_command_id = session_command_id_;
+    latest_connect_snapshot_.interaction_id = session_interaction_id_;
+    latest_connect_snapshot_.page_instance_id = session_page_instance_id_;
     latest_connect_snapshot_.last_command_sent_by_device_id = last_command_sent_by_device_id_;
     latest_connect_snapshot_.last_command_message_id = last_command_message_id_;
     latest_connect_snapshot_.queue_revision = queue_revision_;
@@ -6231,28 +6499,71 @@ void ContextPlayerImpl::emit_state_locked(bool sync_player_position) {
     latest_connect_snapshot_.repeat_mode = repeat_mode_;
     latest_connect_snapshot_.shuffling = shuffling_;
     latest_connect_snapshot_.playback_speed = playback_speed_;
+    latest_connect_snapshot_.has_playback_speed_override = (playback_speed_ != 1.0);
     latest_connect_snapshot_.position_ms = position_ms_;
     latest_connect_snapshot_.duration_ms = duration_ms_;
     latest_connect_snapshot_.page_index = 0;
     latest_connect_snapshot_.track_index = data.track_index;
     latest_connect_snapshot_.current_track = current_track_;
-    latest_connect_snapshot_.prev_tracks = prev_tracks;
+
+    // 1:1 with liborbit `player.arch = "3"` `ListPlayerConfig` (`0x127f4b0`: `0x14` = 20)
+    // -> `0x108a0c8` -> `ListState` (`0x10abac4`):
+    // Populate up to 20 prev_tracks in OLDEST-TO-NEWEST order (front = oldest,
+    // back = immediately preceding track).
+    latest_connect_snapshot_.prev_tracks.clear();
+    if (explicit_prev_tracks_.has_value()) {
+        const auto& exp_prev = *explicit_prev_tracks_;
+        const size_t start_idx =
+            exp_prev.size() > kConnectMaxPrevTracks
+                ? (exp_prev.size() - kConnectMaxPrevTracks)
+                : 0;
+        latest_connect_snapshot_.prev_tracks.reserve(exp_prev.size() - start_idx);
+        for (size_t i = start_idx; i < exp_prev.size(); ++i) {
+            latest_connect_snapshot_.prev_tracks.push_back(
+                normalize_delimiter_entry(exp_prev[i]));
+        }
+    } else {
+        // ContextProcessor::get_prev_tracks() returns newest-first (index_ - 1 down to 0).
+        const size_t take_count = std::min(prev_tracks.size(), kConnectMaxPrevTracks);
+        latest_connect_snapshot_.prev_tracks.reserve(take_count);
+        for (size_t i = take_count; i > 0; --i) {
+            latest_connect_snapshot_.prev_tracks.push_back(
+                normalize_delimiter_entry(prev_tracks[i - 1]));
+        }
+    }
+
+    // 1:1 with liborbit `player.arch = "3"` `ListPlayerConfig` (`0x127f4c8`: `0x50` = 80)
+    // -> `0x108a0c8` -> `ListState` (`0x10abac4`):
+    // First emit explicit user-queued tracks, then fill remaining capacity up to
+    // 80 from chronological context lookahead (preserving spotify:delimiter).
     latest_connect_snapshot_.next_tracks.clear();
-    latest_connect_snapshot_.next_tracks.reserve(user_queue_.size() + 10);
-    latest_connect_snapshot_.next_tracks.insert(
-        latest_connect_snapshot_.next_tracks.end(),
-        user_queue_.begin(),
-        user_queue_.end());
-    const auto lookahead = context_processor_.get_next_tracks(10);
-    latest_connect_snapshot_.next_tracks.insert(
-        latest_connect_snapshot_.next_tracks.end(),
-        lookahead.begin(),
-        lookahead.end());
+    const size_t queued_take = std::min(user_queue_.size(), kConnectMaxNextTracks);
+    latest_connect_snapshot_.next_tracks.reserve(kConnectMaxNextTracks);
+    for (size_t i = 0; i < queued_take; ++i) {
+        latest_connect_snapshot_.next_tracks.push_back(
+            normalize_delimiter_entry(user_queue_[i]));
+    }
+    const size_t remaining_next_cap =
+        kConnectMaxNextTracks - latest_connect_snapshot_.next_tracks.size();
+    if (remaining_next_cap > 0) {
+        const auto lookahead = context_processor_.get_next_tracks(
+            static_cast<int32_t>(remaining_next_cap));
+        for (const auto& entry : lookahead) {
+            if (latest_connect_snapshot_.next_tracks.size() >= kConnectMaxNextTracks) {
+                break;
+            }
+            latest_connect_snapshot_.next_tracks.push_back(
+                normalize_delimiter_entry(entry));
+        }
+    }
+
     latest_connect_snapshot_.restrictions_bytes = restrictions_bytes;
     latest_connect_snapshot_.play_origin = play_origin_;
     latest_connect_snapshot_.context_metadata = context_metadata_;
     latest_connect_snapshot_.page_metadata = page_metadata_;
+    latest_connect_snapshot_.modes = modes_;
     latest_connect_snapshot_.signals = signals_;
+    latest_connect_snapshot_.sleep_timer = sleep_timer_;
     latest_connect_snapshot_.has_player_state =
         !context_uri_.empty() || !context_url_.empty() || current_track_.has_value();
 }
@@ -6437,7 +6748,7 @@ bool ContextPlayerImpl::handle_connect_transfer_command(
         if (cur.uid.empty()) {
             cur.uid = !ts.current_session.current_uid.empty()
                           ? ts.current_session.current_uid
-                          : generate_track_uid();
+                          : generate_hex_track_uid_20();
         }
         tracks.push_back(std::move(cur));
     }
@@ -6506,8 +6817,10 @@ bool ContextPlayerImpl::handle_connect_transfer_command(
         if (!ts.current_session.original_session_id.empty()) {
             session_id_ = ts.current_session.original_session_id;
         } else {
-            session_id_ = generate_track_uid();
+            session_id_ = generate_session_id_base62();
         }
+        session_interaction_id_ = generate_uuid_v4();
+        session_page_instance_id_ = generate_uuid_v4();
 
         if (merged_opts.shuffling_context.has_value()) {
             shuffling_ = *merged_opts.shuffling_context;
@@ -6545,7 +6858,7 @@ bool ContextPlayerImpl::handle_connect_transfer_command(
             !ts.playback.current_track->uri.empty()) {
             chosen_track = ts.playback.current_track;
             if (chosen_track->uid.empty()) {
-                chosen_track->uid = generate_track_uid();
+                chosen_track->uid = generate_hex_track_uid_20();
             }
             chosen_track->provider = "queue";
             chosen_track->metadata["is_queued"] = "true";
@@ -6563,7 +6876,7 @@ bool ContextPlayerImpl::handle_connect_transfer_command(
                  chosen_track->uri != ts.playback.current_track->uri)) {
                 chosen_track = ts.playback.current_track;
                 if (chosen_track->uid.empty()) {
-                    chosen_track->uid = generate_track_uid();
+                    chosen_track->uid = generate_hex_track_uid_20();
                 }
             }
         }
@@ -7367,7 +7680,7 @@ bool ContextPlayerImpl::apply_connect_remote_command(
         if (tracks.empty() && !same_loaded_context && !skip_to_uri.empty()) {
             context_view::Entry entry;
             entry.uri = skip_to_uri;
-            entry.uid = !skip_to_uid.empty() ? skip_to_uid : generate_track_uid();
+            entry.uid = !skip_to_uid.empty() ? skip_to_uid : generate_hex_track_uid_20();
             entry.provider = "context";
             tracks.push_back(std::move(entry));
         }
@@ -7432,7 +7745,9 @@ bool ContextPlayerImpl::apply_connect_remote_command(
             }
             session_id_ = !incoming_session_id.empty()
                               ? std::move(incoming_session_id)
-                              : generate_track_uid();
+                              : generate_session_id_base62();
+            session_interaction_id_ = generate_uuid_v4();
+            session_page_instance_id_ = generate_uuid_v4();
             apply_repeat_overrides_locked(rep_ctx_override, rep_trk_override);
             if (speed_override.has_value()) {
                 playback_speed_ = *speed_override;
@@ -7563,16 +7878,27 @@ void ContextPlayerImpl::emit_queue_locked() {
     std::vector<context_view::Entry> combined_next;
     combined_next.reserve(user_queue_.size() + 50);
 
-    // User-enqueued tracks precede context tracks in Spotify queue semantics
-    combined_next.insert(combined_next.end(), user_queue_.begin(), user_queue_.end());
+    // User-enqueued tracks precede context tracks in Spotify queue semantics.
+    // Object B / Chain 2 (Esperanto EsQueue -> Dart UI, `0x108ad38`) preserves full
+    // `TrackInfoProvider` display decoration while normalizing `spotify:delimiter` entries.
+    for (const auto& entry : user_queue_) {
+        combined_next.push_back(normalize_delimiter_entry(entry));
+    }
 
     // Context lookahead tracks
     const auto ctx_next = context_processor_.get_next_tracks(50);
-    combined_next.insert(combined_next.end(), ctx_next.begin(), ctx_next.end());
+    for (const auto& entry : ctx_next) {
+        combined_next.push_back(normalize_delimiter_entry(entry));
+    }
 
-    const auto prev_tracks = explicit_prev_tracks_.has_value()
-                                 ? *explicit_prev_tracks_
-                                 : context_processor_.get_prev_tracks();
+    const auto raw_prev_tracks = explicit_prev_tracks_.has_value()
+                                     ? *explicit_prev_tracks_
+                                     : context_processor_.get_prev_tracks();
+    std::vector<context_view::Entry> prev_tracks;
+    prev_tracks.reserve(raw_prev_tracks.size());
+    for (const auto& entry : raw_prev_tracks) {
+        prev_tracks.push_back(normalize_delimiter_entry(entry));
+    }
     const context_view::Entry* cur_ptr = current_track_.has_value() ? &current_track_.value() : nullptr;
 
     cached_queue_bytes_ = StateEmitter::encode_queue(

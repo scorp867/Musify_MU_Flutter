@@ -137,7 +137,7 @@ message ContextPlayerOptions {
   bool shuffling_context = 1;
   bool repeating_context = 2;
   bool repeating_track = 3;
-  float playback_speed = 4;
+  optional float playback_speed = 4;
   map<string, string> modes = 5;
 }
 
@@ -192,6 +192,6 @@ message PlayerState {
   PlaybackQuality playback_quality = 32;
   repeated string signals = 33;
   string session_command_id = 35;
-  AdBreakContext ad_break_context = 37;
-  SleepTimer sleep_timer = 38;
+  optional AdBreakContext ad_break_context = 37;
+  optional SleepTimer sleep_timer = 38;
 }

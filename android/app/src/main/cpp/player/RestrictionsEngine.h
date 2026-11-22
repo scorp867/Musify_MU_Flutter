@@ -1,3 +1,21 @@
+// ============================================================================
+// 1:1 Replicated Spotify Esperanto Player Restrictions Engine
+// Emits `spotify.player.esperanto.proto.Restrictions` wire bytes.
+// Sources:
+// - `liborbit-jni-spotify.so` (arm64):
+//   - `EsRestrictions` embedded descriptors @ `0x175be00`, `0x1765f00`
+//   - `EsContextPlayerState` encoder @ `0x11281d0` -> `0x1128938` / `0x13c65ac`
+//   - Restrictions builder @ `0xf85e5c` (init @ `0x108a968`, `0x10ab890`):
+//     - `"not_paused"` (`0x361c57`) @ `0xf84ebc`, `0x11afdf8`
+//     - `"not_supported_by_content_type"` (`0x38158d`) @ `0xf852c4`, `0x13bc7ec`
+//     - `"already_set"` (`0x344594`) @ `0xf856f8`, `0x10ad28c`, `0x10ad324`
+// - Decompiled Java / Esperanto Proto:
+//   - `com/spotify/player/esperanto/proto/EsRestrictions$Restrictions.java:23-55`
+//   - `com/spotify/player/esperanto/proto/EsRestrictions$ModeRestrictions.java`
+//   - `com/spotify/player/esperanto/proto/EsRestrictions$RestrictionReasons.java`
+//   - `p199p/f111.java` (`m43130a`: `EsRestrictions` -> `Restrictions`)
+// ============================================================================
+
 #pragma once
 
 #include <cstdint>
@@ -9,8 +27,7 @@
 
 namespace spotify::player {
 
-/// 1:1 replica of spotify.player.proto.Restrictions / RestrictionsSetupImpl
-/// Decoded from Spotify's liborbit-jni-spotify.so
+/// 1:1 replica of `spotify.player.esperanto.proto.Restrictions` / RestrictionsSetupImpl
 class RestrictionsEngine {
 public:
     RestrictionsEngine() = default;
@@ -26,7 +43,9 @@ public:
             bool is_shuffling,
             bool is_repeating_context,
             bool is_repeating_track,
-            bool has_queue) const {
+            bool has_queue,
+            bool supports_playback_speed = false,
+            bool has_active_sleep_timer = false) const {
         std::vector<uint8_t> buf;
 
         // Field 1: disallow_pausing_reasons
@@ -40,9 +59,10 @@ public:
         }
 
         // Field 2: disallow_resuming_reasons
+        // liborbit @ 0xf84ebc / 0x11afdf8: reason is "not_paused" (0x361c57).
         if (is_playing && !is_paused) {
             std::vector<std::string> reasons = custom_disallow_resuming_.empty()
-                ? std::vector<std::string>{"already_playing"}
+                ? std::vector<std::string>{"not_paused"}
                 : custom_disallow_resuming_;
             encode_reasons_field(buf, 2, reasons);
         } else if (!custom_disallow_resuming_.empty()) {
@@ -183,19 +203,31 @@ public:
         }
 
         // Field 23: disallow_setting_playback_speed_reasons
+        // liborbit @ 0xf852c4 / 0x13bc7ec: "not_supported_by_content_type" (0x38158d) on music tracks.
         if (!custom_disallow_setting_playback_speed_.empty()) {
             encode_reasons_field(buf, 23, custom_disallow_setting_playback_speed_);
+        } else if ((is_playing || is_paused) && !supports_playback_speed) {
+            encode_reasons_field(buf, 23, {"not_supported_by_content_type"});
         }
 
-        // Field 24: disallow_setting_modes (map<string, string>)
-        encode_map_field(buf, 24, disallow_setting_modes_);
+        // Field 25: disallow_setting_modes (map<string, ModeRestrictions>)
+        // EsRestrictions$Restrictions.java: tag 25 (tag 24 is unused in EsRestrictions).
+        encode_mode_restrictions_map(buf, 25, disallow_setting_modes_);
 
-        // Field 25: disallow_signals (map<string, string>)
-        encode_map_field(buf, 25, disallow_signals_);
+        // Field 26: disallow_signals (map<string, RestrictionReasons>)
+        encode_signal_restrictions_map(buf, 26, disallow_signals_);
 
-        // Field 26: disallow_play_as_next_in_queue_reasons
+        // Field 27: disallow_play_as_next_in_queue_reasons (repeated string)
         if (!custom_disallow_play_as_next_in_queue_.empty()) {
-            encode_reasons_field(buf, 26, custom_disallow_play_as_next_in_queue_);
+            encode_reasons_field(buf, 27, custom_disallow_play_as_next_in_queue_);
+        }
+
+        // Field 28: disallow_sleep_timer_clear_reasons (EsRestrictions tag 28 -> connectstate tag 31)
+        // liborbit @ 0xf856f8 / 0x10ad28c: "already_set" (0x344594) when no sleep timer is active.
+        if (!custom_disallow_sleep_timer_clear_.empty()) {
+            encode_reasons_field(buf, 28, custom_disallow_sleep_timer_clear_);
+        } else if ((is_playing || is_paused) && !has_active_sleep_timer) {
+            encode_reasons_field(buf, 28, {"already_set"});
         }
 
         return buf;
@@ -267,29 +299,59 @@ public:
         disallow_setting_modes_.clear();
         disallow_signals_.clear();
         custom_disallow_play_as_next_in_queue_.clear();
+        custom_disallow_sleep_timer_clear_.clear();
     }
 
 private:
+    // 1:1 with EsRestrictions$Restrictions.java: all disallow_*_reasons fields are
+    // direct `repeated string` (wire type 2 per element), NOT nested submessages.
     static void encode_reasons_field(
             std::vector<uint8_t>& buf,
             uint32_t field_num,
             const std::vector<std::string>& reasons) {
-        if (reasons.empty()) return;
+        for (const auto& r : reasons) {
+            encode_string_field(buf, field_num, r);
+        }
+    }
+
+    static std::vector<uint8_t> encode_restriction_reasons(
+            const std::vector<std::string>& reasons) {
         std::vector<uint8_t> sub;
         for (const auto& r : reasons) {
             encode_string_field(sub, 1, r);
         }
-        encode_submessage_field(buf, field_num, sub);
+        return sub;
     }
 
-    static void encode_map_field(
+    static void encode_mode_restrictions_map(
             std::vector<uint8_t>& buf,
             uint32_t field_num,
-            const std::unordered_map<std::string, std::string>& map) {
-        for (const auto& [k, v] : map) {
+            const std::unordered_map<
+                std::string,
+                std::unordered_map<std::string, std::vector<std::string>>>& modes) {
+        for (const auto& [mode_key, mode_values] : modes) {
+            std::vector<uint8_t> mode_msg;
+            for (const auto& [val_key, reasons] : mode_values) {
+                std::vector<uint8_t> val_entry;
+                encode_string_field(val_entry, 1, val_key);
+                encode_submessage_field(val_entry, 2, encode_restriction_reasons(reasons));
+                encode_submessage_field(mode_msg, 1, val_entry);
+            }
             std::vector<uint8_t> entry;
-            encode_string_field(entry, 1, k);
-            encode_string_field(entry, 2, v);
+            encode_string_field(entry, 1, mode_key);
+            encode_submessage_field(entry, 2, mode_msg);
+            encode_submessage_field(buf, field_num, entry);
+        }
+    }
+
+    static void encode_signal_restrictions_map(
+            std::vector<uint8_t>& buf,
+            uint32_t field_num,
+            const std::unordered_map<std::string, std::vector<std::string>>& signals) {
+        for (const auto& [signal_key, reasons] : signals) {
+            std::vector<uint8_t> entry;
+            encode_string_field(entry, 1, signal_key);
+            encode_submessage_field(entry, 2, encode_restriction_reasons(reasons));
             encode_submessage_field(buf, field_num, entry);
         }
     }
@@ -317,9 +379,11 @@ private:
     std::vector<std::string> custom_disallow_updating_context_;
     std::vector<std::string> custom_disallow_add_to_queue_;
     std::vector<std::string> custom_disallow_setting_playback_speed_;
-    std::unordered_map<std::string, std::string> disallow_setting_modes_;
-    std::unordered_map<std::string, std::string> disallow_signals_;
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>>
+        disallow_setting_modes_;
+    std::unordered_map<std::string, std::vector<std::string>> disallow_signals_;
     std::vector<std::string> custom_disallow_play_as_next_in_queue_;
+    std::vector<std::string> custom_disallow_sleep_timer_clear_;
 };
 
 } // namespace spotify::player

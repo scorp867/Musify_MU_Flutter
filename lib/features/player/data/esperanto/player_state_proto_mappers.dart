@@ -1,3 +1,16 @@
+// ============================================================================
+// 1:1 Replica of Spotify PlayerState Esperanto Protobuf Mappers
+// Sources:
+// - Decompiled Java:
+//   - `p199p/o2l1.java:1205-1336` (case 28: `EsContextPlayerState` -> `PlayerState`)
+//   - `p199p/m250.java` (case 18: `byte[]` -> `EsContextPlayerState`)
+//   - `p199p/f111.java` (`m43130a`: `EsRestrictions` -> `Restrictions`)
+//   - `com/spotify/player/esperanto/proto/EsRestrictions$Restrictions.java:23-55`
+//   - `p199p/lrs0.java` (`m61087a`: `BitrateLevel` mapper)
+// - Native binary (`liborbit-jni-spotify.so` arm64):
+//   - `ConnectPlayer::playerState` @ `0xda97a0..0xda97b4`
+// ============================================================================
+
 import 'dart:typed_data';
 
 import '../../domain/models/audio_stream.dart';
@@ -86,18 +99,12 @@ abstract class PlayerStateProtoMappers {
     if (p.hasDuration()) {
       builder.duration(p.duration.value.toInt());
     }
-    if (p.hasIsPlaying()) {
-      builder.isPlaying(p.isPlaying);
-    }
-    if (p.hasIsPaused()) {
-      builder.isPaused(p.isPaused);
-    }
-    if (p.hasIsBuffering()) {
-      builder.isBuffering(p.isBuffering);
-    }
-    if (p.hasIsSystemInitiated()) {
-      builder.isSystemInitiated(p.isSystemInitiated);
-    }
+    // Map proto3 transport booleans unconditionally (1:1 with `o2l1.java`),
+    // handling omitted-false proto3 wire frames deterministically.
+    builder.isPlaying(p.isPlaying);
+    builder.isPaused(p.isPaused);
+    builder.isBuffering(p.isBuffering);
+    builder.isSystemInitiated(p.isSystemInitiated);
     if (p.hasOptions()) {
       final opts = p.options;
       final optsBuilder = PlayerOptions.builder()

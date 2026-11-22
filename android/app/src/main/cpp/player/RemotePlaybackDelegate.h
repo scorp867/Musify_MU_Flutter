@@ -5,8 +5,13 @@
 //
 // Sources (`liborbit-jni-spotify.so` arm64):
 // - ConnectStateImpl::onClusterChanged @ 0xdb6740..0xdb7060 (`core.load_cluster`)
-// - ConnectApiImpl @ 0xda66f0..0xda96ac (`&not_playing_locally` @ 0xdaa0bc)
+// - ConnectProxyPlayer (vtable 0x162da80..0x162db88): `setLocalActive` @ 0xdaa404,
+//   `becomeActive` @ 0xdaa144, `becomeInactive` @ 0xdaaa2c,
+//   `updateRemotePlayerState` @ 0xdaaab4..0xdaaae8, `pause` @ 0xda73a0,
+//   `&not_playing_locally` @ 0xdaa08c / 0x449ae0
 // - LocalPlaybackIntentContextPlayer @ 0x1090200..0x10924a8
+// - Esperanto contract: `EsContextPlayerState$ContextPlayerState.java`,
+//   `EsRestrictions$Restrictions.java:23-55` (`0x175be00`, `0x1765f00`)
 // ============================================================================
 
 #pragma once
@@ -51,6 +56,7 @@ struct MirroredRemotePlaybackState {
     bool is_playing{false};
     bool is_paused{false};
     bool is_buffering{false};
+    bool is_system_initiated{false};
     bool shuffling{false};
     bool repeating_context{false};
     bool repeating_track{false};
@@ -59,8 +65,12 @@ struct MirroredRemotePlaybackState {
     std::vector<context_view::Entry> prev_tracks;
     std::vector<context_view::Entry> next_tracks;
 
+    /// Serialized `spotify.player.esperanto.proto.Restrictions` bytes (Field 4).
+    std::vector<uint8_t> context_restrictions_bytes;
+    /// Serialized `spotify.player.esperanto.proto.Restrictions` bytes (Field 18).
     std::vector<uint8_t> restrictions_bytes;
-    std::vector<uint8_t> suppressions_bytes;
+    /// Decoded `Suppressions.providers` strings (EsContextPlayerState Field 19).
+    std::vector<std::string> suppressions;
     std::unordered_map<std::string, std::string> context_metadata;
     std::unordered_map<std::string, std::string> page_metadata;
     PlayOriginData play_origin;

@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "ContextViewEntry.h"
@@ -62,6 +63,10 @@ public:
     /// Scans forward from active index, terminating lookahead at is_delimiter
     [[nodiscard]] std::vector<context_view::Entry> get_next_tracks(int32_t max_count = 50) const;
 
+    /// Returns ALL loaded upcoming playable tracks following active index up to the next
+    /// delimiter or placeholder, with no numeric count cap (for unbounded metadata hydration).
+    [[nodiscard]] std::vector<context_view::Entry> get_all_next_tracks() const;
+
     /// Returns previous tracks up to active index in reverse order
     [[nodiscard]] std::vector<context_view::Entry> get_prev_tracks() const;
 
@@ -75,6 +80,12 @@ public:
     /// shuffled_order_, and active context_view structures without disturbing indices or order.
     bool apply_metadata_for_uri(
         const std::string& uri,
+        const std::function<bool(context_view::Entry&)>& patcher);
+
+    /// Patches metadata in-place for a set of track URIs in a single lock acquisition and single pass
+    /// across loaded_tracks_, shuffled_order_, cyclic_list.items, and patch_map.
+    bool apply_metadata_for_uris(
+        const std::unordered_set<std::string>& uris,
         const std::function<bool(context_view::Entry&)>& patcher);
 
     /// Clears all tracks, shuffle state, and page metadata cleanly.

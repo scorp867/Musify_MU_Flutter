@@ -1,9 +1,22 @@
+// ============================================================================
+// 1:1 Replicated Spotify Native TrackInfoProvider & Extended-Metadata Client
+// Sources:
+// - `liborbit-jni-spotify.so` `TrackInfoProviderSetupImpl` (`0x383a92`, xref `0xf455d8`)
+// - `liborbit-jni-spotify.so` `extended-metadata/v0/extended-metadata` (`0x36a5ea`, xref `0xc8c0ac`)
+// - `liborbit-jni-spotify.so` `core-context-track-exts` `max_fetch_batch_size = 100` (`0x3e3851`, `0xf3d6c0..0xf3d6e4`)
+// - `liborbit-jni-spotify.so` `core-mdata` `metadata_max_uri_extensions_per_batch = 0` (`0x3dbcb7`, `0x15d0744`, `0xc8b658`)
+// - `com/spotify/extendedmetadata/proto/BatchedExtensionResponse.java`
+// - `com/spotify/metadata/proto/Metadata$Track.java`, `com/spotify/metadata/proto/Metadata$Episode.java`
+// ============================================================================
+
 #include "TrackInfoProvider.h"
 
 #include "../ProtobufWireHelper.h"
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstddef>
 #include <cstring>
 #include <string_view>
 
@@ -314,7 +327,7 @@ void TrackInfoProvider::seedExtensionPayload(int32_t extension_kind,
         changed = applyExtensionLocked(extension_kind, entity_uri, payload, payload_len, snapshot);
     }
     if (changed) {
-        notifyListeners(entity_uri, snapshot);
+        notifyBatch({{entity_uri, snapshot}});
     }
 }
 
@@ -326,52 +339,121 @@ std::optional<TrackInfo> TrackInfoProvider::getCached(const std::string& entity_
     return it->second;
 }
 
+bool TrackInfoProvider::enqueueLocked(const std::string& entity_uri,
+                                      network::AcquisitionIntent intent,
+                                      bool is_online,
+                                      bool& out_interactive_added) {
+    if (entity_uri.empty()) return false;
+    const bool is_track = entity_uri.rfind("spotify:track:", 0) == 0;
+    const bool is_episode = entity_uri.rfind("spotify:episode:", 0) == 0;
+    if (!is_track && !is_episode) return false;
+
+    if (intent == network::AcquisitionIntent::BackgroundPrefetch && !is_online) {
+        return false;
+    }
+
+    auto it = store_.find(entity_uri);
+    if (it != store_.end() &&
+        it->second.hasPlayableSource() &&
+        it->second.hasDisplayMetadata()) {
+        return false;
+    }
+
+    if (queued_or_inflight_.find(entity_uri) != queued_or_inflight_.end()) {
+        if (intent == network::AcquisitionIntent::InteractivePlayback) {
+            auto p_it = std::find(prefetch_queue_.begin(), prefetch_queue_.end(), entity_uri);
+            if (p_it != prefetch_queue_.end()) {
+                prefetch_queue_.erase(p_it);
+                interactive_queue_.push_front(entity_uri);
+                out_interactive_added = true;
+                return true;
+            }
+            auto i_it = std::find(interactive_queue_.begin(), interactive_queue_.end(), entity_uri);
+            if (i_it != interactive_queue_.end()) {
+                if (i_it != interactive_queue_.begin()) {
+                    interactive_queue_.erase(i_it);
+                    interactive_queue_.push_front(entity_uri);
+                    out_interactive_added = true;
+                    return true;
+                }
+                return false;
+            }
+            // Currently in-flight in fetchBatch: record promotion in case of transient retry.
+            promoted_while_inflight_.insert(entity_uri);
+        }
+        return false;
+    }
+
+    queued_or_inflight_.insert(entity_uri);
+    if (intent == network::AcquisitionIntent::InteractivePlayback) {
+        interactive_queue_.push_front(entity_uri);
+        out_interactive_added = true;
+    } else {
+        prefetch_queue_.push_back(entity_uri);
+    }
+    return true;
+}
+
 void TrackInfoProvider::requestResolution(const std::string& entity_uri,
                                           network::AcquisitionIntent intent) {
     if (entity_uri.empty()) return;
-    const bool is_track = entity_uri.rfind("spotify:track:", 0) == 0;
-    const bool is_episode = entity_uri.rfind("spotify:episode:", 0) == 0;
-    if (!is_track && !is_episode) return;
-
-    if (intent == network::AcquisitionIntent::BackgroundPrefetch &&
-        !network::NativeTrafficController::instance().isOnline()) {
+    const bool is_online =
+        (intent == network::AcquisitionIntent::InteractivePlayback)
+            ? true
+            : network::NativeTrafficController::instance().isOnline();
+    if (intent == network::AcquisitionIntent::BackgroundPrefetch && !is_online) {
         return;
     }
 
+    bool should_notify = false;
+    bool interactive_added = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        auto it = store_.find(entity_uri);
-        if (it != store_.end() &&
-            it->second.hasPlayableSource() &&
-            it->second.hasDisplayMetadata()) {
-            return;
-        }
-        if (queued_or_inflight_.find(entity_uri) != queued_or_inflight_.end()) {
-            if (intent == network::AcquisitionIntent::InteractivePlayback) {
-                auto q_it = std::find(pending_queue_.begin(), pending_queue_.end(), entity_uri);
-                if (q_it != pending_queue_.end() && q_it != pending_queue_.begin()) {
-                    pending_queue_.erase(q_it);
-                    pending_queue_.push_front(entity_uri);
-                }
+        should_notify = enqueueLocked(entity_uri, intent, is_online, interactive_added);
+    }
+    if (interactive_added) {
+        network::NativeTrafficController::instance().cancelByTagPrefix("metadata:prefetch");
+    }
+    if (should_notify) {
+        worker_cv_.notify_one();
+    }
+}
+
+void TrackInfoProvider::requestResolutionBatch(const std::vector<ResolutionRequest>& requests) {
+    if (requests.empty()) return;
+    const bool is_online = network::NativeTrafficController::instance().isOnline();
+
+    bool any_enqueued = false;
+    bool any_interactive_added = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto& req : requests) {
+            if (enqueueLocked(req.uri, req.intent, is_online, any_interactive_added)) {
+                any_enqueued = true;
             }
-            return;
-        }
-        queued_or_inflight_.insert(entity_uri);
-        if (intent == network::AcquisitionIntent::InteractivePlayback) {
-            pending_queue_.push_front(entity_uri);
-        } else {
-            pending_queue_.push_back(entity_uri);
         }
     }
-    worker_cv_.notify_one();
+    if (any_interactive_added) {
+        network::NativeTrafficController::instance().cancelByTagPrefix("metadata:prefetch");
+    }
+    if (any_enqueued) {
+        worker_cv_.notify_one();
+    }
 }
 
 void TrackInfoProvider::cancelResolution(const std::string& entity_uri) {
     if (entity_uri.empty()) return;
     std::lock_guard<std::mutex> lock(mutex_);
-    auto q_it = std::find(pending_queue_.begin(), pending_queue_.end(), entity_uri);
-    if (q_it != pending_queue_.end()) {
-        pending_queue_.erase(q_it);
+    promoted_while_inflight_.erase(entity_uri);
+    auto i_it = std::find(interactive_queue_.begin(), interactive_queue_.end(), entity_uri);
+    if (i_it != interactive_queue_.end()) {
+        interactive_queue_.erase(i_it);
+        queued_or_inflight_.erase(entity_uri);
+        return;
+    }
+    auto p_it = std::find(prefetch_queue_.begin(), prefetch_queue_.end(), entity_uri);
+    if (p_it != prefetch_queue_.end()) {
+        prefetch_queue_.erase(p_it);
         queued_or_inflight_.erase(entity_uri);
     }
 }
@@ -388,37 +470,76 @@ void TrackInfoProvider::removeListener(int32_t listener_id) {
     listeners_.erase(listener_id);
 }
 
-void TrackInfoProvider::notifyListeners(const std::string& uri, const TrackInfo& info) {
-    std::vector<MetadataChangedCallback> copy;
+int32_t TrackInfoProvider::addBatchListener(MetadataBatchChangedCallback callback) {
+    std::lock_guard<std::mutex> lock(listener_mutex_);
+    const int32_t id = next_listener_id_++;
+    batch_listeners_[id] = std::move(callback);
+    return id;
+}
+
+void TrackInfoProvider::removeBatchListener(int32_t listener_id) {
+    std::lock_guard<std::mutex> lock(listener_mutex_);
+    batch_listeners_.erase(listener_id);
+}
+
+void TrackInfoProvider::notifyBatch(
+    const std::vector<std::pair<std::string, TrackInfo>>& updates) {
+    if (updates.empty()) return;
+    std::vector<MetadataChangedCallback> single_copy;
+    std::vector<MetadataBatchChangedCallback> batch_copy;
     {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        copy.reserve(listeners_.size());
+        single_copy.reserve(listeners_.size());
         for (const auto& kv : listeners_) {
-            if (kv.second) copy.push_back(kv.second);
+            if (kv.second) single_copy.push_back(kv.second);
+        }
+        batch_copy.reserve(batch_listeners_.size());
+        for (const auto& kv : batch_listeners_) {
+            if (kv.second) batch_copy.push_back(kv.second);
         }
     }
-    for (const auto& cb : copy) {
-        cb(uri, info);
+    for (const auto& [uri, info] : updates) {
+        for (const auto& cb : single_copy) {
+            cb(uri, info);
+        }
+    }
+    for (const auto& bcb : batch_copy) {
+        bcb(updates);
     }
 }
 
 void TrackInfoProvider::workerLoop() {
+    static_assert(kMaxEntitiesPerHttpRequest > 0, "Batch chunk size must be positive");
+
     while (!stop_worker_.load(std::memory_order_acquire)) {
+        bool has_interactive = false;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             worker_cv_.wait(lock, [this]() {
-                return stop_worker_.load(std::memory_order_acquire) || !pending_queue_.empty();
+                return stop_worker_.load(std::memory_order_acquire) ||
+                       !interactive_queue_.empty() ||
+                       !prefetch_queue_.empty();
             });
             if (stop_worker_.load(std::memory_order_acquire)) break;
+            has_interactive = !interactive_queue_.empty();
         }
 
-        // Acquire a P2_InteractiveMetadata permit with WaitForOnline before draining the queue.
-        // While offline, requests accumulate in pending_queue_ and are dispatched together in a
-        // single batch the instant AF_NETLINK detects route restoration.
+        // Acquire a traffic permit with WaitForOnline before draining the queue.
+        // Active track resolution uses P2_InteractiveMetadata; unbounded background queue
+        // hydration uses P3_BackgroundBatch so it never starves P0 audio / P1 setup / P2 playback.
+        // If an interactive request arrives while parked on "metadata:prefetch", the enqueue path
+        // cancels "metadata:prefetch" so this loop immediately re-acquires at P2_InteractiveMetadata.
+        const network::RequestPriority priority = has_interactive
+            ? network::RequestPriority::P2_InteractiveMetadata
+            : network::RequestPriority::P3_BackgroundBatch;
+        const char* permit_tag = has_interactive
+            ? "metadata:interactive"
+            : "metadata:prefetch";
+
         auto permit = network::NativeTrafficController::instance().acquirePermit(
-            network::RequestPriority::P2_InteractiveMetadata,
+            priority,
             network::OfflinePolicy::WaitForOnline,
-            "metadata:batch",
+            permit_tag,
             &stop_worker_);
         if (!permit) {
             if (stop_worker_.load(std::memory_order_acquire)) break;
@@ -426,12 +547,23 @@ void TrackInfoProvider::workerLoop() {
         }
 
         std::vector<std::string> batch;
+        bool batch_is_interactive = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (stop_worker_.load(std::memory_order_acquire)) break;
-            while (!pending_queue_.empty() && batch.size() < 25) {
-                batch.push_back(std::move(pending_queue_.front()));
-                pending_queue_.pop_front();
+            if (!interactive_queue_.empty()) {
+                batch_is_interactive = true;
+                batch.reserve(std::min(interactive_queue_.size(), kMaxEntitiesPerHttpRequest));
+                while (!interactive_queue_.empty() && batch.size() < kMaxEntitiesPerHttpRequest) {
+                    batch.push_back(std::move(interactive_queue_.front()));
+                    interactive_queue_.pop_front();
+                }
+            } else if (!prefetch_queue_.empty()) {
+                batch.reserve(std::min(prefetch_queue_.size(), kMaxEntitiesPerHttpRequest));
+                while (!prefetch_queue_.empty() && batch.size() < kMaxEntitiesPerHttpRequest) {
+                    batch.push_back(std::move(prefetch_queue_.front()));
+                    prefetch_queue_.pop_front();
+                }
             }
         }
 
@@ -446,17 +578,23 @@ void TrackInfoProvider::workerLoop() {
             if (result == BatchFetchResult::TransientNetworkFailure &&
                 !stop_worker_.load(std::memory_order_acquire)) {
                 for (const auto& u : batch) {
+                    const bool promoted = promoted_while_inflight_.erase(u) > 0;
                     auto it = store_.find(u);
                     if (it != store_.end() &&
                         it->second.hasPlayableSource() &&
                         it->second.hasDisplayMetadata()) {
                         queued_or_inflight_.erase(u);
+                    } else if (promoted) {
+                        interactive_queue_.push_front(u);
+                    } else if (batch_is_interactive) {
+                        interactive_queue_.push_back(u);
                     } else {
-                        pending_queue_.push_back(u);
+                        prefetch_queue_.push_back(u);
                     }
                 }
             } else {
                 for (const auto& u : batch) {
+                    promoted_while_inflight_.erase(u);
                     queued_or_inflight_.erase(u);
                 }
             }
@@ -464,7 +602,10 @@ void TrackInfoProvider::workerLoop() {
 
         if (result == BatchFetchResult::TransientNetworkFailure &&
             !stop_worker_.load(std::memory_order_acquire)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            std::unique_lock<std::mutex> lock(mutex_);
+            worker_cv_.wait_for(lock, std::chrono::milliseconds(250), [this]() {
+                return stop_worker_.load(std::memory_order_acquire);
+            });
         }
     }
 }
@@ -654,7 +795,8 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
         }
     }
 
-    std::vector<std::pair<std::string, TrackInfo>> notifications;
+    std::vector<std::string> updated_uri_order;
+    std::unordered_set<std::string> updated_uri_set;
     std::unordered_map<std::string, std::string> relink_map; // original_uri -> alt_uri
 
     {
@@ -662,7 +804,9 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
         for (const auto& cell : cells) {
             TrackInfo snap;
             if (applyExtensionLocked(cell.kind, cell.uri, cell.value_ptr, cell.value_len, snap)) {
-                notifications.emplace_back(cell.uri, snap);
+                if (updated_uri_set.insert(cell.uri).second) {
+                    updated_uri_order.push_back(cell.uri);
+                }
                 if (cell.kind == kKindTrackV4 && snap.files.empty() && !snap.alternative_uris.empty()) {
                     const std::string& alt = snap.alternative_uris.front();
                     if (!alt.empty() && alt != cell.uri) {
@@ -673,29 +817,43 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
         }
     }
 
-    // Relink fallback: fetch alternative track metadata if primary TrackV4 had empty files
+    // Relink fallback: fetch alternative track metadata in API-safe chunks if primary TrackV4 had empty files
     if (!relink_map.empty()) {
         std::vector<std::string> alt_uris;
         alt_uris.reserve(relink_map.size());
+        std::unordered_set<std::string> alt_seen;
         for (const auto& kv : relink_map) {
-            alt_uris.push_back(kv.second);
+            if (alt_seen.insert(kv.second).second) {
+                alt_uris.push_back(kv.second);
+            }
         }
 
-        const std::vector<uint8_t> alt_req =
-            buildBatchedExtendedMetadataRequest(creds.country, creds.catalogue, alt_uris);
-        network::HttpResponse alt_resp;
-        for (const auto& host : hosts) {
+        std::unordered_map<std::string, TrackInfo> alt_infos;
+        for (size_t offset = 0; offset < alt_uris.size(); offset += kMaxEntitiesPerHttpRequest) {
             if (stop_worker_.load(std::memory_order_acquire)) {
                 break;
             }
-            alt_resp = executePost(host + kExtendedMetadataPath, alt_req);
-            if (alt_resp.isSuccess() && !alt_resp.body.empty()) break;
-        }
+            const size_t chunk_end = std::min(alt_uris.size(), offset + kMaxEntitiesPerHttpRequest);
+            const std::vector<std::string> alt_chunk(
+                alt_uris.begin() + static_cast<std::ptrdiff_t>(offset),
+                alt_uris.begin() + static_cast<std::ptrdiff_t>(chunk_end));
+            const std::vector<uint8_t> alt_req =
+                buildBatchedExtendedMetadataRequest(creds.country, creds.catalogue, alt_chunk);
+            network::HttpResponse alt_resp;
+            for (const auto& host : hosts) {
+                if (stop_worker_.load(std::memory_order_acquire)) {
+                    break;
+                }
+                alt_resp = executePost(host + kExtendedMetadataPath, alt_req);
+                if (alt_resp.isSuccess() && !alt_resp.body.empty()) break;
+            }
 
-        if (alt_resp.isSuccess() && !alt_resp.body.empty()) {
+            if (!alt_resp.isSuccess() || alt_resp.body.empty()) {
+                continue;
+            }
+
             const uint8_t* aptr = alt_resp.body.data();
             const uint8_t* aend = aptr + alt_resp.body.size();
-            std::unordered_map<std::string, TrackInfo> alt_infos;
 
             while (aptr < aend) {
                 uint64_t tag = 0;
@@ -765,45 +923,60 @@ TrackInfoProvider::BatchFetchResult TrackInfoProvider::fetchBatch(
                     if (!player::skip_field(aptr, aend, static_cast<uint32_t>(tag & 0x07))) break;
                 }
             }
+        }
 
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                for (const auto& [orig_uri, alt_uri] : relink_map) {
-                    auto it_alt = alt_infos.find(alt_uri);
-                    if (it_alt != alt_infos.end() && !it_alt->second.files.empty()) {
-                        auto& target = store_[orig_uri];
-                        for (const auto& af : it_alt->second.files) {
-                            bool exists = false;
-                            for (const auto& existing : target.files) {
-                                if (existing.format == af.format && existing.file_id_hex == af.file_id_hex) {
-                                    exists = true;
-                                    break;
-                                }
-                            }
-                            if (!exists) {
-                                target.files.push_back(af);
+        if (!alt_infos.empty()) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (const auto& [orig_uri, alt_uri] : relink_map) {
+                auto it_alt = alt_infos.find(alt_uri);
+                if (it_alt != alt_infos.end() && !it_alt->second.files.empty()) {
+                    auto& target = store_[orig_uri];
+                    for (const auto& af : it_alt->second.files) {
+                        bool exists = false;
+                        for (const auto& existing : target.files) {
+                            if (existing.format == af.format && existing.file_id_hex == af.file_id_hex) {
+                                exists = true;
+                                break;
                             }
                         }
-                        if (target.title.empty()) target.title = it_alt->second.title;
-                        if (target.artist_name.empty()) target.artist_name = it_alt->second.artist_name;
-                        if (target.artist_uri.empty()) target.artist_uri = it_alt->second.artist_uri;
-                        if (target.album_title.empty()) target.album_title = it_alt->second.album_title;
-                        if (target.album_uri.empty()) target.album_uri = it_alt->second.album_uri;
-                        if (target.image_small_url.empty()) target.image_small_url = it_alt->second.image_small_url;
-                        if (target.image_url.empty()) target.image_url = it_alt->second.image_url;
-                        if (target.image_large_url.empty()) target.image_large_url = it_alt->second.image_large_url;
-                        if (target.image_xlarge_url.empty()) target.image_xlarge_url = it_alt->second.image_xlarge_url;
-                        if (target.duration_ms <= 0) target.duration_ms = it_alt->second.duration_ms;
-                        if (!target.track_v4_resolved) target.track_v4_resolved = it_alt->second.track_v4_resolved;
-                        notifications.emplace_back(orig_uri, target);
+                        if (!exists) {
+                            target.files.push_back(af);
+                        }
+                    }
+                    if (target.title.empty()) target.title = it_alt->second.title;
+                    if (target.artist_name.empty()) target.artist_name = it_alt->second.artist_name;
+                    if (target.artist_uri.empty()) target.artist_uri = it_alt->second.artist_uri;
+                    if (target.album_title.empty()) target.album_title = it_alt->second.album_title;
+                    if (target.album_uri.empty()) target.album_uri = it_alt->second.album_uri;
+                    if (target.image_small_url.empty()) target.image_small_url = it_alt->second.image_small_url;
+                    if (target.image_url.empty()) target.image_url = it_alt->second.image_url;
+                    if (target.image_large_url.empty()) target.image_large_url = it_alt->second.image_large_url;
+                    if (target.image_xlarge_url.empty()) target.image_xlarge_url = it_alt->second.image_xlarge_url;
+                    if (target.duration_ms <= 0) target.duration_ms = it_alt->second.duration_ms;
+                    if (!target.track_v4_resolved) target.track_v4_resolved = it_alt->second.track_v4_resolved;
+                    if (updated_uri_set.insert(orig_uri).second) {
+                        updated_uri_order.push_back(orig_uri);
                     }
                 }
             }
         }
     }
 
-    for (const auto& [uri, info] : notifications) {
-        notifyListeners(uri, info);
+    // Coalesce to a single final merged TrackInfo snapshot per updated URI in this batch.
+    std::vector<std::pair<std::string, TrackInfo>> notifications;
+    if (!updated_uri_order.empty()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        notifications.reserve(updated_uri_order.size());
+        for (const auto& uri : updated_uri_order) {
+            auto it = store_.find(uri);
+            if (it != store_.end()) {
+                notifications.emplace_back(uri, it->second);
+            }
+        }
+    }
+
+    if (!notifications.empty()) {
+        notifyBatch(notifications);
     }
     return BatchFetchResult::Completed;
 }

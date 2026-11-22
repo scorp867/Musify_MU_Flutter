@@ -1,6 +1,16 @@
+// ============================================================================
+// 1:1 Replica of Spotify Playlist Mobius Loop Controller
+// Sources:
+// - Decompiled Java:
+//   - `com/spotify/player/model/PlayerState.java` (`isPlaying() && !isPaused()`)
+//   - `p199p/jhe0.java:53,64` (active playback check `isPlaying() && !isPaused()`)
+//   - `p199p/rvy.java` (`ContextPlayerStateClient.getStateStream()`)
+// ============================================================================
+
 library;
 
 import 'dart:async';
+import 'dart:developer' as dev;
 
 import 'package:musify_mu/features/player/application/queue/mobius/mobius_loop.dart';
 import 'package:musify_mu/features/player/data/esperanto/context_player_state_client.dart';
@@ -17,7 +27,7 @@ class PlaylistMobiusLoop {
   final String playlistUri;
   final PlaylistRepository _repository;
   final ContextPlayerStateClient _playerStateClient;
-  late final MobiusLoop<PlaylistScreenState, PlaylistEvent, PlaylistEffect> _loop;
+  final MobiusLoop<PlaylistScreenState, PlaylistEvent, PlaylistEffect> _loop;
 
   StreamSubscription? _repoSub;
   StreamSubscription? _playerSub;
@@ -28,13 +38,12 @@ class PlaylistMobiusLoop {
     required PlaylistMobiusEffectHandler effectHandler,
     required ContextPlayerStateClient playerStateClient,
   })  : _repository = repository,
-        _playerStateClient = playerStateClient {
-    _loop = MobiusLoop<PlaylistScreenState, PlaylistEvent, PlaylistEffect>(
-      initialModel: PlaylistLoadingState(playlistUri: playlistUri),
-      update: playlistMobiusUpdate,
-      effectHandler: effectHandler,
-    );
-
+        _playerStateClient = playerStateClient,
+        _loop = MobiusLoop<PlaylistScreenState, PlaylistEvent, PlaylistEffect>(
+          initialModel: PlaylistLoadingState(playlistUri: playlistUri),
+          update: playlistMobiusUpdate,
+          effectHandler: effectHandler,
+        ) {
     _bindEventSources();
   }
 
@@ -49,18 +58,26 @@ class PlaylistMobiusLoop {
       },
     );
 
-    // 2. Playback state telemetry
+    // 2. Playback state telemetry (1:1 with Spotify `jhe0.java:53`:
+    // PlayerState.isPlaying stays true while paused, so active play is `isPlaying && !isPaused`).
     _playerSub = _playerStateClient.getStateStream().listen(
       (playerState) {
         _loop.dispatchEvent(
           PlaylistTrackPlaybackStateChangedEvent(
             activeTrackUri: playerState.track?.uri,
-            isPlaying: playerState.isPlaying,
+            isPlaying: playerState.isPlaying && !playerState.isPaused,
             isShuffleEnabled: playerState.options.shufflingContext,
           ),
         );
       },
-      onError: (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        dev.log(
+          'PlaylistMobiusLoop: ContextPlayerState stream error: $error',
+          name: 'PlaylistMobiusLoop',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      },
     );
   }
 

@@ -33,10 +33,10 @@ message Cluster {
   uint64 transfer_data_timestamp = 6;
   bool need_full_player_state = 8;
   int64 server_timestamp_ms = 9;
-  bool needs_state_updates = 10;
-  uint64 started_playing_at_timestamp = 11;
+  optional bool needs_state_updates = 10;
+  optional uint64 started_playing_at_timestamp = 11;
   repeated DodoDeviceInfo dodo_devices = 12;
-  bool needs_local_devices = 13;
+  optional bool needs_local_devices = 13;
 }
 
 message ClusterUpdate {

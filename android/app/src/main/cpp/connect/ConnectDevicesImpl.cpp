@@ -8,6 +8,7 @@
 //   - ConnectDevicesImpl::stopScanning @ 0xdaec9c..0xdaecdc
 //   - ConnectDevicesImpl::fetchAndApplyCapabilities @ 0xdb1a60..0xdb1be0
 //   - ConnectDevicesImpl incarnation deduplication @ 0xdad978..0xdae530
+//   - PutState response cluster race guard @ 0xdb2e84..0xdb3048 -> 0xdb3154 (`0x39e395`)
 // ============================================================================
 
 #include "ConnectDevicesImpl.h"
@@ -60,12 +61,14 @@ void ConnectDevicesImpl::on_backend_connected() {
     std::lock_guard<std::mutex> lock(mutex_);
     backend_connected_ = true;
     has_received_cluster_after_connect_ = false;
+    has_committed_cluster_ = false;
 }
 
 void ConnectDevicesImpl::on_backend_disconnected() {
     std::lock_guard<std::mutex> lock(mutex_);
     backend_connected_ = false;
     has_received_cluster_after_connect_ = false;
+    has_committed_cluster_ = false;
 }
 
 bool ConnectDevicesImpl::is_backend_connected() const {
@@ -109,14 +112,15 @@ int32_t ConnectDevicesImpl::release_cluster_update_postponement_block() {
                 postponed_updates_.pop_front();
                 FlushItem f{};
                 f.reason = item.reason;
-                commit_cluster_locked(
-                    item.cluster,
-                    item.reason,
-                    f.cluster_listeners,
-                    f.dodo_listeners,
-                    f.cluster,
-                    f.dodos);
-                flushed.push_back(std::move(f));
+                if (commit_cluster_locked(
+                        item.cluster,
+                        item.reason,
+                        f.cluster_listeners,
+                        f.dodo_listeners,
+                        f.cluster,
+                        f.dodos)) {
+                    flushed.push_back(std::move(f));
+                }
             }
         }
     }
@@ -159,6 +163,7 @@ void ConnectDevicesImpl::apply_cluster_snapshot(
     Cluster cluster_copy;
     std::vector<SingleDodo> dodos_copy;
 
+    bool committed = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (postponement_count_ > 0) {
@@ -168,13 +173,17 @@ void ConnectDevicesImpl::apply_cluster_snapshot(
             });
             return;
         }
-        commit_cluster_locked(
+        committed = commit_cluster_locked(
             cluster,
             reason,
             cluster_listeners_copy,
             dodo_listeners_copy,
             cluster_copy,
             dodos_copy);
+    }
+
+    if (!committed) {
+        return;
     }
 
     for (const auto& cb : cluster_listeners_copy) {
@@ -189,14 +198,50 @@ void ConnectDevicesImpl::apply_cluster_snapshot(
     }
 }
 
-void ConnectDevicesImpl::commit_cluster_locked(
+bool ConnectDevicesImpl::commit_cluster_locked(
     const Cluster& cluster,
     ClusterUpdateReason /*reason*/,
     std::vector<ClusterListener>& out_cluster_listeners,
     std::vector<DodoListener>& out_dodo_listeners,
     Cluster& out_cluster_copy,
     std::vector<SingleDodo>& out_dodos_copy) {
+    // 1:1 with liborbit PutState response race guard (0xdb2e84..0xdb3048 -> 0xdb3154):
+    // Reject strictly older out-of-order cluster snapshots using lexicographic ordering
+    // on `(changed_timestamp_ms, server_timestamp_ms)` so a delayed HTTP PutState response
+    // never clobbers a newer Dealer ClusterUpdate, while a strictly newer mutation
+    // (`changed_timestamp_ms > current`) is never dropped by edge replica NTP skew in
+    // `server_timestamp_ms`. Equal timestamps remain accepted for group enrichment.
+    if (has_committed_cluster_) {
+        const bool older_server_ts =
+            cluster.server_timestamp_ms > 0 &&
+            current_cluster_.server_timestamp_ms > 0 &&
+            cluster.server_timestamp_ms < current_cluster_.server_timestamp_ms;
+        bool is_stale = false;
+        if (cluster.changed_timestamp_ms > 0 && current_cluster_.changed_timestamp_ms > 0) {
+            if (cluster.changed_timestamp_ms < current_cluster_.changed_timestamp_ms) {
+                is_stale = true;
+            } else if (cluster.changed_timestamp_ms == current_cluster_.changed_timestamp_ms) {
+                is_stale = older_server_ts;
+            }
+        } else {
+            is_stale = older_server_ts;
+        }
+        if (is_stale) {
+            CONNECT_LOGI(
+                "ConnectDevicesImpl::commit_cluster_locked: rejecting stale cluster snapshot "
+                "(incoming server=%lld changed=%lld active=%s vs current server=%lld changed=%lld active=%s)",
+                static_cast<long long>(cluster.server_timestamp_ms),
+                static_cast<long long>(cluster.changed_timestamp_ms),
+                cluster.active_device_id.c_str(),
+                static_cast<long long>(current_cluster_.server_timestamp_ms),
+                static_cast<long long>(current_cluster_.changed_timestamp_ms),
+                current_cluster_.active_device_id.c_str());
+            return false;
+        }
+    }
+
     current_cluster_ = cluster;
+    has_committed_cluster_ = true;
     if (backend_connected_) {
         has_received_cluster_after_connect_ = true;
     }
@@ -212,6 +257,7 @@ void ConnectDevicesImpl::commit_cluster_locked(
     for (const auto& entry : dodo_listeners_) {
         out_dodo_listeners.push_back(entry.second);
     }
+    return true;
 }
 
 std::vector<SingleDodo> ConnectDevicesImpl::build_dodo_list(const Cluster& cluster) {
@@ -681,6 +727,7 @@ int32_t ConnectDevicesImpl::last_capability_retry_count() const {
 void ConnectDevicesImpl::reset() {
     std::lock_guard<std::mutex> lock(mutex_);
     current_cluster_ = Cluster{};
+    has_committed_cluster_ = false;
     discovered_local_entries_.clear();
     group_data_by_device_id_.clear();
     group_volumes_by_member_id_.clear();

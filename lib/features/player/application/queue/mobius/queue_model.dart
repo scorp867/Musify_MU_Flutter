@@ -1,3 +1,16 @@
+// ============================================================================
+// 1:1 Replica of Spotify Mobius Queue Model (`p199p/ehx0.java`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/ehx0.java` (immutable QueueModel state)
+//   - `p199p/o2l1.java:1289-1291` (`EsContextPlayerState.duration` -> `PlayerState.duration`)
+//   - `com/spotify/player/model/PlayerState.java:140-145` (`position(long)`)
+//   - `p199p/e9o0.java:133-145` (bounds live position within `[0, duration]`)
+// - Native binary (`liborbit-jni-spotify.so` arm64):
+//   - `ConnectPlayer::playerState` @ `0xda97a0..0xda97b4`
+//   - `parseClusterProto` @ `0xdc7958..0xdc7d00` (duration/position/timestamp fields)
+// ============================================================================
+
 import 'package:equatable/equatable.dart';
 
 import '../../../data/esperanto/context_player_options_client.dart' show RepeatMode;
@@ -174,22 +187,41 @@ class QueueModel extends Equatable {
   /// Whether repeat mode is context.
   bool get repeatContext => repeatMode == RepeatMode.context;
 
-  /// Current playback position in milliseconds.
-  int get trackPositionMs {
+  /// Computes playback position in milliseconds at [nowEpochMs] using the
+  /// authoritative `PlayerState` timestamp anchor and capping against
+  /// [trackDurationMs] (`p199p/e9o0.java:133-145`).
+  int positionAt(int nowEpochMs) {
     if (playerState case final ps?) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      if (ps.position(now) case final pos?) {
+      if (ps.position(nowEpochMs) case final pos?) {
+        final total = trackDurationMs;
+        if (total > 0 && pos > total) {
+          return total;
+        }
         return pos;
       }
     }
     return 0;
   }
 
+  /// Current playback position in milliseconds at the current wall-clock time.
+  int get trackPositionMs => positionAt(DateTime.now().millisecondsSinceEpoch);
+
   /// Duration of the currently playing track in milliseconds.
+  ///
+  /// Prioritizes `PlayerState.duration` (from Dealer `Cluster.player_state.duration`
+  /// via `EsContextPlayerState.duration`, `p199p/o2l1.java:1289-1291`), falling
+  /// back to `playerState.track.metadata['duration']` and `nowPlaying.metadata['duration']`.
   int get trackDurationMs {
     if (playerState case final ps?) {
       if (ps.duration case final d? when d > 0) {
         return d;
+      }
+      if (ps.track case final psTrack?) {
+        final raw = psTrack.metadata[ContextTrackMetadata.keyDuration];
+        if (raw != null && raw.isNotEmpty) {
+          final parsed = int.tryParse(raw);
+          if (parsed != null && parsed > 0) return parsed;
+        }
       }
     }
     if (nowPlaying case final track?) {
@@ -227,15 +259,18 @@ class QueueModel extends Equatable {
     return true;
   }
 
-  /// Progress fraction in range [0.0, 1.0].
-  double get durationProgress {
+  /// Computes progress fraction in range [0.0, 1.0] at [nowEpochMs].
+  double progressAt(int nowEpochMs) {
     final total = trackDurationMs;
     if (total <= 0) return 0.0;
-    final pos = trackPositionMs;
+    final pos = positionAt(nowEpochMs);
     if (pos <= 0) return 0.0;
     if (pos >= total) return 1.0;
     return pos / total;
   }
+
+  /// Progress fraction in range [0.0, 1.0] at the current wall-clock time.
+  double get durationProgress => progressAt(DateTime.now().millisecondsSinceEpoch);
 
   /// Returns a copy of this QueueModel with updated fields.
   QueueModel copyWith({

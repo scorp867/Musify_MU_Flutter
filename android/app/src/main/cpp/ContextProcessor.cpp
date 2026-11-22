@@ -246,6 +246,33 @@ std::vector<context_view::Entry> ContextProcessor::get_next_tracks(int32_t max_c
     return result;
 }
 
+std::vector<context_view::Entry> ContextProcessor::get_all_next_tracks() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<context_view::Entry> result;
+
+    const auto& active = active_list_locked();
+    const auto& items = context_view_.cyclic_list.items;
+    if (active.empty() || items.empty() || index_ < 0) {
+        return result;
+    }
+
+    const size_t start = static_cast<size_t>(index_ + 1);
+    if (start >= items.size()) {
+        return result;
+    }
+
+    result.reserve(items.size() - start);
+    for (size_t i = start; i < items.size(); ++i) {
+        const auto& item = items[i];
+        if (item.is_delimiter() || is_delimiter(item.uri) || item.is_placeholder()) {
+            break;
+        }
+        result.push_back(item);
+    }
+
+    return result;
+}
+
 std::vector<context_view::Entry> ContextProcessor::get_prev_tracks() const {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<context_view::Entry> result;
@@ -449,6 +476,40 @@ bool ContextProcessor::apply_metadata_for_uri(
     patch_list(context_view_.cyclic_list.items);
     for (auto& [key, entry] : context_view_.patch_map) {
         if (!entry.is_delimiter() && !entry.is_placeholder() && entry.uri == uri) {
+            if (patcher(entry)) {
+                any_changed = true;
+            }
+        }
+    }
+    return any_changed;
+}
+
+bool ContextProcessor::apply_metadata_for_uris(
+        const std::unordered_set<std::string>& uris,
+        const std::function<bool(context_view::Entry&)>& patcher) {
+    if (uris.empty() || !patcher) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    bool any_changed = false;
+    auto patch_list = [&](std::vector<context_view::Entry>& list) {
+        for (auto& entry : list) {
+            if (!entry.is_delimiter() &&
+                !entry.is_placeholder() &&
+                uris.find(entry.uri) != uris.end()) {
+                if (patcher(entry)) {
+                    any_changed = true;
+                }
+            }
+        }
+    };
+    patch_list(loaded_tracks_);
+    patch_list(shuffled_order_);
+    patch_list(context_view_.cyclic_list.items);
+    for (auto& [key, entry] : context_view_.patch_map) {
+        if (!entry.is_delimiter() &&
+            !entry.is_placeholder() &&
+            uris.find(entry.uri) != uris.end()) {
             if (patcher(entry)) {
                 any_changed = true;
             }

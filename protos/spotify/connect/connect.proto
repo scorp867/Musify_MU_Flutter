@@ -70,21 +70,16 @@ message PutStateRequestWrapper {
   string connection_id = 2;
   bool ignore_response = 3;
   PutStateRequest put_state_request = 4;
-  bool wake_devices = 5;
+  optional bool wake_devices = 5;
 }
 
 message SetDeviceInactiveRequest {
   string device_id = 1;
-  bool notify_others = 2;
+  optional bool notify_others = 2;
   uint64 client_side_timestamp = 3;
 }
 
 message SetDoDoRequest {
   string dodo1 = 1;
   string dodo2 = 2;
-}
-
-message ConnectCommand {
-  string command = 1;
-  string target_device_id = 2;
 }

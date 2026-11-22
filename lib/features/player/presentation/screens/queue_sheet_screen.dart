@@ -1,3 +1,12 @@
+// ============================================================================
+// 1:1 Replica of Spotify Android Queue Sheet (`spotify:internal:queue`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/ehx0.java`, `p199p/jcv0.java` (QueueModel & Mobius update)
+//   - `p199p/bh10.java:339-361`, `p199p/erl.java:16,40-69` (delimiter-filtered visible queue)
+//   - `p199p/wos0.java:40-87` (visible-index drag-to-reorder)
+// ============================================================================
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -629,7 +638,7 @@ class _QueueSheetBodyState extends State<_QueueSheetBody>
         });
       }
     }
-    if (widget.isPlaying != oldWidget.isPlaying) {
+    if (widget.isPlaying != _isPlaying) {
       setState(() {
         _isPlaying = widget.isPlaying;
       });

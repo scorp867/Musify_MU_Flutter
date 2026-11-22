@@ -9,6 +9,7 @@
 //   - ConnectDevicesImpl::fetchAndApplyCapabilities @ 0xdb1a60..0xdb1be0
 //   - ConnectDevicesImpl incarnation deduplication @ 0xdad978..0xdae530
 //   - ConnectDevicesImpl::has_received_cluster_update_after_backend_connection (0x5de01b)
+//   - PutState response cluster race guard @ 0xdb2e84..0xdb3048 -> 0xdb3154 (`0x39e395`)
 // ============================================================================
 
 #ifndef MUSIFY_CONNECT_CONNECT_DEVICES_IMPL_H_
@@ -139,7 +140,7 @@ private:
         ClusterUpdateReason reason{ClusterUpdateReason::UNKNOWN_CLUSTER_UPDATE_REASON};
     };
 
-    void commit_cluster_locked(
+    bool commit_cluster_locked(
         const Cluster& cluster,
         ClusterUpdateReason reason,
         std::vector<ClusterListener>& out_cluster_listeners,
@@ -156,6 +157,7 @@ private:
     DeviceInfo local_device_info_;
     std::string preferred_incarnation_;
     Cluster current_cluster_;
+    bool has_committed_cluster_{false};
 
     std::vector<DiscoveredLocalEntry> discovered_local_entries_;
     std::unordered_map<std::string, ConnectGroupData> group_data_by_device_id_;

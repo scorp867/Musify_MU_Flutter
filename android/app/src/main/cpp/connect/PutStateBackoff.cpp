@@ -105,6 +105,10 @@ bool PutStateBackoff::should_defer_put_state(PutStateReason reason) const {
 void PutStateBackoff::stash_pending_state(PendingPutState pending) {
     const auto current_time = now();
     pending.captured_at = current_time;
+    if (pending.reason == PutStateReason::PLAYER_STATE_CHANGED) {
+        // liborbit @ 0xdc0ec4: deferred PLAYER_STATE_CHANGED (4) rewrites reason to PUT_STATE_RATE_LIMITED (12).
+        pending.reason = PutStateReason::PUT_STATE_RATE_LIMITED;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     pending_state_ = std::move(pending);
 }

@@ -73,15 +73,15 @@ message DeviceAlias {
   uint32 id = 1;
   string display_name = 2;
   bool is_group = 3;
-  string group_instance = 5;
+  optional string group_instance = 5;
 }
 
 message AudioOutputDeviceInfo {
-  AudioOutputDeviceType audio_output_device_type = 1;
-  string device_name = 2;
-  string brand = 3;
-  string model = 4;
-  AudioOutputCategory category = 5;
+  optional AudioOutputDeviceType audio_output_device_type = 1;
+  optional string device_name = 2;
+  optional string brand = 3;
+  optional string model = 4;
+  optional AudioOutputCategory category = 5;
 }
 
 message CapabilitySupportDetails {
@@ -199,13 +199,13 @@ message DeviceInfo {
   bool is_offline = 21;
   string public_ip = 22;
   string license = 23;
-  AudioOutputDeviceInfo audio_output_device_info = 24;
+  optional AudioOutputDeviceInfo audio_output_device_info = 24;
   bool is_group = 25;
   bool is_dynamic_device = 26;
   repeated string disallow_playback_reasons = 27;
   repeated string disallow_transfer_reasons = 28;
   bool is_locally_discovered = 29;
-  string group_instance = 31;
+  optional string group_instance = 31;
   bool is_public = 32;
-  bool is_wol_capable = 34;
+  optional bool is_wol_capable = 34;
 }

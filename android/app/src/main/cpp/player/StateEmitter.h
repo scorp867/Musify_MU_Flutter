@@ -1,3 +1,20 @@
+// ============================================================================
+// 1:1 Replicated Spotify Esperanto ContextPlayerState & Queue Wire Emitter
+// Sources:
+// - `liborbit-jni-spotify.so` (arm64):
+//   - `parseClusterProto` @ `0xdc7958..0xdc7d00` (unconditional presence of
+//     `playback_speed`, `position_as_of_timestamp`, `duration` @ `0xdc7ca8..0xdc7d00`)
+//   - `ConnectProxyPlayer::currentPlayerState` @ `0xda97a0..0xda97b4`
+//   - `EsContextPlayerState` encoder @ `0x11281d0` -> `0x1128938` / `0x13c65ac`
+//   - `EsRestrictions` embedded descriptors @ `0x175be00`, `0x1765f00`
+// - Decompiled Java:
+//   - `com/spotify/player/esperanto/proto/EsContextPlayerState$ContextPlayerState.java`
+//   - `com/spotify/player/esperanto/proto/EsContextPlayerOptions$ContextPlayerOptions.java`
+//   - `com/spotify/player/esperanto/proto/EsRestrictions$Restrictions.java:23-55`
+//   - `com/spotify/player/esperanto/proto/EsPlayOrigin$PlayOrigin.java`
+//   - `p199p/o2l1.java:1289-1318`
+// ============================================================================
+
 #pragma once
 
 #include <cstdint>
@@ -28,6 +45,9 @@ struct PlayerStateData {
     int64_t timestamp{0};
     std::string context_uri;
     std::string context_url;
+    /// Serialized `spotify.player.esperanto.proto.Restrictions` bytes (Field 4).
+    std::vector<uint8_t> context_restrictions;
+    /// Serialized `spotify.player.esperanto.proto.Restrictions` bytes (Field 18).
     std::vector<uint8_t> restrictions;
     PlayOriginData play_origin;
     int32_t page_index{0};
@@ -37,12 +57,16 @@ struct PlayerStateData {
     bool is_playing{false};
     bool is_paused{false};
     double playback_speed{1.0};
+    bool has_playback_speed{false};
     int64_t position_as_of_timestamp{0};
     bool shuffling_context{false};
     bool repeating_context{false};
     bool repeating_track{false};
+    std::unordered_map<std::string, std::string> modes;
     bool is_buffering{false};
-    std::vector<uint8_t> suppressions;
+    bool is_system_initiated{false};
+    /// EsContextPlayerState Field 19: `repeated string suppressions`.
+    std::vector<std::string> suppressions;
     std::unordered_map<std::string, std::string> context_metadata;
     std::unordered_map<std::string, std::string> page_metadata;
     std::string session_id;
@@ -90,10 +114,12 @@ public:
     /// field 1: shuffling_context (bool)
     /// field 2: repeating_context (bool)
     /// field 3: repeating_track (bool)
+    /// field 5: modes (map<string, string>)
     [[nodiscard]] static std::vector<uint8_t> encode_context_player_options(
             bool shuffling,
             bool repeating_context,
-            bool repeating_track) {
+            bool repeating_track,
+            const std::unordered_map<std::string, std::string>& modes = {}) {
         std::vector<uint8_t> buf;
         encode_varint(buf, (1 << 3) | 0);
         encode_varint(buf, shuffling ? 1 : 0);
@@ -101,6 +127,9 @@ public:
         encode_varint(buf, repeating_context ? 1 : 0);
         encode_varint(buf, (3 << 3) | 0);
         encode_varint(buf, repeating_track ? 1 : 0);
+        if (!modes.empty()) {
+            encode_context_metadata(buf, 5, modes);
+        }
         return buf;
     }
 
@@ -201,9 +230,9 @@ public:
             encode_string_field(buf, 3, data.context_url);
         }
 
-        // Field 4: context_restrictions (submessage)
-        if (!data.restrictions.empty()) {
-            encode_submessage_field(buf, 4, data.restrictions);
+        // Field 4: context_restrictions (EsRestrictions submessage)
+        if (!data.context_restrictions.empty()) {
+            encode_submessage_field(buf, 4, data.context_restrictions);
         }
 
         // Field 5: play_origin (PlayOrigin submessage) - PLAY_ORIGIN_FIELD_NUMBER = 5
@@ -227,7 +256,8 @@ public:
         }
 
         // Field 10: playback_speed (OptionalDouble submessage) - PLAYBACK_SPEED_FIELD_NUMBER = 10
-        if (data.playback_speed != 0.0) {
+        // Matches liborbit 0xdc7ca8..0xdc7d00: 0.0 when paused is a valid present OptionalDouble.
+        if (data.has_playback_speed || data.playback_speed != 0.0) {
             auto speed_bytes = encode_optional_double(data.playback_speed);
             encode_submessage_field(buf, 10, speed_bytes);
         }
@@ -256,23 +286,30 @@ public:
         encode_varint(buf, (15 << 3) | 0);
         encode_varint(buf, data.is_buffering ? 1 : 0);
 
+        // Field 16: is_system_initiated (bool) - IS_SYSTEM_INITIATED_FIELD_NUMBER = 16
+        if (data.is_system_initiated) {
+            encode_varint(buf, (16 << 3) | 0);
+            encode_varint(buf, 1);
+        }
+
         // Field 17: options (ContextPlayerOptions submessage) - OPTIONS_FIELD_NUMBER = 17
         {
             auto opt_bytes = encode_context_player_options(
                 data.shuffling_context,
                 data.repeating_context,
-                data.repeating_track);
+                data.repeating_track,
+                data.modes);
             encode_submessage_field(buf, 17, opt_bytes);
         }
 
-        // Field 18: restrictions (submessage) - RESTRICTIONS_FIELD_NUMBER = 18
+        // Field 18: restrictions (EsRestrictions submessage) - RESTRICTIONS_FIELD_NUMBER = 18
         if (!data.restrictions.empty()) {
             encode_submessage_field(buf, 18, data.restrictions);
         }
 
-        // Field 19: suppressions (submessage) - SUPPRESSIONS_FIELD_NUMBER = 19
-        if (!data.suppressions.empty()) {
-            encode_submessage_field(buf, 19, data.suppressions);
+        // Field 19: suppressions (repeated string) - SUPPRESSIONS_FIELD_NUMBER = 19
+        for (const auto& sup : data.suppressions) {
+            encode_string_field(buf, 19, sup);
         }
 
         // Field 22: context_metadata (map<string,string>) - CONTEXT_METADATA_FIELD_NUMBER = 22
@@ -333,12 +370,14 @@ public:
         data.timestamp = timestamp;
         data.context_uri = context_uri;
         data.context_url = context_url;
+        data.context_restrictions = restrictions;
         data.restrictions = restrictions;
         data.track = track;
         data.duration_ms = duration_ms;
         data.is_playing = is_playing;
         data.is_paused = is_paused;
         data.playback_speed = playback_speed;
+        data.has_playback_speed = (playback_speed != 0.0) || is_playing || is_paused || is_buffering;
         data.position_as_of_timestamp = position_as_of_timestamp;
         data.shuffling_context = shuffling_context;
         data.repeating_context = repeating_context;

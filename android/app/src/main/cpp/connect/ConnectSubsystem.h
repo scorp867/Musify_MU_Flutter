@@ -11,7 +11,19 @@
 //   - GroupDataEnricher (0xd9f810..0xda1818),
 //   - StateRestoreController (`LoadLastTransferBlob` @ 0xdb4758, 5000ms @ 0xdb9e10),
 //   - LocalDeviceReporter (0xdc3b90..0xdc42bc, 0xdcf304..0xdd232c, 0xdedec0..0xdeffff),
-//   - ConnectStateImpl::onClusterChanged (0xdb6740..0xdb7060),
+//   - ConnectStateImpl::onClusterChanged (0xdb6740..0xdb7060, stale check 0xdb6984..0xdb69f4 -> 0xdf0074),
+//   - ConnectProxyPlayer (0x162da80: becomeInactive @ 0xdaaa2c, updateRemotePlayerState @ 0xdaaab4),
+//   - ConnectManager::sendPutState (0xdb2088..0xdb26f8), PutState race guard (0xdb2e84..0xdb3154),
+//   - ConnectManager::onClusterUpdate (0xdb3260..0xdb329c), adjustTimestamps (0xdb28c0..0xdb2968),
+//   - `player.arch = "3"` Dual-Chain Architecture (0x10873e8):
+//     - Object A / Chain 1 (0x108a878) -> Connect `[ConnectState + 0x378]` (0xd94764),
+//       base `toPlayerState` (0x10d77c0..0x10d8f80), `restrictions` (0xf85e5c),
+//       `playback_quality` (0x10d7f00..0x10d8078),
+//     - Object B / Chain 2 (0x108ad38, ExtendedMetadataDecorator 0x10da59c -> 0x10dc214) -> Esperanto (0x11281d0),
+//   - `ListPlayerConfig` full-load clip limits (0x127f4b0: prev=20, 0x127f4c8: next=80 -> 0x108a0c8 -> ListState 0x10abac4),
+//   - `spirc_version = "3.2.6"` (0xd92cb8), `metadata_map` (`debug_level`/`device_address_mask` @ 0xdb81d4..0xdb81fc),
+//   - enable_player_state_stripping (0xdb232c..0xdb24dc, 0x3e0778, 0x341adf, 0x449e08, 0x449e20, 0x1582d50),
+//   - encodeProvidedTrack (0xdc6bc0..0xdc6c94), ListPlayer delimiter metadata (0xe61068..0xe61560),
 //   - ConnectApiImpl outbound remote command forward (0xda66f0..0xda96ac).
 // - Esperanto service contracts:
 //   - ConnectService (.so @ 0x3a20cd), ConnectVolumeService (.so @ 0x343b80),
@@ -74,6 +86,9 @@ public:
     static constexpr uint32_t kMaxVolumeSteps = 65535;
     static constexpr uint32_t kDefaultVolumeStep = 4096;
     static constexpr int kStopInactiveTimeoutMs = 1500;
+    static constexpr size_t kPutStateMaxPrevTracks = 20;      // liborbit ListPlayerConfig 0x127f4b0 (0x14)
+    static constexpr size_t kPutStateMaxNextTracks = 80;      // liborbit ListPlayerConfig 0x127f4c8 (0x50)
+    static constexpr size_t kPutStateStrippedTrackCount = 2;  // liborbit 0xdb2434..0xdb2480
 
     static constexpr int32_t kStartOk = 0;
     static constexpr int32_t kStartInvalidArgs = -1;
@@ -275,11 +290,14 @@ public:
 
     // Converts a local ContextPlayerImpl snapshot into a Connect wire PlayerState.
     [[nodiscard]] static PlayerState build_connect_player_state(
-        const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot);
+        const player::ContextPlayerImpl::ConnectPlayerSnapshot& snapshot,
+        bool strip_player_state = false,
+        int64_t clock_skew_ms = 0);
 
     // Converts a remote Cluster into a MirroredRemotePlaybackState for ContextPlayerImpl.
     [[nodiscard]] static MirroredRemotePlaybackState build_mirrored_remote_state(
-        const Cluster& cluster);
+        const Cluster& cluster,
+        std::optional<int64_t> fallback_clock_skew_ms = std::nullopt);
 
 private:
     enum class WorkerTaskKind : uint8_t {
@@ -299,6 +317,7 @@ private:
 
     void setup_dealer_callbacks();
     void enqueue_put_state(QueuedPutStateTask task);
+    void purge_pending_local_player_state_tasks();
     PutStateResult execute_put_state_task(const QueuedPutStateTask& task);
     void put_state_worker_loop();
     PutStateRequest assemble_put_state_request(const QueuedPutStateTask& task);
@@ -333,11 +352,10 @@ private:
     bool running_{false};
     bool local_active_{false};
     std::string last_cluster_active_device_id_;
-    int64_t last_local_state_timestamp_ms_{0};
+    int64_t clock_skew_ms_{0};
     bool last_needs_state_updates_{false};
-    bool last_need_full_player_state_{false};
+    bool last_need_full_player_state_{true};
     uint64_t transfer_cluster_listener_id_{0};
-    uint32_t put_state_message_seq_{1};
     uint64_t started_playing_at_ms_{0};
     bool was_playing_{false};
     std::string local_volume_reason_{"initial"};

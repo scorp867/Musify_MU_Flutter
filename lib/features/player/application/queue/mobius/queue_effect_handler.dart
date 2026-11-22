@@ -1,7 +1,19 @@
+// ============================================================================
+// 1:1 Replica of Spotify Mobius Queue Effect Handler
+// Sources:
+// - Decompiled Java:
+//   - `p199p/tbx0.java`, `p199p/lgx0.java` (Mobius queue effect dispatcher)
+//   - `p199p/sfo0.java:118-128`, `p199p/xos0.java:46-48` (SetQueue mutations)
+//   - `p199p/wos0.java:40-87` (maps visible reorder index via `erl.m42237b` back
+//     to raw `playerQueue.nextTracks()` index without disturbing delimiters)
+//   - `p199p/erl.java:40-69` (`m42237b` delimiter & hidden/banned track filtering)
+// ============================================================================
+
 import '../../../data/esperanto/context_player_control_client.dart';
 import '../../../data/esperanto/context_player_options_client.dart';
 import '../../../data/esperanto/context_player_queue_client.dart';
 import '../../../data/queue/queue_key_resolver.dart';
+import '../../../data/queue/queue_track_filter.dart';
 import '../../../domain/commands/add_to_queue_command.dart';
 import '../../../domain/commands/options/command_options.dart';
 import '../../../domain/commands/pause_command.dart';
@@ -69,7 +81,10 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
           await qc.setQueue(command);
           return null;
 
-        // 1:1 with Spotify wos0.java lines 40-87 & lr5.java lines 580-596
+        // 1:1 with Spotify wos0.java lines 40-87 & lr5.java lines 580-596:
+        // Resolve the visible `destinationIndex` against the delimiter-filtered
+        // visible list and map it back to raw `nextTracks` so delimiters and
+        // post-delimiter tracks are never crossed or lost.
         case ReorderTrackEffect(:final track, :final destinationIndex):
           final qc = queueClient;
           if (qc == null) return null;
@@ -78,41 +93,59 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
           final nextTracks = List<ContextTrack>.from(current.nextTracks);
           if (nextTracks.isEmpty) return null;
 
-          final maxIdx = nextTracks.length - 1;
-          final boundDest = destinationIndex < 0 ? 0 : (destinationIndex > maxIdx ? maxIdx : destinationIndex);
+          final filtered = QueueTrackFilter.partitionAndFilter(nextTracks);
+          final visibleTracks = <ContextTrack>[
+            ...filtered.userQueue,
+            ...filtered.contextTracks,
+          ];
+          if (visibleTracks.isEmpty) return null;
 
-          final trackKey = QueueKeyResolver.resolveKey(track);
-          int sourceIndex = -1;
-          for (int i = 0; i < nextTracks.length; i++) {
-            if (QueueKeyResolver.resolveKey(nextTracks[i]) == trackKey) {
-              sourceIndex = i;
-              break;
-            }
-          }
-          if (sourceIndex == -1) {
+          final maxVisibleIdx = visibleTracks.length - 1;
+          final boundVisibleDest = destinationIndex < 0
+              ? 0
+              : (destinationIndex > maxVisibleIdx ? maxVisibleIdx : destinationIndex);
+          final targetVisibleTrack = visibleTracks[boundVisibleDest];
+
+          int findRawIndex(ContextTrack needle) {
+            final needleKey = QueueKeyResolver.resolveKey(needle);
             for (int i = 0; i < nextTracks.length; i++) {
-              if (track.uid.isNotEmpty && nextTracks[i].uid == track.uid) {
-                sourceIndex = i;
-                break;
+              if (QueueKeyResolver.resolveKey(nextTracks[i]) == needleKey) {
+                return i;
               }
             }
+            if (needle.uid.isNotEmpty) {
+              for (int i = 0; i < nextTracks.length; i++) {
+                if (nextTracks[i].uid == needle.uid) {
+                  return i;
+                }
+              }
+            }
+            return -1;
           }
 
-          if (sourceIndex == -1) return null;
+          final sourceIndex = findRawIndex(track);
+          final rawDestIndex = findRawIndex(targetVisibleTrack);
+          if (sourceIndex == -1 || rawDestIndex == -1) return null;
 
-          int lastQueuedIdx = -1;
-          for (int i = nextTracks.length - 1; i >= 0; i--) {
-            if (i != sourceIndex && QueueKeyResolver.isQueued(nextTracks[i])) {
-              lastQueuedIdx = i;
+          final trackKey = QueueKeyResolver.resolveKey(track);
+          int lastVisibleQueuedIdx = -1;
+          for (int i = visibleTracks.length - 1; i >= 0; i--) {
+            final candidate = visibleTracks[i];
+            final isSameTrack =
+                QueueKeyResolver.resolveKey(candidate) == trackKey ||
+                (track.uid.isNotEmpty && candidate.uid == track.uid);
+            if (!isSameTrack && QueueKeyResolver.isQueued(candidate)) {
+              lastVisibleQueuedIdx = i;
               break;
             }
           }
 
           final bool targetIsQueued;
-          if (lastQueuedIdx == -1) {
-            targetIsQueued = boundDest == 0 && QueueKeyResolver.isQueued(track);
+          if (lastVisibleQueuedIdx == -1) {
+            targetIsQueued =
+                boundVisibleDest == 0 && QueueKeyResolver.isQueued(track);
           } else {
-            targetIsQueued = boundDest <= (lastQueuedIdx + 1);
+            targetIsQueued = boundVisibleDest <= (lastVisibleQueuedIdx + 1);
           }
 
           final movedItem = nextTracks.removeAt(sourceIndex);
@@ -126,7 +159,8 @@ class QueueMobiusEffectHandler implements MobiusEffectHandler<QueueEffect, Queue
               .metadata(updatedMetadata)
               .build();
 
-          final insertIdx = boundDest <= nextTracks.length ? boundDest : nextTracks.length;
+          final insertIdx =
+              rawDestIndex <= nextTracks.length ? rawDestIndex : nextTracks.length;
           nextTracks.insert(insertIdx, mutatedTrack);
 
           final updatedQueue = current.toBuilder().nextTracks(nextTracks).build();

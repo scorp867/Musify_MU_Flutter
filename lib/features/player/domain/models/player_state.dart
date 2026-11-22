@@ -1,4 +1,16 @@
-// 1:1 replica of com.spotify.player.model.PlayerState
+// ============================================================================
+// 1:1 Replica of Spotify PlayerState (`com.spotify.player.model.PlayerState`)
+// Sources:
+// - Decompiled Java:
+//   - `com/spotify/player/model/PlayerState.java:140-145` (`position(long)`)
+//   - `p199p/ihe0.java:25-39` (`elapsed = max(0, now - timestamp)`, non-negative position)
+//   - `p199p/jhe0.java:46-79` (only advances live position when `isPlaying && !isPaused`)
+//   - `p199p/e9o0.java:133-145` (caps interpolated position at track `duration` when > 0)
+//   - `p199p/o2l1.java:1289-1291` (`EsContextPlayerState.duration` -> `PlayerState.duration`)
+// - Native binary (`liborbit-jni-spotify.so` arm64):
+//   - `ConnectManager::onClusterUpdate` @ `0xdb3260..0xdb329c` -> `adjustTimestamps` @ `0xdb28c0..0xdb2968`
+//   - `elapsed_ms = max(0, (local_now_us - timestamp_us) / 1000)` @ `0xdb35cc..0xdb3690`
+// ============================================================================
 
 import 'ad_break_context.dart';
 import 'audio_stream.dart';
@@ -137,15 +149,28 @@ class PlayerState {
         adBreakContext: adBreakContext,
       );
 
+  /// Computes the live playback position at [currentTimestamp] (epoch ms) from
+  /// the clock-adjusted Dealer/engine anchor (`timestamp`, `positionAsOfTimestamp`,
+  /// `playbackSpeed`), replicating `PlayerState.java:140-145`, `p199p/jhe0.java:53-79`,
+  /// `p199p/ihe0.java:25-39`, `p199p/e9o0.java:133-145`, and `liborbit @ 0xdb35cc`.
   int? position(int currentTimestamp) {
     if (positionAsOfTimestamp case final pos?) {
-      final speed = switch (playbackSpeed) {
-        final s? => s,
-        null => (isPlaying && !isPaused && !isBuffering) ? 1.0 : 0.0,
-      };
-      final diff = currentTimestamp - timestamp;
-      final raw = (pos + (speed * diff)).round();
-      final nonNegative = raw < 0 ? 0 : raw;
+      final bool activelyPlaying = isPlaying && !isPaused && !isBuffering;
+      final double speed;
+      if (!activelyPlaying) {
+        speed = 0.0;
+      } else {
+        speed = switch (playbackSpeed) {
+          final s? => s,
+          null => 1.0,
+        };
+      }
+      final int diff =
+          (timestamp > 0 && currentTimestamp > timestamp)
+              ? (currentTimestamp - timestamp)
+              : 0;
+      final int raw = (pos + (speed * diff)).round();
+      final int nonNegative = raw < 0 ? 0 : raw;
       if (duration case final dur? when dur > 0 && nonNegative > dur) {
         return dur;
       }

@@ -7,6 +7,7 @@
 // - `context-page://` normalization @ 0xe03264
 // - `Accept: application/json` header @ 0xe03488
 // - Default fallback `https://spclient.wg.spotify.com/` (`0x350245` @ `0xb1d15c`)
+// - `player.arch = "3"` track UID format (20-char lowercase hex fallback when omitted by server)
 // ============================================================================
 
 #include "ContextResolveClient.h"
@@ -14,12 +15,15 @@
 #include "../network/NativeLog.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <random>
 #include <utility>
 
 namespace spotify::player {
@@ -586,6 +590,28 @@ void parse_string_metadata_map(
     }
 }
 
+/// Synthesizes a 20-character lowercase hex track UID matching Spotify `player.arch = "3"`
+/// (80-bit entropy, e.g. `ca0d0fbd22d57ba4b058`) when a resolved track omits `uid`.
+std::string generate_hex_track_uid_20() {
+    static std::atomic<uint64_t> seq{1};
+    thread_local std::mt19937_64 rng([]() {
+        std::random_device rd;
+        const uint64_t t = static_cast<uint64_t>(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        return (static_cast<uint64_t>(rd()) << 32) ^ static_cast<uint64_t>(rd()) ^ t;
+    }());
+    const uint64_t hi = rng() ^ (seq.fetch_add(1, std::memory_order_relaxed) * 0x9e3779b97f4a7c15ULL);
+    const uint32_t lo = static_cast<uint32_t>(rng() & 0xFFFFU);
+    char buf[21];
+    std::snprintf(
+        buf,
+        sizeof(buf),
+        "%016llx%04x",
+        static_cast<unsigned long long>(hi),
+        static_cast<unsigned int>(lo));
+    return std::string(buf, 20);
+}
+
 bool parse_json_track_entry(
     const json::JsonValue& node,
     int32_t page_index,
@@ -610,7 +636,7 @@ bool parse_json_track_entry(
     const auto uid_opt = node.get_string("uid");
     entry.uid = (uid_opt.has_value() && !uid_opt->empty())
                     ? *uid_opt
-                    : generate_track_uid();
+                    : generate_hex_track_uid_20();
 
     if (const auto* md = node.find("metadata"); md != nullptr && md->is_object()) {
         parse_string_metadata_map(*md, entry.metadata);

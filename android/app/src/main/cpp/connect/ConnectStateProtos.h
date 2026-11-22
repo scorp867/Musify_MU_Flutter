@@ -20,6 +20,22 @@
 //     0x60a8d4 / 0x5dd130 (`queue.proto`),
 //     0x6094fc (`context.proto`), 0x609700 (`context_page.proto`),
 //     0x609c74 (`context_track.proto`), 0x609924 (`context_player_options.proto`)
+// - Wire serialization symbols (`liborbit-jni-spotify.so` arm64):
+//   - `PutStateRequest::_InternalSerialize` @ `0x13eae58`
+//   - `Device::_InternalSerialize` @ `0x13eb924`
+//   - `ReflectionOps::InternalSerialize` @ `0x14cf08c` (`PlayerState` vtable `0x169e950`,
+//     `ContextPlayerOptions` vtable `0x169e810`)
+//   - `ConnectManager::sendPutState` @ `0xdb2088..0xdb26f8`
+//   - `ConnectStateClientImpl::putState` @ `0xdc0680..0xdc1f60`
+//   - `encodeProvidedTrack` @ `0xdc6bc0..0xdc6c94`
+//   - `spirc_version = "3.2.6"` (`0x37c281` @ `0xd92cb8..0xd92cc4`),
+//     `metadata_map` `"debug_level"` (`0x3e1058`) & `"device_address_mask"` (`0x3e1070`) @ `0xdb81d4..0xdb81fc`
+// - Esperanto Player Restrictions wire contract (diverges from connectstate at tag 22+):
+//   - `liborbit-jni-spotify.so` embedded descriptors: `EsRestrictions` (`0x175be00`,
+//     `0x1765f00`), `connectstate.Restrictions` (`0x178d200`),
+//     `EsContextPlayerState` encoder (`0x11281d0` -> `0x1128938` / `0x13c65ac`)
+//   - `com/spotify/player/esperanto/proto/EsRestrictions$Restrictions.java:23-55`
+//   - `p199p/f111.java` (`m43130a`: `EsRestrictions` -> `Restrictions`)
 // ============================================================================
 
 #pragma once
@@ -310,7 +326,7 @@ struct DeviceInfo {
     Capabilities capabilities;
     std::string device_software_version{"1.0.0"};
     DeviceType device_type{DeviceType::SMARTPHONE};
-    std::string spirc_version{"3.2.0"};
+    std::string spirc_version{"3.2.6"};
     std::string device_id;
     bool is_private_session{false};
     bool is_social_connect{false};
@@ -318,7 +334,7 @@ struct DeviceInfo {
     std::string brand{"Musify"};
     std::string model{"Musify Mobile"};
     std::unordered_map<std::string, std::string> metadata_map;
-    std::string product_id{"musify-android"};
+    std::string product_id;
     std::string deduplication_id;
     uint32_t selected_alias_id{0};
     std::unordered_map<uint32_t, DeviceAlias> device_aliases;
@@ -619,9 +635,9 @@ struct PutStateRequest {
     Device device;
     MemberType member_type{MemberType::CONNECT_STATE};
     bool is_active{false};
-    bool has_is_active{true};
+    bool has_is_active{false};
     PutStateReason put_state_reason{PutStateReason::NEW_DEVICE};
-    uint32_t message_id{1};
+    uint32_t message_id{0};
     std::string last_command_sent_by_device_id;
     uint32_t last_command_message_id{0};
     uint64_t started_playing_at{0};
@@ -1132,9 +1148,7 @@ inline std::vector<uint8_t> encode_capabilities(const Capabilities& caps) {
     encode_bool_field(buf, 19, caps.supports_transfer_command);
     encode_bool_field(buf, 20, caps.supports_command_request);
     encode_bool_field(buf, 21, caps.is_voice_enabled);
-    if (caps.has_needs_full_player_state || caps.needs_full_player_state) {
-        encode_bool_field_always(buf, 22, caps.needs_full_player_state);
-    }
+    encode_bool_field(buf, 22, caps.needs_full_player_state);
     encode_bool_field(buf, 23, caps.supports_gzip_pushes);
     encode_bool_field(buf, 25, caps.supports_set_options_command);
     if (caps.supports_hifi.has_value()) {
@@ -1178,9 +1192,7 @@ inline std::vector<uint8_t> encode_device_alias(const DeviceAlias& alias) {
 inline std::vector<uint8_t> encode_device_info(const DeviceInfo& info) {
     std::vector<uint8_t> buf;
     encode_bool_field(buf, 1, info.can_play);
-    if (info.has_volume || info.volume != 0) {
-        encode_uint64_field_always(buf, 2, info.volume);
-    }
+    encode_uint64_field(buf, 2, info.volume);
     spotify::player::encode_string_field(buf, 3, info.name);
     spotify::player::encode_submessage_field(buf, 4, encode_capabilities(info.capabilities));
     spotify::player::encode_string_field(buf, 6, info.device_software_version);
@@ -1366,6 +1378,69 @@ inline std::vector<uint8_t> encode_restrictions(const Restrictions& r) {
     return buf;
 }
 
+/// Encodes `Restrictions` using the Esperanto `spotify.player.esperanto.proto.Restrictions`
+/// wire tag table (`EsRestrictions$Restrictions.java:23-55`), which diverges from
+/// `spotify.connectstate.Restrictions` starting at tag 22 (omitting connectstate tags
+/// 22 `disallow_playing_reasons` and 23 `disallow_stopping_reasons`, placing
+/// `disallow_add_to_queue_reasons` at 22, `disallow_setting_playback_speed_reasons` at 23,
+/// `disallow_setting_modes` at 25, `disallow_signals` at 26, and tags 30..41 at 27..38).
+inline std::vector<uint8_t> encode_es_restrictions(const Restrictions& r) {
+    std::vector<uint8_t> buf;
+    auto emit_rep = [&buf](uint32_t fn, const std::vector<std::string>& vals) {
+        for (const auto& v : vals) {
+            spotify::player::encode_string_field(buf, fn, v);
+        }
+    };
+    emit_rep(1, r.disallow_pausing_reasons);
+    emit_rep(2, r.disallow_resuming_reasons);
+    emit_rep(3, r.disallow_seeking_reasons);
+    emit_rep(4, r.disallow_peeking_prev_reasons);
+    emit_rep(5, r.disallow_peeking_next_reasons);
+    emit_rep(6, r.disallow_skipping_prev_reasons);
+    emit_rep(7, r.disallow_skipping_next_reasons);
+    emit_rep(8, r.disallow_toggling_repeat_context_reasons);
+    emit_rep(9, r.disallow_toggling_repeat_track_reasons);
+    emit_rep(10, r.disallow_toggling_shuffle_reasons);
+    emit_rep(11, r.disallow_set_queue_reasons);
+    emit_rep(12, r.disallow_interrupting_playback_reasons);
+    emit_rep(13, r.disallow_transferring_playback_reasons);
+    emit_rep(14, r.disallow_remote_control_reasons);
+    emit_rep(15, r.disallow_inserting_into_next_tracks_reasons);
+    emit_rep(16, r.disallow_inserting_into_context_tracks_reasons);
+    emit_rep(17, r.disallow_reordering_in_next_tracks_reasons);
+    emit_rep(18, r.disallow_reordering_in_context_tracks_reasons);
+    emit_rep(19, r.disallow_removing_from_next_tracks_reasons);
+    emit_rep(20, r.disallow_removing_from_context_tracks_reasons);
+    emit_rep(21, r.disallow_updating_context_reasons);
+    emit_rep(22, r.disallow_add_to_queue_reasons);
+    emit_rep(23, r.disallow_setting_playback_speed_reasons);
+    for (const auto& [k, v] : r.disallow_setting_modes) {
+        std::vector<uint8_t> entry;
+        spotify::player::encode_string_field(entry, 1, k);
+        spotify::player::encode_submessage_field(entry, 2, encode_mode_restrictions(v));
+        spotify::player::encode_submessage_field(buf, 25, entry);
+    }
+    for (const auto& [k, v] : r.disallow_signals) {
+        std::vector<uint8_t> entry;
+        spotify::player::encode_string_field(entry, 1, k);
+        spotify::player::encode_submessage_field(entry, 2, encode_restriction_reasons(v));
+        spotify::player::encode_submessage_field(buf, 26, entry);
+    }
+    emit_rep(27, r.disallow_play_as_next_in_queue_reasons);
+    emit_rep(28, r.disallow_sleep_timer_clear_reasons);
+    emit_rep(29, r.disallow_sleep_timer_duration_reasons);
+    emit_rep(30, r.disallow_sleep_timer_end_of_track_reasons);
+    emit_rep(31, r.disallow_add_to_queue_track_reasons);
+    emit_rep(32, r.disallow_tap_to_play_track_in_next_tracks_reasons);
+    emit_rep(33, r.disallow_reordering_track_in_next_tracks_reasons);
+    emit_rep(34, r.disallow_reordering_episode_in_next_tracks_reasons);
+    emit_rep(35, r.disallow_reordering_enqueued_track_in_next_tracks_reasons);
+    emit_rep(36, r.disallow_reordering_enqueued_episode_in_next_tracks_reasons);
+    emit_rep(37, r.disallow_viewing_queue_reasons);
+    emit_rep(38, r.disallow_viewing_ordered_tracks_in_next_tracks_reasons);
+    return buf;
+}
+
 inline std::vector<uint8_t> encode_play_origin(const PlayOrigin& po) {
     std::vector<uint8_t> buf;
     spotify::player::encode_string_field(buf, 1, po.feature_identifier);
@@ -1383,12 +1458,8 @@ inline std::vector<uint8_t> encode_play_origin(const PlayOrigin& po) {
 
 inline std::vector<uint8_t> encode_context_index(const ContextIndex& idx) {
     std::vector<uint8_t> buf;
-    if (idx.has_page || idx.page != 0) {
-        encode_uint64_field_always(buf, 1, idx.page);
-    }
-    if (idx.has_track || idx.track != 0) {
-        encode_uint64_field_always(buf, 2, idx.track);
-    }
+    encode_uint64_field(buf, 1, idx.page);
+    encode_uint64_field(buf, 2, idx.track);
     return buf;
 }
 
@@ -1461,16 +1532,10 @@ inline std::vector<uint8_t> encode_provided_track(const ProvidedTrack& track) {
 
 inline std::vector<uint8_t> encode_context_player_options(const ContextPlayerOptions& opts) {
     std::vector<uint8_t> buf;
-    if (opts.has_shuffling_context || opts.shuffling_context) {
-        encode_bool_field_always(buf, 1, opts.shuffling_context);
-    }
-    if (opts.has_repeating_context || opts.repeating_context) {
-        encode_bool_field_always(buf, 2, opts.repeating_context);
-    }
-    if (opts.has_repeating_track || opts.repeating_track) {
-        encode_bool_field_always(buf, 3, opts.repeating_track);
-    }
-    if (opts.has_playback_speed || opts.playback_speed != 0.0f) {
+    encode_bool_field(buf, 1, opts.shuffling_context);
+    encode_bool_field(buf, 2, opts.repeating_context);
+    encode_bool_field(buf, 3, opts.repeating_track);
+    if (opts.has_playback_speed) {
         encode_float_field_always(buf, 4, opts.playback_speed);
     }
     for (const auto& [k, v] : opts.modes) {
@@ -1497,27 +1562,13 @@ inline std::vector<uint8_t> encode_player_state(const PlayerState& ps) {
         spotify::player::encode_submessage_field(buf, 7, encode_provided_track(ps.track));
     }
     spotify::player::encode_string_field(buf, 8, ps.playback_id);
-    if (ps.has_playback_speed || ps.playback_speed != 0.0) {
-        encode_double_field_always(buf, 9, ps.playback_speed);
-    }
-    if (ps.has_position_as_of_timestamp || ps.position_as_of_timestamp != 0) {
-        encode_int64_field_always(buf, 10, ps.position_as_of_timestamp);
-    }
-    if (ps.has_duration || ps.duration != 0) {
-        encode_int64_field_always(buf, 11, ps.duration);
-    }
-    if (ps.has_is_playing || ps.is_playing) {
-        encode_bool_field_always(buf, 12, ps.is_playing);
-    }
-    if (ps.has_is_paused || ps.is_paused) {
-        encode_bool_field_always(buf, 13, ps.is_paused);
-    }
-    if (ps.has_is_buffering || ps.is_buffering) {
-        encode_bool_field_always(buf, 14, ps.is_buffering);
-    }
-    if (ps.has_is_system_initiated || ps.is_system_initiated) {
-        encode_bool_field_always(buf, 15, ps.is_system_initiated);
-    }
+    encode_double_field(buf, 9, ps.playback_speed);
+    encode_int64_field(buf, 10, ps.position_as_of_timestamp);
+    encode_int64_field(buf, 11, ps.duration);
+    encode_bool_field(buf, 12, ps.is_playing);
+    encode_bool_field(buf, 13, ps.is_paused);
+    encode_bool_field(buf, 14, ps.is_buffering);
+    encode_bool_field(buf, 15, ps.is_system_initiated);
     spotify::player::encode_submessage_field(buf, 16, encode_context_player_options(ps.options));
     if (ps.restrictions.has_value()) {
         spotify::player::encode_submessage_field(buf, 17, encode_restrictions(*ps.restrictions));
@@ -1589,9 +1640,7 @@ inline std::vector<uint8_t> encode_put_state_request(const PutStateRequest& req)
     spotify::player::encode_string_field(buf, 1, req.callback_url);
     spotify::player::encode_submessage_field(buf, 2, encode_device(req.device));
     encode_uint64_field(buf, 3, static_cast<uint64_t>(req.member_type));
-    if (req.has_is_active || req.is_active) {
-        encode_bool_field_always(buf, 4, req.is_active);
-    }
+    encode_bool_field(buf, 4, req.is_active);
     encode_uint64_field(buf, 5, static_cast<uint64_t>(req.put_state_reason));
     encode_uint64_field(buf, 6, req.message_id);
     spotify::player::encode_string_field(buf, 7, req.last_command_sent_by_device_id);
@@ -2818,6 +2867,119 @@ inline bool decode_restrictions(const uint8_t* ptr, size_t size, Restrictions& o
             case 39: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_enqueued_episode_in_next_tracks_reasons)) return false; break;
             case 40: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_viewing_queue_reasons)) return false; break;
             case 41: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_viewing_ordered_tracks_in_next_tracks_reasons)) return false; break;
+            default:
+                if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                break;
+        }
+    }
+    return true;
+}
+
+/// Decodes Esperanto `spotify.player.esperanto.proto.Restrictions` bytes
+/// (`EsRestrictions$Restrictions.java:23-55`) into `connectstate::Restrictions`.
+inline bool decode_es_restrictions(const uint8_t* ptr, size_t size, Restrictions& out) {
+    if (ptr == nullptr) return size == 0;
+    const uint8_t* end = ptr + size;
+    while (ptr < end) {
+        uint64_t tag = 0;
+        if (!spotify::player::decode_varint(ptr, end, tag)) return false;
+        const uint32_t field_num = static_cast<uint32_t>(tag >> 3);
+        const uint32_t wire_type = static_cast<uint32_t>(tag & 0x07);
+
+        switch (field_num) {
+            case 1: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_pausing_reasons)) return false; break;
+            case 2: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_resuming_reasons)) return false; break;
+            case 3: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_seeking_reasons)) return false; break;
+            case 4: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_peeking_prev_reasons)) return false; break;
+            case 5: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_peeking_next_reasons)) return false; break;
+            case 6: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_skipping_prev_reasons)) return false; break;
+            case 7: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_skipping_next_reasons)) return false; break;
+            case 8: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_toggling_repeat_context_reasons)) return false; break;
+            case 9: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_toggling_repeat_track_reasons)) return false; break;
+            case 10: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_toggling_shuffle_reasons)) return false; break;
+            case 11: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_set_queue_reasons)) return false; break;
+            case 12: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_interrupting_playback_reasons)) return false; break;
+            case 13: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_transferring_playback_reasons)) return false; break;
+            case 14: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_remote_control_reasons)) return false; break;
+            case 15: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_inserting_into_next_tracks_reasons)) return false; break;
+            case 16: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_inserting_into_context_tracks_reasons)) return false; break;
+            case 17: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_in_next_tracks_reasons)) return false; break;
+            case 18: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_in_context_tracks_reasons)) return false; break;
+            case 19: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_removing_from_next_tracks_reasons)) return false; break;
+            case 20: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_removing_from_context_tracks_reasons)) return false; break;
+            case 21: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_updating_context_reasons)) return false; break;
+            case 22: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_add_to_queue_reasons)) return false; break;
+            case 23: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_setting_playback_speed_reasons)) return false; break;
+            case 25: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                const uint8_t* m_end = ptr + static_cast<size_t>(len);
+                std::string k;
+                ModeRestrictions mr;
+                while (ptr < m_end) {
+                    uint64_t mt = 0;
+                    if (!spotify::player::decode_varint(ptr, m_end, mt)) return false;
+                    const uint32_t mf = static_cast<uint32_t>(mt >> 3);
+                    const uint32_t mw = static_cast<uint32_t>(mt & 0x07);
+                    if (mf == 1 && mw == 2) {
+                        if (!decode_string_field_checked(ptr, m_end, mw, k)) return false;
+                    } else if (mf == 2 && mw == 2) {
+                        uint64_t vlen = 0;
+                        if (!spotify::player::decode_varint(ptr, m_end, vlen) || !spotify::player::has_bytes(ptr, m_end, vlen)) return false;
+                        if (!decode_mode_restrictions(ptr, static_cast<size_t>(vlen), mr)) return false;
+                        ptr += static_cast<size_t>(vlen);
+                    } else {
+                        if (!spotify::player::skip_field(ptr, m_end, mw)) return false;
+                    }
+                }
+                if (!k.empty()) out.disallow_setting_modes[std::move(k)] = std::move(mr);
+                break;
+            }
+            case 26: {
+                if (wire_type != 2) {
+                    if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
+                    break;
+                }
+                uint64_t len = 0;
+                if (!spotify::player::decode_varint(ptr, end, len) || !spotify::player::has_bytes(ptr, end, len)) return false;
+                const uint8_t* m_end = ptr + static_cast<size_t>(len);
+                std::string k;
+                RestrictionReasons rr;
+                while (ptr < m_end) {
+                    uint64_t mt = 0;
+                    if (!spotify::player::decode_varint(ptr, m_end, mt)) return false;
+                    const uint32_t mf = static_cast<uint32_t>(mt >> 3);
+                    const uint32_t mw = static_cast<uint32_t>(mt & 0x07);
+                    if (mf == 1 && mw == 2) {
+                        if (!decode_string_field_checked(ptr, m_end, mw, k)) return false;
+                    } else if (mf == 2 && mw == 2) {
+                        uint64_t vlen = 0;
+                        if (!spotify::player::decode_varint(ptr, m_end, vlen) || !spotify::player::has_bytes(ptr, m_end, vlen)) return false;
+                        if (!decode_restriction_reasons(ptr, static_cast<size_t>(vlen), rr)) return false;
+                        ptr += static_cast<size_t>(vlen);
+                    } else {
+                        if (!spotify::player::skip_field(ptr, m_end, mw)) return false;
+                    }
+                }
+                if (!k.empty()) out.disallow_signals[std::move(k)] = std::move(rr);
+                break;
+            }
+            case 27: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_play_as_next_in_queue_reasons)) return false; break;
+            case 28: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_sleep_timer_clear_reasons)) return false; break;
+            case 29: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_sleep_timer_duration_reasons)) return false; break;
+            case 30: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_sleep_timer_end_of_track_reasons)) return false; break;
+            case 31: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_add_to_queue_track_reasons)) return false; break;
+            case 32: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_tap_to_play_track_in_next_tracks_reasons)) return false; break;
+            case 33: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_track_in_next_tracks_reasons)) return false; break;
+            case 34: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_episode_in_next_tracks_reasons)) return false; break;
+            case 35: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_enqueued_track_in_next_tracks_reasons)) return false; break;
+            case 36: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_reordering_enqueued_episode_in_next_tracks_reasons)) return false; break;
+            case 37: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_viewing_queue_reasons)) return false; break;
+            case 38: if (!decode_repeated_string_checked(ptr, end, wire_type, out.disallow_viewing_ordered_tracks_in_next_tracks_reasons)) return false; break;
             default:
                 if (!spotify::player::skip_field(ptr, end, wire_type)) return false;
                 break;

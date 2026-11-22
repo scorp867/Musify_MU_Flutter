@@ -1,5 +1,22 @@
+// ============================================================================
+// 1:1 Replica of Spotify Mobius Queue Update Function (`p199p/jcv0.java`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/jcv0.java` (`m54765n`: pure functional Mobius update)
+//   - `p199p/bh10.java:339-361` (partitions `playerQueue.nextTracks()` via `ock1.m68146V`
+//     and applies `erl.m42237b` to both userQueue and contextTracks)
+//   - `p199p/erl.java:16,40-69` (`m42237b`: stops at `isDelimiter()` and drops
+//     `spotify:meta*`, banned, hidden, and optionally 19+ tracks)
+//   - `p199p/fi31.java:42-88` (resolves `nextTrack` skipping/stopping at delimiters)
+//   - `com/spotify/player/model/ContextTrack.java:16,206-208` (`isDelimiter()`)
+// - Native binary (`liborbit-jni-spotify.so` arm64):
+//   - `parseClusterProto` @ `0xdc7e84..0xdc7ed0` (preserves delimiters on wire; UI filters)
+//   - `ListPlayer` @ `0xe61078..0xe610cc`, `0xe61124..0xe61158`
+// ============================================================================
+
 import '../../../data/esperanto/context_player_options_client.dart';
 import '../../../data/queue/queue_key_resolver.dart';
+import '../../../data/queue/queue_track_filter.dart';
 import '../../../domain/models/context_track.dart';
 import 'mobius_types.dart';
 import 'queue_effect.dart';
@@ -23,20 +40,21 @@ Next<QueueModel, QueueEffect> queueMobiusUpdate(
 ) {
   return switch (event) {
     QueueUpdatedEvent(:final queue) => () {
-        final userQueue = <ContextTrack>[];
-        final contextTracks = <ContextTrack>[];
+        // 1:1 with `p199p/bh10.java:344-361` -> `p199p/erl.java:40-69`:
+        // Partition raw `queue.nextTracks` by `isQueued` and stop each partition
+        // at the first `spotify:delimiter` / `spotify:meta:delimiter` (excluding
+        // the delimiter and all post-delimiter tracks, plus blacklisted/banned/hidden).
+        // The raw `queue` is retained untouched in `model.playerQueue` for `SetQueue`.
+        final filtered = QueueTrackFilter.partitionAndFilter(queue.nextTracks);
+        final userQueue = filtered.userQueue;
+        final contextTracks = filtered.contextTracks;
 
-        for (final track in queue.nextTracks) {
-          if (QueueKeyResolver.isQueued(track)) {
-            userQueue.add(track);
-          } else {
-            contextTracks.add(track);
-          }
-        }
-
-        // Keep pendingRemovalKeys that are still in the queue (cleaning up evicted tracks)
+        // Keep pendingRemovalKeys that are still visible in the filtered queue.
         final activeKeys = <String>{};
-        for (final t in queue.nextTracks) {
+        for (final t in userQueue) {
+          activeKeys.add(QueueKeyResolver.resolveKey(t));
+        }
+        for (final t in contextTracks) {
           activeKeys.add(QueueKeyResolver.resolveKey(t));
         }
         final updatedPending = <String>{};
@@ -46,7 +64,16 @@ Next<QueueModel, QueueEffect> queueMobiusUpdate(
           }
         }
 
-        final nextTrack = queue.nextTracks.isNotEmpty ? queue.nextTracks.first : null;
+        // 1:1 with `p199p/fi31.java:42-88`: next track comes from filtered lists,
+        // never a delimiter or post-delimiter track.
+        final ContextTrack? nextTrack;
+        if (userQueue.isNotEmpty) {
+          nextTrack = userQueue.first;
+        } else if (contextTracks.isNotEmpty) {
+          nextTrack = contextTracks.first;
+        } else {
+          nextTrack = null;
+        }
 
         return _next(model.copyWith(
           currentTrack: queue.track,
@@ -62,15 +89,43 @@ Next<QueueModel, QueueEffect> queueMobiusUpdate(
         ));
       }(),
 
-    PlayerStateChangedEvent(:final playerState) => _next(model.copyWith(
-        playerState: playerState,
-        restrictions: playerState.restrictions,
-        clearCurrentTrack: playerState.track == null &&
+    PlayerStateChangedEvent(:final playerState) => () {
+        final incomingTrack = playerState.track;
+        final existingTrack = model.currentTrack;
+        ContextTrack? updatedCurrentTrack;
+        if (incomingTrack != null && !incomingTrack.isDelimiter()) {
+          final isExistingVaultMasked =
+              existingTrack != null &&
+              existingTrack.metadata['musify_vault_masked'] == 'true' &&
+              incomingTrack.metadata['musify_vault_masked'] != 'true' &&
+              existingTrack.uri == incomingTrack.uri &&
+              existingTrack.uid == incomingTrack.uid;
+          if (!isExistingVaultMasked) {
+            final isDifferentTrack =
+                existingTrack == null ||
+                existingTrack.uri != incomingTrack.uri ||
+                existingTrack.uid != incomingTrack.uid;
+            final hasEnrichedMetadata =
+                existingTrack != null &&
+                incomingTrack.metadata.length >= existingTrack.metadata.length;
+            if (isDifferentTrack || hasEnrichedMetadata) {
+              updatedCurrentTrack = incomingTrack;
+            }
+          }
+        }
+        final shouldClearCurrentTrack = incomingTrack == null &&
             !playerState.isPlaying &&
             !playerState.isPaused &&
-            !playerState.isBuffering,
-        isLoading: false,
-      )),
+            !playerState.isBuffering;
+
+        return _next(model.copyWith(
+          currentTrack: updatedCurrentTrack,
+          clearCurrentTrack: shouldClearCurrentTrack,
+          playerState: playerState,
+          restrictions: playerState.restrictions,
+          isLoading: false,
+        ));
+      }(),
 
     RemoveTrackEvent(:final track) => () {
         final key = QueueKeyResolver.resolveKey(track);

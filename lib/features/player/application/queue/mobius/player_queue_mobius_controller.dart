@@ -1,3 +1,15 @@
+// ============================================================================
+// 1:1 Replica of Spotify Mobius Player & Queue Controller (`p199p/mgx0.java`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/mgx0.java`, `p199p/lgx0.java` (Mobius controller wiring)
+//   - `p199p/rvy.java` (`ContextPlayerStateClient.getStateStream`)
+//   - `p199p/pvy.java` (`ContextPlayerQueueClient.queueStream`)
+//   - `p199p/o2l1.java:1205-1336` (`EsContextPlayerState -> PlayerState`)
+// - Native binary (`liborbit-jni-spotify.so` arm64):
+//   - `ConnectPlayer::playerState` @ `0xda97a0..0xda97b4`
+// ============================================================================
+
 import 'dart:async';
 import 'dart:developer' as dev;
 
@@ -153,7 +165,15 @@ class PlayerQueueMobiusController extends ChangeNotifier
       _subscriptions.add(
         queueClient.queueStream.listen(
           (queue) => dispatch(QueueUpdatedEvent(queue)),
-          onError: (err) => dispatch(QueueErrorEvent(err.toString())),
+          onError: (Object err, StackTrace stackTrace) {
+            dev.log(
+              'PlayerQueueMobiusController: queueStream error: $err',
+              name: 'PlayerQueueMobiusController',
+              error: err,
+              stackTrace: stackTrace,
+            );
+            dispatch(QueueErrorEvent(err.toString()));
+          },
         ),
       );
     }
@@ -163,7 +183,15 @@ class PlayerQueueMobiusController extends ChangeNotifier
       _subscriptions.add(
         stateClient.getStateStream().listen(
           (playerState) => dispatch(PlayerStateChangedEvent(playerState)),
-          onError: (err) => dispatch(QueueErrorEvent(err.toString())),
+          onError: (Object err, StackTrace stackTrace) {
+            dev.log(
+              'PlayerQueueMobiusController: stateStream error: $err',
+              name: 'PlayerQueueMobiusController',
+              error: err,
+              stackTrace: stackTrace,
+            );
+            dispatch(QueueErrorEvent(err.toString()));
+          },
         ),
       );
     }

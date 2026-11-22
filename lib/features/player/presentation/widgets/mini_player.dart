@@ -11,6 +11,10 @@
 // - `p/hjn0.java`, `p/zin0.java`, `p/ain0.java`, `p/thn0.java`, `p/x55.java`,
 //   `p/s6n0.java`, `p/f9m0.java`, `p/gjn0.java`, `p/ajn0.java`, `p/c64.java`,
 //   `p/ba7.java`, `p/vb4.java`
+// - `p199p/rrs0.java:28-31`, `p199p/jhe0.java:63-79`, `p199p/srs0.java:13-16`,
+//   `p199p/e9o0.java:133-145`, `p199p/grv.java:803` (live progress bar ticker
+//   driven from `PlayerState.position(System.currentTimeMillis())` & `duration`)
+// - `liborbit-jni-spotify.so` (`ConnectPlayer::playerState` @ `0xda97a0..0xda97b4`)
 
 import 'dart:async';
 
@@ -107,7 +111,10 @@ class MiniPlayer extends StatefulWidget {
     this.adConfig,
     this.promoConfig,
     this.visualConfig = const MiniPlayerVisualConfig(),
+    this.nowEpochMsProvider = defaultNowEpochMs,
   });
+
+  static int defaultNowEpochMs() => DateTime.now().millisecondsSinceEpoch;
 
   final String title;
   final String artist;
@@ -145,6 +152,7 @@ class MiniPlayer extends StatefulWidget {
   final MiniPlayerAdConfig? adConfig;
   final MiniPlayerPromoConfig? promoConfig;
   final MiniPlayerVisualConfig visualConfig;
+  final int Function() nowEpochMsProvider;
 
   @override
   State<MiniPlayer> createState() => _MiniPlayerState();
@@ -360,8 +368,8 @@ class _MiniPlayerState extends State<MiniPlayer>
     _extractColor(imageUrl: initialImageUrl, allowSetState: false);
 
     final initialProgress = _boundUnit(
-      switch (widget.queueBloc?.state.playbackProgress) {
-        final p? => p,
+      switch (widget.queueBloc?.state) {
+        final s? => s.progressAt(widget.nowEpochMsProvider()),
         null => widget.progress,
       },
     );
@@ -374,8 +382,10 @@ class _MiniPlayerState extends State<MiniPlayer>
       final bloc = widget.queueBloc;
       if (bloc != null) {
         final state = bloc.state;
-        if (state.isPlaying) {
-          final currentProgress = _boundUnit(state.playbackProgress);
+        if (state.isPlaying && !state.isBuffering) {
+          final currentProgress = _boundUnit(
+            state.progressAt(widget.nowEpochMsProvider()),
+          );
           if ((currentProgress - _progressNotifier.value).abs() >= 0.0005) {
             _progressNotifier.value = currentProgress;
           }
@@ -384,9 +394,7 @@ class _MiniPlayerState extends State<MiniPlayer>
     });
     _progressTicker = ticker;
 
-    if (_isPlaying) {
-      ticker.start();
-    }
+    _syncProgressTicker();
 
     widget.queueBloc?.addListener(_onQueueStateChanged);
   }
@@ -543,6 +551,18 @@ class _MiniPlayerState extends State<MiniPlayer>
     if (oldWidget.queueBloc != widget.queueBloc) {
       oldWidget.queueBloc?.removeListener(_onQueueStateChanged);
       widget.queueBloc?.addListener(_onQueueStateChanged);
+      final nextState = widget.queueBloc?.state;
+      _isPlaying = switch (nextState?.isPlaying) {
+        final playing? => playing,
+        null => widget.isPlaying,
+      };
+      _progressNotifier.value = _boundUnit(
+        switch (nextState) {
+          final s? => s.progressAt(widget.nowEpochMsProvider()),
+          null => widget.progress,
+        },
+      );
+      _syncProgressTicker();
     }
     if (oldWidget.connectController != widget.connectController) {
       _syncConnectControllerListener();
@@ -574,12 +594,20 @@ class _MiniPlayerState extends State<MiniPlayer>
     }
   }
 
+  bool _shouldTickProgress() {
+    if (widget.queueBloc case final bloc?) {
+      final state = bloc.state;
+      return state.isPlaying && !state.isBuffering;
+    }
+    return _isPlaying;
+  }
+
   void _syncProgressTicker() {
     final ticker = _progressTicker;
     if (ticker == null) {
       return;
     }
-    if (_isPlaying) {
+    if (_shouldTickProgress()) {
       if (!ticker.isActive) {
         ticker.start();
       }
@@ -597,9 +625,11 @@ class _MiniPlayerState extends State<MiniPlayer>
         setState(() {
           _isPlaying = state.isPlaying;
         });
-        _syncProgressTicker();
       }
-      _progressNotifier.value = _boundUnit(state.playbackProgress);
+      _syncProgressTicker();
+      _progressNotifier.value = _boundUnit(
+        state.progressAt(widget.nowEpochMsProvider()),
+      );
       final resolvedImageUrl = _resolveImageUrl(state);
       _extractColor(imageUrl: resolvedImageUrl, allowSetState: true);
     }
@@ -1093,6 +1123,10 @@ class _MiniPlayerState extends State<MiniPlayer>
                         },
                         title: displayTitle,
                         artist: displayArtist,
+                        duration: switch (state) {
+                          final q? when q.durationMs > 0 => q.currentDuration,
+                          _ => Duration.zero,
+                        },
                         imageUrl: highResImageUrl,
                       );
                     }
@@ -1995,10 +2029,13 @@ class _MiniPlayerProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: ConnectEncoreTheme.miniPlayerProgressHeight,
-      child: CustomPaint(
-        painter: _MiniPlayerProgressPainter(progress: progress),
+    return Semantics(
+      value: '${(progress * 100).round()}%',
+      child: SizedBox(
+        height: ConnectEncoreTheme.miniPlayerProgressHeight,
+        child: CustomPaint(
+          painter: _MiniPlayerProgressPainter(progress: progress),
+        ),
       ),
     );
   }

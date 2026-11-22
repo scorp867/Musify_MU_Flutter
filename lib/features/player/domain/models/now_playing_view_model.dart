@@ -1,3 +1,12 @@
+// ============================================================================
+// 1:1 Replica of Spotify Now Playing View Model (`com.spotify.nowplaying`)
+// Sources:
+// - Decompiled Java:
+//   - `p199p/o2l1.java:1289-1291` (`EsContextPlayerState.duration` -> `PlayerState.duration`)
+//   - `p199p/e9o0.java:133-145` (duration/position resolution for Now Playing)
+//   - `p199p/wi21.java`, `p199p/ock1.java:191-196` (non-music URI eligibility)
+// ============================================================================
+
 library;
 
 import 'package:flutter/foundation.dart';
@@ -153,10 +162,10 @@ class NowPlayingViewModel {
     final duration = switch (state) {
       final q? when q.durationMs > 0 => q.currentDuration,
       _ => switch (track?.duration) {
-          final dur? => dur,
-          null => switch (fallbackDuration) {
-              final dur? => dur,
-              null => Duration.zero,
+          final dur? when dur > Duration.zero => dur,
+          _ => switch (fallbackDuration) {
+              final dur? when dur > Duration.zero => dur,
+              _ => Duration.zero,
             },
         },
     };
@@ -177,6 +186,7 @@ class NowPlayingViewModel {
     };
 
     final transportPhase = switch (state) {
+      final q? when q.isPaused => NowPlayingTransportPhase.paused,
       final q? when q.isBuffering =>
         NowPlayingTransportPhase.bufferingUnplayedSegment,
       final q? when q.isPlaying => NowPlayingTransportPhase.playing,

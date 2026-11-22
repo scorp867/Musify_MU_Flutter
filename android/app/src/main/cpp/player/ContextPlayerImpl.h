@@ -7,8 +7,22 @@
 //   `session.proto` (`0x60ba78`), `queue.proto` (`0x60a8d4`),
 //   `sleep_timer.proto` (`0x60be60`)
 // - LocalPlaybackIntentContextPlayer (`0x1090200..0x10924a8`)
-// - ConnectApiImpl (`0xda66f0..0xda96ac`, `&not_playing_locally` @ `0xdaa0bc`)
+// - ConnectProxyPlayer (`vtable 0x162da80`: `setLocalActive` @ `0xdaa404`,
+//   `becomeActive` @ `0xdaa144`, `becomeInactive` @ `0xdaaa2c`,
+//   `updateRemotePlayerState` @ `0xdaaab4..0xdaaae8`, `pause` @ `0xda73a0`,
+//   `&not_playing_locally` @ `0xdaa08c` / `0x449ae0`)
 // - ConnectStateImpl::onClusterChanged (`0xdb6740..0xdb7060`)
+// - ConnectManager::onClusterUpdate (`0xdb3260..0xdb329c`), adjustTimestamps (`0xdb28c0..0xdb2968`)
+// - ConnectProxyPlayer::currentPlayerState (`0xda97a0..0xda97b4`), parseClusterProto (`0xdc7958..0xdc7d00`)
+// - `player.arch = "3"` Dual-Chain Architecture (`0x10873e8`):
+//   - Object A / Chain 1 (`0x108a878`, `0x10d7004`) -> Connect `[ConnectState + 0x378]` (`0xd94764`)
+//   - Object B / Chain 2 (`0x108ad38`, `ExtendedMetadataDecorator` `0x10da59c -> 0x10dc214`) -> Esperanto (`0x11281d0`)
+//   - Base `toPlayerState` (`0x10d77c0..0x10d8f80`), `queue_revision` hash (`0x10d8168..0x10d825c`)
+//   - `ListPlayerConfig` (`0x127f480..0x127f4c8`: `full_load_clip_prev = 20`, `full_load_clip_next = 80`
+//     -> `0x108a0c8` -> `ListState` @ `0x10abac4`)
+// - Restrictions builder (`0xf85e5c`: `"not_paused"` @ `0xf84ebc`, `"not_supported_by_content_type"` @ `0xf852c4`,
+//   `"already_set"` @ `0xf856f8`)
+// - core-context-track-exts `max_fetch_batch_size = 100` (`0xf3d6c0..0xf3d6e4`)
 // ============================================================================
 
 #pragma once
@@ -94,6 +108,13 @@ public:
     /// Callback invoked when an error occurs
     using ErrorCallback = std::function<void(const std::string& error_code, const std::string& message)>;
 
+    /// `liborbit-jni-spotify.so` `player.arch = "3"` (`core-list-player`) full-load clip limits:
+    /// - `ListPlayerConfig` @ `0x127f4b0` (`full_load_clip_prev_item_limit = 0x14` = 20)
+    /// - `ListPlayerConfig` @ `0x127f4c8` (`full_load_clip_next_item_limit = 0x50` = 80)
+    /// - Copied via `0x108a0c8` (`ldr q0, [x26, #0x100]`) -> `ListState` (`0x10abac4`).
+    static constexpr size_t kConnectMaxPrevTracks = 20;
+    static constexpr size_t kConnectMaxNextTracks = 80;
+
     /// Owning snapshot of local player state formatted for Connect PutState translation.
     struct ConnectPlayerSnapshot {
         int64_t timestamp_ms{0};
@@ -102,6 +123,8 @@ public:
         std::string playback_id;
         std::string session_id;
         std::string session_command_id;
+        std::string interaction_id;
+        std::string page_instance_id;
         std::string last_command_sent_by_device_id;
         uint32_t last_command_message_id{0};
         uint64_t queue_revision{1};
@@ -110,6 +133,7 @@ public:
         SessionRepeatMode repeat_mode{SessionRepeatMode::Off};
         bool shuffling{false};
         double playback_speed{1.0};
+        bool has_playback_speed_override{false};
         int64_t position_ms{0};
         int64_t duration_ms{0};
         uint32_t page_index{0};
@@ -122,7 +146,9 @@ public:
         PlayOriginData play_origin;
         std::unordered_map<std::string, std::string> context_metadata;
         std::unordered_map<std::string, std::string> page_metadata;
+        std::unordered_map<std::string, std::string> modes;
         std::vector<std::string> signals;
+        SleepTimerState sleep_timer;
         bool has_player_state{false};
     };
 
@@ -301,6 +327,8 @@ private:
     void bind_track_player_callbacks(const std::shared_ptr<rendering::TrackPlayer>& tp);
     void on_track_player_state_changed(const rendering::TrackPlayerState& state);
     void on_track_metadata_resolved(const std::string& uri, const metadata::TrackInfo& info);
+    void on_tracks_metadata_resolved(
+        const std::vector<std::pair<std::string, metadata::TrackInfo>>& updates);
     void on_track_player_error(int32_t code, const std::string& message);
 
     void emit_state_locked(bool sync_player_position = true);
@@ -370,10 +398,13 @@ private:
     std::vector<context_view::Entry> user_queue_;
     std::optional<std::vector<context_view::Entry>> explicit_prev_tracks_;
     uint64_t queue_revision_{1};
+    uint64_t queue_mutation_counter_{0};
 
     std::string playback_id_;
     std::string last_emitted_playback_id_;
     std::string session_id_;
+    std::string session_interaction_id_;
+    std::string session_page_instance_id_;
     std::string session_command_id_;
     std::string last_command_sent_by_device_id_;
     uint32_t last_command_message_id_{0};
